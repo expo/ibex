@@ -15,6 +15,8 @@ import { test, expect, afterAll } from 'bun:test';
 const prevConnect = (globalThis as any).__exactTcpConnect;
 const prevClose = (globalThis as any).__exactTcpClose;
 const prevRead = (globalThis as any).__exactTcpRead;
+const prevNetOwner = (globalThis as any).__exactNetOwner;
+let nextNetOwnerStamp = 1;
 
 (globalThis as any).__exactTcpConnect = function () {
   throw new Error('connect failed for 10.0.0.1:80');
@@ -22,6 +24,11 @@ const prevRead = (globalThis as any).__exactTcpRead;
 (globalThis as any).__exactTcpClose = function () {};
 (globalThis as any).__exactTcpRead = function () {
   return Buffer.alloc(0);
+};
+(globalThis as any).__exactNetOwner = function (action: string, stamp?: number) {
+  if (action === 'new') return nextNetOwnerStamp++;
+  if (action === 'assert' && typeof stamp === 'number') return;
+  throw new Error('invalid net owner operation');
 };
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -31,6 +38,7 @@ afterAll(() => {
   (globalThis as any).__exactTcpConnect = prevConnect;
   (globalThis as any).__exactTcpClose = prevClose;
   (globalThis as any).__exactTcpRead = prevRead;
+  (globalThis as any).__exactNetOwner = prevNetOwner;
 });
 
 // error/close/lookup all resolve together (close is scheduled on the tick after

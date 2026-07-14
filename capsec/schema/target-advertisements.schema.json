@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/target-advertisements.schema.json",
+  "title": "Ibex capsec generated executable-target advertisements",
+  "type": "object",
+  "required": [
+    "targetAdvertisementSchema",
+    "profile",
+    "targetCellsRawContentDigest",
+    "advertisements"
+  ],
+  "properties": {
+    "targetAdvertisementSchema": { "const": "ibex/capsec-target-advertisements/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "targetCellsRawContentDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "advertisements": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "target",
+          "conformanceDigest",
+          "reportRawContentDigest",
+          "sourceRevision",
+          "sourceTreeDigest",
+          "engine",
+          "vocabularyDigest",
+          "registryDigest",
+          "implementationManifestDigest",
+          "fixtureCatalogDigest",
+          "recipeCatalogDigest",
+          "recipeCatalogRawContentDigest",
+          "publicSurfaceExecutionDigest",
+          "publicSurfaceExecutionRawContentDigest"
+        ],
+        "properties": {
+          "target": { "$ref": "#/$defs/target" },
+          "conformanceDigest": { "$ref": "#/$defs/digest" },
+          "reportRawContentDigest": { "$ref": "#/$defs/digest" },
+          "sourceRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+          "engine": {
+            "type": "object",
+            "required": [
+              "engineArtifactPath",
+              "kind",
+              "binaryDigest",
+              "object",
+              "targetArchitecture",
+              "structuralFeatures"
+            ],
+            "properties": {
+              "engineArtifactPath": { "type": "string", "minLength": 1 },
+              "kind": { "const": "hermes" },
+              "binaryDigest": { "$ref": "#/$defs/digest" },
+              "object": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+              },
+              "targetArchitecture": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+              "structuralFeatures": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "vocabularyDigest": { "$ref": "#/$defs/digest" },
+          "registryDigest": { "$ref": "#/$defs/digest" },
+          "implementationManifestDigest": { "$ref": "#/$defs/digest" },
+          "fixtureCatalogDigest": { "$ref": "#/$defs/digest" },
+          "recipeCatalogDigest": { "$ref": "#/$defs/digest" },
+          "recipeCatalogRawContentDigest": { "$ref": "#/$defs/digest" },
+          "publicSurfaceExecutionDigest": { "$ref": "#/$defs/digest" },
+          "publicSurfaceExecutionRawContentDigest": { "$ref": "#/$defs/digest" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

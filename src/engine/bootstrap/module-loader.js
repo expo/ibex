@@ -33,6 +33,14 @@
   var __privCheckImport = (typeof g.__exactCheckImport === 'function')
     ? g.__exactCheckImport
     : null;
+  // Exact-manifest-only resolver for trusted builtin implementation fan-out.
+  // Capture and remove it immediately: package code must never be able to call
+  // this import-policy exemption directly. @ref LLP 0013#policy
+  var __privResolveManifestBuiltinInternal =
+    (typeof g.__exactResolveManifestBuiltinInternal === 'function')
+      ? g.__exactResolveManifestBuiltinInternal
+      : null;
+  try { delete g.__exactResolveManifestBuiltinInternal; } catch (e) {}
   // @ref LLP 0013#mechanism-2 — (Phase 3) — native compartment binder. Sets a
   // compiled function's Domain compartment global so bare-global references in a
   // package resolve natively through its compartment (no build-time rewrite).
@@ -41,6 +49,11 @@
   var __privSetCompartmentFor = (typeof g.__exactSetCompartmentFor === 'function')
     ? g.__exactSetCompartmentFor
     : null;
+  // The loader closes over the real global before package code can run. The
+  // registry itself is installed later in native bootstrap, so it must be read
+  // lazily through that private `g`; its non-configurable root view cannot be
+  // replaced by a package Domain. A present registry makes binding mandatory —
+  // lookup or bind failures must never fall back to the real global. (ENG-24463)
   var __privBarePackageName = (typeof g.__ibexBarePackageName === 'function')
     ? g.__ibexBarePackageName
     : function (identity) { return identity; };
@@ -83,16 +96,33 @@
   // The per-package compartment global for a resolved module, or null when it
   // should resolve against the real global (root / builtins / no registry).
   function compartmentForRecord(record, parent) {
-    if (!__privSetCompartmentFor) return null;
-    var registry = g.__compartments;
-    if (!registry) return null;
     var name = packageNameForRecord(record, parent);
     if (!name) return null;
+    var registry = g.__compartments;
+    if (!registry) {
+      if (g.__ibexCompartmentRegistryReady === true) {
+        throw new Error('Compartment registry is marked ready but unavailable');
+      }
+      return null;
+    }
+    if (g.__ibexCompartmentRegistryReady !== true ||
+        g.__ibexCompartmentBaselineFinalized !== true ||
+        typeof registry !== 'object') {
+      throw new Error('Compartment registry is present but its runtime baseline is not finalized');
+    }
+    if (!__privSetCompartmentFor) {
+      throw new Error('Compartment registry is armed but the native Domain binder is unavailable');
+    }
     // Key by the version-qualified identity so two installed versions never
     // share one mutable compartment global (ENG-22621). Name-level endowment
     // entries still apply via the registry's bare-name fallback (isEndowed).
     var identity = packageIdentityFor(name, record);
-    try { return registry[identity] || null; } catch (e) { return null; }
+    var compartment = registry[identity];
+    if (!compartment ||
+        (typeof compartment !== 'object' && typeof compartment !== 'function')) {
+      throw new Error('No valid compartment for package ' + identity);
+    }
+    return compartment;
   }
   // Principal ids assigned per package name (0 = first-party / trusted root).
   var __packagePrincipals = Object.create(null);
@@ -101,6 +131,9 @@
   // Hermes' CapabilityAttribution.cpp): builtin modules (node:fs, node:path, …)
   // are trusted deputies whose Domains attribution sees through to the caller.
   var __runtimePrincipal = 0xFFFFFFFF;
+  // Detached/no-user sentinel. A leaked builtin require closure must fail
+  // closed on fallback engines where the native gate still consumes the hint.
+  var __noUserPrincipal = 0xFFFFFFFE;
   var __pkgChunkPrefix = '__ibexpkg__';
   // Whether a module path's basename claims to be a per-package bundle chunk
   // (`__ibexpkg__*`). The claim is only *trusted* when the file also lives in
@@ -194,7 +227,7 @@
     __packagePrincipals[identity] = id;
     if (__privRegisterPackage) {
       try {
-        __privRegisterPackage(id, selector, identity);
+        __privRegisterPackage(id, selector, identity, record && record.pkgIntegrity);
       } catch (e) {}
     }
     return id;
@@ -230,8 +263,11 @@
     // @ref LLP 0013#mechanism-2 — (Phase 3) — bind this package's compartment to
     // the fresh Domain the compile created, so its bare-global references
     // resolve natively through the compartment. No-op for root/builtins.
-    if (__privSetCompartmentFor && compartment) {
-      try { __privSetCompartmentFor(fn, compartment); } catch (e) {}
+    if (compartment) {
+      if (!__privSetCompartmentFor) {
+        throw new Error('Cannot bind package Domain without the native compartment binder');
+      }
+      __privSetCompartmentFor(fn, compartment);
     }
     return fn;
   }
@@ -5094,7 +5130,7 @@
     __builtinCanonicalByAlias[id] = canonical;
     return canonical;
   }
-  function load(specifier, referrer, parent) {
+  function load(specifier, referrer, parent, manifestBuiltinInternal) {
     __exactPinProcessStreams();
 
     // @ref LLP 0013#mechanism-3 — per-package chunk requires (`__ibexpkg__*`)
@@ -5179,7 +5215,7 @@
       var fsModule = cache.fs || cache['node:fs'] || cache['fs/promises'] || cache['node:fs/promises'];
       var fsExports = fsModule && fsModule.exports ? fsModule.exports : fsModule;
       if (!fsExports || !fsExports.promises) {
-        fsExports = load('fs', referrer, parent);
+        fsExports = load('fs', referrer, parent, manifestBuiltinInternal);
       }
       if (fsExports && fsExports.promises) {
         var cachedFsPromises = {
@@ -5213,7 +5249,12 @@
       }
       return cache[normalized].exports;
     }
-    const json = __exactModuleResolve(resolvedSpecifier, referrer || "");
+    if (manifestBuiltinInternal && !__privResolveManifestBuiltinInternal) {
+      throw new Error("Internal builtin resolver is unavailable");
+    }
+    const json = manifestBuiltinInternal
+      ? __privResolveManifestBuiltinInternal(resolvedSpecifier)
+      : __exactModuleResolve(resolvedSpecifier, referrer || "");
     if (!json) {
       throw new Error("Module not found: " + specifier);
     }
@@ -5225,6 +5266,9 @@
     }
     if (record.error) {
       throw new Error(record.error);
+    }
+    if (manifestBuiltinInternal && record.kind !== 'builtin') {
+      throw new Error("Internal builtin resolution escaped the generated manifest");
     }
     // Import policy (Policy surface 3) for BARE specifiers is enforced at the
     // package-facing entry points via checkImportGate(), not here: load() is also
@@ -5308,6 +5352,15 @@
       children: [],
       paths: modulePaths,
     };
+    // A manifest-authored builtin's own synchronous module evaluation may load
+    // implementation dependencies that are not package-authored import edges.
+    // Scope that exemption to the actual body invocation: `record.kind` comes
+    // from the native manifest resolver, and a `require`/`module.require`
+    // closure leaked through exports becomes package-gated again as soon as the
+    // body returns (including exceptional returns). Never infer trust from an
+    // id/path prefix. @ref LLP 0013#policy
+    const isManifestBuiltinRecord = record.kind === 'builtin';
+    var manifestBuiltinEvaluationActive = false;
     cache[cacheKey] = module;
     if (!parent && !mainModule) {
       mainModule = module;
@@ -5381,11 +5434,24 @@
     };
     var localRequire = function(next) {
       // Pass the enclosing module's principal as the fallback hint so the gate
-      // still enforces on non-frame-attribution builds. (ENG-22618 review)
-      checkImportGate(next, module && module.__exactPackageId);
+      // still enforces on non-frame-attribution builds. A manifest builtin's
+      // closure is never a package identity; outside its scoped evaluation use
+      // the fail-closed no-user sentinel instead of the trusted runtime id.
+      // (ENG-22618 review, ENG-24233)
+      if (!manifestBuiltinEvaluationActive) {
+        checkImportGate(
+          next,
+          isManifestBuiltinRecord ? __noUserPrincipal : module && module.__exactPackageId
+        );
+      }
       var internal = loadInternal(next);
       if (internal) return internal;
-      var exports = load(next, filename, module);
+      var exports = load(
+        next,
+        filename,
+        module,
+        manifestBuiltinEvaluationActive
+      );
       // Skip interop for ESM-shimmed modules — the shim's generated
       // import bindings already handle default/named/namespace access.
       if (exports && exports.__esmShimmed) {
@@ -5430,6 +5496,14 @@
     const previousNodeDirname = g.__dirname;
     const moduleDynamicImport = function(specifier, options) {
       return importImpl(specifier, options, filename, module);
+    };
+    const invokeModuleBody = function(moduleBody) {
+      manifestBuiltinEvaluationActive = isManifestBuiltinRecord;
+      try {
+        moduleBody(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+      } finally {
+        manifestBuiltinEvaluationActive = false;
+      }
     };
     try {
       const splitDirectivePrologue = function(text) {
@@ -5578,7 +5652,7 @@
         const invokeFallbackSource = function(fallbackFn) {
           g.__filename = filename;
           g.__dirname = dir;
-          fallbackFn(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+          invokeModuleBody(fallbackFn);
         };
         if (reason === "await-syntax") {
           runtimeSource = wrapAsyncModule(runtimeSource);
@@ -5670,7 +5744,7 @@
           g.__filename = filename;
           g.__dirname = dir;
           try {
-            directFn(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+            invokeModuleBody(directFn);
           } catch (err) {
             if (!isOwnBodyAwaitReferenceError(err)) {
               throw err;

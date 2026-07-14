@@ -6,7 +6,7 @@
  * same Rolldown resolution the bundle uses; honors grant declarations only in
  * root-principal (non-node_modules) modules; composes them with the LLP 0013
  * request/delegation cascade; emits a reproducible, provenance-carrying
- * PolicyFile artifact. `--check` is the CI drift gate.
+ * canonical typed policy artifact. `--check` is the CI drift gate.
  *
  * Usage:
  *   generate-policy.mjs --entry <file> [--out <file>] [--mode enforce|audit]
@@ -26,12 +26,21 @@ import {
   packageNameOfSpecifier,
   builtinSpecifierOf,
   extractImportSpecifiersDetailed,
-  capabilityUnion,
-  resolveCascade,
-  deriveSurfaces,
-  diffBuiltinAxis,
   bareNameOf,
 } from './import-grants.mjs';
+import {
+  assertTypedAuthority,
+  buildCanonicalPolicy,
+  classifyPolicyDrift,
+  compareCanonicalBytes,
+  packageIntegrity,
+  resolveTypedDelegations,
+} from './capsec-policy-authoring.mjs';
+import {
+  authenticateAnalyzedPackageTree,
+  packageRelativeModulePath,
+  packageRootForModuleId,
+} from './policy-package-snapshot.mjs';
 
 const args = process.argv.slice(2);
 const opts = { mode: 'enforce' };
@@ -53,9 +62,22 @@ if (!opts.entry) {
   );
   process.exit(2);
 }
+if (opts.mode !== 'enforce') {
+  console.error('canonical production policy is enforce-only; use the separate capsec audit workflow');
+  process.exit(2);
+}
 
 const entry = path.resolve(process.cwd(), opts.entry);
-const root = path.dirname(entry);
+async function discoverProjectRoot(entryFile) {
+  let cursor = path.dirname(entryFile);
+  for (;;) {
+    if (existsSync(path.join(cursor, 'package.json'))) return cursor;
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return path.dirname(entryFile);
+    cursor = parent;
+  }
+}
+const root = await discoverProjectRoot(entry);
 const out = path.resolve(process.cwd(), opts.out || path.join(root, 'ibex-policy.json'));
 
 let rolldown;
@@ -79,6 +101,13 @@ const packageIdentities = new Set(); // version-qualified runtime selectors
 const edgeTargets = new Set(); // package selectors reached by import edges
 const edges = new Set(); // "fromPkg\0toPkg" ("" = root principal)
 const observedBuiltins = new Map(); // package identity -> Set<node:builtin>
+const packageMetadata = new Map(); // identity -> integrity-bound package principal
+const typedRequests = new Map(); // identity -> package requests/delegations (never grants)
+// Exact bytes observed by Rolldown's graph analysis. The later content-tree
+// snapshot must contain these same bytes and the same manifest; otherwise a
+// package can race analysis A with executable tree B and inherit A's grants.
+// @ref LLP 0021#decision-staging-and-principal-semantics
+const analyzedPackages = new Map(); // package root -> { manifestBytes, manifest, sources }
 
 // Resolve an import edge's target to its version-qualified identity by walking
 // the importer's node_modules chain, exactly as the bundler's resolver does.
@@ -137,6 +166,47 @@ const collector = createImportGrantsPlugin({
 
 const graphPlugin = {
   name: 'import-grants-graph',
+  async load(id) {
+    const pkg = packageOfModuleId(id);
+    if (!pkg) return null;
+    const packageRoot = packageRootForModuleId(id, pkg);
+    if (!packageRoot) return null;
+    let relativeModule;
+    try {
+      relativeModule = packageRelativeModulePath(packageRoot, id);
+      const [sourceBytes, manifestBytes] = await Promise.all([
+        fs.readFile(path.resolve(String(id).split('\0', 1)[0])),
+        fs.readFile(path.join(packageRoot, 'package.json')),
+      ]);
+      let analysis = analyzedPackages.get(packageRoot);
+      if (!analysis) {
+        analysis = {
+          manifestBytes,
+          manifest: JSON.parse(manifestBytes.toString('utf8')),
+          sources: new Map(),
+        };
+        analyzedPackages.set(packageRoot, analysis);
+      } else if (!analysis.manifestBytes.equals(manifestBytes)) {
+        throw new Error('package manifest changed while Rolldown loaded its modules');
+      }
+      const digest = packageIntegrity(sourceBytes);
+      const prior = analysis.sources.get(relativeModule);
+      if (prior && prior !== digest) {
+        throw new Error('package module changed while Rolldown loaded its graph');
+      }
+      analysis.sources.set(relativeModule, digest);
+      // Returning the captured bytes makes the analysis input and the recorded
+      // digest one atomic value rather than two pathname reads with a race.
+      return { code: sourceBytes.toString('utf8') };
+    } catch (error) {
+      generationErrors.push({
+        message: `cannot pin package analysis input: ${error.message}`,
+        file: id,
+        line: 0,
+      });
+      return null;
+    }
+  },
   resolveId(specifier, importer) {
     if (!importer) return null;
     const to = packageNameOfSpecifier(specifier);
@@ -144,7 +214,7 @@ const graphPlugin = {
     recordEdge(importer, to);
     return null; // observe only; default resolution proceeds
   },
-  transform(code, id) {
+  async transform(code, id) {
     const pkg = packageOfModuleId(id);
     const extracted = extractImportSpecifiersDetailed(code);
     if (!extracted.parseable && pkg) {
@@ -161,16 +231,51 @@ const graphPlugin = {
       if (to) recordEdge(id, to);
     }
     if (pkg) {
-      const identity = packageIdentityOfModuleId(id) || pkg;
+      const packageRoot = packageRootForModuleId(id, pkg);
+      if (!packageRoot) {
+        generationErrors.push({
+          message: 'package module has no stable package root',
+          file: id,
+          line: 0,
+        });
+        return null;
+      }
+      const analysis = analyzedPackages.get(packageRoot);
+      if (!analysis) {
+        generationErrors.push({
+          message: 'package transform did not originate from a pinned analysis input',
+          file: id,
+          line: 0,
+        });
+        return null;
+      }
+      let relativeModule;
+      try {
+        relativeModule = packageRelativeModulePath(packageRoot, id);
+      } catch (error) {
+        generationErrors.push({ message: error.message, file: id, line: 0 });
+        return null;
+      }
+      const analyzedDigest = packageIntegrity(Buffer.from(code, 'utf8'));
+      const priorDigest = analysis.sources.get(relativeModule);
+      if (!priorDigest || priorDigest !== analyzedDigest) {
+        generationErrors.push({
+          message: 'Rolldown analyzed bytes other than its pinned package source',
+          file: id,
+          line: 0,
+        });
+      }
+
+      const identity =
+        typeof analysis.manifest.version === 'string'
+          ? `${analysis.manifest.name || pkg}@${analysis.manifest.version}`
+          : analysis.manifest.name || pkg;
       packageIdentities.add(identity);
       if (!packageDirs.has(pkg)) packageDirs.set(pkg, new Set());
       // Normalize backslashes to agree with packageOfModuleId (ENG-22619): on
       // Windows the raw id uses `\`, so an un-normalized scan misses the marker
       // and silently drops the package's directory (hence its ibex manifest).
-      const nid = id.replace(/\\/g, '/');
-      const marker = 'node_modules/';
-      const idx = nid.lastIndexOf(marker);
-      if (idx !== -1) packageDirs.get(pkg).add(nid.slice(0, idx + marker.length) + pkg);
+      packageDirs.get(pkg).add(packageRoot);
 
       // @ref LLP 0014#the-generated-artifact — observe each package module's
       // static builtin imports so the emitted `builtins` list is a true
@@ -198,8 +303,9 @@ const config = createRolldownConfig({
   define: runtimeImportMetaDefine,
   compartments: false,
 });
-// The collector must see modules BEFORE the shared pipeline's strip pass.
-config.plugins = [collector, graphPlugin, ...config.plugins];
+// Capture exact raw package bytes before any transform. The collector still
+// sees modules before the shared pipeline's strip pass.
+config.plugins = [graphPlugin, collector, ...config.plugins];
 
 const bundle = await rolldown(config);
 await bundle.generate({ format: 'cjs', exports: 'auto', codeSplitting: false });
@@ -238,40 +344,80 @@ if (generationErrors.length) {
 // manifest is recorded under its own identity, NOT merged under the bare name,
 // so one version's `delegates` can never flow along another version's import
 // edge (the ENG-22818 defect). (ENG-22818)
-const requests = new Map(); // identity -> { capabilities: [], delegates: { dep: [caps] } }
 for (const [pkg, dirs] of packageDirs) {
   for (const dir of dirs) {
-    let manifest;
-    try {
-      manifest = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8'));
-    } catch {
+    const analysis = analyzedPackages.get(dir);
+    if (!analysis) {
+      generationErrors.push({
+        message: 'package tree has no captured Rolldown analysis inputs',
+        file: path.join(dir, 'package.json'),
+        line: 0,
+      });
       continue;
     }
+    const manifest = analysis.manifest;
+    const identity =
+      typeof manifest.version === 'string'
+        ? `${manifest.name || pkg}@${manifest.version}`
+        : manifest.name || pkg;
+    let integrity;
+    try {
+      integrity = await authenticateAnalyzedPackageTree(dir, analysis);
+    } catch (error) {
+      generationErrors.push({
+        message: `cannot authenticate package content: ${error.message}`,
+        file: path.join(dir, 'package.json'),
+        line: 0,
+      });
+      continue;
+    }
+    const metadata = {
+      kind: 'package',
+      name: manifest.name || pkg,
+      integrity,
+      locator: identity,
+    };
+    const priorMetadata = packageMetadata.get(identity);
+    if (priorMetadata && priorMetadata.integrity !== metadata.integrity) {
+      generationErrors.push({
+        message: `package locator ${identity} resolves to multiple content identities`,
+        file: path.join(dir, 'package.json'),
+        line: 0,
+      });
+    }
+    packageMetadata.set(identity, metadata);
     const ibex = manifest?.ibex;
     if (!ibex || typeof ibex !== 'object') continue;
-    const identity = packageIdentityOfModuleId(path.join(dir, 'index.js')) || pkg;
-    let entry = requests.get(identity);
-    if (!entry) {
-      entry = { capabilities: [], delegates: {} };
-      requests.set(identity, entry);
-    }
-    if (Array.isArray(ibex.capabilities)) {
-      entry.capabilities.push(...ibex.capabilities.filter((c) => typeof c === 'string'));
-    }
-    if (ibex.delegates && typeof ibex.delegates === 'object') {
-      for (const [dep, caps] of Object.entries(ibex.delegates)) {
-        if (!Array.isArray(caps)) continue;
-        entry.delegates[dep] = [
-          ...(entry.delegates[dep] || []),
-          ...caps.filter((c) => typeof c === 'string'),
-        ];
-      }
-    }
+    typedRequests.set(identity, {
+      authorities: Array.isArray(ibex.authorities) ? ibex.authorities : [],
+      delegates: ibex.delegates && typeof ibex.delegates === 'object' ? ibex.delegates : {},
+    });
   }
 }
-for (const [identity, entry] of [...requests]) {
-  if (!entry.capabilities.length && !Object.keys(entry.delegates).length) {
-    requests.delete(identity);
+for (const [identity, request] of typedRequests) {
+  for (const [index, authority] of request.authorities.entries()) {
+    try {
+      assertTypedAuthority(authority, `${identity} ibex.authorities[${index}]`);
+    } catch (error) {
+      generationErrors.push({ message: error.message, file: entry, line: 0 });
+    }
+  }
+  for (const [dependency, authorities] of Object.entries(request.delegates)) {
+    if (!Array.isArray(authorities)) {
+      generationErrors.push({
+        message: `${identity} ibex.delegates.${dependency} must be an array of typed authorities`,
+        file: entry,
+        line: 0,
+      });
+      continue;
+    }
+    authorities.forEach((authority, index) => {
+      try {
+        assertTypedAuthority(authority, `${identity} ibex.delegates.${dependency}[${index}]`);
+      } catch (error) {
+        generationErrors.push({ message: error.message, file: entry, line: 0 });
+      }
+    });
   }
 }
 
@@ -279,7 +425,7 @@ for (const [identity, entry] of [...requests]) {
 // Root grants (union across sites) + explicit surfaces + also-exceptions.
 // ---------------------------------------------------------------------------
 
-const rootGrants = new Map(); // pkg -> [{ capability, site, via? }]
+const rootAuthorityGrants = new Map(); // pkg -> [{ authority, provenance }]
 const explicitSurfaces = new Map(); // pkg -> { endow: Set, builtins: Set }
 
 function surfacesFor(pkg) {
@@ -289,32 +435,47 @@ function surfacesFor(pkg) {
   return explicitSurfaces.get(pkg);
 }
 
-function addRootGrant(pkg, capability, site, via) {
-  if (!rootGrants.has(pkg)) rootGrants.set(pkg, []);
-  rootGrants.get(pkg).push({ capability, site, ...(via ? { via } : {}) });
-}
-
-rootSiteLists.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+rootSiteLists.sort((a, b) => compareCanonicalBytes(a.file, b.file));
 for (const { file, sites } of rootSiteLists) {
   const rel = path.relative(root, file);
   for (const site of sites) {
     const where = `${rel}:${site.line}`;
-    for (const cap of site.capabilities) addRootGrant(site.package, cap, where);
+    if (site.capabilities.length || Object.keys(site.also).length) {
+      generationErrors.push({
+        message:
+          'legacy grants/also strings cannot enter canonical policy; author explicit typed authorities',
+        file,
+        line: site.line,
+      });
+    }
+    for (const authority of site.authorities) {
+      try {
+        assertTypedAuthority(authority, `${where} authorities`);
+        if (!rootAuthorityGrants.has(site.package)) rootAuthorityGrants.set(site.package, []);
+        rootAuthorityGrants.get(site.package).push({
+          authority,
+          provenance: [{ kind: 'import-site', source: where }],
+        });
+      } catch (error) {
+        generationErrors.push({ message: error.message, file, line: site.line });
+      }
+    }
     for (const name of site.endow) surfacesFor(site.package).endow.add(name);
     for (const name of site.builtins) surfacesFor(site.package).builtins.add(name);
-    // @ref LLP 0014#transitive-grants-and-co-located-exceptions — an `also:`
-    // grant is app-wide ambient authority for the named package; the edge
-    // association is provenance and GC linkage, not enforcement.
-    for (const [alsoPkg, caps] of Object.entries(site.also)) {
-      for (const cap of caps) addRootGrant(alsoPkg, cap, where, 'also');
-    }
   }
 }
 
+if (generationErrors.length) {
+  for (const err of generationErrors) {
+    console.error(`error: ${err.message} (${path.relative(root, err.file)}:${err.line})`);
+  }
+  process.exit(2);
+}
+
 const sortedEdges = [...edges]
-  .sort()
+  .sort(compareCanonicalBytes)
   .map((e) => e.split('\u0000'))
-  .filter(([from]) => from !== '') // root edges carry grants via rootGrants, not delegates
+  .filter(([from]) => from !== '') // root edges carry grants via import sites, not delegates
   .map(([from, to]) => [from, to]);
 
 // Seed each bare import-site grant into every installed identity of that name:
@@ -329,115 +490,62 @@ for (const id of packageIdentities) {
   if (!identitiesByName.has(bare)) identitiesByName.set(bare, new Set());
   identitiesByName.get(bare).add(id);
 }
-const rootGrantsByIdentity = new Map();
-for (const [pkg, grants] of rootGrants) {
-  const ids = identitiesByName.get(pkg);
-  if (ids && ids.size) {
-    for (const id of ids) rootGrantsByIdentity.set(id, grants);
-  } else {
-    // An `also:` target that is never imported has no analyzed module (hence no
-    // identity); keep its grant under the bare name it was authored with.
-    rootGrantsByIdentity.set(pkg, grants);
-  }
-}
-
-const effectiveByHolder = resolveCascade({
-  rootGrants: rootGrantsByIdentity,
-  edges: sortedEdges,
-  requests,
-  bareOf: bareNameOf,
-});
-
-// Route each resolved capability to the selector it is emitted under. An
-// import-site/root grant (site provenance) is app-wide and belongs under the
-// bare name — matching the runtime's bare-name fall-through. A delegated
-// capability (delegate provenance) is version-scoped and belongs under the
-// receiving identity, so it cannot leak to a coexisting version of the same
-// dependency. (ENG-22818)
-const effective = new Map(); // outputKey -> Map<capability, provenance>
-for (const [holder, caps] of effectiveByHolder) {
-  for (const [cap, why] of caps) {
-    const key = why && why.delegate !== undefined ? holder : bareNameOf(holder);
-    let m = effective.get(key);
-    if (!m) {
-      m = new Map();
-      effective.set(key, m);
-    }
-    if (!m.has(cap)) m.set(cap, why);
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Artifact assembly (reproducible: sorted keys, relative paths, no timestamps).
 // ---------------------------------------------------------------------------
 
-const universe = new Set([
-  ...packageDirs.keys(),
-  ...packageIdentities,
-  ...edgeTargets,
-  ...rootGrants.keys(),
-  ...effective.keys(),
-  ...observedBuiltins.keys(),
-]);
-
-const packagesOut = {};
-const provenanceOut = {};
-for (const pkg of [...universe].sort()) {
-  const caps = capabilityUnion([...(effective.get(pkg)?.keys() ?? [])]);
-  const derived = deriveSurfaces(caps);
-  const explicit = explicitSurfaces.get(pkg);
-  const endow = [...new Set([...derived.endow, ...(explicit ? explicit.endow : [])])].sort();
-  const observed = observedBuiltins.get(pkg);
-  const builtins = [
-    ...new Set([
-      ...derived.builtins,
-      ...(explicit ? explicit.builtins : []),
-      ...(observed ? observed : []),
-    ]),
-  ].sort();
-
-  // @ref LLP 0014#the-generated-artifact — every package in the analyzed
-  // graph appears, granted or not; the empty entry is the containment
-  // statement, and a missing package is a generation bug.
-  //
-  // `builtins` is emitted UNCONDITIONALLY (even when empty) for every generated
-  // package entry (ENG-22683): the runtime reads an *absent* `builtins` as
-  // "unrestricted on the import axis", so an omitted field would leave `os`,
-  // `child_process`, etc. reachable by default and make the empty entry a free
-  // pass instead of a containment statement. The list is the builtins the
-  // package actually imports in this graph (statically observed) plus any
-  // authored `builtins:` — so a package that imports nothing gets `[]`
-  // (deny-all builtins) while one that imports `os` gets `["node:os"]`. Absence
-  // is reserved for hand-authored policies; the generator never omits it. `endow`
-  // stays conditional (absent endow is already closed-by-default in the runtime).
-  const entryOut = {};
-  if (caps.length) entryOut.capabilities = caps;
-  if (endow.length) entryOut.endow = endow;
-  entryOut.builtins = builtins;
-  packagesOut[pkg] = entryOut;
-
-  const whys = effective.get(pkg);
-  if (whys && whys.size) {
-    provenanceOut[pkg] = [...whys.entries()]
-      .map(([capability, why]) => ({ capability, ...why }))
-      .sort((a, b) =>
-        (a.capability + (a.site || '') + (a.via || '')).localeCompare(
-          b.capability + (b.site || '') + (b.via || ''),
-        ),
-      );
+// @ref LLP 0021#wp3--rebuild-policy-generation-and-import-site-authoring —
+// canonical output contains typed selectors only. Legacy colon strings remain
+// an authored-source compatibility input and cannot cross this boundary.
+const typedRowsByIdentity = new Map();
+for (const [bare, rows] of rootAuthorityGrants) {
+  for (const identity of identitiesByName.get(bare) || []) {
+    typedRowsByIdentity.set(identity, [...(typedRowsByIdentity.get(identity) || []), ...rows]);
   }
 }
 
-const artifact = {
-  generated: {
-    version: 1,
-    tool: 'generate-policy.mjs',
-    entry: path.relative(root, entry) || path.basename(entry),
-  },
-  mode: opts.mode,
-  packages: packagesOut,
-  provenance: provenanceOut,
-};
+// Package manifests may request and attenuate authority but never originate it.
+// Iterate to a fixed point so multi-hop delegation and unions across importers
+// preserve the root provenance while adding one stable delegation record.
+const effectiveTypedRows = resolveTypedDelegations({
+  seed: typedRowsByIdentity,
+  edges: sortedEdges,
+  requests: typedRequests,
+  bareOf: bareNameOf,
+});
+
+const importsByIdentity = new Map();
+for (const [from, to] of sortedEdges) {
+  if (!importsByIdentity.has(from)) importsByIdentity.set(from, new Set());
+  importsByIdentity.get(from).add(to);
+}
+
+const principals = [...packageIdentities].sort(compareCanonicalBytes).map((identity) => {
+  const principal = packageMetadata.get(identity);
+  if (!principal) {
+    throw new Error(`reachable package ${identity} has no readable integrity manifest`);
+  }
+  const bare = bareNameOf(identity);
+  const explicit = explicitSurfaces.get(bare);
+  return {
+    principal,
+    floor: effectiveTypedRows.get(identity) || [],
+    denials: [],
+    escalationCeiling: [],
+    imports: {
+      builtins: [
+        ...new Set([
+          ...(observedBuiltins.get(identity) || []),
+          ...(explicit?.builtins || []),
+        ]),
+      ].sort(compareCanonicalBytes),
+      packages: [...(importsByIdentity.get(identity) || [])].sort(compareCanonicalBytes),
+    },
+    endowments: [...(explicit?.endow || [])].sort(compareCanonicalBytes),
+  };
+});
+
+const artifact = buildCanonicalPolicy(principals);
 const rendered = `${JSON.stringify(artifact, null, 2)}\n`;
 
 for (const ignored of ignoredPackageGrants) {
@@ -453,14 +561,6 @@ for (const ignored of ignoredPackageGrants) {
 // ---------------------------------------------------------------------------
 // Emit, or check for drift.
 // ---------------------------------------------------------------------------
-
-function capsByPackage(artifactJson) {
-  const map = new Map();
-  for (const [pkg, entryOut] of Object.entries(artifactJson.packages || {})) {
-    map.set(pkg, new Set(entryOut.capabilities || []));
-  }
-  return map;
-}
 
 if (opts.check) {
   // @ref LLP 0014#the-generated-artifact — the committed artifact is
@@ -484,44 +584,25 @@ if (opts.check) {
     // capability diff below can't see — surface it explicitly so the fix (pass the
     // matching `--mode` to `check`) is obvious rather than "structural changes
     // only". (ENG-22642)
-    const oldMode = existingJson.mode ?? '(unset)';
-    const newMode = artifact.mode ?? '(unset)';
-    const modeChanged = oldMode !== newMode;
-    const oldCaps = capsByPackage(existingJson);
-    const newCaps = capsByPackage(artifact);
-    const expansions = [];
-    const shrinkage = [];
-    for (const [pkg, caps] of newCaps) {
-      for (const cap of caps) {
-        if (!oldCaps.get(pkg)?.has(cap)) expansions.push(`${pkg}: ${cap}`);
-      }
+    const drift = classifyPolicyDrift(existingJson, artifact);
+    if (drift.semanticVocabularyChange) {
+      console.error('semantic vocabulary changed; review the new vocabulary before authority drift');
     }
-    for (const [pkg, caps] of oldCaps) {
-      for (const cap of caps) {
-        if (!newCaps.get(pkg)?.has(cap)) shrinkage.push(`${pkg}: ${cap}`);
-      }
-    }
-    // Import (builtins) axis drift, with the omitted=unrestricted `*` sentinel
-    // so a tightening isn't misreported as an expansion (ENG-22701).
-    const builtinDrift = diffBuiltinAxis(existingJson.packages, artifact.packages);
-    expansions.push(...builtinDrift.expansions);
-    shrinkage.push(...builtinDrift.shrinkage);
-    if (modeChanged) {
-      console.error(
-        `mode changed: ${oldMode} -> ${newMode} ` +
-          `(if intentional, run check with --mode ${oldMode})`
-      );
-    }
-    if (expansions.length) {
+    if (drift.expansions.length) {
       console.error('policy EXPANSIONS (review these):');
-      for (const line of expansions) console.error(`  + ${line}`);
+      for (const line of drift.expansions) console.error(`  + ${line}`);
     }
-    if (shrinkage.length) {
-      console.error('policy shrinkage:');
-      for (const line of shrinkage) console.error(`  - ${line}`);
+    if (drift.narrowings.length) {
+      console.error('policy narrowing:');
+      for (const line of drift.narrowings) console.error(`  - ${line}`);
     }
-    if (!expansions.length && !shrinkage.length && !modeChanged) {
-      console.error('(structural changes only — packages, surfaces, or provenance)');
+    if (drift.identityChanges.length) {
+      console.error('policy identity changes (review graph/package content):');
+      for (const line of drift.identityChanges) console.error(`  ${line}`);
+    }
+    if (!drift.expansions.length && !drift.narrowings.length &&
+        !drift.semanticVocabularyChange && !drift.identityChanges.length) {
+      console.error('(structural provenance changes only)');
     }
   } catch (err) {
     if (err instanceof SyntaxError) {
@@ -535,8 +616,8 @@ if (opts.check) {
 }
 
 await fs.writeFile(out, rendered);
-const granted = Object.values(packagesOut).filter((p) => p.capabilities?.length).length;
+const granted = artifact.principals.filter((p) => p.floor.length).length;
 console.log(
-  `wrote ${path.relative(process.cwd(), out)}: ${universe.size} package(s), ` +
+  `wrote ${path.relative(process.cwd(), out)}: ${artifact.principals.length} package(s), ` +
     `${granted} with grants, mode=${opts.mode}`,
 );

@@ -7,20 +7,26 @@
     "schema/canonical-policy.schema.json",
     "schema/capability-definitions.schema.json",
     "schema/common.schema.json",
+    "schema/conformance-report.schema.json",
     "schema/contract-manifest.schema.json",
     "schema/coverage-edge.schema.json",
     "schema/digest-bundle.schema.json",
     "schema/digest-vectors.schema.json",
     "schema/effect-occurrence.schema.json",
     "schema/effect.schema.json",
+    "schema/implementation-manifest.schema.json",
     "schema/legacy-reconciliation.schema.json",
     "schema/policy-rules.schema.json",
+    "schema/target-advertisements.schema.json",
+    "schema/target-attestations.schema.json",
     "schema/target-cell.schema.json"
   ],
   "registries": [
     "registry/capability-definitions.json",
+    "registry/coverage-edges.json",
     "registry/legacy-capability-reconciliation.json",
-    "registry/policy-rules.json"
+    "registry/policy-rules.json",
+    "registry/target-cells.json"
   ],
   "examples": [
     "examples/armed-snapshot.canonical.json",
@@ -64,5 +70,12 @@
     { "path": "testdata/invalid/untyped-resource.json", "validator": "selector" },
     { "path": "testdata/invalid/verified-peer-mismatch.json", "validator": "occurrence" }
   ],
-  "generated": ["generated/legacy-capability-reconciliation.md"]
+  "generated": [
+    "generated/capsec-registry-ids.schema.json",
+    "generated/implementation-manifest.json",
+    "generated/legacy-capability-reconciliation.md",
+    "generated/surface-inventory.md",
+    "generated/target-advertisements.json",
+    "generated/target-matrix.md"
+  ]
 }

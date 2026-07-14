@@ -1,0 +1,43 @@
+{
+  "occurrence": {
+    "cap": "env:write",
+    "stage": "delivery",
+    "actor": {
+      "kind": "package",
+      "name": "config-lib",
+      "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "locator": "config-lib@1.0.0"
+    },
+    "effectOwner": {
+      "kind": "package",
+      "name": "config-lib",
+      "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "locator": "config-lib@1.0.0"
+    },
+    "constrainedPrincipals": [
+      {
+        "kind": "package",
+        "name": "config-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "config-lib@1.0.0"
+      }
+    ],
+    "resource": {
+      "kind": "environment-occurrence",
+      "requested": {
+        "kind": "environment-name",
+        "target": "principal-overlay",
+        "name": "API_TOKEN"
+      },
+      "valueOrigin": "principal-overlay"
+    }
+  },
+  "selector": {
+    "cap": "env:write",
+    "resource": {
+      "kind": "environment-name",
+      "target": "principal-overlay",
+      "name": "API_TOKEN"
+    }
+  }
+}

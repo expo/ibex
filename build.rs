@@ -2,6 +2,8 @@ use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::Path;
 use std::path::PathBuf;
 
+use ibex_windows_dll_staging::stage_runtime_dlls;
+
 #[derive(Clone)]
 struct AppleFramework {
     search_dir: PathBuf,
@@ -343,6 +345,9 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
+    // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
+    // native registry IDs are committed generated input to the C++ archive.
+    println!("cargo:rerun-if-changed=src/engine/capsec_registry_generated.h");
     println!("cargo:rerun-if-changed=src/engine/hermes_bootstrap.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_utils.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_dns.cc");
@@ -941,6 +946,10 @@ fn main() {
 
     build.std("c++17");
 
+    if std::env::var_os("CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER").is_some() {
+        build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
+    }
+
     if target_os == "windows" {
         let hermes_jsi_cpp = hermes_include_dir.join("jsi").join("jsi.cpp");
         let hermes_jsilib_windows_cpp = hermes_include_dir.join("jsi").join("jsilib-windows.cpp");
@@ -1091,7 +1100,11 @@ fn main() {
     }
 
     // App-host profile uses the same reduced crypto shape as Windows for now.
-    if app_host_enabled && target_os != "android" {
+    // An explicitly requested OpenSSL backend wins over the reduced app-host
+    // profile. `--all-features` must remain a coherent linkable profile: the
+    // OpenSSL integration tests and their C ABI hooks are enabled whenever
+    // `openssl-crypto` is enabled (ENG-24266).
+    if app_host_enabled && target_os != "android" && !openssl_crypto_enabled {
         build.define("EXACT_NO_OPENSSL", None);
     }
 
@@ -1115,6 +1128,15 @@ fn main() {
     }
     if file_contains_all(&hermes_header, &["static bool hermesBytecodeSanityCheck"]) {
         build.define("EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK", None);
+    } else if file_contains_all(
+        &hermes_header,
+        &[
+            "class HERMES_EXPORT IHermesRootAPI",
+            "virtual bool hermesBytecodeSanityCheck(",
+            "makeHermesRootAPI()",
+        ],
+    ) {
+        build.define("EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK", None);
     }
 
     // Debugger support is auto-detected on macOS so we do not compile against
@@ -1290,6 +1312,7 @@ fn main() {
         println!("cargo:rustc-link-lib=ncrypt");
         println!("cargo:rustc-link-lib=crypt32");
         println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=iphlpapi");
     }
 
     if target_os == "android" {
@@ -2049,85 +2072,26 @@ fn profile_dir_from_out_dir(out_dir: &Path) -> PathBuf {
 
 fn stage_windows_runtime_dlls(out_dir: &Path, hermes_bin_dir: &Path) {
     let profile_dir = profile_dir_from_out_dir(out_dir);
-    let destinations = [profile_dir.clone(), profile_dir.join("deps")];
-    for destination in &destinations {
-        std::fs::create_dir_all(destination).unwrap_or_else(|error| {
-            panic!(
-                "Failed to create Windows runtime DLL destination {}: {error}",
-                destination.display()
-            )
-        });
-    }
-
-    let mut copied = 0usize;
-    for path in read_dir_paths_or_panic(hermes_bin_dir, "Windows Hermes runtime DLL staging") {
-        if !path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
-        {
-            continue;
-        }
-        println!("cargo:rerun-if-changed={}", path.display());
-        let file_name = path.file_name().unwrap_or_else(|| {
-            panic!(
-                "Windows runtime DLL path has no file name: {}",
-                path.display()
-            )
-        });
-        for destination in &destinations {
-            let staged_path = destination.join(file_name);
-            if staged_file_is_fresh(&path, &staged_path) {
-                continue;
-            }
-            match std::fs::copy(&path, &staged_path) {
-                Ok(_) => {}
-                Err(error) if is_existing_permission_denied(&error, &staged_path) => {
-                    println!(
-                        "cargo:warning=Could not overwrite staged Windows runtime DLL {}; using existing file: {error}",
-                        staged_path.display()
-                    );
-                }
-                Err(error) => {
-                    panic!(
-                        "Failed to stage Windows runtime DLL {} into {}: {error}",
-                        path.display(),
-                        destination.display()
-                    )
-                }
-            }
-        }
-        copied += 1;
-    }
-
-    if copied == 0 {
+    // @ref LLP 0005#c-compilation — bundle-wide interprocess serialization
+    // and atomic digest-checked publication prevent concurrent builds from
+    // mixing DLLs selected from different Hermes sources (ENG-24264).
+    let report = stage_runtime_dlls(&profile_dir, hermes_bin_dir).unwrap_or_else(|error| {
         panic!(
-            "No Windows runtime DLLs found in {}. Run scripts/install-windows-hermes.ps1 or set HERMES_BIN_DIR.",
+            "Failed to stage Windows Hermes runtime DLLs from {}: {error}. Stop any process locking a stale destination and rebuild; a successful build never reuses mismatched runtime code.",
             hermes_bin_dir.display()
-        );
+        )
+    });
+    for path in &report.source_paths {
+        println!("cargo:rerun-if-changed={}", path.display());
     }
     eprintln!(
-        "ibex build: staged {copied} Windows runtime DLLs from {}",
-        hermes_bin_dir.display()
+        "ibex build: staged {} Windows runtime DLLs from {} (bundle {}, {} published, {} reused)",
+        report.dll_count,
+        hermes_bin_dir.display(),
+        report.bundle_digest,
+        report.published_files,
+        report.reused_files,
     );
-}
-
-fn is_existing_permission_denied(error: &std::io::Error, path: &Path) -> bool {
-    error.kind() == ErrorKind::PermissionDenied && path.exists()
-}
-
-fn staged_file_is_fresh(source: &Path, destination: &Path) -> bool {
-    match (std::fs::metadata(source), std::fs::metadata(destination)) {
-        (Ok(source_meta), Ok(destination_meta)) => {
-            if source_meta.len() != destination_meta.len() {
-                return false;
-            }
-            match (source_meta.modified(), destination_meta.modified()) {
-                (Ok(source_mtime), Ok(destination_mtime)) => destination_mtime >= source_mtime,
-                _ => false,
-            }
-        }
-        _ => false,
-    }
 }
 
 fn generate_runtime_bundle_bytecode_header(

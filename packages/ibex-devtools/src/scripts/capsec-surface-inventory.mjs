@@ -1,0 +1,15655 @@
+/**
+ * Deterministically discover the runtime surfaces that WP1 must classify.
+ *
+ * This module deliberately stops at observation. It does not assign effects,
+ * gates, or capability semantics; the generated coverage model owns that step.
+ *
+ * @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — the
+ * generated registry must fail closed when a runtime surface is unclassified.
+ */
+
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { parseSync } from "@babel/core";
+import ts from "typescript";
+import {
+  joinAndroidBridgeImplementationRefs,
+  scanAndroidCppBridgeBindings,
+  scanAndroidJavaBridgeSurfaces,
+} from "./capsec-android-bridge-inventory.mjs";
+import { normalizeComposedInstallationBranches } from "./capsec-installation-branches.mjs";
+import { discoverNativeNetworkingBackendSurfaces } from "./capsec-native-network-backend-inventory.mjs";
+
+const textDecoder = new TextDecoder("utf-8", { fatal: true });
+
+const COVERAGE_KINDS = new Set([
+  "builtin",
+  "callback",
+  "cli",
+  "host-abi",
+  "loader",
+  "native-op",
+  "startup",
+]);
+
+const NATIVE_SOURCE_EXTENSIONS = new Set([
+  ".c",
+  ".cc",
+  ".cpp",
+  ".cxx",
+  ".h",
+  ".hh",
+  ".hpp",
+  ".hxx",
+  ".m",
+  ".mm",
+]);
+
+const PUBLIC_ABI_IDENTIFIER =
+  /^ex_(?:android|host|hermes|worklet)_[A-Za-z0-9_]+$/u;
+
+const PRIVATE_NATIVE_IDENTIFIER =
+  /^__[A-Za-z_$][A-Za-z0-9_$]*(?:[.:/-][A-Za-z0-9_$]+)*$/u;
+
+const COMMAND_CLASSES = [
+  ["visibleCommands", "visible"],
+  ["hiddenHarnessCommands", "hidden-harness"],
+  ["reservedCommands", "reserved"],
+  ["legacyProjectCommands", "legacy-project"],
+];
+
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function evidenceHash(value) {
+  let hash = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(value)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36).padStart(7, "0");
+}
+
+function posixPath(value) {
+  return value.split(path.sep).join("/");
+}
+
+function uniqueSorted(values) {
+  return [...new Set(values)].sort(compareText);
+}
+
+function sourceSymbol(file, symbol) {
+  return `${file}#${symbol}`;
+}
+
+function makeSurface(kind, name, sourceRefs, { variant, metadata } = {}) {
+  if (!COVERAGE_KINDS.has(kind)) {
+    throw new Error(`unknown coverage surface kind ${JSON.stringify(kind)}`);
+  }
+  if (typeof name !== "string" || name.length === 0) {
+    throw new Error(`surface ${kind} has an empty name`);
+  }
+  const normalizedRefs = uniqueSorted(sourceRefs);
+  if (normalizedRefs.length === 0) {
+    throw new Error(`surface ${kind}:${name} has no source references`);
+  }
+
+  const surface = {
+    kind,
+    name,
+    observedKey: `${kind}:${name}`,
+    sourceRefs: normalizedRefs,
+  };
+  if (variant !== undefined) surface.variant = variant;
+  if (metadata !== undefined) surface.metadata = metadata;
+  return surface;
+}
+
+export function assertUniqueObservedKeys(
+  surfaces,
+  label = "surface inventory",
+) {
+  const seen = new Set();
+  for (const surface of surfaces) {
+    const expected = `${surface.kind}:${surface.name}`;
+    if (surface.observedKey !== expected) {
+      throw new Error(
+        `${label}: ${JSON.stringify(surface.observedKey)} is not the canonical key ${JSON.stringify(expected)}`,
+      );
+    }
+    if (seen.has(surface.observedKey)) {
+      throw new Error(
+        `${label}: duplicate observed key ${surface.observedKey}`,
+      );
+    }
+    seen.add(surface.observedKey);
+  }
+}
+
+function sortSurfaces(surfaces) {
+  return surfaces.sort((left, right) =>
+    compareText(left.observedKey, right.observedKey),
+  );
+}
+
+function readUtf8(filePath) {
+  try {
+    return textDecoder.decode(fs.readFileSync(filePath));
+  } catch (error) {
+    throw new Error(
+      `${filePath}: unable to read strict UTF-8: ${error.message}`,
+    );
+  }
+}
+
+function decodeEscapedString(value, label) {
+  let output = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char !== "\\") {
+      output += char;
+      continue;
+    }
+    index += 1;
+    if (index >= value.length)
+      throw new Error(`${label}: trailing string escape`);
+    const escaped = value[index];
+    const simple = {
+      "'": "'",
+      '"': '"',
+      "?": "?",
+      "\\": "\\",
+      a: "\x07",
+      b: "\b",
+      f: "\f",
+      n: "\n",
+      r: "\r",
+      t: "\t",
+      v: "\x0b",
+    };
+    if (Object.hasOwn(simple, escaped)) {
+      output += simple[escaped];
+      continue;
+    }
+    if (escaped === "\n") continue;
+    if (escaped === "\r" && value[index + 1] === "\n") {
+      index += 1;
+      continue;
+    }
+    if (escaped === "x") {
+      const match = value.slice(index + 1).match(/^[0-9A-Fa-f]+/u);
+      if (!match) throw new Error(`${label}: empty hexadecimal escape`);
+      output += String.fromCodePoint(Number.parseInt(match[0], 16));
+      index += match[0].length;
+      continue;
+    }
+    if (escaped === "u" || escaped === "U") {
+      if (escaped === "u" && value[index + 1] === "{") {
+        const close = value.indexOf("}", index + 2);
+        const digits =
+          close === -1 ? "" : value.slice(index + 2, close).replaceAll("_", "");
+        if (!/^[0-9A-Fa-f]{1,6}$/u.test(digits)) {
+          throw new Error(`${label}: malformed braced Unicode escape`);
+        }
+        output += String.fromCodePoint(Number.parseInt(digits, 16));
+        index = close;
+        continue;
+      }
+      const length = escaped === "u" ? 4 : 8;
+      const digits = value.slice(index + 1, index + 1 + length);
+      if (!new RegExp(`^[0-9A-Fa-f]{${length}}$`, "u").test(digits)) {
+        throw new Error(`${label}: malformed Unicode escape`);
+      }
+      output += String.fromCodePoint(Number.parseInt(digits, 16));
+      index += length;
+      continue;
+    }
+    if (/[0-7]/u.test(escaped)) {
+      const match = value.slice(index).match(/^[0-7]{1,3}/u)[0];
+      output += String.fromCodePoint(Number.parseInt(match, 8));
+      index += match.length - 1;
+      continue;
+    }
+    // C/C++ accepts implementation-defined escapes. Retaining the escaped
+    // character is conservative for the ASCII private identifiers we observe.
+    output += escaped;
+  }
+  return output;
+}
+
+function scanEmbeddedScriptStrings(text) {
+  const values = [];
+  let index = 0;
+  let canStartRegex = true;
+
+  const skipQuoted = (quote, collect) => {
+    index += 1;
+    let raw = "";
+    while (index < text.length) {
+      const char = text[index];
+      if (char === quote) {
+        index += 1;
+        if (collect) {
+          try {
+            values.push(decodeEscapedString(raw, "<embedded-script>"));
+          } catch {
+            // Embedded raw strings are not required to be JavaScript. Ignore a
+            // token that cannot be decoded instead of weakening native scans.
+          }
+        }
+        return;
+      }
+      if (char === "\\") {
+        raw += char;
+        index += 1;
+        if (index < text.length) {
+          raw += text[index];
+          index += 1;
+        }
+        continue;
+      }
+      raw += char;
+      index += 1;
+    }
+  };
+
+  while (index < text.length) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (/\s/u.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      index += 2;
+      while (index < text.length && text[index] !== "\n") index += 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      index += 2;
+      while (
+        index < text.length &&
+        !(text[index] === "*" && text[index + 1] === "/")
+      ) {
+        index += 1;
+      }
+      if (index < text.length) index += 2;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      skipQuoted(char, true);
+      canStartRegex = false;
+      continue;
+    }
+    if (char === "`") {
+      // Private identifiers in template text are computed references, not
+      // registration/reference string literals. Skip the complete template.
+      skipQuoted(char, false);
+      canStartRegex = false;
+      continue;
+    }
+    if (char === "/" && canStartRegex) {
+      index += 1;
+      let inClass = false;
+      while (index < text.length) {
+        const token = text[index];
+        if (token === "\\") {
+          index += 2;
+          continue;
+        }
+        if (token === "[") inClass = true;
+        if (token === "]") inClass = false;
+        index += 1;
+        if (token === "/" && !inClass) break;
+      }
+      while (/[A-Za-z]/u.test(text[index] ?? "")) index += 1;
+      canStartRegex = false;
+      continue;
+    }
+    if (/[A-Za-z_$]/u.test(char)) {
+      const start = index;
+      index += 1;
+      while (/[A-Za-z0-9_$]/u.test(text[index] ?? "")) index += 1;
+      const word = text.slice(start, index);
+      canStartRegex = new Set([
+        "await",
+        "case",
+        "delete",
+        "do",
+        "else",
+        "in",
+        "instanceof",
+        "new",
+        "of",
+        "return",
+        "throw",
+        "typeof",
+        "void",
+        "yield",
+      ]).has(word);
+      continue;
+    }
+    canStartRegex = /[([{,;:=!?&|+*%^~<>-]/u.test(char);
+    index += 1;
+  }
+  return values;
+}
+
+function collectCppStringValues(text, label) {
+  const values = [];
+  let index = 0;
+  let pending = "";
+  let pendingIncludesRaw = false;
+
+  const flushPending = () => {
+    if (!pending) return;
+    values.push(pending);
+    if (pendingIncludesRaw) values.push(...scanEmbeddedScriptStrings(pending));
+    pending = "";
+    pendingIncludesRaw = false;
+  };
+
+  const readQuoted = (quote) => {
+    const start = index;
+    index += 1;
+    let raw = "";
+    while (index < text.length) {
+      const char = text[index];
+      if (char === quote) {
+        index += 1;
+        return decodeEscapedString(raw, label);
+      }
+      if (char === "\\") {
+        raw += char;
+        index += 1;
+        if (index < text.length) {
+          raw += text[index];
+          index += 1;
+        }
+        continue;
+      }
+      raw += char;
+      index += 1;
+    }
+    throw new Error(
+      `${label}: unterminated ${quote === '"' ? "string" : "character"} literal at byte ${start}`,
+    );
+  };
+
+  while (index < text.length) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (/\s/u.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      index += 2;
+      while (index < text.length && text[index] !== "\n") index += 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const start = index;
+      index += 2;
+      while (
+        index < text.length &&
+        !(text[index] === "*" && text[index + 1] === "/")
+      ) {
+        index += 1;
+      }
+      if (index >= text.length) {
+        throw new Error(
+          `${label}: unterminated block comment at byte ${start}`,
+        );
+      }
+      index += 2;
+      continue;
+    }
+    if (char === "R" && next === '"') {
+      const start = index;
+      const delimiterStart = index + 2;
+      const open = text.indexOf("(", delimiterStart);
+      if (open !== -1 && open - delimiterStart <= 16) {
+        const delimiter = text.slice(delimiterStart, open);
+        if (!/[\s\\()]/u.test(delimiter)) {
+          const closeMarker = `)${delimiter}"`;
+          const close = text.indexOf(closeMarker, open + 1);
+          if (close === -1) {
+            throw new Error(
+              `${label}: unterminated raw string literal at byte ${start}`,
+            );
+          }
+          const rawValue = text.slice(open + 1, close);
+          pending += rawValue;
+          pendingIncludesRaw = true;
+          index = close + closeMarker.length;
+          continue;
+        }
+      }
+    }
+    if (char === '"') {
+      pending += readQuoted(char);
+      continue;
+    }
+    if (char === "'") {
+      if (
+        /[0-9A-Fa-f]/u.test(text[index - 1] ?? "") &&
+        /[0-9A-Fa-f]/u.test(next ?? "")
+      ) {
+        index += 1;
+        continue;
+      }
+      flushPending();
+      readQuoted(char);
+      continue;
+    }
+    flushPending();
+    index += 1;
+  }
+  flushPending();
+  return values;
+}
+
+/**
+ * Scan one C/C++/ObjC++ translation unit. Repeated observations deliberately
+ * collapse to one logical surface while retaining an occurrence count.
+ */
+export function scanPrivateNativeIdentifiers(
+  text,
+  sourcePath = "<native-source>",
+) {
+  const counts = new Map();
+  for (const value of collectCppStringValues(text, sourcePath)) {
+    if (!PRIVATE_NATIVE_IDENTIFIER.test(value)) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return sortSurfaces(
+    [...counts.entries()].map(([name, occurrenceCount]) =>
+      makeSurface("native-op", name, [sourceSymbol(sourcePath, name)], {
+        metadata: { occurrenceCount },
+      }),
+    ),
+  );
+}
+
+function lexRust(text, label) {
+  const tokens = [];
+  let index = 0;
+
+  const push = (type, value) => tokens.push({ type, value });
+
+  const skipNormalString = (quote, type) => {
+    const start = index;
+    index += 1;
+    let raw = "";
+    while (index < text.length) {
+      const char = text[index];
+      if (char === quote) {
+        index += 1;
+        if (type) push(type, decodeEscapedString(raw, label));
+        return;
+      }
+      if (char === "\\") {
+        raw += char;
+        index += 1;
+        if (index < text.length) {
+          raw += text[index];
+          index += 1;
+        }
+        continue;
+      }
+      raw += char;
+      index += 1;
+    }
+    throw new Error(`${label}: unterminated Rust literal at byte ${start}`);
+  };
+
+  while (index < text.length) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (/\s/u.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      index += 2;
+      while (index < text.length && text[index] !== "\n") index += 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const start = index;
+      index += 2;
+      let depth = 1;
+      while (index < text.length && depth > 0) {
+        if (text[index] === "/" && text[index + 1] === "*") {
+          depth += 1;
+          index += 2;
+        } else if (text[index] === "*" && text[index + 1] === "/") {
+          depth -= 1;
+          index += 2;
+        } else {
+          index += 1;
+        }
+      }
+      if (depth !== 0)
+        throw new Error(
+          `${label}: unterminated Rust block comment at byte ${start}`,
+        );
+      continue;
+    }
+
+    const rawPrefix = text.slice(index).match(/^(?:b?r)(#{0,255})"/u);
+    if (rawPrefix) {
+      const start = index;
+      const hashes = rawPrefix[1];
+      index += rawPrefix[0].length;
+      const close = `"${hashes}`;
+      const end = text.indexOf(close, index);
+      if (end === -1)
+        throw new Error(
+          `${label}: unterminated Rust raw string at byte ${start}`,
+        );
+      push("string", text.slice(index, end));
+      index = end + close.length;
+      continue;
+    }
+    if (char === '"') {
+      skipNormalString(char, "string");
+      continue;
+    }
+    if (char === "'") {
+      // A lifetime is tokenized as punctuation + identifier; a character
+      // literal is skipped whole. Neither participates in an extern signature.
+      const close = text.indexOf("'", index + 1);
+      if (close !== -1 && close - index <= 8) {
+        skipNormalString(char, null);
+      } else {
+        push("punctuation", char);
+        index += 1;
+      }
+      continue;
+    }
+    if (/[A-Za-z_]/u.test(char)) {
+      const start = index;
+      index += 1;
+      while (/[A-Za-z0-9_]/u.test(text[index] ?? "")) index += 1;
+      push("identifier", text.slice(start, index));
+      continue;
+    }
+    push("punctuation", char);
+    index += 1;
+  }
+  return tokens;
+}
+
+function exactCfgTestAttributeEnd(tokens, start) {
+  if (tokens[start]?.value !== "#" || tokens[start + 1]?.value !== "[")
+    return -1;
+  const close = matchingToken(tokens, start + 1, "[", "]");
+  if (close === -1) return -1;
+  const values = tokens.slice(start + 2, close).map((token) => token.value);
+  return JSON.stringify(values) === JSON.stringify(["cfg", "(", "test", ")"])
+    ? close
+    : -1;
+}
+
+/**
+ * Remove complete `#[cfg(test)]` items without truncating production items
+ * that follow them. The old first-match string split made a test module at
+ * mid-file hide every later production definition from inventory.
+ */
+function rustProductionTokens(text, label) {
+  const tokens = lexRust(text, label);
+  const disabled = new Set();
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const attributeEnd = exactCfgTestAttributeEnd(tokens, index);
+    if (attributeEnd === -1) continue;
+
+    let cursor = attributeEnd + 1;
+    while (tokens[cursor]?.value === "#") {
+      const nextAttribute = matchingToken(tokens, cursor + 1, "[", "]");
+      if (nextAttribute === -1) break;
+      cursor = nextAttribute + 1;
+    }
+
+    let itemEnd = cursor;
+    while (
+      itemEnd < tokens.length &&
+      !new Set(["{", ";"]).has(tokens[itemEnd].value)
+    ) {
+      itemEnd += 1;
+    }
+    if (tokens[itemEnd]?.value === "{") {
+      const bodyEnd = matchingToken(tokens, itemEnd, "{", "}");
+      itemEnd = bodyEnd === -1 ? tokens.length - 1 : bodyEnd;
+    }
+    for (
+      let disabledIndex = index;
+      disabledIndex <= itemEnd;
+      disabledIndex += 1
+    ) {
+      disabled.add(disabledIndex);
+    }
+    index = itemEnd;
+  }
+
+  return tokens.filter((_, index) => !disabled.has(index));
+}
+
+function rustFunctionDefinitions(tokens) {
+  const definitions = [];
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    if (
+      tokens[index].value !== "fn" ||
+      tokens[index + 1]?.type !== "identifier"
+    )
+      continue;
+    let cursor = index + 2;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    while (cursor < tokens.length) {
+      const value = tokens[cursor].value;
+      if (value === "(") parenDepth += 1;
+      if (value === ")") parenDepth -= 1;
+      if (value === "[") bracketDepth += 1;
+      if (value === "]") bracketDepth -= 1;
+      if (
+        parenDepth === 0 &&
+        bracketDepth === 0 &&
+        (value === "{" || value === ";")
+      ) {
+        if (value === "{") {
+          definitions.push({
+            bodyOpen: cursor,
+            bodyClose: matchingToken(tokens, cursor, "{", "}"),
+            fnIndex: index,
+            name: tokens[index + 1].value,
+            nameIndex: index + 1,
+          });
+        }
+        break;
+      }
+      cursor += 1;
+    }
+  }
+  return definitions;
+}
+
+function matchingOpeningToken(tokens, closeIndex, openValue, closeValue) {
+  let depth = 0;
+  for (let index = closeIndex; index >= 0; index -= 1) {
+    if (tokens[index]?.value === closeValue) depth += 1;
+    if (tokens[index]?.value === openValue) {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function rustExportNameAttribute(tokens, open, close, sourcePath) {
+  const body = tokens.slice(open + 1, close);
+  const exportNameIndexes = body
+    .map((token, index) => (token.value === "export_name" ? index : -1))
+    .filter((index) => index !== -1);
+  if (exportNameIndexes.length === 0) return null;
+  const direct =
+    body.length === 3 &&
+    body[0]?.value === "export_name" &&
+    body[1]?.value === "=" &&
+    body[2]?.type === "string";
+  const unsafe =
+    body.length === 6 &&
+    body[0]?.value === "unsafe" &&
+    body[1]?.value === "(" &&
+    body[2]?.value === "export_name" &&
+    body[3]?.value === "=" &&
+    body[4]?.type === "string" &&
+    body[5]?.value === ")";
+  if (!direct && !unsafe) {
+    throw new Error(
+      `${sourcePath}: unreviewed Rust export_name attribute shape`,
+    );
+  }
+  return direct ? body[2].value : body[4].value;
+}
+
+function rustNoMangleAttribute(tokens, open, close, sourcePath) {
+  const body = tokens.slice(open + 1, close);
+  if (!body.some((token) => token.value === "no_mangle")) return false;
+  const direct = body.length === 1 && body[0]?.value === "no_mangle";
+  const unsafe =
+    body.length === 4 &&
+    body[0]?.value === "unsafe" &&
+    body[1]?.value === "(" &&
+    body[2]?.value === "no_mangle" &&
+    body[3]?.value === ")";
+  if (!direct && !unsafe) {
+    throw new Error(`${sourcePath}: unreviewed Rust no_mangle attribute shape`);
+  }
+  return true;
+}
+
+function rustAttributesImmediatelyBefore(tokens, itemIndex, sourcePath) {
+  const attributes = [];
+  let cursor = itemIndex - 1;
+  while (tokens[cursor]?.value === "]") {
+    const open = matchingOpeningToken(tokens, cursor, "[", "]");
+    if (open <= 0 || tokens[open - 1]?.value !== "#") break;
+    attributes.unshift({
+      close: cursor,
+      exportName: rustExportNameAttribute(tokens, open, cursor, sourcePath),
+      noMangle: rustNoMangleAttribute(tokens, open, cursor, sourcePath),
+      open,
+    });
+    cursor = open - 2;
+  }
+  return attributes;
+}
+
+function parseRustExternFunction(tokens, itemIndex, definitionNameIndexes) {
+  let cursor = itemIndex;
+  if (tokens[cursor]?.value === "pub") {
+    cursor += 1;
+    if (tokens[cursor]?.value === "(") {
+      const visibilityClose = matchingToken(tokens, cursor, "(", ")");
+      if (visibilityClose === -1) return null;
+      cursor = visibilityClose + 1;
+    }
+  }
+  let isUnsafe = false;
+  if (tokens[cursor]?.value === "unsafe") {
+    isUnsafe = true;
+    cursor += 1;
+  }
+  if (
+    tokens[cursor]?.value !== "extern" ||
+    tokens[cursor + 1]?.type !== "string" ||
+    tokens[cursor + 1]?.value !== "C" ||
+    tokens[cursor + 2]?.value !== "fn" ||
+    tokens[cursor + 3]?.type !== "identifier" ||
+    !definitionNameIndexes.has(cursor + 3)
+  ) {
+    return null;
+  }
+  return {
+    internalName: tokens[cursor + 3].value,
+    isUnsafe,
+    nameIndex: cursor + 3,
+  };
+}
+
+function rustStaticallyNamedItem(tokens, itemIndex) {
+  const identifierAt = (index) => {
+    if (tokens[index]?.type !== "identifier") return null;
+    if (
+      tokens[index]?.value === "r" &&
+      tokens[index + 1]?.value === "#" &&
+      tokens[index + 2]?.type === "identifier"
+    ) {
+      return { name: tokens[index + 2].value, next: index + 3 };
+    }
+    return { name: tokens[index].value, next: index + 1 };
+  };
+
+  let headerEnd = itemIndex;
+  while (
+    headerEnd < tokens.length &&
+    !new Set(["{", ";", "="]).has(tokens[headerEnd].value)
+  ) {
+    headerEnd += 1;
+  }
+  for (let index = itemIndex; index < headerEnd; index += 1) {
+    if (tokens[index]?.value === "fn") {
+      const identifier = identifierAt(index + 1);
+      if (identifier) return { itemKind: "function", name: identifier.name };
+      return null;
+    }
+    if (tokens[index]?.value === "static") {
+      const nameIndex =
+        tokens[index + 1]?.value === "mut" ? index + 2 : index + 1;
+      const identifier = identifierAt(nameIndex);
+      if (identifier) return { itemKind: "static", name: identifier.name };
+      return null;
+    }
+    if (tokens[index]?.value === "const" && tokens[index + 1]?.value !== "fn") {
+      const identifier = identifierAt(index + 1);
+      if (identifier) return { itemKind: "const", name: identifier.name };
+      return null;
+    }
+  }
+  return null;
+}
+
+function rustPublicExternDefinitions(tokens, sourcePath) {
+  const definitionNameIndexes = new Set(
+    rustFunctionDefinitions(tokens).map((definition) => definition.nameIndex),
+  );
+  const records = new Map();
+  const addRecord = (record, exportName = null) => {
+    if (!record) return;
+    const name = exportName ?? record.internalName;
+    let definitions = records.get(name);
+    if (!definitions) {
+      definitions = new Map();
+      records.set(name, definitions);
+    }
+    definitions.set(record.nameIndex, { ...record, name });
+  };
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index]?.value !== "pub") continue;
+    const attributes = rustAttributesImmediatelyBefore(
+      tokens,
+      index,
+      sourcePath,
+    );
+    const exportNames = attributes
+      .map((attribute) => attribute.exportName)
+      .filter((name) => name !== null);
+    if (exportNames.length > 1) {
+      throw new Error(`${sourcePath}: multiple Rust export_name attributes`);
+    }
+    addRecord(
+      parseRustExternFunction(tokens, index, definitionNameIndexes),
+      exportNames[0] ?? null,
+    );
+  }
+
+  // `export_name` publishes a linker symbol even when the Rust item itself is
+  // private. Discover it from the production attribute and require the item to
+  // retain the reviewed C ABI shape instead of trusting its Rust identifier.
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    if (tokens[index]?.value !== "#" || tokens[index + 1]?.value !== "[")
+      continue;
+    const close = matchingToken(tokens, index + 1, "[", "]");
+    if (close === -1) {
+      throw new Error(`${sourcePath}: unterminated Rust attribute`);
+    }
+    const exportName = rustExportNameAttribute(
+      tokens,
+      index + 1,
+      close,
+      sourcePath,
+    );
+    const noMangle = rustNoMangleAttribute(
+      tokens,
+      index + 1,
+      close,
+      sourcePath,
+    );
+    if (exportName === null && !noMangle) {
+      index = close;
+      continue;
+    }
+    let itemIndex = close + 1;
+    while (
+      tokens[itemIndex]?.value === "#" &&
+      tokens[itemIndex + 1]?.value === "["
+    ) {
+      const nextClose = matchingToken(tokens, itemIndex + 1, "[", "]");
+      if (nextClose === -1) {
+        throw new Error(`${sourcePath}: unterminated Rust attribute`);
+      }
+      itemIndex = nextClose + 1;
+    }
+    const record = parseRustExternFunction(
+      tokens,
+      itemIndex,
+      definitionNameIndexes,
+    );
+    const staticallyNamedItem = noMangle
+      ? rustStaticallyNamedItem(tokens, itemIndex)
+      : null;
+    if (noMangle && !record && staticallyNamedItem === null) {
+      throw new Error(`${sourcePath}: unreviewed Rust no_mangle item shape`);
+    }
+    const effectiveName =
+      exportName ?? record?.internalName ?? staticallyNamedItem?.name ?? "";
+    if (!record && PUBLIC_ABI_IDENTIFIER.test(effectiveName)) {
+      throw new Error(
+        `${sourcePath}: public ABI attribute for ${effectiveName} is not attached to an inventoried extern \"C\" function definition`,
+      );
+    }
+    addRecord(record, exportName);
+    index = close;
+  }
+  return [...records.values()].flatMap((definitions) => [
+    ...definitions.values(),
+  ]);
+}
+
+/** Scan one Rust source file for actual public ex_host_* C ABI definitions. */
+export function scanRustHostExterns(text, sourcePath = "<rust-source>") {
+  const tokens = rustProductionTokens(text, sourcePath);
+  const names = new Map();
+  for (const record of rustPublicExternDefinitions(tokens, sourcePath)) {
+    const { name } = record;
+    if (!name.startsWith("ex_host_")) continue;
+    if (!/^ex_host_[A-Za-z0-9_]+$/u.test(name)) {
+      throw new Error(
+        `${sourcePath}: malformed public host ABI symbol ${JSON.stringify(name)}`,
+      );
+    }
+    if (names.has(name)) {
+      throw new Error(
+        `${sourcePath}: duplicate public host ABI definition ${name}`,
+      );
+    }
+    names.set(name, record);
+  }
+
+  return sortSurfaces(
+    [...names.entries()].map(([name, record]) => {
+      const metadata = { unsafe: record.isUnsafe };
+      if (record.internalName !== name)
+        metadata.rustIdentifier = record.internalName;
+      return makeSurface("host-abi", name, [sourceSymbol(sourcePath, name)], {
+        metadata,
+      });
+    }),
+  );
+}
+
+/** Scan one Rust source file for all public Ibex C ABI definitions. */
+export function scanRustPublicAbiDefinitions(
+  text,
+  sourcePath = "<rust-source>",
+) {
+  const tokens = rustProductionTokens(text, sourcePath);
+  const definitions = new Map();
+  for (const record of rustPublicExternDefinitions(tokens, sourcePath)) {
+    const { name } = record;
+    if (!PUBLIC_ABI_IDENTIFIER.test(name)) continue;
+    if (definitions.has(name)) {
+      throw new Error(`${sourcePath}: duplicate public ABI definition ${name}`);
+    }
+    definitions.set(name, record);
+  }
+
+  return sortSurfaces(
+    [...definitions.entries()].map(([name, record]) => {
+      const metadata = {
+        language: "rust",
+        unsafe: record.isUnsafe,
+        weak: false,
+      };
+      if (record.internalName !== name)
+        metadata.rustIdentifier = record.internalName;
+      return makeSurface("host-abi", name, [sourceSymbol(sourcePath, name)], {
+        metadata,
+      });
+    }),
+  );
+}
+
+function lexCpp(text, label) {
+  const tokens = [];
+  let index = 0;
+  const push = (type, value) => tokens.push({ type, value });
+
+  const skipQuoted = (quote, collect) => {
+    const start = index;
+    index += 1;
+    let raw = "";
+    while (index < text.length) {
+      const char = text[index];
+      if (char === quote) {
+        index += 1;
+        if (collect) push("string", decodeEscapedString(raw, label));
+        return;
+      }
+      if (char === "\\") {
+        raw += char;
+        index += 1;
+        if (index < text.length) {
+          raw += text[index];
+          index += 1;
+        }
+        continue;
+      }
+      raw += char;
+      index += 1;
+    }
+    throw new Error(`${label}: unterminated C/C++ literal at byte ${start}`);
+  };
+
+  while (index < text.length) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (/\s/u.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      index += 2;
+      while (index < text.length && text[index] !== "\n") index += 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const start = index;
+      index += 2;
+      while (
+        index < text.length &&
+        !(text[index] === "*" && text[index + 1] === "/")
+      )
+        index += 1;
+      if (index >= text.length)
+        throw new Error(
+          `${label}: unterminated block comment at byte ${start}`,
+        );
+      index += 2;
+      continue;
+    }
+    if (char === "R" && next === '"') {
+      const start = index;
+      const delimiterStart = index + 2;
+      const open = text.indexOf("(", delimiterStart);
+      if (open !== -1 && open - delimiterStart <= 16) {
+        const delimiter = text.slice(delimiterStart, open);
+        if (!/[\s\\()]/u.test(delimiter)) {
+          const closeMarker = `)${delimiter}"`;
+          const close = text.indexOf(closeMarker, open + 1);
+          if (close === -1)
+            throw new Error(
+              `${label}: unterminated raw string at byte ${start}`,
+            );
+          push("string", text.slice(open + 1, close));
+          index = close + closeMarker.length;
+          continue;
+        }
+      }
+    }
+    if (char === '"') {
+      skipQuoted(char, true);
+      continue;
+    }
+    if (char === "'") {
+      if (
+        /[0-9A-Fa-f]/u.test(text[index - 1] ?? "") &&
+        /[0-9A-Fa-f]/u.test(next ?? "")
+      ) {
+        index += 1;
+        continue;
+      }
+      skipQuoted(char, false);
+      continue;
+    }
+    if (/[A-Za-z_]/u.test(char)) {
+      const start = index;
+      index += 1;
+      while (/[A-Za-z0-9_]/u.test(text[index] ?? "")) index += 1;
+      push("identifier", text.slice(start, index));
+      continue;
+    }
+    const pair = text.slice(index, index + 2);
+    if (new Set(["::", "->", "[[", "]]"]).has(pair)) {
+      push("punctuation", pair);
+      index += 2;
+      continue;
+    }
+    push("punctuation", char);
+    index += 1;
+  }
+  return tokens;
+}
+
+function matchingToken(tokens, start, open, close) {
+  if (
+    tokens[start]?.type !== "punctuation" ||
+    tokens[start]?.value !== open
+  )
+    return -1;
+  let depth = 0;
+  for (let index = start; index < tokens.length; index += 1) {
+    if (tokens[index].type !== "punctuation") continue;
+    if (tokens[index].value === open) depth += 1;
+    if (tokens[index].value === close) depth -= 1;
+    if (depth === 0) return index;
+  }
+  return -1;
+}
+
+function nextFunctionBodyToken(tokens, closeParen) {
+  let cursor = closeParen + 1;
+  while (cursor < tokens.length) {
+    const value = tokens[cursor].value;
+    if (value === "{" || value === ";" || value === "=")
+      return value === "{" ? cursor : -1;
+    // Attributes, trailing return types, const/noexcept, and export macros all
+    // remain in the signature. A colon denotes a constructor initializer list;
+    // those are irrelevant to the public ABI but still a function definition.
+    if (value === "}") return -1;
+    cursor += 1;
+  }
+  return -1;
+}
+
+function cppFunctionDefinitions(tokens) {
+  const controlWords = new Set([
+    "auto",
+    "bool",
+    "catch",
+    "char",
+    "double",
+    "float",
+    "for",
+    "if",
+    "int",
+    "int32_t",
+    "int64_t",
+    "long",
+    "requires",
+    "short",
+    "signed",
+    "size_t",
+    "sizeof",
+    "switch",
+    "uint32_t",
+    "uint64_t",
+    "unsigned",
+    "void",
+    "while",
+  ]);
+  const definitions = [];
+  for (let index = 0; index < tokens.length - 2; index += 1) {
+    const token = tokens[index];
+    if (token.type !== "identifier" || controlWords.has(token.value)) continue;
+    if (tokens[index + 1]?.value !== "(") continue;
+    if (new Set([".", "->", "::"]).has(tokens[index - 1]?.value)) continue;
+    if (/^[A-Z][A-Z0-9_]*$/u.test(token.value)) continue;
+    const closeParen = matchingToken(tokens, index + 1, "(", ")");
+    if (closeParen === -1) continue;
+    const bodyOpen = nextFunctionBodyToken(tokens, closeParen);
+    if (bodyOpen === -1) continue;
+    const bodyClose = matchingToken(tokens, bodyOpen, "{", "}");
+    definitions.push({
+      bodyClose,
+      bodyOpen,
+      name: token.value,
+      nameIndex: index,
+      signature: tokens
+        .slice(index, closeParen + 1)
+        .map((part) => part.value)
+        .join(" "),
+    });
+  }
+  for (let index = 0; index < definitions.length; index += 1) {
+    const nextDefinition = definitions[index + 1];
+    if (definitions[index].bodyClose === -1) {
+      definitions[index].bodyClose = nextDefinition?.nameIndex ?? tokens.length;
+    }
+  }
+  const typeDefinitions = cppTypeDefinitions(tokens);
+  for (const definition of definitions) {
+    const enclosingType = typeDefinitions
+      .filter(
+        (type) =>
+          type.bodyOpen < definition.nameIndex &&
+          definition.nameIndex < type.bodyClose,
+      )
+      .sort(
+        (left, right) =>
+          left.bodyClose - left.bodyOpen - (right.bodyClose - right.bodyOpen),
+      )[0];
+    definition.qualifiedName = enclosingType
+      ? `${enclosingType.name}::${definition.name}`
+      : definition.name;
+  }
+  const counts = new Map();
+  for (const definition of definitions) {
+    counts.set(
+      definition.qualifiedName,
+      (counts.get(definition.qualifiedName) ?? 0) + 1,
+    );
+  }
+  for (const definition of definitions) {
+    definition.identity =
+      counts.get(definition.qualifiedName) === 1
+        ? definition.qualifiedName
+        : `${definition.qualifiedName}:${evidenceHash(definition.signature)}`;
+  }
+  return definitions;
+}
+
+function cppTypeDefinitions(tokens) {
+  const definitions = [];
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    if (!new Set(["class", "struct"]).has(tokens[index].value)) continue;
+    if (tokens[index + 1]?.type !== "identifier") continue;
+    let cursor = index + 2;
+    while (
+      cursor < tokens.length &&
+      !new Set(["{", ";"]).has(tokens[cursor].value)
+    ) {
+      cursor += 1;
+    }
+    if (tokens[cursor]?.value !== "{") continue;
+    definitions.push({
+      bodyOpen: cursor,
+      bodyClose: matchingToken(tokens, cursor, "{", "}"),
+      name: tokens[index + 1].value,
+      nameIndex: index + 1,
+    });
+  }
+  return definitions;
+}
+
+function cppDataDefinitions(tokens) {
+  const definitions = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index].type !== "identifier") continue;
+    if (new Set([".", "->", "::"]).has(tokens[index - 1]?.value)) continue;
+
+    let boundary = index - 1;
+    while (
+      boundary >= 0 &&
+      !new Set([";", "{", "}"]).has(tokens[boundary].value)
+    ) {
+      boundary -= 1;
+    }
+    const declarationPrefix = tokens.slice(boundary + 1, index);
+    if (
+      declarationPrefix.length === 0 ||
+      declarationPrefix.some((token) => token.value === "=") ||
+      !declarationPrefix.some((token) => token.type === "identifier")
+    ) {
+      continue;
+    }
+
+    let cursor = index + 1;
+    if (tokens[cursor]?.value === "[") {
+      const close = matchingToken(tokens, cursor, "[", "]");
+      if (close === -1) continue;
+      cursor = close + 1;
+    }
+    if (tokens[cursor]?.value !== "=") continue;
+    definitions.push({ name: tokens[index].value, nameIndex: index });
+  }
+  return definitions;
+}
+
+function cppCallExpressions(tokens) {
+  const definitionNameIndexes = new Set(
+    cppFunctionDefinitions(tokens).map((definition) => definition.nameIndex),
+  );
+  const calls = [];
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index + 1]?.value !== "(" ||
+      definitionNameIndexes.has(index) ||
+      new Set([".", "->", "::"]).has(tokens[index - 1]?.value)
+    ) {
+      continue;
+    }
+    let boundary = index - 1;
+    while (
+      boundary >= 0 &&
+      !new Set([";", "{", "}"]).has(tokens[boundary].value)
+    ) {
+      boundary -= 1;
+    }
+    const prefix = tokens.slice(boundary + 1, index);
+    const callContext =
+      prefix.length === 0 ||
+      prefix.some((token) =>
+        new Set(["=", "(", "[", ",", "?", ":"]).has(token.value),
+      ) ||
+      new Set(["co_return", "return", "throw"]).has(prefix.at(-1)?.value);
+    if (!callContext) continue;
+    calls.push({ name: tokens[index].value, nameIndex: index });
+  }
+  return calls;
+}
+
+export function scanCppFunctionNames(text, sourcePath = "<native-source>") {
+  return cppFunctionDefinitions(lexCpp(text, sourcePath)).map(
+    (definition) => definition.name,
+  );
+}
+
+/** Scan one C/C++/ObjC++ source for actual, not merely declared, C ABI definitions. */
+export function scanCppPublicAbiDefinitions(
+  text,
+  sourcePath = "<native-source>",
+) {
+  const tokens = lexCpp(text, sourcePath);
+  const rows = [];
+  const names = new Set();
+  for (const definition of cppFunctionDefinitions(tokens)) {
+    const { name, nameIndex } = definition;
+    if (!PUBLIC_ABI_IDENTIFIER.test(name)) continue;
+    let boundary = nameIndex - 1;
+    while (
+      boundary >= 0 &&
+      !new Set([";", "{", "}"]).has(tokens[boundary].value)
+    )
+      boundary -= 1;
+    const signature = tokens.slice(boundary + 1, nameIndex);
+    const externIndex = signature.findIndex(
+      (token) => token.value === "extern",
+    );
+    if (
+      externIndex === -1 ||
+      signature[externIndex + 1]?.type !== "string" ||
+      signature[externIndex + 1]?.value !== "C"
+    ) {
+      continue;
+    }
+    if (names.has(name))
+      throw new Error(`${sourcePath}: duplicate public ABI definition ${name}`);
+    names.add(name);
+    const weak = signature.some((token) => /weak/iu.test(token.value));
+    rows.push(
+      makeSurface("host-abi", name, [sourceSymbol(sourcePath, name)], {
+        metadata: { language: "c++", unsafe: false, weak },
+      }),
+    );
+  }
+  return sortSurfaces(rows);
+}
+
+export function scanCppPublicAbiDeclarations(
+  text,
+  sourcePath = "<native-header>",
+) {
+  const tokens = lexCpp(text, sourcePath);
+  const names = new Set();
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type === "identifier" &&
+      PUBLIC_ABI_IDENTIFIER.test(tokens[index].value) &&
+      tokens[index + 1]?.value === "("
+    ) {
+      names.add(tokens[index].value);
+    }
+  }
+  return uniqueSorted(names);
+}
+
+const ROOT_EXPORT_OBJECT = "<module-exports>";
+
+function parseJavaScript(text, sourcePath) {
+  try {
+    return parseSync(text, {
+      ast: true,
+      babelrc: false,
+      code: false,
+      configFile: false,
+      sourceType: "unambiguous",
+      parserOpts: {
+        allowReturnOutsideFunction: true,
+      },
+    }).program;
+  } catch (error) {
+    throw new Error(
+      `${sourcePath}: unable to parse builtin source: ${error.message}`,
+    );
+  }
+}
+
+function walkAst(root, visitor) {
+  const stack = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || typeof node !== "object") continue;
+    if (typeof node.type === "string") visitor(node);
+    for (const [key, value] of Object.entries(node)) {
+      if (
+        key === "comments" ||
+        key === "errors" ||
+        key === "extra" ||
+        key === "loc" ||
+        key === "start" ||
+        key === "end"
+      ) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (let index = value.length - 1; index >= 0; index -= 1)
+          stack.push(value[index]);
+      } else if (value && typeof value === "object") {
+        stack.push(value);
+      }
+    }
+  }
+}
+
+function staticPropertyName(node, substitutions = new Map()) {
+  if (!node) return [];
+  if (node.type === "StringLiteral") return [node.value];
+  if (node.type === "NumericLiteral") return [String(node.value)];
+  if (node.type === "Identifier" && substitutions.has(node.name)) {
+    return [...substitutions.get(node.name)];
+  }
+  return [];
+}
+
+function mergeSubstitutions(base, additions) {
+  const merged = new Map(base);
+  for (const [name, values] of additions) merged.set(name, new Set(values));
+  return merged;
+}
+
+function isStaticallyNonPublicPropertyKey(node, knownBindings = new Set()) {
+  if (!node) return false;
+  if (node.type === "NullLiteral") return true;
+  if (node.type === "StringLiteral") return node.value.startsWith("_");
+  if (node.type === "Identifier") return knownBindings.has(node.name);
+  if (
+    node.type === "CallExpression" &&
+    ((node.callee?.type === "Identifier" && node.callee.name === "Symbol") ||
+      (node.callee?.type === "MemberExpression" &&
+        node.callee.object?.type === "Identifier" &&
+        node.callee.object.name === "Symbol"))
+  ) {
+    return true;
+  }
+  if (
+    node.type === "MemberExpression" &&
+    node.object?.type === "Identifier" &&
+    node.object.name === "Symbol"
+  ) {
+    return true;
+  }
+  if (node.type === "ConditionalExpression") {
+    return (
+      isStaticallyNonPublicPropertyKey(node.consequent, knownBindings) &&
+      isStaticallyNonPublicPropertyKey(node.alternate, knownBindings)
+    );
+  }
+  if (node.type === "LogicalExpression") {
+    return (
+      isStaticallyNonPublicPropertyKey(node.left, knownBindings) &&
+      isStaticallyNonPublicPropertyKey(node.right, knownBindings)
+    );
+  }
+  return false;
+}
+
+function collectStaticPropertyTables(program) {
+  const bindings = new Map();
+  const arrays = new Map();
+  const objects = new Map();
+  const nonPublicBindings = new Set();
+
+  walkAst(program, (node) => {
+    if (node.type !== "VariableDeclarator" || node.id?.type !== "Identifier")
+      return;
+    const values = staticPropertyName(node.init, bindings);
+    if (values.length > 0) bindings.set(node.id.name, new Set(values));
+    const objectExpression =
+      node.init?.type === "ObjectExpression"
+        ? node.init
+        : node.init?.type === "CallExpression" &&
+            ["freeze", "seal"].includes(callName(node.init)) &&
+            node.init.arguments[0]?.type === "ObjectExpression"
+          ? node.init.arguments[0]
+          : null;
+    if (objectExpression) {
+      objects.set(
+        node.id.name,
+        new Set(objectPropertyNames(objectExpression, bindings)),
+      );
+    }
+    if (node.init?.type === "ArrayExpression") {
+      const elements = node.init.elements.flatMap((element) =>
+        staticPropertyName(element, bindings),
+      );
+      if (elements.length === node.init.elements.length)
+        arrays.set(node.id.name, new Set(elements));
+    }
+    if (
+      node.init?.type === "CallExpression" &&
+      callName(node.init) === "keys" &&
+      node.init.arguments[0]?.type === "Identifier" &&
+      objects.has(node.init.arguments[0].name)
+    ) {
+      arrays.set(
+        node.id.name,
+        new Set(objects.get(node.init.arguments[0].name)),
+      );
+    }
+  });
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    walkAst(program, (node) => {
+      if (
+        node.type === "VariableDeclarator" &&
+        node.id?.type === "Identifier" &&
+        !nonPublicBindings.has(node.id.name) &&
+        isStaticallyNonPublicPropertyKey(node.init, nonPublicBindings)
+      ) {
+        nonPublicBindings.add(node.id.name);
+        changed = true;
+      }
+    });
+  }
+
+  // Authored tables commonly append platform-conditional names before a
+  // deterministic loop. Treat literal pushes as part of the same closed table.
+  walkAst(program, (node) => {
+    if (
+      node.type !== "CallExpression" ||
+      node.callee?.type !== "MemberExpression" ||
+      node.callee.computed ||
+      node.callee.object?.type !== "Identifier" ||
+      node.callee.property?.type !== "Identifier" ||
+      node.callee.property.name !== "push" ||
+      !arrays.has(node.callee.object.name)
+    ) {
+      return;
+    }
+    const values = node.arguments.flatMap((argument) =>
+      staticPropertyName(argument, bindings),
+    );
+    if (values.length !== node.arguments.length) return;
+    const table = arrays.get(node.callee.object.name);
+    for (const value of values) table.add(value);
+  });
+
+  return { arrays, bindings, nonPublicBindings };
+}
+
+function staticRegistrationNames(node, substitutions, staticArrays) {
+  const direct = staticPropertyName(node, substitutions);
+  if (direct.length > 0) return uniqueSorted(direct);
+  if (
+    node?.type === "MemberExpression" &&
+    node.computed &&
+    node.object?.type === "Identifier" &&
+    staticArrays.has(node.object.name)
+  ) {
+    return uniqueSorted(staticArrays.get(node.object.name));
+  }
+  return [];
+}
+
+function registrationContext(text, node, sourcePath) {
+  const line = node?.loc?.start?.line;
+  const column = node?.loc?.start?.column;
+  const location =
+    Number.isInteger(line) && Number.isInteger(column)
+      ? `${sourcePath}:${line}:${column + 1}`
+      : sourcePath;
+  const snippet =
+    Number.isInteger(node?.start) && Number.isInteger(node?.end)
+      ? text
+          .slice(node.start, Math.min(node.end, node.start + 160))
+          .replace(/\s+/gu, " ")
+          .trim()
+      : "<unknown expression>";
+  return `${location}: ${snippet}`;
+}
+
+function objectPropertyNames(node, substitutions = new Map()) {
+  if (!node || node.type !== "ObjectExpression") return [];
+  const names = [];
+  for (const property of node.properties) {
+    if (property.type === "SpreadElement") continue;
+    if (!property.computed && property.key?.type === "Identifier") {
+      names.push(property.key.name);
+    } else {
+      names.push(...staticPropertyName(property.key, substitutions));
+    }
+  }
+  return uniqueSorted(names);
+}
+
+function isModuleExports(node) {
+  return Boolean(
+    node?.type === "MemberExpression" &&
+    node.object?.type === "Identifier" &&
+    node.object.name === "module" &&
+    ((!node.computed &&
+      node.property?.type === "Identifier" &&
+      node.property.name === "exports") ||
+      (node.computed &&
+        node.property?.type === "StringLiteral" &&
+        node.property.value === "exports")),
+  );
+}
+
+function exportTargetId(node) {
+  if (isModuleExports(node)) return ROOT_EXPORT_OBJECT;
+  if (node?.type === "Identifier") {
+    return node.name === "exports" ? ROOT_EXPORT_OBJECT : node.name;
+  }
+  return null;
+}
+
+function memberTargetAndNames(
+  node,
+  substitutions = new Map(),
+  staticArrays = new Map(),
+) {
+  if (node?.type !== "MemberExpression") return null;
+  const target = exportTargetId(node.object);
+  if (!target) return null;
+  let names = [];
+  if (!node.computed && node.property?.type === "Identifier") {
+    names = [node.property.name];
+  } else {
+    names = staticRegistrationNames(node.property, substitutions, staticArrays);
+  }
+  return { names, target };
+}
+
+function callName(node) {
+  if (
+    node?.type !== "CallExpression" ||
+    node.callee?.type !== "MemberExpression"
+  )
+    return null;
+  const { callee } = node;
+  if (
+    callee.object?.type !== "Identifier" ||
+    callee.object.name !== "Object" ||
+    callee.computed ||
+    callee.property?.type !== "Identifier"
+  ) {
+    return null;
+  }
+  return callee.property.name;
+}
+
+function mutationCallName(node) {
+  if (
+    node?.type !== "CallExpression" ||
+    node.callee?.type !== "MemberExpression" ||
+    node.callee.computed ||
+    node.callee.object?.type !== "Identifier" ||
+    node.callee.property?.type !== "Identifier"
+  ) {
+    return null;
+  }
+  const owner = node.callee.object.name;
+  const method = node.callee.property.name;
+  if (
+    owner === "Object" &&
+    new Set([
+      "assign",
+      "defineProperties",
+      "defineProperty",
+      "setPrototypeOf",
+    ]).has(method)
+  ) {
+    return `Object.${method}`;
+  }
+  if (
+    owner === "Reflect" &&
+    new Set(["defineProperty", "set", "setPrototypeOf"]).has(method)
+  ) {
+    return `Reflect.${method}`;
+  }
+  return null;
+}
+
+function isStaticRequireMember(node) {
+  return Boolean(
+    node?.type === "MemberExpression" &&
+    directMemberName(node) !== null &&
+    node.object?.type === "CallExpression" &&
+    node.object.callee?.type === "Identifier" &&
+    node.object.callee.name === "require" &&
+    node.object.arguments[0]?.type === "StringLiteral" &&
+    node.object.arguments[0].value.length > 0,
+  );
+}
+
+function callbackFunction(node) {
+  return node?.type === "FunctionExpression" ||
+    node?.type === "ArrowFunctionExpression"
+    ? node
+    : null;
+}
+
+function isJavaScriptFunctionNode(node) {
+  return Boolean(
+    node &&
+    new Set([
+      "ArrowFunctionExpression",
+      "ClassMethod",
+      "ClassPrivateMethod",
+      "FunctionDeclaration",
+      "FunctionExpression",
+      "ObjectMethod",
+    ]).has(node.type),
+  );
+}
+
+function walkDirectFunctionBody(functionNode, visitor) {
+  const root = functionNode?.body;
+  if (!root) return;
+  const stack = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || typeof node !== "object") continue;
+    if (node !== root && isJavaScriptFunctionNode(node)) continue;
+    if (typeof node.type === "string") visitor(node);
+    for (const [key, value] of Object.entries(node)) {
+      if (
+        key === "comments" ||
+        key === "errors" ||
+        key === "extra" ||
+        key === "loc" ||
+        key === "start" ||
+        key === "end"
+      ) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (let index = value.length - 1; index >= 0; index -= 1)
+          stack.push(value[index]);
+      } else if (value && typeof value === "object") {
+        stack.push(value);
+      }
+    }
+  }
+}
+
+function javascriptFunctionDefinitions(program) {
+  const definitions = [];
+  walkAst(program, (node) => {
+    if (node.type === "FunctionDeclaration" && node.id?.name) {
+      definitions.push({ name: node.id.name, node });
+      return;
+    }
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      callbackFunction(node.init)
+    ) {
+      definitions.push({ name: node.id.name, node: node.init });
+      return;
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      node.left?.type === "Identifier" &&
+      callbackFunction(node.right)
+    ) {
+      definitions.push({ name: node.left.name, node: node.right });
+    }
+  });
+  return definitions;
+}
+
+/**
+ * Discover statically named CommonJS and ESM exports from one builtin source.
+ * Babel supplies the lexer/parser boundary so comments, regexes, templates,
+ * and strings cannot fabricate exports. The small data-flow pass follows local
+ * object aliases and the export idioms used by Ibex's authored builtin files.
+ */
+export function scanStaticBuiltinExports(
+  text,
+  {
+    bootstrapInternalModuleSpecifiers = [],
+    sourceKey = "synthetic",
+    sourceKind = "generated",
+    sourcePath = "<builtin-source>",
+    moduleSpecifiers = [],
+    publicModuleSpecifiers = moduleSpecifiers,
+  } = {},
+) {
+  if (!/^[A-Za-z0-9_]+$/u.test(sourceKey)) {
+    throw new Error(
+      `${sourcePath}: invalid builtin source key ${JSON.stringify(sourceKey)}`,
+    );
+  }
+  const program = parseJavaScript(text, sourcePath);
+  const {
+    arrays: staticArrays,
+    bindings: staticBindings,
+    nonPublicBindings,
+  } = collectStaticPropertyTables(program);
+  const facts = new Map();
+  const aliases = new Map();
+  const bindings = new Map();
+  const callValuedBindings = new Map();
+  const valueShapeFacts = new Map();
+  const prototypeFacts = new Map();
+  const ownPrototypeFacts = new Map();
+  const prototypeValueShapeFacts = new Map();
+  const inheritedPrototypeFacts = new Map();
+  const knownPrototypeOwners = new Set();
+  const prototypeSources = new Map();
+  const objectPrototypeOwners = new Map();
+  const forEachCalls = [];
+  const immediateCalls = [];
+  const tableCopyRegistrations = new Map();
+  const functionDefinitions = new Map();
+  const unresolvedRegistrations = new Map();
+  const resolvedRegistrations = new Set();
+  const opaqueShapeRegistrations = new Map();
+  const resolvedOpaqueShapeNodes = new Set();
+  const unresolvedPrototypeRegistrations = new Map();
+  const requiredModuleBindings = new Set();
+  const requiredModuleBindingSpecifiers = new Map();
+  const callableDefinitions = javascriptFunctionDefinitions(program);
+  const callableDefinitionsByName = new Map();
+  for (const definition of callableDefinitions) {
+    let definitions = callableDefinitionsByName.get(definition.name);
+    if (!definitions) {
+      definitions = [];
+      callableDefinitionsByName.set(definition.name, definitions);
+    }
+    definitions.push(definition);
+  }
+  const qualifiedCallableDefinitions = new Map();
+  const qualifiedCallableOpaqueAlternatives = new Set();
+  const classDefinitionNames = new Set();
+  const localValueExpressions = new Map();
+  const staticObjectBindings = new Set();
+  const reassignedObjectBindings = new Set();
+  walkAst(program, (node) => {
+    if (
+      node.type === "AssignmentExpression" &&
+      node.left?.type === "Identifier"
+    ) {
+      reassignedObjectBindings.add(node.left.name);
+    }
+  });
+  const addQualifiedCallable = (name, node) => {
+    if (!name || !node) return;
+    let definitions = qualifiedCallableDefinitions.get(name);
+    if (!definitions) {
+      definitions = [];
+      qualifiedCallableDefinitions.set(name, definitions);
+    }
+    definitions.push(node);
+  };
+  const callableValueAlternatives = (expression) => {
+    if (callbackFunction(expression)) {
+      return { callbacks: [expression], opaque: false };
+    }
+    if (expression?.type === "LogicalExpression") {
+      const left = callableValueAlternatives(expression.left);
+      const right = callableValueAlternatives(expression.right);
+      return {
+        callbacks: [...left.callbacks, ...right.callbacks],
+        opaque: left.opaque || right.opaque,
+      };
+    }
+    if (expression?.type === "ConditionalExpression") {
+      const consequent = callableValueAlternatives(expression.consequent);
+      const alternate = callableValueAlternatives(expression.alternate);
+      return {
+        callbacks: [...consequent.callbacks, ...alternate.callbacks],
+        opaque: consequent.opaque || alternate.opaque,
+      };
+    }
+    return { callbacks: [], opaque: true };
+  };
+  walkAst(program, (node) => {
+    if (
+      (node.type === "ClassDeclaration" ||
+        node.type === "FunctionDeclaration") &&
+      node.id?.name
+    ) {
+      if (node.type === "ClassDeclaration") classDefinitionNames.add(node.id.name);
+    }
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.init
+    ) {
+      let expressions = localValueExpressions.get(node.id.name);
+      if (!expressions) {
+        expressions = [];
+        localValueExpressions.set(node.id.name, expressions);
+      }
+      expressions.push(node.init);
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      node.left?.type === "Identifier" &&
+      node.right
+    ) {
+      let expressions = localValueExpressions.get(node.left.name);
+      if (!expressions) {
+        expressions = [];
+        localValueExpressions.set(node.left.name, expressions);
+      }
+      expressions.push(node.right);
+    }
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.init?.type === "ObjectExpression" &&
+      !reassignedObjectBindings.has(node.id.name)
+    ) {
+      staticObjectBindings.add(node.id.name);
+      for (const property of node.init.properties) {
+        if (property.computed || property.key?.type !== "Identifier") continue;
+        const name = `${node.id.name}.${property.key.name}`;
+        if (property.type === "ObjectMethod") {
+          addQualifiedCallable(name, property);
+          continue;
+        }
+        if (property.type === "ObjectProperty") {
+          const alternatives = callableValueAlternatives(property.value);
+          for (const callable of alternatives.callbacks) {
+            addQualifiedCallable(name, callable);
+          }
+          if (alternatives.callbacks.length > 0 && alternatives.opaque) {
+            qualifiedCallableOpaqueAlternatives.add(name);
+          }
+        }
+      }
+      return;
+    }
+    if (
+      (node.type === "ClassDeclaration" || node.type === "ClassExpression") &&
+      node.id?.name
+    ) {
+      for (const method of node.body?.body ?? []) {
+        if (method.computed || method.key?.type !== "Identifier") continue;
+        addQualifiedCallable(`${node.id.name}.${method.key.name}`, method);
+      }
+      return;
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      callbackFunction(node.right)
+    ) {
+      const method = directMemberName(node.left);
+      const owner = prototypeOwner(node.left?.object);
+      if (method && owner) addQualifiedCallable(`${owner}.${method}`, node.right);
+      else if (
+        method &&
+        node.left.object?.type === "Identifier" &&
+        staticObjectBindings.has(node.left.object.name)
+      ) {
+        addQualifiedCallable(
+          `${node.left.object.name}.${method}`,
+          node.right,
+        );
+      }
+    }
+  });
+
+  const declaredIdentifiers = new Set();
+  const assignedIdentifiers = new Set();
+  walkAst(program, (node) => {
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+      declaredIdentifiers.add(node.id.name);
+    }
+    if (
+      (node.type === "FunctionDeclaration" ||
+        node.type === "ClassDeclaration") &&
+      node.id?.name
+    ) {
+      declaredIdentifiers.add(node.id.name);
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.left?.type === "Identifier"
+    ) {
+      assignedIdentifiers.add(node.left.name);
+    }
+    if (isJavaScriptFunctionNode(node)) {
+      for (const parameter of node.params ?? []) {
+        if (parameter?.type === "Identifier") declaredIdentifiers.add(parameter.name);
+      }
+    }
+  });
+  const globalObjectAliases = new Set(["globalThis"]);
+  let globalAliasChanged = true;
+  while (globalAliasChanged) {
+    globalAliasChanged = false;
+    walkAst(program, (node) => {
+      if (
+        node.type !== "VariableDeclarator" ||
+        node.id?.type !== "Identifier" ||
+        node.init?.type !== "Identifier" ||
+        !globalObjectAliases.has(node.init.name) ||
+        assignedIdentifiers.has(node.id.name) ||
+        globalObjectAliases.has(node.id.name)
+      ) {
+        return;
+      }
+      globalObjectAliases.add(node.id.name);
+      globalAliasChanged = true;
+    });
+  }
+  const isTerminalName = (name) =>
+    /^__(?:exact|native)[A-Za-z0-9_$]*$/u.test(name) ||
+    name === "__hostCall" ||
+    name === "__hostCallAsync";
+  const intrinsicGlobalReceivers = new Set([
+    "AggregateError",
+    "Array",
+    "ArrayBuffer",
+    "Atomics",
+    "BigInt",
+    "BigInt64Array",
+    "BigUint64Array",
+    "Boolean",
+    "Buffer",
+    "DataView",
+    "Date",
+    "Error",
+    "EvalError",
+    "FinalizationRegistry",
+    "Float32Array",
+    "Float64Array",
+    "Function",
+    "Int8Array",
+    "Int16Array",
+    "Int32Array",
+    "Intl",
+    "JSON",
+    "Map",
+    "Math",
+    "Number",
+    "Object",
+    "Promise",
+    "Proxy",
+    "RangeError",
+    "Reflect",
+    "ReferenceError",
+    "RegExp",
+    "Set",
+    "SharedArrayBuffer",
+    "String",
+    "Symbol",
+    "SyntaxError",
+    "TextDecoder",
+    "TextEncoder",
+    "TypeError",
+    "Uint8ClampedArray",
+    "Uint16Array",
+    "Uint32Array",
+    "Uint8Array",
+    "URIError",
+    "URL",
+    "URLSearchParams",
+    "WeakRef",
+    "WeakMap",
+    "WeakSet",
+    "WebAssembly",
+  ]);
+  const intrinsicLiteralTypes = new Set([
+    "ArrayExpression",
+    "BigIntLiteral",
+    "BooleanLiteral",
+    "NumericLiteral",
+    "RegExpLiteral",
+    "StringLiteral",
+  ]);
+  const mutatedIntrinsicRoots = new Set();
+  const intrinsicRootName = (expression) => {
+    if (!expression) return null;
+    if (
+      expression.type === "Identifier" &&
+      intrinsicGlobalReceivers.has(expression.name) &&
+      !declaredIdentifiers.has(expression.name) &&
+      !assignedIdentifiers.has(expression.name)
+    ) {
+      return expression.name;
+    }
+    if (
+      expression.type === "MemberExpression" &&
+      !expression.computed &&
+      expression.property?.type === "Identifier"
+    ) {
+      return intrinsicRootName(expression.object);
+    }
+    return null;
+  };
+  walkAst(program, (node) => {
+    if (
+      (node.type === "AssignmentExpression" ||
+        node.type === "UpdateExpression") &&
+      node.left
+    ) {
+      const root = intrinsicRootName(node.left);
+      if (root) mutatedIntrinsicRoots.add(root);
+      return;
+    }
+    if (node.type === "UnaryExpression" && node.operator === "delete") {
+      const root = intrinsicRootName(node.argument);
+      if (root) mutatedIntrinsicRoots.add(root);
+      return;
+    }
+    const mutation = mutationCallName(node);
+    if (!mutation) return;
+    const root = intrinsicRootName(node.arguments[0]);
+    if (root) mutatedIntrinsicRoots.add(root);
+  });
+  const isProvenIntrinsicReceiver = (expression) => {
+    if (!expression) return false;
+    if (intrinsicLiteralTypes.has(expression.type)) return true;
+    const root = intrinsicRootName(expression);
+    return root !== null && !mutatedIntrinsicRoots.has(root);
+  };
+  const isProvenIntrinsicValue = (expression, localBindings) => {
+    if (!expression) return false;
+    if (isProvenIntrinsicReceiver(expression)) return true;
+    if (
+      expression.type === "Identifier" &&
+      localBindings.has(expression.name)
+    ) {
+      return true;
+    }
+    if (
+      expression.type === "NewExpression" &&
+      expression.callee?.type === "Identifier" &&
+      intrinsicGlobalReceivers.has(expression.callee.name) &&
+      !declaredIdentifiers.has(expression.callee.name) &&
+      !assignedIdentifiers.has(expression.callee.name) &&
+      !mutatedIntrinsicRoots.has(expression.callee.name)
+    ) {
+      return true;
+    }
+    if (expression.type === "CallExpression") {
+      if (
+        expression.callee?.type === "Identifier" &&
+        intrinsicGlobalReceivers.has(expression.callee.name) &&
+        !declaredIdentifiers.has(expression.callee.name) &&
+        !assignedIdentifiers.has(expression.callee.name) &&
+        !mutatedIntrinsicRoots.has(expression.callee.name)
+      ) {
+        return true;
+      }
+      if (
+        expression.callee?.type === "MemberExpression" &&
+        isProvenIntrinsicReceiver(expression.callee.object)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  const terminalReference = (expression) => {
+    if (expression?.type === "Identifier" && isTerminalName(expression.name)) {
+      return declaredIdentifiers.has(expression.name)
+        ? { ambiguity: `shadowed:${expression.name}` }
+        : { name: expression.name };
+    }
+    if (expression?.type !== "MemberExpression") return null;
+    const name = directMemberName(expression);
+    if (!name || !isTerminalName(name)) return null;
+    if (expression.computed) {
+      return { ambiguity: `computed-terminal:${name}` };
+    }
+    if (
+      expression.object?.type !== "Identifier" ||
+      !globalObjectAliases.has(expression.object.name)
+    ) {
+      return { ambiguity: `dynamic-terminal-receiver:${name}` };
+    }
+    return { name };
+  };
+  const terminalAliases = new Map();
+  walkAst(program, (node) => {
+    if (node.type !== "VariableDeclaration" || node.kind !== "const") return;
+    for (const declaration of node.declarations) {
+      if (
+        declaration.id?.type !== "Identifier" ||
+        assignedIdentifiers.has(declaration.id.name)
+      ) {
+        continue;
+      }
+      const reference = terminalReference(declaration.init);
+      if (reference?.name) terminalAliases.set(declaration.id.name, reference.name);
+    }
+  });
+
+  const staticEnforcementCall = (call) => {
+    if (call?.type !== "CallExpression") return null;
+    if (
+      call.callee?.type === "MemberExpression" &&
+      !call.callee.computed &&
+      new Set(["apply", "call"]).has(call.callee.property?.name)
+    ) {
+      if (mutatedIntrinsicRoots.has("Function")) {
+        return { ambiguity: `dynamic-call-receiver:${call.callee.property.name}` };
+      }
+      const invokedReference = terminalReference(call.callee.object);
+      if (invokedReference?.ambiguity) return invokedReference;
+      if (invokedReference?.name) return { name: invokedReference.name };
+    }
+    const alias =
+      call.callee?.type === "Identifier"
+        ? terminalAliases.get(call.callee.name)
+        : null;
+    const reference = alias ? { name: alias } : terminalReference(call.callee);
+    if (!reference) return null;
+    if (reference.ambiguity) return reference;
+    const name = reference.name;
+    if (name === "__hostCall" || name === "__hostCallAsync") {
+      const operation = call.arguments[0];
+      return operation?.type === "StringLiteral"
+        ? { name: `${name}:${operation.value}` }
+        : { ambiguity: `${name}:dynamic-operation` };
+    }
+    return { name };
+  };
+
+  const routeMemo = new Map();
+  const intrinsicGlobalCalls = new Set([
+    "BigInt",
+    "Boolean",
+    "Number",
+    "String",
+    "decodeURI",
+    "decodeURIComponent",
+    "encodeURI",
+    "encodeURIComponent",
+    "escape",
+    "isFinite",
+    "isNaN",
+    "parseFloat",
+    "parseInt",
+    "unescape",
+  ]);
+  const requiredExportInvocation = (callee) => {
+    let target = callee;
+    if (
+      target?.type === "MemberExpression" &&
+      !target.computed &&
+      new Set(["apply", "call"]).has(directMemberName(target))
+    ) {
+      target = target.object;
+    }
+    const segments = [];
+    while (
+      target?.type === "MemberExpression" &&
+      !target.computed &&
+      target.property?.type === "Identifier"
+    ) {
+      segments.unshift(target.property.name);
+      target = target.object;
+    }
+    if (target?.type !== "Identifier") return null;
+    const binding = requiredModuleBindingSpecifiers.get(target.name);
+    if (!binding) return null;
+    return {
+      exportName: [...binding.exportSegments, ...segments].join(".") || "default",
+      moduleSpecifier: binding.moduleSpecifier,
+    };
+  };
+  const routeForCallable = (name, active = new Set()) => {
+    if (routeMemo.has(name)) return routeMemo.get(name);
+    if (active.has(name)) {
+      return { ambiguous: [], dependencies: [], paths: [], terminals: [] };
+    }
+    const qualified = name.includes(".");
+    const definitions = qualified
+      ? (qualifiedCallableDefinitions.get(name) ?? [])
+      : (callableDefinitionsByName.get(name) ?? []).map((row) => row.node);
+    if (definitions.length === 0 || (!qualified && definitions.length > 1)) {
+      const result = {
+        ambiguous:
+          definitions.length > 1
+            ? [name]
+            : (intrinsicGlobalCalls.has(name) ||
+                  intrinsicGlobalReceivers.has(name)) &&
+                !declaredIdentifiers.has(name) &&
+                !assignedIdentifiers.has(name) &&
+                !mutatedIntrinsicRoots.has(name)
+              ? []
+              : [`unresolved-call:${name}`],
+        paths: [],
+        dependencies: [],
+        terminals: [],
+      };
+      routeMemo.set(name, result);
+      return result;
+    }
+    const nextActive = new Set(active);
+    nextActive.add(name);
+    const owner = qualified ? name.slice(0, name.lastIndexOf(".")) : null;
+    const localIntrinsicBindings = new Set(staticArrays.keys());
+    let intrinsicChanged = true;
+    while (intrinsicChanged) {
+      intrinsicChanged = false;
+      for (const definition of definitions) {
+        walkDirectFunctionBody(definition, (node) => {
+          if (
+            node.type !== "VariableDeclarator" ||
+            node.id?.type !== "Identifier" ||
+            localIntrinsicBindings.has(node.id.name) ||
+            assignedIdentifiers.has(node.id.name) ||
+            !isProvenIntrinsicValue(node.init, localIntrinsicBindings)
+          ) {
+            return;
+          }
+          localIntrinsicBindings.add(node.id.name);
+          intrinsicChanged = true;
+        });
+      }
+    }
+    const terminalNames = new Set();
+    const routePaths = new Set();
+    const directAmbiguities = new Set([
+      ...(definitions.length > 1 ? [name] : []),
+      ...(qualifiedCallableOpaqueAlternatives.has(name)
+        ? [`dynamic-callable-alternative:${name}`]
+        : []),
+    ]);
+    const requiredDependencies = new Map();
+    const addRequiredDependency = (dependency) => {
+      const key = `${dependency.moduleSpecifier}\u0000${dependency.exportName}`;
+      let paths = requiredDependencies.get(key)?.paths;
+      if (!paths) {
+        paths = new Set();
+        requiredDependencies.set(key, { ...dependency, paths });
+      }
+      paths.add(
+        `${name} -> require:${dependency.moduleSpecifier}:${dependency.exportName}`,
+      );
+    };
+    const calleeNames = new Set();
+    const analyzeDefinition = (node) => {
+      if (node.type === "NewExpression") {
+        const dependency = requiredExportInvocation(node.callee);
+        if (dependency) {
+          addRequiredDependency(dependency);
+          return;
+        }
+        if (node.callee?.type === "Identifier") {
+          if (
+            intrinsicGlobalReceivers.has(node.callee.name) &&
+            !declaredIdentifiers.has(node.callee.name) &&
+            !assignedIdentifiers.has(node.callee.name) &&
+            !mutatedIntrinsicRoots.has(node.callee.name)
+          ) {
+            return;
+          }
+          calleeNames.add(node.callee.name);
+          return;
+        }
+        if (
+          node.callee?.type === "MemberExpression" &&
+          isProvenIntrinsicReceiver(node.callee.object)
+        ) {
+          return;
+        }
+        directAmbiguities.add(
+          `dynamic-constructor:${node.callee?.type ?? "unknown"}`,
+        );
+        return;
+      }
+      if (node.type !== "CallExpression") return;
+      const terminal = staticEnforcementCall(node);
+      if (terminal?.name) {
+        terminalNames.add(terminal.name);
+        routePaths.add(`${name} -> ${terminal.name}`);
+        return;
+      }
+      if (terminal?.ambiguity) {
+        directAmbiguities.add(terminal.ambiguity);
+        return;
+      }
+      const dependency = requiredExportInvocation(node.callee);
+      if (dependency) {
+        addRequiredDependency(dependency);
+        return;
+      }
+      if (node.callee?.type === "MemberExpression" && node.callee.computed) {
+        directAmbiguities.add("computed-call");
+        return;
+      }
+      if (node.callee?.type === "Identifier") {
+        calleeNames.add(node.callee.name);
+      } else if (
+        node.callee?.type === "MemberExpression" &&
+        new Set(["apply", "call"]).has(directMemberName(node.callee)) &&
+        node.callee.object?.type === "Identifier" &&
+        (callableDefinitionsByName.get(node.callee.object.name) ?? []).length ===
+          1 &&
+        !mutatedIntrinsicRoots.has("Function")
+      ) {
+        calleeNames.add(node.callee.object.name);
+      } else if (
+        owner &&
+        node.callee?.type === "MemberExpression" &&
+        new Set(["apply", "call"]).has(directMemberName(node.callee)) &&
+        node.callee.object?.type === "MemberExpression" &&
+        node.callee.object.object?.type === "ThisExpression" &&
+        !mutatedIntrinsicRoots.has("Function")
+      ) {
+        const method = directMemberName(node.callee.object);
+        if (method) calleeNames.add(`${owner}.${method}`);
+      } else if (
+        owner &&
+        node.callee?.type === "MemberExpression" &&
+        node.callee.object?.type === "ThisExpression"
+      ) {
+        const method = directMemberName(node.callee);
+        if (method) calleeNames.add(`${owner}.${method}`);
+      } else if (
+        node.callee?.type === "MemberExpression" &&
+        node.callee.object?.type === "Identifier" &&
+        staticObjectBindings.has(node.callee.object.name)
+      ) {
+        const method = directMemberName(node.callee);
+        if (method) calleeNames.add(`${node.callee.object.name}.${method}`);
+      } else if (
+        node.callee?.type === "MemberExpression" &&
+        (isProvenIntrinsicReceiver(node.callee.object) ||
+          (node.callee.object?.type === "Identifier" &&
+            localIntrinsicBindings.has(node.callee.object.name)))
+      ) {
+        // Intrinsic receiver identity is lexical and non-shadowed. These
+        // methods cannot hide an Ibex host boundary of their own.
+      } else if (node.callee?.type === "MemberExpression") {
+        directAmbiguities.add(
+          `dynamic-call-receiver:${directMemberName(node.callee) ?? "computed"}`,
+        );
+      } else {
+        directAmbiguities.add(
+          `dynamic-call-target:${node.callee?.type ?? "unknown"}`,
+        );
+      }
+    };
+    for (const definition of definitions) {
+      walkDirectFunctionBody(definition, analyzeDefinition);
+    }
+    const ambiguous = new Set(directAmbiguities);
+    for (const callee of calleeNames) {
+      const route = routeForCallable(callee, nextActive);
+      for (const terminal of route.terminals) terminalNames.add(terminal);
+      for (const routePath of route.paths) {
+        routePaths.add(`${name} -> ${routePath}`);
+      }
+      for (const unresolved of route.ambiguous) ambiguous.add(unresolved);
+      for (const dependency of route.dependencies) {
+        const key = `${dependency.moduleSpecifier}\u0000${dependency.exportName}`;
+        let accumulated = requiredDependencies.get(key)?.paths;
+        if (!accumulated) {
+          accumulated = new Set();
+          requiredDependencies.set(key, {
+            exportName: dependency.exportName,
+            moduleSpecifier: dependency.moduleSpecifier,
+            paths: accumulated,
+          });
+        }
+        for (const dependencyPath of dependency.paths) {
+          accumulated.add(`${name} -> ${dependencyPath}`);
+        }
+      }
+    }
+    const result = {
+      ambiguous: uniqueSorted(ambiguous),
+      dependencies: [...requiredDependencies.values()]
+        .map((dependency) => ({
+          exportName: dependency.exportName,
+          moduleSpecifier: dependency.moduleSpecifier,
+          paths: uniqueSorted(dependency.paths),
+        }))
+        .sort((left, right) =>
+          compareText(
+            `${left.moduleSpecifier}\u0000${left.exportName}`,
+            `${right.moduleSpecifier}\u0000${right.exportName}`,
+          ),
+        ),
+      paths: uniqueSorted(routePaths),
+      terminals: uniqueSorted(terminalNames),
+    };
+    routeMemo.set(name, result);
+    return result;
+  };
+
+  // Some builtins export a function returned by a small decorator/factory,
+  // for example `legacyStringValue(platform)`.  Treating every call-valued
+  // export as opaque loses the real enforcement route, while blindly
+  // following a factory argument would let an unrelated constructor invent a
+  // route.  Recover only factories that provably return a locally declared
+  // callable and whose returned callable invokes a callable parameter.
+  const routeForReturnedCallableFactory = (call) => {
+    if (
+      call?.callee?.type !== "Identifier" ||
+      (callableDefinitionsByName.get(call.callee.name) ?? []).length !== 1
+    ) {
+      return null;
+    }
+    const factoryName = call.callee.name;
+    const definition = callableDefinitionsByName.get(factoryName)[0].node;
+    const parameterTargets = new Map();
+    for (let index = 0; index < (definition.params ?? []).length; index += 1) {
+      const parameter = definition.params[index];
+      const argument = call.arguments[index];
+      if (parameter?.type === "Identifier" && argument?.type === "Identifier") {
+        parameterTargets.set(parameter.name, argument.name);
+      }
+    }
+    const localCallbacks = new Map();
+    const returned = [];
+    walkDirectFunctionBody(definition, (node) => {
+      if (
+        node.type === "VariableDeclarator" &&
+        node.id?.type === "Identifier" &&
+        callbackFunction(node.init)
+      ) {
+        localCallbacks.set(node.id.name, node.init);
+      }
+      if (node.type === "ReturnStatement") returned.push(node.argument);
+    });
+    if (returned.length === 0) return null;
+
+    const terminalNames = new Set();
+    const routePaths = new Set();
+    const ambiguous = new Set();
+    const dependencies = new Map();
+    const analyzedCallbacks = new Set();
+    const mergeRoute = (prefix, route) => {
+      for (const terminal of route.terminals) terminalNames.add(terminal);
+      for (const routePath of route.paths) {
+        routePaths.add(`${prefix} -> ${routePath}`);
+      }
+      for (const unresolved of route.ambiguous) ambiguous.add(unresolved);
+      for (const dependency of route.dependencies ?? []) {
+        const key = `${dependency.moduleSpecifier}\u0000${dependency.exportName}`;
+        let accumulated = dependencies.get(key)?.paths;
+        if (!accumulated) {
+          accumulated = new Set();
+          dependencies.set(key, {
+            exportName: dependency.exportName,
+            moduleSpecifier: dependency.moduleSpecifier,
+            paths: accumulated,
+          });
+        }
+        for (const dependencyPath of dependency.paths) {
+          accumulated.add(`${prefix} -> ${dependencyPath}`);
+        }
+      }
+    };
+    const analyzeCallback = (label, callback) => {
+      if (analyzedCallbacks.has(callback)) return;
+      analyzedCallbacks.add(callback);
+      walkDirectFunctionBody(callback, (node) => {
+        if (node.type !== "CallExpression") return;
+        const terminal = staticEnforcementCall(node);
+        if (terminal?.name) {
+          terminalNames.add(terminal.name);
+          routePaths.add(`${factoryName} -> ${label} -> ${terminal.name}`);
+          return;
+        }
+        if (terminal?.ambiguity) {
+          ambiguous.add(terminal.ambiguity);
+          return;
+        }
+        if (node.callee?.type === "Identifier") {
+          const target = parameterTargets.get(node.callee.name);
+          if (target) {
+            mergeRoute(
+              `${factoryName} -> ${label} -> parameter:${node.callee.name}`,
+              routeForCallable(target),
+            );
+            return;
+          }
+          const nested = localCallbacks.get(node.callee.name);
+          if (nested) {
+            analyzeCallback(node.callee.name, nested);
+            return;
+          }
+          if (
+            intrinsicGlobalCalls.has(node.callee.name) ||
+            intrinsicGlobalReceivers.has(node.callee.name)
+          ) {
+            return;
+          }
+          mergeRoute(
+            `${factoryName} -> ${label}`,
+            routeForCallable(node.callee.name),
+          );
+          return;
+        }
+        if (node.callee?.type === "MemberExpression" && node.callee.computed) {
+          ambiguous.add("computed-call");
+          return;
+        }
+        if (
+          node.callee?.type === "MemberExpression" &&
+          isProvenIntrinsicReceiver(node.callee.object)
+        ) {
+          return;
+        }
+        if (node.callee?.type === "MemberExpression") {
+          ambiguous.add(
+            `dynamic-call-receiver:${directMemberName(node.callee) ?? "computed"}`,
+          );
+        }
+      });
+    };
+
+    for (const value of returned) {
+      if (callbackFunction(value)) {
+        analyzeCallback("returned-callback", value);
+        continue;
+      }
+      if (value?.type !== "Identifier") return null;
+      const callback = localCallbacks.get(value.name);
+      if (callback) {
+        analyzeCallback(value.name, callback);
+        continue;
+      }
+      const target = parameterTargets.get(value.name);
+      if (!target) return null;
+      mergeRoute(
+        `${factoryName} -> returned-parameter:${value.name}`,
+        routeForCallable(target),
+      );
+    }
+    if (
+      terminalNames.size === 0 &&
+      ambiguous.size === 0 &&
+      dependencies.size === 0
+    ) {
+      return null;
+    }
+    return {
+      ambiguous: uniqueSorted(ambiguous),
+      dependencies: [...dependencies.values()]
+        .map((dependency) => ({
+          exportName: dependency.exportName,
+          moduleSpecifier: dependency.moduleSpecifier,
+          paths: uniqueSorted(dependency.paths),
+        }))
+        .sort((left, right) =>
+          compareText(
+            `${left.moduleSpecifier}\u0000${left.exportName}`,
+            `${right.moduleSpecifier}\u0000${right.exportName}`,
+          ),
+        ),
+      paths: uniqueSorted(routePaths),
+      terminals: uniqueSorted(terminalNames),
+    };
+  };
+
+  const routeForExport = (exportName) => {
+    const segments = exportName.split(".");
+    const rootName = segments[0];
+    const exactBindings = bindings.get(ROOT_EXPORT_OBJECT)?.get(exportName);
+    const rootBindings = bindings.get(ROOT_EXPORT_OBJECT)?.get(rootName);
+    const routes = [];
+    for (const localName of exactBindings ?? []) {
+      routes.push(routeForCallable(localName));
+    }
+    for (const call of callValuedBindings
+      .get(ROOT_EXPORT_OBJECT)
+      ?.get(exportName) ?? []) {
+      const route = routeForReturnedCallableFactory(call);
+      if (route) routes.push(route);
+    }
+    if (routes.length === 0 && segments.length > 1) {
+      const methodName = segments.at(-1);
+      for (const owner of rootBindings ?? []) {
+        routes.push(routeForCallable(`${owner}.${methodName}`));
+      }
+    }
+    if (routes.length === 0) {
+      for (const owner of bindings.get(ROOT_EXPORT_OBJECT)?.get("default") ?? []) {
+        routes.push(routeForCallable(`${owner}.${exportName}`));
+      }
+    }
+    const terminals = uniqueSorted(routes.flatMap((route) => route.terminals));
+    const ambiguous = uniqueSorted(routes.flatMap((route) => route.ambiguous));
+    const dependencies = new Map();
+    for (const route of routes) {
+      for (const dependency of route.dependencies ?? []) {
+        const key = `${dependency.moduleSpecifier}\u0000${dependency.exportName}`;
+        let accumulated = dependencies.get(key)?.paths;
+        if (!accumulated) {
+          accumulated = new Set();
+          dependencies.set(key, {
+            exportName: dependency.exportName,
+            moduleSpecifier: dependency.moduleSpecifier,
+            paths: accumulated,
+          });
+        }
+        for (const dependencyPath of dependency.paths) {
+          accumulated.add(`export:${exportName} -> ${dependencyPath}`);
+        }
+      }
+    }
+    const paths = uniqueSorted(
+      routes.flatMap((route) =>
+        route.paths.map((routePath) => `export:${exportName} -> ${routePath}`),
+      ),
+    );
+    return {
+      ambiguous,
+      dependencies: [...dependencies.values()]
+        .map((dependency) => ({
+          exportName: dependency.exportName,
+          moduleSpecifier: dependency.moduleSpecifier,
+          paths: uniqueSorted(dependency.paths),
+        }))
+        .sort((left, right) =>
+          compareText(
+            `${left.moduleSpecifier}\u0000${left.exportName}`,
+            `${right.moduleSpecifier}\u0000${right.exportName}`,
+          ),
+        ),
+      paths,
+      terminals,
+    };
+  };
+
+  walkAst(program, (node) => {
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.init?.type === "CallExpression" &&
+      node.init.callee?.type === "Identifier" &&
+      node.init.callee.name === "require" &&
+      node.init.arguments[0]?.type === "StringLiteral" &&
+      node.init.arguments[0].value.length > 0 &&
+      !assignedIdentifiers.has(node.id.name) &&
+      !declaredIdentifiers.has("require") &&
+      !assignedIdentifiers.has("require")
+    ) {
+      requiredModuleBindings.add(node.id.name);
+      requiredModuleBindingSpecifiers.set(node.id.name, {
+        exportSegments: [],
+        moduleSpecifier: node.init.arguments[0].value,
+      });
+    }
+  });
+  const isClosedModuleMember = (expression) =>
+    isStaticRequireMember(expression) ||
+    Boolean(
+      expression?.type === "MemberExpression" &&
+      directMemberName(expression) !== null &&
+      expression.object?.type === "Identifier" &&
+      requiredModuleBindings.has(expression.object.name),
+    );
+  const closedArrayBindings = new Set(staticArrays.keys());
+  let closedArrayChanged = true;
+  while (closedArrayChanged) {
+    closedArrayChanged = false;
+    walkAst(program, (node) => {
+      if (
+        node.type !== "VariableDeclarator" ||
+        node.id?.type !== "Identifier" ||
+        node.init?.type !== "CallExpression" ||
+        node.init.arguments.length !== 0 ||
+        node.init.callee?.type !== "MemberExpression" ||
+        node.init.callee.computed ||
+        node.init.callee.property?.type !== "Identifier" ||
+        node.init.callee.property.name !== "slice"
+      ) {
+        return;
+      }
+      const source = node.init.callee.object;
+      if (
+        !isClosedModuleMember(source) &&
+        !(source?.type === "Identifier" && closedArrayBindings.has(source.name))
+      ) {
+        return;
+      }
+      if (!closedArrayBindings.has(node.id.name)) {
+        closedArrayBindings.add(node.id.name);
+        closedArrayChanged = true;
+      }
+    });
+  }
+
+  // Record `for (key in source) target[key] = source[key]` structurally. The
+  // copy is accepted only after the source domain proves closed below (or an
+  // exact live-source descriptor contributes an explicit sentinel/manifest).
+  walkAst(program, (node) => {
+    if (node.type === "FunctionDeclaration" && node.id?.name) {
+      functionDefinitions.set(node.id.name, node);
+    }
+    if (node.type !== "ForInStatement") return;
+    const key =
+      node.left?.type === "VariableDeclaration" &&
+      node.left.declarations.length === 1
+        ? node.left.declarations[0].id
+        : node.left;
+    if (key?.type !== "Identifier" || node.right?.type !== "Identifier") return;
+    walkAst(node.body, (candidate) => {
+      if (
+        candidate.type === "AssignmentExpression" &&
+        candidate.operator === "=" &&
+        candidate.left?.type === "MemberExpression" &&
+        candidate.left.computed &&
+        candidate.left.property?.type === "Identifier" &&
+        candidate.left.property.name === key.name &&
+        candidate.right?.type === "MemberExpression" &&
+        candidate.right.computed &&
+        candidate.right.object?.type === "Identifier" &&
+        candidate.right.object.name === node.right.name &&
+        candidate.right.property?.type === "Identifier" &&
+        candidate.right.property.name === key.name
+      ) {
+        tableCopyRegistrations.set(candidate.left, {
+          prototypeOwner: prototypeOwner(candidate.left.object),
+          source: candidate.right.object.name,
+          target:
+            candidate.left.object?.type === "Identifier"
+              ? candidate.left.object.name
+              : null,
+        });
+      }
+    });
+  });
+
+  const factMap = (target) => {
+    let entries = facts.get(target);
+    if (!entries) {
+      entries = new Map();
+      facts.set(target, entries);
+    }
+    return entries;
+  };
+  const addFact = (target, name, idiom) => {
+    if (!target || typeof name !== "string" || name.length === 0) return;
+    const entries = factMap(target);
+    let idioms = entries.get(name);
+    if (!idioms) {
+      idioms = new Set();
+      entries.set(name, idioms);
+    }
+    idioms.add(idiom);
+  };
+  const shapeFactMap = (collection, target) => {
+    let entries = collection.get(target);
+    if (!entries) {
+      entries = new Map();
+      collection.set(target, entries);
+    }
+    return entries;
+  };
+  const addShapeFact = (collection, target, name, shape) => {
+    if (
+      !target ||
+      typeof name !== "string" ||
+      name.length === 0 ||
+      !new Set(["accessor", "callable", "data", "unknown"]).has(shape)
+    ) {
+      return;
+    }
+    const entries = shapeFactMap(collection, target);
+    let shapes = entries.get(name);
+    if (!shapes) {
+      shapes = new Set();
+      entries.set(name, shapes);
+    }
+    shapes.add(shape);
+  };
+  const addValueShapeFact = (target, name, shape) =>
+    addShapeFact(valueShapeFacts, target, name, shape);
+  const addPrototypeValueShapeFact = (owner, name, shape) =>
+    addShapeFact(prototypeValueShapeFacts, owner, name, shape);
+  const resolvedValueShape = (shapes) => {
+    if (!shapes || shapes.size !== 1) return "unknown";
+    return [...shapes][0];
+  };
+  const expressionValueShape = (expression, activeNames = new Set()) => {
+    if (!expression) return "unknown";
+    if (
+      new Set([
+        "ArrowFunctionExpression",
+        "ClassDeclaration",
+        "ClassExpression",
+        "FunctionDeclaration",
+        "FunctionExpression",
+      ]).has(expression.type)
+    ) {
+      return "callable";
+    }
+    if (
+      new Set([
+        "ArrayExpression",
+        "BigIntLiteral",
+        "BooleanLiteral",
+        "NullLiteral",
+        "NumericLiteral",
+        "ObjectExpression",
+        "RegExpLiteral",
+        "StringLiteral",
+        "TemplateLiteral",
+        "UnaryExpression",
+      ]).has(expression.type)
+    ) {
+      return "data";
+    }
+    if (expression.type === "BinaryExpression") return "data";
+    if (expression.type === "Identifier") {
+      if (
+        classDefinitionNames.has(expression.name) ||
+        (callableDefinitionsByName.get(expression.name) ?? []).length > 0
+      ) {
+        return "callable";
+      }
+      if (activeNames.has(expression.name)) return "unknown";
+      const candidates = localValueExpressions.get(expression.name) ?? [];
+      if (candidates.length === 0) return "unknown";
+      const nextActive = new Set(activeNames);
+      nextActive.add(expression.name);
+      const shapes = new Set(
+        candidates.map((candidate) =>
+          expressionValueShape(candidate, nextActive),
+        ),
+      );
+      return resolvedValueShape(shapes);
+    }
+    if (
+      expression.type === "LogicalExpression" ||
+      expression.type === "ConditionalExpression"
+    ) {
+      const children =
+        expression.type === "LogicalExpression"
+          ? [expression.left, expression.right]
+          : [expression.consequent, expression.alternate];
+      return resolvedValueShape(
+        new Set(
+          children.map((child) => expressionValueShape(child, activeNames)),
+        ),
+      );
+    }
+    if (expression.type === "SequenceExpression") {
+      return expressionValueShape(expression.expressions.at(-1), activeNames);
+    }
+    if (expression.type === "MemberExpression") {
+      const shapes = new Set();
+      const member = memberTargetAndNames(expression, new Map(), staticArrays);
+      if (member) {
+        for (const name of member.names) {
+          for (const shape of valueShapeFacts.get(member.target)?.get(name) ?? []) {
+            shapes.add(shape);
+          }
+        }
+      }
+      const owner = prototypeOwner(expression.object);
+      const name = directMemberName(expression);
+      if (owner && name) {
+        for (const shape of
+          prototypeValueShapeFacts.get(owner)?.get(name) ?? []) {
+          shapes.add(shape);
+        }
+      }
+      return resolvedValueShape(shapes);
+    }
+    if (
+      expression.type === "CallExpression" &&
+      new Set(["freeze", "seal"]).has(callName(expression)) &&
+      expression.callee?.type === "MemberExpression" &&
+      expression.callee.object?.type === "Identifier" &&
+      expression.callee.object.name === "Object" &&
+      expression.arguments.length === 1
+    ) {
+      return expressionValueShape(expression.arguments[0], activeNames);
+    }
+    return "unknown";
+  };
+  const propertyValueShape = (property) => {
+    if (property?.type === "ObjectMethod") {
+      if (property.kind === "get") return "accessor";
+      if (property.kind === "set") return null;
+      return "callable";
+    }
+    if (property?.type === "ObjectProperty") {
+      return expressionValueShape(property.value);
+    }
+    return "unknown";
+  };
+  const descriptorValueShape = (descriptor) => {
+    if (descriptor?.type !== "ObjectExpression") return "unknown";
+    let value = null;
+    let getter = false;
+    let invalidGetter = false;
+    for (const property of descriptor.properties) {
+      if (property.type === "SpreadElement" || property.computed) continue;
+      const names =
+        property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key);
+      if (names.includes("get")) {
+        if (propertyValueShape(property) === "callable") getter = true;
+        else invalidGetter = true;
+      }
+      if (names.includes("value") && property.type === "ObjectProperty") {
+        value = property.value;
+      }
+    }
+    if ((getter || invalidGetter) && value) return "unknown";
+    if (invalidGetter) return "unknown";
+    if (getter) return "accessor";
+    return value ? expressionValueShape(value) : "unknown";
+  };
+  const addAlias = (target, source) => {
+    if (!target || !source || target === source) return;
+    let sources = aliases.get(target);
+    if (!sources) {
+      sources = new Set();
+      aliases.set(target, sources);
+    }
+    sources.add(source);
+  };
+  const addBinding = (target, exportName, localName) => {
+    if (!target || !exportName || !localName) return;
+    let targetBindings = bindings.get(target);
+    if (!targetBindings) {
+      targetBindings = new Map();
+      bindings.set(target, targetBindings);
+    }
+    let localNames = targetBindings.get(exportName);
+    if (!localNames) {
+      localNames = new Set();
+      targetBindings.set(exportName, localNames);
+    }
+    localNames.add(localName);
+  };
+  const addCallValuedBinding = (target, exportName, call) => {
+    if (!target || !exportName || call?.type !== "CallExpression") return;
+    let targetBindings = callValuedBindings.get(target);
+    if (!targetBindings) {
+      targetBindings = new Map();
+      callValuedBindings.set(target, targetBindings);
+    }
+    let calls = targetBindings.get(exportName);
+    if (!calls) {
+      calls = new Set();
+      targetBindings.set(exportName, calls);
+    }
+    calls.add(call);
+  };
+  const recordPrototypeFact = (owner, name) => {
+    if (!owner || !name) return;
+    let names = prototypeFacts.get(owner);
+    if (!names) {
+      names = new Set();
+      prototypeFacts.set(owner, names);
+    }
+    names.add(name);
+  };
+  const addPrototypeFact = (owner, name) => {
+    recordPrototypeFact(owner, name);
+    if (!owner || !name) return;
+    let names = ownPrototypeFacts.get(owner);
+    if (!names) {
+      names = new Set();
+      ownPrototypeFacts.set(owner, names);
+    }
+    names.add(name);
+  };
+  const markInheritedPrototypeFact = (owner, name) => {
+    recordPrototypeFact(owner, name);
+    let names = inheritedPrototypeFacts.get(owner);
+    if (!names) {
+      names = new Set();
+      inheritedPrototypeFacts.set(owner, names);
+    }
+    names.add(name);
+  };
+  const inheritedShapeSentinel = (node, idiom) => {
+    const source = node
+      ? text.slice(node.start ?? 0, node.end ?? node.start ?? 0)
+      : idiom;
+    const digest = sha256Hex(`${idiom}\0${source}`).slice(0, 12);
+    return `[[dynamic-table:inherited-${digest}-properties]]`;
+  };
+  const addPrototypeSource = (owner, sourceOwner, node, idiom) => {
+    if (!owner) return;
+    let sources = prototypeSources.get(owner);
+    if (!sources) {
+      sources = new Map();
+      prototypeSources.set(owner, sources);
+    }
+    const key = sourceOwner ?? inheritedShapeSentinel(node, idiom);
+    sources.set(key, { idiom, node, sourceOwner });
+  };
+  const addObjectPrototypeOwner = (target, owner) => {
+    if (!target || !owner) return;
+    let owners = objectPrototypeOwners.get(target);
+    if (!owners) {
+      owners = new Set();
+      objectPrototypeOwners.set(target, owners);
+    }
+    owners.add(owner);
+  };
+  const observeComputedRegistration = (
+    node,
+    target,
+    property,
+    names,
+    idiom,
+  ) => {
+    if (!node?.computed || !target) return;
+    if (
+      names.length > 0 ||
+      isStaticallyNonPublicPropertyKey(property, nonPublicBindings)
+    ) {
+      resolvedRegistrations.add(node);
+      return;
+    }
+    if (!unresolvedRegistrations.has(node)) {
+      unresolvedRegistrations.set(node, { idiom, target });
+    }
+  };
+  const observeOpaqueShape = (node, target, source, idiom) => {
+    if (!node || !target || opaqueShapeRegistrations.has(node)) return;
+    opaqueShapeRegistrations.set(node, { idiom, source, target });
+  };
+  const observePrototypeRegistration = (
+    node,
+    owner,
+    property,
+    names,
+    idiom,
+  ) => {
+    if (!owner) return;
+    if (
+      names.length > 0 ||
+      isStaticallyNonPublicPropertyKey(property, nonPublicBindings)
+    ) {
+      resolvedRegistrations.add(node);
+      return;
+    }
+    if (!unresolvedPrototypeRegistrations.has(node)) {
+      unresolvedPrototypeRegistrations.set(node, { idiom, owner });
+    }
+  };
+  const recordClassMembers = (classNode, owner, substitutions) => {
+    if (!classNode || !owner) return;
+    knownPrototypeOwners.add(owner);
+    for (const method of classNode.body?.body ?? []) {
+      const names =
+        !method.computed && method.key?.type === "Identifier"
+          ? [method.key.name]
+          : staticPropertyName(method.key, substitutions);
+      observePrototypeRegistration(
+        method,
+        owner,
+        method.key,
+        names,
+        method.static
+          ? "computed-static-class-member"
+          : "computed-class-member",
+      );
+      for (const name of names) {
+        addPrototypeFact(owner, name);
+        addPrototypeValueShapeFact(
+          owner,
+          name,
+          method.kind === "get"
+            ? "accessor"
+            : method.kind === "set"
+              ? null
+              : "callable",
+        );
+      }
+    }
+    if (classNode.superClass) {
+      const baseOwner =
+        classNode.superClass.type === "Identifier"
+          ? classNode.superClass.name
+          : prototypeOwner(classNode.superClass);
+      addPrototypeSource(
+        owner,
+        baseOwner,
+        classNode.superClass,
+        "class-extends",
+      );
+    }
+  };
+  const classExpressionOwners = new WeakMap();
+  const classExpressionOwner = (classNode) => {
+    let owner = classExpressionOwners.get(classNode);
+    if (!owner) {
+      const source = text.slice(
+        classNode.start ?? 0,
+        classNode.end ?? classNode.start ?? 0,
+      );
+      owner = `[[class-expression:${sha256Hex(source).slice(0, 12)}]]`;
+      classExpressionOwners.set(classNode, owner);
+    }
+    return owner;
+  };
+  const bindClassExpression = (
+    target,
+    exportNames,
+    classNode,
+    substitutions,
+  ) => {
+    if (!classNode) return false;
+    if (classNode.type === "ClassExpression") {
+      const owner = classExpressionOwner(classNode);
+      recordClassMembers(classNode, owner, substitutions);
+      for (const exportName of exportNames)
+        addBinding(target, exportName, owner);
+      return true;
+    }
+    if (
+      classNode.type === "Identifier" &&
+      (knownPrototypeOwners.has(classNode.name) ||
+        prototypeFacts.has(classNode.name))
+    ) {
+      for (const exportName of exportNames)
+        addBinding(target, exportName, classNode.name);
+      return true;
+    }
+    if (
+      classNode.type === "LogicalExpression" ||
+      classNode.type === "ConditionalExpression" ||
+      classNode.type === "SequenceExpression"
+    ) {
+      const children =
+        classNode.type === "LogicalExpression"
+          ? [classNode.left, classNode.right]
+          : classNode.type === "ConditionalExpression"
+            ? [classNode.consequent, classNode.alternate]
+            : [classNode.expressions.at(-1)];
+      let bound = false;
+      for (const child of children) {
+        bound =
+          bindClassExpression(target, exportNames, child, substitutions) ||
+          bound;
+      }
+      return bound;
+    }
+    if (
+      classNode.type === "CallExpression" &&
+      classNode.callee?.type === "Identifier"
+    ) {
+      const definitions =
+        callableDefinitionsByName.get(classNode.callee.name) ?? [];
+      if (definitions.length !== 1) {
+        const containsDirectClass = (expression) => {
+          if (!expression) return false;
+          if (expression.type === "ClassExpression") return true;
+          if (expression.type === "LogicalExpression")
+            return (
+              containsDirectClass(expression.left) ||
+              containsDirectClass(expression.right)
+            );
+          if (expression.type === "ConditionalExpression")
+            return (
+              containsDirectClass(expression.consequent) ||
+              containsDirectClass(expression.alternate)
+            );
+          if (expression.type === "SequenceExpression")
+            return containsDirectClass(expression.expressions.at(-1));
+          return false;
+        };
+        if (classNode.arguments.some(containsDirectClass)) {
+          throw new Error(
+            `${sourcePath}: unresolved public class decorator/factory call ${classNode.callee.name}`,
+          );
+        }
+        return false;
+      }
+      const definition = definitions[0].node;
+      const localValues = new Map();
+      walkDirectFunctionBody(definition, (node) => {
+        if (
+          node.type === "VariableDeclarator" &&
+          node.id?.type === "Identifier" &&
+          node.init
+        ) {
+          localValues.set(node.id.name, node.init);
+        }
+      });
+      const bindReturnedValue = (value, seen = new Set()) => {
+        if (value?.type === "Identifier" && localValues.has(value.name)) {
+          if (seen.has(value.name)) return false;
+          const nextSeen = new Set(seen);
+          nextSeen.add(value.name);
+          return bindReturnedValue(localValues.get(value.name), nextSeen);
+        }
+        return bindClassExpression(target, exportNames, value, substitutions);
+      };
+      let bound = false;
+      if (
+        definition.type === "ArrowFunctionExpression" &&
+        definition.body?.type !== "BlockStatement"
+      ) {
+        bound = bindReturnedValue(definition.body);
+      } else {
+        walkDirectFunctionBody(definition, (node) => {
+          if (node.type !== "ReturnStatement") return;
+          bound = bindReturnedValue(node.argument) || bound;
+        });
+      }
+      return bound;
+    }
+    return false;
+  };
+  const reviewedClosedCallValue = (expression) => {
+    if (expression?.type !== "CallExpression") return false;
+    if (
+      callName(expression) === "create" &&
+      expression.callee?.type === "MemberExpression" &&
+      expression.callee.object?.type === "Identifier" &&
+      expression.callee.object.name === "Object" &&
+      expression.arguments.length >= 1 &&
+      expression.arguments.length <= 2 &&
+      (expression.arguments[1] === undefined ||
+        expression.arguments[1]?.type === "ObjectExpression")
+    ) {
+      return true;
+    }
+    if (
+      new Set(["freeze", "seal"]).has(callName(expression)) &&
+      expression.callee?.type === "MemberExpression" &&
+      expression.callee.object?.type === "Identifier" &&
+      expression.callee.object.name === "Object" &&
+      expression.arguments.length === 1 &&
+      expression.arguments[0]?.type === "ObjectExpression"
+    ) {
+      return true;
+    }
+    if (
+      expression.arguments.length === 0 &&
+      expression.callee?.type === "MemberExpression" &&
+      !expression.callee.computed &&
+      expression.callee.property?.type === "Identifier" &&
+      expression.callee.property.name === "slice" &&
+      expression.callee.object?.type === "Identifier" &&
+      closedArrayBindings.has(expression.callee.object.name)
+    ) {
+      return true;
+    }
+    if (expression.callee?.type !== "Identifier") return false;
+    const definitions =
+      callableDefinitionsByName.get(expression.callee.name) ?? [];
+    if (definitions.length !== 1) return false;
+    const scalarExpression = (value) => {
+      if (!value) return false;
+      if (
+        new Set([
+          "BigIntLiteral",
+          "BooleanLiteral",
+          "NullLiteral",
+          "NumericLiteral",
+          "StringLiteral",
+          "TemplateLiteral",
+        ]).has(value.type)
+      ) {
+        return true;
+      }
+      if (value.type === "UnaryExpression") return true;
+      if (value.type === "BinaryExpression") return true;
+      if (value.type === "LogicalExpression")
+        return scalarExpression(value.left) && scalarExpression(value.right);
+      if (value.type === "ConditionalExpression")
+        return (
+          scalarExpression(value.consequent) &&
+          scalarExpression(value.alternate)
+        );
+      if (value.type === "SequenceExpression")
+        return scalarExpression(value.expressions.at(-1));
+      return false;
+    };
+    const definition = definitions[0].node;
+    if (
+      definition.type === "ArrowFunctionExpression" &&
+      definition.body?.type !== "BlockStatement"
+    ) {
+      return scalarExpression(definition.body);
+    }
+    const returns = [];
+    walkDirectFunctionBody(definition, (node) => {
+      if (node.type === "ReturnStatement") returns.push(node.argument);
+    });
+    return returns.length > 0 && returns.every(scalarExpression);
+  };
+  const opaqueCallValue = (expression) => {
+    if (!expression) return null;
+    if (expression.type === "CallExpression")
+      return reviewedClosedCallValue(expression) ? null : expression;
+    if (expression.type === "LogicalExpression")
+      return (
+        opaqueCallValue(expression.left) ?? opaqueCallValue(expression.right)
+      );
+    if (expression.type === "ConditionalExpression")
+      return (
+        opaqueCallValue(expression.consequent) ??
+        opaqueCallValue(expression.alternate)
+      );
+    if (expression.type === "SequenceExpression")
+      return opaqueCallValue(expression.expressions.at(-1));
+    return null;
+  };
+  const recordOpaqueCallResult = (target, exportNames, expression, idiom) => {
+    const call = opaqueCallValue(expression);
+    if (!call) return false;
+    const sentinel = inheritedShapeSentinel(call, idiom);
+    for (const exportName of exportNames) {
+      addFact(target, `${exportName}.${sentinel}`, "inherited-shape-sentinel");
+    }
+    resolvedOpaqueShapeNodes.add(call);
+    return true;
+  };
+
+  const receiverFacts = new Map();
+  const receiverUnresolved = new Map();
+  const receiverKey = (functionName, parameterIndex) =>
+    `${functionName}\0${parameterIndex}`;
+  const receiverFactSet = (key) => {
+    let names = receiverFacts.get(key);
+    if (!names) {
+      names = new Set();
+      receiverFacts.set(key, names);
+    }
+    return names;
+  };
+  const receiverUnresolvedMap = (key) => {
+    let registrations = receiverUnresolved.get(key);
+    if (!registrations) {
+      registrations = new Map();
+      receiverUnresolved.set(key, registrations);
+    }
+    return registrations;
+  };
+  const receiverForExpression = (definition, expression) => {
+    if (expression?.type === "ThisExpression") {
+      return { kind: "prototype", owner: definition.name };
+    }
+    if (expression?.type !== "Identifier") return null;
+    const parameterIndex = definition.node.params.findIndex(
+      (parameter) =>
+        parameter?.type === "Identifier" && parameter.name === expression.name,
+    );
+    return parameterIndex === -1
+      ? null
+      : {
+          key: receiverKey(definition.name, parameterIndex),
+          kind: "parameter",
+        };
+  };
+  const addReceiverNames = (receiver, names) => {
+    if (!receiver) return false;
+    let changed = false;
+    if (receiver.kind === "prototype") {
+      const existing = prototypeFacts.get(receiver.owner) ?? new Set();
+      const before = existing.size;
+      for (const name of names) addPrototypeFact(receiver.owner, name);
+      changed = (prototypeFacts.get(receiver.owner)?.size ?? 0) !== before;
+    } else {
+      const existing = receiverFactSet(receiver.key);
+      const before = existing.size;
+      for (const name of names) existing.add(name);
+      changed = existing.size !== before;
+    }
+    return changed;
+  };
+  const addReceiverUnresolved = (receiver, node, idiom, property = null) => {
+    if (!receiver || !node) return false;
+    if (receiver.kind === "prototype") {
+      const before = unresolvedPrototypeRegistrations.size;
+      if (!unresolvedPrototypeRegistrations.has(node)) {
+        unresolvedPrototypeRegistrations.set(node, {
+          idiom,
+          owner: receiver.owner,
+          property,
+        });
+      }
+      return unresolvedPrototypeRegistrations.size !== before;
+    }
+    const registrations = receiverUnresolvedMap(receiver.key);
+    const before = registrations.size;
+    if (!registrations.has(node)) registrations.set(node, { idiom, property });
+    return registrations.size !== before;
+  };
+  const recordReceiverProperty = (
+    definition,
+    receiverExpression,
+    property,
+    computed,
+    node,
+    idiom,
+  ) => {
+    const receiver = receiverForExpression(definition, receiverExpression);
+    if (!receiver) return;
+    const names =
+      !computed && property?.type === "Identifier"
+        ? [property.name]
+        : staticPropertyName(property, staticBindings);
+    if (names.length > 0) {
+      addReceiverNames(receiver, names);
+      resolvedRegistrations.add(node);
+    } else if (isStaticallyNonPublicPropertyKey(property, nonPublicBindings)) {
+      resolvedRegistrations.add(node);
+    } else {
+      addReceiverUnresolved(receiver, node, idiom, property);
+    }
+  };
+
+  // Constructor APIs are sometimes installed directly on each instance rather
+  // than on the prototype. Follow receiver parameters through initializer
+  // helpers (for example `ReadStream -> _initReadStream(this, ...)`) so those
+  // methods remain part of the exported constructor surface.
+  for (const definition of callableDefinitions) {
+    walkDirectFunctionBody(definition.node, (node) => {
+      if (
+        node.type === "AssignmentExpression" &&
+        node.operator === "=" &&
+        node.left?.type === "MemberExpression" &&
+        isJavaScriptFunctionNode(node.right)
+      ) {
+        recordReceiverProperty(
+          definition,
+          node.left.object,
+          node.left.property,
+          node.left.computed,
+          node.left,
+          "computed-instance-method-assignment",
+        );
+      }
+      if (node.type !== "CallExpression") return;
+      const mutation = mutationCallName(node);
+      if (
+        mutation === "Object.defineProperty" ||
+        mutation === "Reflect.defineProperty"
+      ) {
+        recordReceiverProperty(
+          definition,
+          node.arguments[0],
+          node.arguments[1],
+          true,
+          node,
+          `computed-instance-${mutation.replace(".", "-")}`,
+        );
+      } else if (mutation === "Reflect.set") {
+        recordReceiverProperty(
+          definition,
+          node.arguments[0],
+          node.arguments[1],
+          true,
+          node,
+          "computed-instance-reflect-set",
+        );
+      } else if (
+        mutation === "Object.assign" &&
+        node.arguments[1]?.type === "ObjectExpression"
+      ) {
+        const receiver = receiverForExpression(definition, node.arguments[0]);
+        if (!receiver) return;
+        for (const property of node.arguments[1].properties) {
+          if (property.type === "SpreadElement") {
+            addReceiverUnresolved(
+              receiver,
+              property,
+              "opaque-instance-object-assign-spread",
+              property,
+            );
+            continue;
+          }
+          recordReceiverProperty(
+            definition,
+            node.arguments[0],
+            property.key,
+            property.computed,
+            property,
+            "computed-instance-object-assign",
+          );
+        }
+      }
+    });
+  }
+
+  let receiverChanged = true;
+  while (receiverChanged) {
+    receiverChanged = false;
+    for (const definition of callableDefinitions) {
+      walkDirectFunctionBody(definition.node, (node) => {
+        if (
+          node.type !== "CallExpression" ||
+          node.callee?.type !== "Identifier"
+        ) {
+          return;
+        }
+        const candidates =
+          callableDefinitionsByName.get(node.callee.name) ?? [];
+        if (candidates.length !== 1) return;
+        const callee = candidates[0];
+        for (let index = 0; index < node.arguments.length; index += 1) {
+          const destination = receiverForExpression(
+            definition,
+            node.arguments[index],
+          );
+          if (!destination) continue;
+          const sourceKey = receiverKey(callee.name, index);
+          receiverChanged =
+            addReceiverNames(
+              destination,
+              receiverFacts.get(sourceKey) ?? new Set(),
+            ) || receiverChanged;
+          for (const [registration, detail] of receiverUnresolved.get(
+            sourceKey,
+          ) ?? []) {
+            let resolvedNames = [];
+            if (detail.property?.type === "Identifier") {
+              const propertyParameterIndex = callee.node.params.findIndex(
+                (parameter) =>
+                  parameter?.type === "Identifier" &&
+                  parameter.name === detail.property.name,
+              );
+              if (propertyParameterIndex !== -1) {
+                resolvedNames = staticRegistrationNames(
+                  node.arguments[propertyParameterIndex],
+                  staticBindings,
+                  staticArrays,
+                );
+              }
+            }
+            if (resolvedNames.length > 0) {
+              receiverChanged =
+                addReceiverNames(destination, resolvedNames) || receiverChanged;
+              continue;
+            }
+            receiverChanged =
+              addReceiverUnresolved(
+                destination,
+                registration,
+                detail.idiom,
+                detail.property,
+              ) || receiverChanged;
+          }
+        }
+      });
+    }
+  }
+
+  const recordPrototypeObjectMembers = (
+    owner,
+    expression,
+    idiom,
+    substitutions,
+  ) => {
+    if (!owner) return;
+    if (expression?.type !== "ObjectExpression") {
+      if (expression && !unresolvedPrototypeRegistrations.has(expression)) {
+        unresolvedPrototypeRegistrations.set(expression, { idiom, owner });
+      }
+      return;
+    }
+    for (const property of expression.properties) {
+      if (property.type === "SpreadElement") {
+        if (!unresolvedPrototypeRegistrations.has(property)) {
+          unresolvedPrototypeRegistrations.set(property, { idiom, owner });
+        }
+        continue;
+      }
+      const names =
+        !property.computed && property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key, substitutions);
+      observePrototypeRegistration(property, owner, property.key, names, idiom);
+      for (const name of names) {
+        addPrototypeFact(owner, name);
+        addPrototypeValueShapeFact(owner, name, propertyValueShape(property));
+      }
+    }
+  };
+
+  const recordPrototypeInheritance = (
+    owner,
+    expression,
+    node,
+    idiom,
+    substitutions,
+  ) => {
+    if (!owner || !expression || expression.type === "NullLiteral") return;
+    if (expression.type === "ObjectExpression") {
+      recordPrototypeObjectMembers(
+        owner,
+        expression,
+        `${idiom}-object-literal`,
+        substitutions,
+      );
+      return;
+    }
+    const sourceOwner =
+      expression.type === "Identifier"
+        ? expression.name
+        : prototypeOwner(expression);
+    addPrototypeSource(owner, sourceOwner, node ?? expression, idiom);
+  };
+
+  const recordExpression = (
+    target,
+    expression,
+    idiom,
+    substitutions = new Map(),
+  ) => {
+    if (!target || !expression) return;
+    if (expression.type === "ObjectExpression") {
+      for (const name of objectPropertyNames(expression, substitutions))
+        addFact(target, name, idiom);
+      for (const property of expression.properties) {
+        if (property.type === "SpreadElement") {
+          if (property.argument?.type === "Identifier") {
+            addAlias(target, property.argument.name);
+            observeOpaqueShape(
+              property,
+              target,
+              property.argument.name,
+              `${idiom}-object-spread`,
+            );
+          } else {
+            observeOpaqueShape(
+              property,
+              target,
+              null,
+              `${idiom}-opaque-object-spread`,
+            );
+          }
+          continue;
+        }
+        const names =
+          !property.computed && property.key?.type === "Identifier"
+            ? [property.key.name]
+            : staticPropertyName(property.key, substitutions);
+        if (property.type !== "SpreadElement") {
+          observeComputedRegistration(
+            property,
+            target,
+            property.key,
+            names,
+            `${idiom}-object-property`,
+          );
+          for (const name of names) {
+            addValueShapeFact(target, name, propertyValueShape(property));
+          }
+        }
+        if (property.value?.type === "Identifier") {
+          for (const name of names)
+            addBinding(target, name, property.value.name);
+        } else {
+          if (property.value?.type === "CallExpression") {
+            for (const name of names) {
+              addCallValuedBinding(target, name, property.value);
+            }
+          }
+          const classBound = bindClassExpression(
+            target,
+            names,
+            property.value,
+            substitutions,
+          );
+          if (!classBound) {
+            recordOpaqueCallResult(
+              target,
+              names,
+              property.value,
+              `${idiom}-call-valued-property`,
+            );
+          }
+        }
+      }
+      return;
+    }
+    if (expression.type === "Identifier") {
+      addAlias(target, expression.name);
+      observeOpaqueShape(
+        expression,
+        target,
+        expression.name,
+        `${idiom}-identifier-shape`,
+      );
+      return;
+    }
+    if (
+      expression.type === "FunctionExpression" ||
+      expression.type === "ArrowFunctionExpression" ||
+      expression.type === "ClassExpression"
+    ) {
+      if (expression.type === "ClassExpression") {
+        recordClassMembers(
+          expression,
+          expression.id?.name ?? target,
+          substitutions,
+        );
+      }
+      return;
+    }
+    if (isClosedModuleMember(expression)) return;
+    if (
+      expression.type === "CallExpression" &&
+      callName(expression) === "create" &&
+      (expression.arguments[1] === undefined ||
+        expression.arguments[1]?.type === "ObjectExpression")
+    ) {
+      const inherited = expression.arguments[0];
+      if (inherited?.type === "ObjectExpression") {
+        recordExpression(
+          target,
+          inherited,
+          `${idiom}-object-create-prototype`,
+          substitutions,
+        );
+      } else if (inherited?.type === "Identifier") {
+        addAlias(target, inherited.name);
+      } else {
+        const inheritedOwner = prototypeOwner(inherited);
+        if (inheritedOwner) {
+          addObjectPrototypeOwner(target, inheritedOwner);
+        } else if (inherited && inherited.type !== "NullLiteral") {
+          addFact(
+            target,
+            inheritedShapeSentinel(inherited, `${idiom}-object-create`),
+            "inherited-shape-sentinel",
+          );
+        }
+      }
+      if (expression.arguments[1]) {
+        recordExpression(
+          target,
+          expression.arguments[1],
+          `${idiom}-object-create-descriptors`,
+          substitutions,
+        );
+      }
+      return;
+    }
+    if (expression.type === "CallExpression") {
+      observeOpaqueShape(
+        expression,
+        target,
+        expression.callee?.type === "Identifier"
+          ? `<function-return:${expression.callee.name}>`
+          : null,
+        `${idiom}-call-shape`,
+      );
+      return;
+    }
+    if (
+      expression.type === "LogicalExpression" ||
+      expression.type === "ConditionalExpression" ||
+      expression.type === "SequenceExpression"
+    ) {
+      const children =
+        expression.type === "LogicalExpression"
+          ? [expression.left, expression.right]
+          : expression.type === "ConditionalExpression"
+            ? [expression.consequent, expression.alternate]
+            : expression.expressions;
+      for (const child of children)
+        recordExpression(target, child, idiom, substitutions);
+      return;
+    }
+    if (
+      expression.type === "NullLiteral" ||
+      expression.type === "BooleanLiteral" ||
+      expression.type === "NumericLiteral" ||
+      expression.type === "StringLiteral"
+    ) {
+      return;
+    }
+    observeOpaqueShape(expression, target, null, `${idiom}-opaque-shape`);
+  };
+
+  const recordNode = (node, substitutions = new Map()) => {
+    if (node.type === "FunctionDeclaration" && node.id?.name) {
+      knownPrototypeOwners.add(node.id.name);
+    }
+    if (node.type === "ClassDeclaration" && node.id?.name) {
+      recordClassMembers(node, node.id.name, substitutions);
+    }
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+      if (node.init?.type === "ClassExpression") {
+        recordClassMembers(node.init, node.id.name, substitutions);
+      } else if (node.init?.type === "FunctionExpression") {
+        knownPrototypeOwners.add(node.id.name);
+      }
+      recordExpression(
+        node.id.name,
+        node.init,
+        "object-binding",
+        substitutions,
+      );
+      return;
+    }
+
+    if (node.type === "AssignmentExpression" && node.operator === "=") {
+      if (isModuleExports(node.left)) {
+        addFact(ROOT_EXPORT_OBJECT, "default", "module-exports-assignment");
+        addValueShapeFact(
+          ROOT_EXPORT_OBJECT,
+          "default",
+          expressionValueShape(node.right),
+        );
+        let classBound = false;
+        if (node.right?.type === "Identifier") {
+          addBinding(ROOT_EXPORT_OBJECT, "default", node.right.name);
+        } else {
+          classBound = bindClassExpression(
+            ROOT_EXPORT_OBJECT,
+            ["default"],
+            node.right,
+            substitutions,
+          );
+        }
+        if (!classBound) {
+          recordOpaqueCallResult(
+            ROOT_EXPORT_OBJECT,
+            ["default"],
+            node.right,
+            "module-exports-call-result",
+          );
+        }
+        recordExpression(
+          ROOT_EXPORT_OBJECT,
+          node.right,
+          "module-exports-object",
+          substitutions,
+        );
+        return;
+      }
+      if (node.left?.type === "Identifier") {
+        recordExpression(
+          node.left.name,
+          node.right,
+          "object-assignment",
+          substitutions,
+        );
+        return;
+      }
+      if (
+        node.left?.type === "MemberExpression" &&
+        directMemberName(node.left) === "__proto__"
+      ) {
+        const target = exportTargetId(node.left.object);
+        const owner = prototypeOwner(node.left.object);
+        if (owner) {
+          recordPrototypeInheritance(
+            owner,
+            node.right,
+            node,
+            "prototype-__proto__-assignment",
+            substitutions,
+          );
+        } else if (target) {
+          if (node.right?.type === "ObjectExpression") {
+            recordExpression(
+              target,
+              node.right,
+              "object-__proto__-assignment",
+              substitutions,
+            );
+          } else if (node.right?.type === "Identifier") {
+            addAlias(target, node.right.name);
+          } else {
+            const inheritedOwner = prototypeOwner(node.right);
+            if (inheritedOwner) addObjectPrototypeOwner(target, inheritedOwner);
+            else
+              addFact(
+                target,
+                inheritedShapeSentinel(node.right, "object-__proto__"),
+                "inherited-shape-sentinel",
+              );
+          }
+        }
+        return;
+      }
+      if (
+        node.left?.type === "MemberExpression" &&
+        directMemberName(node.left) === "prototype" &&
+        node.left.object?.type === "Identifier" &&
+        node.right?.type === "CallExpression" &&
+        callName(node.right) === "create"
+      ) {
+        knownPrototypeOwners.add(node.left.object.name);
+        recordPrototypeInheritance(
+          node.left.object.name,
+          node.right.arguments[0],
+          node.right,
+          "prototype-object-create",
+          substitutions,
+        );
+        if (node.right.arguments[1]) {
+          recordPrototypeObjectMembers(
+            node.left.object.name,
+            node.right.arguments[1],
+            "prototype-object-create-descriptors",
+            substitutions,
+          );
+          for (const name of objectPropertyNames(
+            node.right.arguments[1],
+            substitutions,
+          )) {
+            markInheritedPrototypeFact(node.left.object.name, name);
+          }
+        }
+        return;
+      }
+      if (
+        node.left?.type === "MemberExpression" &&
+        directMemberName(node.left) === "prototype" &&
+        node.left.object?.type === "Identifier" &&
+        node.right
+      ) {
+        knownPrototypeOwners.add(node.left.object.name);
+        recordPrototypeInheritance(
+          node.left.object.name,
+          node.right,
+          node,
+          "prototype-assignment",
+          substitutions,
+        );
+      }
+      const prototype = prototypeOwner(node.left?.object);
+      if (prototype) {
+        const names =
+          !node.left.computed && node.left.property?.type === "Identifier"
+            ? [node.left.property.name]
+            : staticPropertyName(node.left.property, substitutions);
+        observePrototypeRegistration(
+          node.left,
+          prototype,
+          node.left.property,
+          names,
+          "computed-prototype-assignment",
+        );
+        for (const name of names) {
+          addPrototypeFact(prototype, name);
+          addPrototypeValueShapeFact(
+            prototype,
+            name,
+            expressionValueShape(node.right),
+          );
+        }
+      }
+      if (
+        node.left?.type === "MemberExpression" &&
+        directMemberName(node.left) === "prototype" &&
+        node.left.object?.type === "Identifier" &&
+        node.right?.type === "ObjectExpression"
+      ) {
+        recordPrototypeObjectMembers(
+          node.left.object.name,
+          node.right,
+          "computed-prototype-object-assignment",
+          substitutions,
+        );
+      }
+      const member = memberTargetAndNames(
+        node.left,
+        substitutions,
+        staticArrays,
+      );
+      if (member) {
+        observeComputedRegistration(
+          node.left,
+          member.target,
+          node.left.property,
+          member.names,
+          "member-assignment",
+        );
+        for (const name of member.names) {
+          addFact(member.target, name, "member-assignment");
+          addValueShapeFact(
+            member.target,
+            name,
+            expressionValueShape(node.right),
+          );
+          if (node.right?.type === "Identifier")
+            addBinding(member.target, name, node.right.name);
+        }
+        const classBound = bindClassExpression(
+          member.target,
+          member.names,
+          node.right,
+          substitutions,
+        );
+        if (!classBound) {
+          recordOpaqueCallResult(
+            member.target,
+            member.names,
+            node.right,
+            "call-valued-member-assignment",
+          );
+        }
+      }
+      return;
+    }
+
+    if (node.type === "CallExpression") {
+      const objectCall = callName(node);
+      const mutation = mutationCallName(node);
+      if (
+        node.callee?.type === "MemberExpression" &&
+        !node.callee.computed &&
+        node.callee.object?.type === "Identifier" &&
+        node.callee.object.name === "util" &&
+        node.callee.property?.type === "Identifier" &&
+        node.callee.property.name === "inherits" &&
+        node.arguments[0]?.type === "Identifier"
+      ) {
+        knownPrototypeOwners.add(node.arguments[0].name);
+        recordPrototypeInheritance(
+          node.arguments[0].name,
+          node.arguments[1],
+          node,
+          "util-inherits",
+          substitutions,
+        );
+      }
+      if (
+        mutation === "Object.setPrototypeOf" ||
+        mutation === "Reflect.setPrototypeOf"
+      ) {
+        const target = exportTargetId(node.arguments[0]);
+        const owner =
+          prototypeOwner(node.arguments[0]) ??
+          (node.arguments[0]?.type === "Identifier"
+            ? node.arguments[0].name
+            : null);
+        if (owner) {
+          knownPrototypeOwners.add(owner);
+          recordPrototypeInheritance(
+            owner,
+            node.arguments[1],
+            node,
+            mutation,
+            substitutions,
+          );
+        }
+        if (target) {
+          const inherited = node.arguments[1];
+          if (inherited?.type === "ObjectExpression") {
+            recordExpression(target, inherited, mutation, substitutions);
+          } else if (inherited?.type === "Identifier") {
+            addAlias(target, inherited.name);
+          } else {
+            const inheritedOwner = prototypeOwner(inherited);
+            if (inheritedOwner) addObjectPrototypeOwner(target, inheritedOwner);
+            else if (inherited && inherited.type !== "NullLiteral")
+              addFact(
+                target,
+                inheritedShapeSentinel(inherited, mutation),
+                "inherited-shape-sentinel",
+              );
+          }
+        }
+      } else if (
+        mutation === "Object.defineProperty" ||
+        mutation === "Reflect.defineProperty"
+      ) {
+        const idiom =
+          mutation === "Object.defineProperty"
+            ? "define-property"
+            : "reflect-define-property";
+        const target = exportTargetId(node.arguments[0]);
+        const names = staticPropertyName(node.arguments[1], substitutions);
+        if (target && names.length === 0) {
+          if (
+            isStaticallyNonPublicPropertyKey(
+              node.arguments[1],
+              nonPublicBindings,
+            )
+          ) {
+            resolvedRegistrations.add(node);
+          } else if (!unresolvedRegistrations.has(node)) {
+            unresolvedRegistrations.set(node, {
+              idiom,
+              target,
+            });
+          }
+        } else if (names.length > 0) {
+          resolvedRegistrations.add(node);
+        }
+        for (const name of names) {
+          addFact(target, name, idiom);
+          addValueShapeFact(
+            target,
+            name,
+            descriptorValueShape(node.arguments[2]),
+          );
+        }
+        const descriptorValue =
+          node.arguments[2]?.type === "ObjectExpression"
+            ? (node.arguments[2].properties.find(
+                (property) =>
+                  property.type === "ObjectProperty" &&
+                  !property.computed &&
+                  property.key?.type === "Identifier" &&
+                  property.key.name === "value",
+              )?.value ?? null)
+            : null;
+        const classBound = bindClassExpression(
+          target,
+          names,
+          descriptorValue,
+          substitutions,
+        );
+        if (!classBound) {
+          recordOpaqueCallResult(
+            target,
+            names,
+            descriptorValue,
+            `${idiom}-call-valued-descriptor`,
+          );
+        }
+        const prototype = prototypeOwner(node.arguments[0]);
+        const prototypeNames = staticPropertyName(
+          node.arguments[1],
+          substitutions,
+        );
+        observePrototypeRegistration(
+          node,
+          prototype,
+          node.arguments[1],
+          prototypeNames,
+          `computed-prototype-${idiom}`,
+        );
+        for (const name of prototypeNames) {
+          addPrototypeFact(prototype, name);
+          addPrototypeValueShapeFact(
+            prototype,
+            name,
+            descriptorValueShape(node.arguments[2]),
+          );
+        }
+      } else if (mutation === "Reflect.set") {
+        const target = exportTargetId(node.arguments[0]);
+        const names = staticPropertyName(node.arguments[1], substitutions);
+        if (target && names.length === 0) {
+          if (
+            isStaticallyNonPublicPropertyKey(
+              node.arguments[1],
+              nonPublicBindings,
+            )
+          ) {
+            resolvedRegistrations.add(node);
+          } else if (!unresolvedRegistrations.has(node)) {
+            unresolvedRegistrations.set(node, {
+              idiom: "reflect-set",
+              target,
+            });
+          }
+        } else if (names.length > 0) {
+          resolvedRegistrations.add(node);
+        }
+        for (const name of names) {
+          addFact(target, name, "reflect-set");
+          addValueShapeFact(
+            target,
+            name,
+            expressionValueShape(node.arguments[2]),
+          );
+          if (node.arguments[2]?.type === "Identifier") {
+            addBinding(target, name, node.arguments[2].name);
+          }
+        }
+        const classBound = bindClassExpression(
+          target,
+          names,
+          node.arguments[2],
+          substitutions,
+        );
+        if (!classBound) {
+          recordOpaqueCallResult(
+            target,
+            names,
+            node.arguments[2],
+            "reflect-set-call-valued-property",
+          );
+        }
+        const prototype = prototypeOwner(node.arguments[0]);
+        observePrototypeRegistration(
+          node,
+          prototype,
+          node.arguments[1],
+          names,
+          "computed-prototype-reflect-set",
+        );
+        for (const name of names) {
+          addPrototypeFact(prototype, name);
+          addPrototypeValueShapeFact(
+            prototype,
+            name,
+            expressionValueShape(node.arguments[2]),
+          );
+        }
+      } else if (mutation === "Object.defineProperties") {
+        const target = exportTargetId(node.arguments[0]);
+        for (const name of objectPropertyNames(
+          node.arguments[1],
+          substitutions,
+        )) {
+          addFact(target, name, "define-properties");
+        }
+        if (target && node.arguments[1]?.type === "ObjectExpression") {
+          for (const property of node.arguments[1].properties) {
+            if (property.type === "SpreadElement") continue;
+            const names =
+              !property.computed && property.key?.type === "Identifier"
+                ? [property.key.name]
+                : staticPropertyName(property.key, substitutions);
+            observeComputedRegistration(
+              property,
+              target,
+              property.key,
+              names,
+              "define-properties",
+            );
+            for (const name of names) {
+              addValueShapeFact(
+                target,
+                name,
+                descriptorValueShape(property.value),
+              );
+            }
+            const descriptorValue =
+              property.value?.type === "ObjectExpression"
+                ? (property.value.properties.find(
+                    (descriptorProperty) =>
+                      descriptorProperty.type === "ObjectProperty" &&
+                      !descriptorProperty.computed &&
+                      descriptorProperty.key?.type === "Identifier" &&
+                      descriptorProperty.key.name === "value",
+                  )?.value ?? null)
+                : null;
+            const classBound = bindClassExpression(
+              target,
+              names,
+              descriptorValue,
+              substitutions,
+            );
+            if (!classBound) {
+              recordOpaqueCallResult(
+                target,
+                names,
+                descriptorValue,
+                "define-properties-call-valued-descriptor",
+              );
+            }
+          }
+        }
+        recordPrototypeObjectMembers(
+          prototypeOwner(node.arguments[0]),
+          node.arguments[1],
+          "computed-prototype-define-properties",
+          substitutions,
+        );
+      } else if (mutation === "Object.assign") {
+        const target = exportTargetId(node.arguments[0]);
+        const prototype = prototypeOwner(node.arguments[0]);
+        for (const source of node.arguments.slice(1)) {
+          recordExpression(target, source, "object-assign", substitutions);
+          recordPrototypeObjectMembers(
+            prototype,
+            source,
+            "computed-prototype-object-assign",
+            substitutions,
+          );
+        }
+      }
+      const legacyAccessor = directMemberName(node.callee);
+      if (
+        legacyAccessor === "__defineGetter__" ||
+        legacyAccessor === "__defineSetter__"
+      ) {
+        const prototype = prototypeOwner(node.callee.object);
+        const names = staticPropertyName(node.arguments[0], substitutions);
+        observePrototypeRegistration(
+          node,
+          prototype,
+          node.arguments[0],
+          names,
+          `computed-prototype-${legacyAccessor}`,
+        );
+        for (const name of names) {
+          addPrototypeFact(prototype, name);
+          if (legacyAccessor === "__defineGetter__") {
+            addPrototypeValueShapeFact(prototype, name, "accessor");
+          }
+        }
+      }
+      if (
+        node.callee?.type === "MemberExpression" &&
+        !node.callee.computed &&
+        node.callee.property?.type === "Identifier" &&
+        node.callee.property.name === "forEach"
+      ) {
+        forEachCalls.push(node);
+      }
+      if (callbackFunction(node.callee)) immediateCalls.push(node);
+      return;
+    }
+
+    if (node.type === "ExportDefaultDeclaration") {
+      addFact(ROOT_EXPORT_OBJECT, "default", "esm-default-export");
+      addValueShapeFact(
+        ROOT_EXPORT_OBJECT,
+        "default",
+        expressionValueShape(node.declaration),
+      );
+      if (node.declaration?.type === "ClassDeclaration") {
+        const owner =
+          node.declaration.id?.name ?? classExpressionOwner(node.declaration);
+        recordClassMembers(node.declaration, owner, substitutions);
+        addBinding(ROOT_EXPORT_OBJECT, "default", owner);
+      } else {
+        const classBound = bindClassExpression(
+          ROOT_EXPORT_OBJECT,
+          ["default"],
+          node.declaration,
+          substitutions,
+        );
+        if (!classBound) {
+          recordOpaqueCallResult(
+            ROOT_EXPORT_OBJECT,
+            ["default"],
+            node.declaration,
+            "esm-default-call-valued-export",
+          );
+        }
+      }
+      return;
+    }
+    if (node.type === "ExportAllDeclaration") {
+      observeOpaqueShape(node, ROOT_EXPORT_OBJECT, null, "esm-export-all");
+      return;
+    }
+    if (node.type === "ExportNamedDeclaration") {
+      const declaration = node.declaration;
+      if (
+        declaration?.type === "FunctionDeclaration" ||
+        declaration?.type === "ClassDeclaration"
+      ) {
+        if (declaration.id?.name) {
+          addFact(ROOT_EXPORT_OBJECT, declaration.id.name, "esm-declaration");
+          addBinding(
+            ROOT_EXPORT_OBJECT,
+            declaration.id.name,
+            declaration.id.name,
+          );
+        }
+      } else if (declaration?.type === "VariableDeclaration") {
+        for (const item of declaration.declarations) {
+          if (item.id?.type === "Identifier") {
+            addFact(ROOT_EXPORT_OBJECT, item.id.name, "esm-declaration");
+            addBinding(ROOT_EXPORT_OBJECT, item.id.name, item.id.name);
+          }
+        }
+      }
+      for (const specifier of node.specifiers ?? []) {
+        const names = staticPropertyName(specifier.exported);
+        if (specifier.exported?.type === "Identifier")
+          names.push(specifier.exported.name);
+        for (const name of names) {
+          addFact(ROOT_EXPORT_OBJECT, name, "esm-specifier");
+          if (specifier.local?.type === "Identifier") {
+            addBinding(ROOT_EXPORT_OBJECT, name, specifier.local.name);
+          }
+        }
+      }
+    }
+  };
+
+  walkAst(program, (node) => recordNode(node, staticBindings));
+
+  // Resolve the common `['A', 'B'].forEach(name => exports[name] = ...)`
+  // family without executing source. This covers fs constants and similar
+  // authored export tables while still rejecting comment/string lookalikes.
+  for (const call of forEachCalls) {
+    let values = [];
+    const receiver = call.callee.object;
+    if (receiver?.type === "ArrayExpression") {
+      values = receiver.elements.flatMap((element) =>
+        staticPropertyName(element),
+      );
+    } else if (receiver?.type === "Identifier") {
+      values = [...(staticArrays.get(receiver.name) ?? [])];
+    } else if (
+      receiver?.type === "CallExpression" &&
+      callName(receiver) === "keys" &&
+      receiver.arguments[0]?.type === "Identifier"
+    ) {
+      values = [...(facts.get(receiver.arguments[0].name)?.keys() ?? [])];
+    }
+    const callback = callbackFunction(call.arguments[0]);
+    const parameter = callback?.params[0];
+    if (values.length === 0 || parameter?.type !== "Identifier") continue;
+    const substitutions = mergeSubstitutions(
+      staticBindings,
+      new Map([[parameter.name, new Set(values)]]),
+    );
+    walkAst(callback.body, (node) => recordNode(node, substitutions));
+  }
+
+  for (const call of immediateCalls) {
+    const callback = callbackFunction(call.callee);
+    const additions = new Map();
+    for (let index = 0; index < callback.params.length; index += 1) {
+      const parameter = callback.params[index];
+      if (parameter?.type !== "Identifier") continue;
+      const values = staticRegistrationNames(
+        call.arguments[index],
+        staticBindings,
+        staticArrays,
+      );
+      if (values.length > 0) additions.set(parameter.name, new Set(values));
+    }
+    if (additions.size === 0) continue;
+    const substitutions = mergeSubstitutions(staticBindings, additions);
+    walkAst(callback.body, (node) => recordNode(node, substitutions));
+  }
+
+  const returnTarget = (name) => `<function-return:${name}>`;
+  const propertySources = new Map();
+  const shapeSeeds = new Set();
+  const shapeUnknownTargets = new Set();
+  const addPropertySource = (target, source) => {
+    if (!target || !source || target === source) return;
+    let sources = propertySources.get(target);
+    if (!sources) {
+      sources = new Set();
+      propertySources.set(target, sources);
+    }
+    sources.add(source);
+  };
+  const addExpressionSource = (target, expression, idiom) => {
+    if (!target || !expression) return;
+    if (expression.type === "Identifier") {
+      addPropertySource(target, exportTargetId(expression) ?? expression.name);
+      return;
+    }
+    if (expression.type === "ObjectExpression") {
+      shapeSeeds.add(target);
+      recordExpression(target, expression, idiom, staticBindings);
+      for (const property of expression.properties) {
+        if (property.type !== "SpreadElement") continue;
+        if (property.argument?.type === "Identifier") {
+          addPropertySource(target, property.argument.name);
+        } else {
+          shapeUnknownTargets.add(target);
+        }
+      }
+      return;
+    }
+    if (isClosedModuleMember(expression)) {
+      shapeSeeds.add(target);
+      return;
+    }
+    if (
+      expression.type === "CallExpression" &&
+      callName(expression) === "create" &&
+      (expression.arguments[1] === undefined ||
+        expression.arguments[1]?.type === "ObjectExpression")
+    ) {
+      shapeSeeds.add(target);
+      if (expression.arguments[1]) {
+        addExpressionSource(
+          target,
+          expression.arguments[1],
+          `${idiom}-object-create-descriptors`,
+        );
+      }
+      return;
+    }
+    if (expression.type === "CallExpression") {
+      if (expression.callee?.type === "Identifier") {
+        addPropertySource(target, returnTarget(expression.callee.name));
+        return;
+      }
+      if (
+        ["freeze", "seal"].includes(callName(expression)) &&
+        expression.arguments[0]?.type === "ObjectExpression"
+      ) {
+        addExpressionSource(target, expression.arguments[0], idiom);
+      } else {
+        shapeUnknownTargets.add(target);
+      }
+      return;
+    }
+    if (
+      expression.type === "LogicalExpression" ||
+      expression.type === "ConditionalExpression" ||
+      expression.type === "SequenceExpression"
+    ) {
+      const children =
+        expression.type === "LogicalExpression"
+          ? [expression.left, expression.right]
+          : expression.type === "ConditionalExpression"
+            ? [expression.consequent, expression.alternate]
+            : expression.expressions;
+      for (const child of children) addExpressionSource(target, child, idiom);
+      return;
+    }
+    if (
+      expression.type === "FunctionExpression" ||
+      expression.type === "ArrowFunctionExpression" ||
+      expression.type === "ClassExpression" ||
+      expression.type === "ArrayExpression" ||
+      expression.type === "NullLiteral" ||
+      expression.type === "BooleanLiteral" ||
+      expression.type === "NumericLiteral" ||
+      expression.type === "StringLiteral"
+    ) {
+      shapeSeeds.add(target);
+      return;
+    }
+    shapeUnknownTargets.add(target);
+  };
+
+  // Build a closed property-domain graph for table copier functions. This is
+  // what turns `_assign({...})` and `_assign(makeConstants())` into concrete
+  // export facts instead of merely allowing a dynamic-looking assignment.
+  walkAst(program, (node) => {
+    if (
+      (node.type === "FunctionDeclaration" ||
+        node.type === "ClassDeclaration") &&
+      node.id?.name
+    ) {
+      shapeSeeds.add(node.id.name);
+    }
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+      addExpressionSource(node.id.name, node.init, "object-source");
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      node.left?.type === "Identifier"
+    ) {
+      addExpressionSource(node.left.name, node.right, "object-source");
+    }
+    if (node.type === "FunctionDeclaration" && node.id?.name) {
+      walkAst(node.body, (candidate) => {
+        if (candidate.type === "ReturnStatement") {
+          addExpressionSource(
+            returnTarget(node.id.name),
+            candidate.argument,
+            "function-return",
+          );
+        }
+      });
+    }
+    if (node.type === "CallExpression" && node.callee?.type === "Identifier") {
+      const definition = functionDefinitions.get(node.callee.name);
+      if (!definition) return;
+      for (let index = 0; index < definition.params.length; index += 1) {
+        const parameter = definition.params[index];
+        if (parameter?.type === "Identifier") {
+          addExpressionSource(
+            parameter.name,
+            node.arguments[index],
+            "function-argument",
+          );
+        }
+      }
+    }
+  });
+
+  if (
+    sourceKey === "exact_process" &&
+    sourcePath === "src/builtins/process.js"
+  ) {
+    for (const [node, registration] of opaqueShapeRegistrations) {
+      if (
+        registration.target === "proc" &&
+        node.type === "MemberExpression" &&
+        node.object?.type === "Identifier" &&
+        node.object.name === "globalThis" &&
+        directMemberName(node) === "process"
+      ) {
+        // The ambient process object's individual native properties are
+        // inventoried by the native-op scanner; this exact facade binding is
+        // the closed join between that inventory and the CommonJS wrapper.
+        resolvedOpaqueShapeNodes.add(node);
+        shapeUnknownTargets.delete("proc");
+        shapeSeeds.add("proc");
+      }
+    }
+  }
+  if (
+    sourceKey === "node_console" &&
+    sourcePath === "src/builtins/console.js"
+  ) {
+    let exactConsoleFacade = false;
+    walkAst(program, (node) => {
+      if (
+        node.type === "AssignmentExpression" &&
+        node.operator === "=" &&
+        isModuleExports(node.left) &&
+        node.right?.type === "Identifier" &&
+        node.right.name === "console"
+      ) {
+        exactConsoleFacade = true;
+      }
+    });
+    if (exactConsoleFacade) shapeSeeds.add("console");
+  }
+  if (
+    sourceKey === "node_stream_web" &&
+    sourcePath === "src/builtins/stream-web.js"
+  ) {
+    let cacheWrite = false;
+    let closedCacheValue = false;
+    walkAst(program, (node) => {
+      if (
+        node.type === "AssignmentExpression" &&
+        node.operator === "=" &&
+        node.left?.type === "MemberExpression" &&
+        node.left.object?.type === "Identifier" &&
+        node.left.object.name === "g" &&
+        staticPropertyName(node.left.property, staticBindings).includes(
+          "__exactNodeStreamWebModuleCache__",
+        ) &&
+        node.right?.type === "Identifier" &&
+        node.right.name === "cachedModule"
+      ) {
+        cacheWrite = true;
+      }
+      if (
+        node.type === "AssignmentExpression" &&
+        node.operator === "=" &&
+        node.left?.type === "Identifier" &&
+        node.left.name === "cachedModule" &&
+        node.right?.type === "ObjectExpression"
+      ) {
+        closedCacheValue = true;
+      }
+    });
+    if (cacheWrite && closedCacheValue) {
+      for (const [node, registration] of opaqueShapeRegistrations) {
+        if (
+          registration.target === "cachedModule" &&
+          node.type === "MemberExpression" &&
+          staticPropertyName(node.property, staticBindings).includes(
+            "__exactNodeStreamWebModuleCache__",
+          )
+        ) {
+          resolvedOpaqueShapeNodes.add(node);
+          shapeUnknownTargets.delete("cachedModule");
+          shapeSeeds.add("cachedModule");
+        }
+      }
+    }
+  }
+
+  const hasNativeSignalOverlaySources = () => {
+    let globalMap = false;
+    let hostCall = false;
+    walkAst(program, (node) => {
+      if (
+        node.type !== "AssignmentExpression" ||
+        node.operator !== "=" ||
+        node.left?.type !== "Identifier" ||
+        node.left.name !== "nativeMap"
+      ) {
+        return;
+      }
+      if (
+        node.right?.type === "MemberExpression" &&
+        node.right.object?.type === "Identifier" &&
+        node.right.object.name === "globalThis" &&
+        directMemberName(node.right) === "__exactSignalNumbersMap"
+      ) {
+        globalMap = true;
+      }
+      if (
+        node.right?.type === "CallExpression" &&
+        node.right.callee?.type === "Identifier" &&
+        node.right.callee.name === "__exactSignalNumbers"
+      ) {
+        hostCall = true;
+      }
+    });
+    return globalMap && hostCall;
+  };
+  const hasFsPromisesOverlaySource = () => {
+    let fsImport = false;
+    let baseBinding = false;
+    walkAst(program, (node) => {
+      if (node.type !== "VariableDeclarator" || node.id?.type !== "Identifier")
+        return;
+      if (
+        node.id.name === "fs" &&
+        node.init?.type === "CallExpression" &&
+        node.init.callee?.type === "Identifier" &&
+        node.init.callee.name === "require" &&
+        node.init.arguments[0]?.type === "StringLiteral" &&
+        node.init.arguments[0].value === "node:fs"
+      ) {
+        fsImport = true;
+      }
+      if (
+        node.id.name === "base" &&
+        node.init?.type === "LogicalExpression" &&
+        node.init.left?.type === "MemberExpression" &&
+        node.init.left.object?.type === "Identifier" &&
+        node.init.left.object.name === "fs" &&
+        directMemberName(node.init.left) === "promises" &&
+        node.init.right?.type === "ObjectExpression"
+      ) {
+        baseBinding = true;
+      }
+    });
+    return fsImport && baseBinding;
+  };
+  const explicitlyClosedTableNodes = new Set();
+  for (const [node, registration] of tableCopyRegistrations) {
+    if (!registration.target) continue;
+    if (
+      sourceKey === "node_constants" &&
+      sourcePath === "src/builtins/constants.js" &&
+      registration.target === "out" &&
+      registration.source === "nativeMap" &&
+      hasNativeSignalOverlaySources()
+    ) {
+      addFact(
+        registration.target,
+        "[[dynamic-table:signal-number-overlay]]",
+        "closed-dynamic-table:signal-number-overlay",
+      );
+      explicitlyClosedTableNodes.add(node);
+      resolvedRegistrations.add(node);
+      continue;
+    }
+    if (
+      sourceKey === "node_fs_promises" &&
+      sourcePath === "src/builtins/fs-promises.js" &&
+      registration.target === "promises" &&
+      registration.source === "base" &&
+      hasFsPromisesOverlaySource()
+    ) {
+      explicitlyClosedTableNodes.add(node);
+      resolvedRegistrations.add(node);
+      continue;
+    }
+    addPropertySource(registration.target, registration.source);
+  }
+
+  // Follow local object aliases to a fixed point. This covers patterns such as
+  // `const api = {...}; api.more = value; module.exports = api` regardless of
+  // declaration order.
+  const propagateFactSources = () => {
+    let graphChanged = true;
+    while (graphChanged) {
+      graphChanged = false;
+      for (const [target, sources] of propertySources) {
+        for (const source of sources) {
+          for (const [name, sourceIdioms] of facts.get(source) ?? []) {
+            const before = facts.get(target)?.get(name)?.size ?? 0;
+            for (const idiom of sourceIdioms) addFact(target, name, idiom);
+            if ((facts.get(target)?.get(name)?.size ?? 0) !== before)
+              graphChanged = true;
+          }
+          for (const [name, sourceShapes] of
+            valueShapeFacts.get(source) ?? []) {
+            const before = valueShapeFacts.get(target)?.get(name)?.size ?? 0;
+            for (const shape of sourceShapes)
+              addValueShapeFact(target, name, shape);
+            if (
+              (valueShapeFacts.get(target)?.get(name)?.size ?? 0) !== before
+            ) {
+              graphChanged = true;
+            }
+          }
+        }
+      }
+      for (const [target, sources] of aliases) {
+        for (const source of sources) {
+          for (const [name, sourceIdioms] of facts.get(source) ?? []) {
+            const before = facts.get(target)?.get(name)?.size ?? 0;
+            for (const idiom of sourceIdioms) addFact(target, name, idiom);
+            if ((facts.get(target)?.get(name)?.size ?? 0) !== before)
+              graphChanged = true;
+          }
+          for (const [name, sourceShapes] of
+            valueShapeFacts.get(source) ?? []) {
+            const before = valueShapeFacts.get(target)?.get(name)?.size ?? 0;
+            for (const shape of sourceShapes)
+              addValueShapeFact(target, name, shape);
+            if (
+              (valueShapeFacts.get(target)?.get(name)?.size ?? 0) !== before
+            ) {
+              graphChanged = true;
+            }
+          }
+          for (const [name, localNames] of bindings.get(source) ?? []) {
+            const before = bindings.get(target)?.get(name)?.size ?? 0;
+            for (const localName of localNames)
+              addBinding(target, name, localName);
+            if ((bindings.get(target)?.get(name)?.size ?? 0) !== before)
+              graphChanged = true;
+          }
+          for (const [name, calls] of callValuedBindings.get(source) ?? []) {
+            const before = callValuedBindings.get(target)?.get(name)?.size ?? 0;
+            for (const call of calls) addCallValuedBinding(target, name, call);
+            if (
+              (callValuedBindings.get(target)?.get(name)?.size ?? 0) !== before
+            ) {
+              graphChanged = true;
+            }
+          }
+        }
+      }
+    }
+  };
+  propagateFactSources();
+
+  const shapeDependencies = new Map();
+  const addShapeDependency = (target, source) => {
+    if (!target || !source || target === source) return;
+    let sources = shapeDependencies.get(target);
+    if (!sources) {
+      sources = new Set();
+      shapeDependencies.set(target, sources);
+    }
+    sources.add(source);
+  };
+  for (const [target, sources] of propertySources) {
+    for (const source of sources) addShapeDependency(target, source);
+  }
+  for (const [target, sources] of aliases) {
+    for (const source of sources) addShapeDependency(target, source);
+  }
+  for (const [node, registration] of unresolvedRegistrations) {
+    if (!resolvedRegistrations.has(node) && !tableCopyRegistrations.has(node)) {
+      shapeUnknownTargets.add(registration.target);
+    }
+  }
+  const closedShapes = new Set();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const targets = new Set([...shapeSeeds, ...shapeDependencies.keys()]);
+    for (const target of targets) {
+      if (closedShapes.has(target) || shapeUnknownTargets.has(target)) continue;
+      const dependencies = shapeDependencies.get(target) ?? new Set();
+      if (!shapeSeeds.has(target) && dependencies.size === 0) continue;
+      if ([...dependencies].some((source) => !closedShapes.has(source)))
+        continue;
+      closedShapes.add(target);
+      changed = true;
+    }
+  }
+
+  for (const [node, registration] of tableCopyRegistrations) {
+    if (explicitlyClosedTableNodes.has(node)) continue;
+    const names = [...(facts.get(registration.source)?.keys() ?? [])];
+    if (registration.prototypeOwner && closedShapes.has(registration.source)) {
+      for (const name of names) {
+        addPrototypeFact(registration.prototypeOwner, name);
+        for (const shape of valueShapeFacts.get(registration.source)?.get(name) ?? []) {
+          addPrototypeValueShapeFact(registration.prototypeOwner, name, shape);
+        }
+      }
+      resolvedRegistrations.add(node);
+      continue;
+    }
+    if (registration.target && closedShapes.has(registration.source)) {
+      for (const name of names)
+        addFact(registration.target, name, "table-copy");
+      resolvedRegistrations.add(node);
+    }
+  }
+
+  for (const [owner, sources] of prototypeSources) {
+    for (const source of sources.values()) {
+      if (
+        source.sourceOwner &&
+        (knownPrototypeOwners.has(source.sourceOwner) ||
+          prototypeFacts.has(source.sourceOwner))
+      ) {
+        continue;
+      }
+      markInheritedPrototypeFact(
+        owner,
+        inheritedShapeSentinel(source.node, source.idiom),
+      );
+    }
+  }
+  let inheritedChanged = true;
+  while (inheritedChanged) {
+    inheritedChanged = false;
+    for (const [owner, sources] of prototypeSources) {
+      for (const source of sources.values()) {
+        if (!source.sourceOwner) continue;
+        const before = prototypeFacts.get(owner)?.size ?? 0;
+        for (const name of prototypeFacts.get(source.sourceOwner) ?? []) {
+          markInheritedPrototypeFact(owner, name);
+          for (const shape of
+            prototypeValueShapeFacts.get(source.sourceOwner)?.get(name) ?? []) {
+            addPrototypeValueShapeFact(owner, name, shape);
+          }
+        }
+        if ((prototypeFacts.get(owner)?.size ?? 0) !== before)
+          inheritedChanged = true;
+      }
+    }
+  }
+  for (const [target, owners] of objectPrototypeOwners) {
+    for (const owner of owners) {
+      const inherited = prototypeFacts.get(owner);
+      if (!inherited || inherited.size === 0) {
+        addFact(
+          target,
+          inheritedShapeSentinel(null, `object-prototype:${owner}`),
+          "inherited-shape-sentinel",
+        );
+        continue;
+      }
+      for (const name of inherited) {
+        addFact(target, name, "inherited-prototype-member");
+        for (const shape of
+          prototypeValueShapeFacts.get(owner)?.get(name) ?? []) {
+          addValueShapeFact(target, name, shape);
+        }
+      }
+    }
+  }
+  propagateFactSources();
+
+  const publicTargets = new Set([ROOT_EXPORT_OBJECT]);
+  changed = true;
+  while (changed) {
+    changed = false;
+    for (const [target, sources] of aliases) {
+      for (const source of sources) {
+        if (!publicTargets.has(target) && !publicTargets.has(source)) continue;
+        if (!publicTargets.has(target)) {
+          publicTargets.add(target);
+          changed = true;
+        }
+        if (!publicTargets.has(source)) {
+          publicTargets.add(source);
+          changed = true;
+        }
+      }
+    }
+  }
+  const opaqueShape = [...opaqueShapeRegistrations]
+    .filter(([node, registration]) => {
+      if (resolvedOpaqueShapeNodes.has(node)) return false;
+      if (!publicTargets.has(registration.target)) return false;
+      if (
+        [...unresolvedRegistrations].some(
+          ([candidate, unresolvedRegistration]) =>
+            !resolvedRegistrations.has(candidate) &&
+            unresolvedRegistration.target === registration.source,
+        )
+      ) {
+        return false;
+      }
+      return (
+        registration.source === null || !closedShapes.has(registration.source)
+      );
+    })
+    .sort(([left], [right]) => (left.start ?? 0) - (right.start ?? 0))[0];
+  if (opaqueShape) {
+    const [node, registration] = opaqueShape;
+    throw new Error(
+      `${registrationContext(text, node, sourcePath)}: unresolved opaque builtin export shape (${registration.idiom})`,
+    );
+  }
+
+  const publicPrototypeOwners = new Set([ROOT_EXPORT_OBJECT]);
+  for (const localNames of bindings.get(ROOT_EXPORT_OBJECT)?.values() ?? []) {
+    for (const localName of localNames) publicPrototypeOwners.add(localName);
+  }
+  changed = true;
+  while (changed) {
+    changed = false;
+    for (const [target, sources] of aliases) {
+      for (const source of sources) {
+        if (
+          !publicPrototypeOwners.has(target) &&
+          !publicPrototypeOwners.has(source)
+        )
+          continue;
+        if (!publicPrototypeOwners.has(target)) {
+          publicPrototypeOwners.add(target);
+          changed = true;
+        }
+        if (!publicPrototypeOwners.has(source)) {
+          publicPrototypeOwners.add(source);
+          changed = true;
+        }
+      }
+    }
+  }
+  const unresolvedPrototype = [...unresolvedPrototypeRegistrations]
+    .filter(
+      ([node, registration]) =>
+        !resolvedRegistrations.has(node) &&
+        publicPrototypeOwners.has(registration.owner),
+    )
+    .sort(([left], [right]) => (left.start ?? 0) - (right.start ?? 0))[0];
+  if (unresolvedPrototype) {
+    const [node, registration] = unresolvedPrototype;
+    throw new Error(
+      `${registrationContext(text, node, sourcePath)}: unresolved computed exported prototype/class member (${registration.idiom})`,
+    );
+  }
+
+  const unresolved = [...unresolvedRegistrations]
+    .filter(
+      ([node, registration]) =>
+        !resolvedRegistrations.has(node) &&
+        publicTargets.has(registration.target),
+    )
+    .sort(([left], [right]) => (left.start ?? 0) - (right.start ?? 0))[0];
+  if (unresolved) {
+    const [node, registration] = unresolved;
+    throw new Error(
+      `${registrationContext(text, node, sourcePath)}: unresolved computed builtin export registration (${registration.idiom})`,
+    );
+  }
+
+  for (const [exportName, localNames] of bindings.get(ROOT_EXPORT_OBJECT) ??
+    []) {
+    for (const localName of localNames) {
+      for (const methodName of prototypeFacts.get(localName) ?? []) {
+        addFact(
+          ROOT_EXPORT_OBJECT,
+          `${exportName}.${methodName}`,
+          inheritedPrototypeFacts.get(localName)?.has(methodName) &&
+            !ownPrototypeFacts.get(localName)?.has(methodName)
+            ? "exported-constructor-inherited-prototype"
+            : "exported-constructor-prototype",
+        );
+      }
+    }
+  }
+
+  // constants.js authors platform tables side by side and selects one at
+  // runtime. Preserve that source-derived availability instead of treating the
+  // union inventory as a promise that every named constant exists everywhere.
+  // @ref LLP 0004#the-builtin-module-surface
+  const platformAvailabilityByExport = new Map();
+  if (
+    sourceKey === "node_constants" &&
+    sourcePath === "src/builtins/constants.js"
+  ) {
+    const darwinNames = new Set([
+      ...(facts.get("_signalsDarwin")?.keys() ?? []),
+      ...(facts.get("_errnoDarwin")?.keys() ?? []),
+    ]);
+    const linuxAndroidNames = new Set([
+      ...(facts.get("_signalsLinux")?.keys() ?? []),
+      ...(facts.get("_errnoLinux")?.keys() ?? []),
+    ]);
+    const fsFlags = callableDefinitionsByName.get("_fsFlags") ?? [];
+    if (fsFlags.length === 1) {
+      walkDirectFunctionBody(fsFlags[0].node, (node) => {
+        if (node.type !== "IfStatement") return;
+        const condition = text.slice(node.test.start ?? 0, node.test.end ?? 0);
+        if (
+          !condition.includes("_platform") ||
+          !condition.includes("linux") ||
+          !condition.includes("android")
+        ) {
+          return;
+        }
+        const collectFlagNames = (branch, destination) => {
+          walkAst(branch, (candidate) => {
+            if (
+              candidate.type !== "AssignmentExpression" ||
+              candidate.operator !== "=" ||
+              candidate.left?.type !== "MemberExpression" ||
+              candidate.left.object?.type !== "Identifier" ||
+              candidate.left.object.name !== "out"
+            ) {
+              return;
+            }
+            const name = directMemberName(candidate.left);
+            if (name) destination.add(name);
+          });
+        };
+        collectFlagNames(node.consequent, linuxAndroidNames);
+        collectFlagNames(node.alternate, darwinNames);
+      });
+    }
+    for (const exportName of facts.get(ROOT_EXPORT_OBJECT)?.keys() ?? []) {
+      const onDarwin = darwinNames.has(exportName);
+      const onLinuxAndroid = linuxAndroidNames.has(exportName);
+      if (onDarwin && !onLinuxAndroid) {
+        platformAvailabilityByExport.set(exportName, ["darwin"]);
+      } else if (onLinuxAndroid && !onDarwin) {
+        platformAvailabilityByExport.set(exportName, ["android", "linux"]);
+      }
+    }
+  }
+
+  const specifiers = uniqueSorted(moduleSpecifiers);
+  const publicSpecifiers = uniqueSorted(publicModuleSpecifiers);
+  const bootstrapInternalSpecifiers = uniqueSorted(
+    bootstrapInternalModuleSpecifiers,
+  );
+  const specifierSet = new Set(specifiers);
+  const bootstrapInternalSpecifierSet = new Set(bootstrapInternalSpecifiers);
+  if (
+    [...publicSpecifiers, ...bootstrapInternalSpecifiers].some(
+      (specifier) => !specifierSet.has(specifier),
+    )
+  ) {
+    throw new Error(
+      `${sourcePath}: builtin import reachability names an unknown module specifier`,
+    );
+  }
+  if (
+    publicSpecifiers.some((specifier) =>
+      bootstrapInternalSpecifierSet.has(specifier),
+    )
+  ) {
+    throw new Error(
+      `${sourcePath}: a builtin module specifier cannot be both public and bootstrap-internal`,
+    );
+  }
+  const importReachability = publicSpecifiers.length
+    ? "public"
+    : bootstrapInternalSpecifiers.length
+      ? "bootstrap-internal"
+      : "private-manifest";
+  const prototypeExportIdioms = new Set([
+    "exported-constructor-inherited-prototype",
+    "exported-constructor-prototype",
+  ]);
+  const rows = [];
+  for (const [exportName, idioms] of facts.get(ROOT_EXPORT_OBJECT) ?? []) {
+    const exportIdioms = uniqueSorted(idioms);
+    const enforcementRoute = routeForExport(exportName);
+    const valueShapes = new Set(
+      valueShapeFacts.get(ROOT_EXPORT_OBJECT)?.get(exportName) ?? [],
+    );
+    for (const localName of
+      bindings.get(ROOT_EXPORT_OBJECT)?.get(exportName) ?? []) {
+      valueShapes.add(
+        expressionValueShape({ type: "Identifier", name: localName }),
+      );
+    }
+    if (exportIdioms.some((idiom) => prototypeExportIdioms.has(idiom))) {
+      const [ownerExportName, ...memberSegments] = exportName.split(".");
+      const memberName = memberSegments.join(".");
+      for (const localName of
+        bindings.get(ROOT_EXPORT_OBJECT)?.get(ownerExportName) ?? []) {
+        for (const shape of
+          prototypeValueShapeFacts.get(localName)?.get(memberName) ?? []) {
+          valueShapes.add(shape);
+        }
+      }
+    }
+    const inheritedShape =
+      exportName.includes("[[dynamic-table:inherited-") ||
+      exportIdioms.some((idiom) =>
+        /(?:inherited|object-create-prototype|setPrototypeOf|__proto__)/u.test(
+          idiom,
+        ),
+      );
+    const metadata = {
+      exportIdioms,
+      exportName,
+      enforcementRouteEvidence: {
+        ambiguousCallees: enforcementRoute.ambiguous,
+        kind: "static-builtin-call-graph",
+        paths: enforcementRoute.paths,
+        ...(enforcementRoute.dependencies.length > 0
+          ? { requiredExportCalls: enforcementRoute.dependencies }
+          : {}),
+        terminals: enforcementRoute.terminals,
+      },
+      bootstrapInternalModuleSpecifiers: bootstrapInternalSpecifiers,
+      importReachability,
+      moduleSpecifiers: specifiers,
+      publicModuleSpecifiers: publicSpecifiers,
+      sourceKey,
+      sourceKind,
+      surfaceType: "export",
+      valueShape: resolvedValueShape(valueShapes),
+    };
+    const platformAvailability = platformAvailabilityByExport.get(exportName);
+    if (platformAvailability) {
+      metadata.platformAvailability = platformAvailability;
+    }
+    if (inheritedShape) {
+      metadata.inheritedShape = true;
+      metadata.semanticRoles = ["inherited-export-shape"];
+    }
+    rows.push(
+      makeSurface(
+        "builtin",
+        `export:${sourceKey}:${exportName}`,
+        [
+          sourceSymbol(
+            sourcePath,
+            sourceKind === "inline"
+              ? `sources:${sourceKey}:exports:${exportName}`
+              : `exports:${exportName}`,
+          ),
+        ],
+        { metadata },
+      ),
+    );
+  }
+  return sortSurfaces(rows);
+}
+
+function directMemberName(node) {
+  if (node?.type !== "MemberExpression") return null;
+  if (!node.computed && node.property?.type === "Identifier")
+    return node.property.name;
+  if (node.computed && node.property?.type === "StringLiteral")
+    return node.property.value;
+  return null;
+}
+
+function prototypeOwner(node) {
+  if (
+    node?.type === "MemberExpression" &&
+    directMemberName(node) === "prototype" &&
+    node.object?.type === "Identifier"
+  ) {
+    return node.object.name;
+  }
+  return null;
+}
+
+function tokenSequenceIndex(values, sequence, start = 0) {
+  for (
+    let index = start;
+    index <= values.length - sequence.length;
+    index += 1
+  ) {
+    if (sequence.every((value, offset) => values[index + offset] === value)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function tokenSequenceCount(values, sequence) {
+  let count = 0;
+  let cursor = 0;
+  while (cursor <= values.length - sequence.length) {
+    const index = tokenSequenceIndex(values, sequence, cursor);
+    if (index === -1) break;
+    count += 1;
+    cursor = index + sequence.length;
+  }
+  return count;
+}
+
+/**
+ * Prove which exact-engine target overlays also execute the legacy evaluator
+ * wrappers. The two runners are compiled out on Windows, but remain reachable
+ * on Android; without an explicit Android layer, its engine-specific branch
+ * would suppress the generic fallback provenance.
+ */
+export function scanLegacyEvaluatorBootstrapInstallations(
+  text,
+  sourcePath = "src/engine/hermes_bootstrap.cc",
+) {
+  const specifications = [
+    {
+      functionName: "runLegacyCompatPolyfills",
+      reviewedBodyDigest:
+        "sha256-85e5f64997c896a0b0fed5d1fdbb4903a17334b0e9a0bbe32c412ee13316e1ea",
+      scriptName: "compat-polyfills.js",
+      sourceConstant: "COMPAT_POLYFILLS_SRC",
+    },
+    {
+      functionName: "runLegacyProcessCompatFix",
+      reviewedBodyDigest:
+        "sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
+      scriptName: "process-compat-fix.js",
+      sourceConstant: "PROCESS_COMPAT_FIX_SRC",
+    },
+  ];
+  const tokens = lexCpp(text, sourcePath);
+  const definitions = cppFunctionDefinitions(tokens);
+  return Object.fromEntries(
+    specifications.map((specification) => {
+      const matches = definitions.filter(
+        (definition) => definition.name === specification.functionName,
+      );
+      if (matches.length !== 1) {
+        throw new Error(
+          `${sourcePath}: expected one ${specification.functionName} definition`,
+        );
+      }
+      const definition = matches[0];
+      const values = tokens
+        .slice(definition.bodyOpen + 1, definition.bodyClose)
+        .map((token) => token.value);
+      const bodyDigest = `sha256-${sha256Hex(JSON.stringify(values))}`;
+      const guardStart = tokenSequenceIndex(values, [
+        "#",
+        "if",
+        "defined",
+        "(",
+        "_WIN32",
+        ")",
+      ]);
+      const guardEnd = tokenSequenceIndex(
+        values,
+        ["#", "endif"],
+        guardStart + 6,
+      );
+      if (
+        guardStart === -1 ||
+        guardEnd === -1 ||
+        new Set(["&", "|"]).has(values[guardStart + 6]) ||
+        tokenSequenceIndex(values.slice(guardStart + 6, guardEnd), [
+          "return",
+          ";",
+        ]) === -1 ||
+        tokenSequenceIndex(values, [
+          "eval_bootstrap_script",
+          "(",
+          "handle",
+          ",",
+          specification.sourceConstant,
+        ]) === -1
+      ) {
+        throw new Error(
+          `${sourcePath}#${specification.functionName}: legacy evaluator route or Windows exclusion drift`,
+        );
+      }
+      if (bodyDigest !== specification.reviewedBodyDigest) {
+        throw new Error(
+          `${sourcePath}#${specification.functionName}: reviewed legacy evaluator runner drift (${bodyDigest})`,
+        );
+      }
+      return [
+        specification.scriptName,
+        {
+          sourceRefs: [
+            sourceSymbol(sourcePath, specification.functionName),
+            sourceSymbol(
+              sourcePath,
+              `legacy-runner:${specification.functionName}:${bodyDigest}`,
+            ),
+          ],
+          targetVariants: ["android", "default"],
+        },
+      ];
+    }),
+  );
+}
+
+/**
+ * Discover statically installed globals and their statically named
+ * object/prototype APIs. This is intentionally source-based: it never executes
+ * bootstrap code. Private `__exact*` rows use the same observed keys as native
+ * registration evidence so alternate implementations merge structurally.
+ */
+export function scanStaticGlobalApiSurfaces(
+  text,
+  sourcePath = "<bootstrap-source>",
+  options = {},
+) {
+  const fullProgram = parseJavaScript(text, sourcePath);
+  const webStreamsWrapperMarker = "\n(function () {\n  var globalObject = ";
+  const webStreamsWrapperOffset = text.indexOf(webStreamsWrapperMarker);
+  const sourceText =
+    webStreamsWrapperOffset === -1
+      ? text
+      : text.slice(webStreamsWrapperOffset + 1);
+  const program =
+    webStreamsWrapperOffset === -1
+      ? fullProgram
+      : parseJavaScript(sourceText, sourcePath);
+  const {
+    arrays: staticArrays,
+    bindings: staticBindings,
+    nonPublicBindings,
+  } = collectStaticPropertyTables(program);
+  const globalAliases = new Set(["globalThis"]);
+  const objectPaths = new Map([
+    ["globalThis", new Set([""])],
+    // JavaScript permits inherited globals to be referenced without an
+    // explicit globalThis qualifier. `process` is installed by the native
+    // bootstrap before evaluated marker/compat scripts run.
+    ["process", new Set(["process"])],
+  ]);
+  const prototypeMembers = new Map();
+  const objectMembers = new Map();
+  const prototypeSources = new Map();
+  const knownPrototypeOwners = new Set();
+  const classExpressionOwners = new WeakMap();
+  const opaqueCallShapeEvidence = new WeakMap();
+  const installations = [];
+  const functionNames = new Set();
+  const functionDefinitions = new Map();
+  const functionCalls = new Map();
+  const forEachCalls = [];
+  const unresolvedRegistrations = new Map();
+  const resolvedRegistrations = new Set();
+  const unresolvedPrototypeRegistrations = new Map();
+  const callableDefinitionsByName = new Map();
+  for (const definition of javascriptFunctionDefinitions(program)) {
+    let definitions = callableDefinitionsByName.get(definition.name);
+    if (!definitions) {
+      definitions = [];
+      callableDefinitionsByName.set(definition.name, definitions);
+    }
+    definitions.push(definition);
+  }
+
+  if (webStreamsWrapperOffset !== -1) {
+    let hasReachableContainer = false;
+    walkAst(fullProgram, (node) => {
+      if (
+        node.type === "AssignmentExpression" &&
+        node.operator === "=" &&
+        node.right?.type === "ObjectExpression" &&
+        node.left?.type === "MemberExpression" &&
+        ((!node.left.computed &&
+          node.left.property?.type === "Identifier" &&
+          node.left.property.name === "WebStreamsPolyfill") ||
+          (node.left.computed &&
+            node.left.property?.type === "StringLiteral" &&
+            node.left.property.value === "WebStreamsPolyfill"))
+      ) {
+        hasReachableContainer = true;
+      }
+    });
+    if (hasReachableContainer)
+      installations.push({ pathSegments: ["WebStreamsPolyfill"], value: null });
+  }
+
+  const addMember = (map, owner, name) => {
+    if (!owner || !name || typeof name !== "string") return;
+    let names = map.get(owner);
+    if (!names) {
+      names = new Set();
+      map.set(owner, names);
+    }
+    names.add(name);
+  };
+  const addExpressionMembers = (owner, expression) => {
+    if (!owner || !expression) return;
+    for (const name of objectPropertyNames(expression))
+      addMember(objectMembers, owner, name);
+  };
+  const observePrototypeRegistration = (
+    node,
+    owner,
+    property,
+    names,
+    idiom,
+  ) => {
+    if (!owner) return;
+    if (
+      names.length > 0 ||
+      isStaticallyNonPublicPropertyKey(property, nonPublicBindings)
+    ) {
+      resolvedRegistrations.add(node);
+      return;
+    }
+    if (!unresolvedPrototypeRegistrations.has(node)) {
+      unresolvedPrototypeRegistrations.set(node, { idiom, owner });
+    }
+  };
+  const inheritedShapeSentinel = (node, idiom) => {
+    const source = node
+      ? sourceText.slice(node.start ?? 0, node.end ?? node.start ?? 0)
+      : idiom;
+    const digest = sha256Hex(`${idiom}\0${source}`).slice(0, 12);
+    return `[[dynamic-table:inherited-${digest}-properties]]`;
+  };
+  const addPrototypeSource = (owner, sourceOwner, node, idiom) => {
+    if (!owner) return;
+    let sources = prototypeSources.get(owner);
+    if (!sources) {
+      sources = new Map();
+      prototypeSources.set(owner, sources);
+    }
+    const key = sourceOwner ?? inheritedShapeSentinel(node, idiom);
+    sources.set(key, { idiom, node, sourceOwner });
+  };
+  const classExpressionOwner = (classNode) => {
+    let owner = classExpressionOwners.get(classNode);
+    if (!owner) {
+      const source = sourceText.slice(
+        classNode.start ?? 0,
+        classNode.end ?? classNode.start ?? 0,
+      );
+      owner = `[[class-expression:${sha256Hex(source).slice(0, 12)}]]`;
+      classExpressionOwners.set(classNode, owner);
+    }
+    return owner;
+  };
+  const classOwnersForExpression = (
+    expression,
+    substitutions = staticBindings,
+  ) => {
+    const owners = new Set();
+    const visit = (candidate) => {
+      if (!candidate) return;
+      if (candidate.type === "ClassExpression") {
+        const owner = classExpressionOwner(candidate);
+        recordClassMembers(candidate, owner, substitutions);
+        owners.add(owner);
+        return;
+      }
+      if (
+        candidate.type === "Identifier" &&
+        (knownPrototypeOwners.has(candidate.name) ||
+          prototypeMembers.has(candidate.name))
+      ) {
+        owners.add(candidate.name);
+        return;
+      }
+      if (
+        candidate.type === "LogicalExpression" ||
+        candidate.type === "ConditionalExpression" ||
+        candidate.type === "SequenceExpression"
+      ) {
+        const children =
+          candidate.type === "LogicalExpression"
+            ? [candidate.left, candidate.right]
+            : candidate.type === "ConditionalExpression"
+              ? [candidate.consequent, candidate.alternate]
+              : [candidate.expressions.at(-1)];
+        for (const child of children) visit(child);
+        return;
+      }
+      if (
+        candidate.type === "CallExpression" &&
+        candidate.callee?.type === "Identifier"
+      ) {
+        const definitions =
+          callableDefinitionsByName.get(candidate.callee.name) ?? [];
+        if (definitions.length !== 1) {
+          const containsDirectClass = (value) => {
+            if (!value) return false;
+            if (value.type === "ClassExpression") return true;
+            if (value.type === "LogicalExpression")
+              return (
+                containsDirectClass(value.left) ||
+                containsDirectClass(value.right)
+              );
+            if (value.type === "ConditionalExpression")
+              return (
+                containsDirectClass(value.consequent) ||
+                containsDirectClass(value.alternate)
+              );
+            if (value.type === "SequenceExpression")
+              return containsDirectClass(value.expressions.at(-1));
+            return false;
+          };
+          if (candidate.arguments.some(containsDirectClass)) {
+            throw new Error(
+              `${sourcePath}: unresolved public class decorator/factory call ${candidate.callee.name}`,
+            );
+          }
+          return;
+        }
+        const definition = definitions[0].node;
+        const localValues = new Map();
+        walkDirectFunctionBody(definition, (node) => {
+          if (
+            node.type === "VariableDeclarator" &&
+            node.id?.type === "Identifier" &&
+            node.init
+          ) {
+            localValues.set(node.id.name, node.init);
+          }
+        });
+        const visitReturnedValue = (value, seen = new Set()) => {
+          if (value?.type === "Identifier" && localValues.has(value.name)) {
+            if (seen.has(value.name)) return;
+            const nextSeen = new Set(seen);
+            nextSeen.add(value.name);
+            visitReturnedValue(localValues.get(value.name), nextSeen);
+            return;
+          }
+          visit(value);
+        };
+        if (
+          definition.type === "ArrowFunctionExpression" &&
+          definition.body?.type !== "BlockStatement"
+        ) {
+          visitReturnedValue(definition.body);
+        } else {
+          walkDirectFunctionBody(definition, (node) => {
+            if (node.type === "ReturnStatement")
+              visitReturnedValue(node.argument);
+          });
+        }
+      }
+    };
+    visit(expression);
+    return owners;
+  };
+  const opaqueCallValue = (expression) => {
+    if (!expression) return null;
+    if (expression.type === "CallExpression") return expression;
+    if (expression.type === "LogicalExpression")
+      return (
+        opaqueCallValue(expression.left) ?? opaqueCallValue(expression.right)
+      );
+    if (expression.type === "ConditionalExpression")
+      return (
+        opaqueCallValue(expression.consequent) ??
+        opaqueCallValue(expression.alternate)
+      );
+    if (expression.type === "SequenceExpression")
+      return opaqueCallValue(expression.expressions.at(-1));
+    return null;
+  };
+  const callShapeEvidence = (call) => {
+    const omitted = new Set([
+      "comments",
+      "end",
+      "errors",
+      "extra",
+      "leadingComments",
+      "loc",
+      "start",
+      "trailingComments",
+    ]);
+    const structural = JSON.stringify(call, (key, value) =>
+      omitted.has(key) ? undefined : value,
+    );
+    return `sha256-${sha256Hex(structural)}`;
+  };
+  const reviewedIifeCallEvidence = (call) => {
+    if (
+      call?.type !== "CallExpression" ||
+      call.arguments.length !== 0 ||
+      !new Set(["ArrowFunctionExpression", "FunctionExpression"]).has(
+        call.callee?.type,
+      )
+    ) {
+      return null;
+    }
+    const returns = [];
+    if (
+      call.callee.type === "ArrowFunctionExpression" &&
+      call.callee.body?.type !== "BlockStatement"
+    ) {
+      returns.push(call.callee.body);
+    } else {
+      walkDirectFunctionBody(call.callee, (node) => {
+        if (node.type === "ReturnStatement") returns.push(node.argument);
+      });
+    }
+    if (returns.length === 0 || returns.some((value) => !value)) return null;
+    return callShapeEvidence(call);
+  };
+  const reviewedClosedGlobalCallValue = (call) =>
+    Boolean(
+      call?.type === "CallExpression" &&
+      call.callee?.type === "Identifier" &&
+      new Set(["setImmediate", "setInterval", "setTimeout"]).has(
+        call.callee.name,
+      ),
+    );
+  const recordClassMembers = (classNode, owner, substitutions) => {
+    if (!classNode || !owner) return;
+    knownPrototypeOwners.add(owner);
+    for (const method of classNode.body?.body ?? []) {
+      const names =
+        !method.computed && method.key?.type === "Identifier"
+          ? [method.key.name]
+          : staticPropertyName(method.key, substitutions);
+      observePrototypeRegistration(
+        method,
+        owner,
+        method.key,
+        names,
+        method.static
+          ? "computed-static-class-member"
+          : "computed-class-member",
+      );
+      for (const name of names) addMember(prototypeMembers, owner, name);
+    }
+    if (classNode.superClass) {
+      const sourceOwner =
+        classNode.superClass.type === "Identifier"
+          ? classNode.superClass.name
+          : prototypeOwner(classNode.superClass);
+      addPrototypeSource(
+        owner,
+        sourceOwner,
+        classNode.superClass,
+        "class-extends",
+      );
+    }
+  };
+  const recordPrototypeObjectMembers = (
+    owner,
+    expression,
+    idiom,
+    substitutions,
+  ) => {
+    if (!owner) return;
+    if (expression?.type !== "ObjectExpression") {
+      if (expression && !unresolvedPrototypeRegistrations.has(expression)) {
+        unresolvedPrototypeRegistrations.set(expression, { idiom, owner });
+      }
+      return;
+    }
+    for (const property of expression.properties) {
+      if (property.type === "SpreadElement") {
+        if (!unresolvedPrototypeRegistrations.has(property)) {
+          unresolvedPrototypeRegistrations.set(property, { idiom, owner });
+        }
+        continue;
+      }
+      const names =
+        !property.computed && property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key, substitutions);
+      observePrototypeRegistration(property, owner, property.key, names, idiom);
+      for (const name of names) addMember(prototypeMembers, owner, name);
+    }
+  };
+  const collectReturnedConstructors = (expression, constructors) => {
+    if (!expression) return;
+    if (
+      expression.type === "NewExpression" &&
+      expression.callee?.type === "Identifier"
+    ) {
+      constructors.add(expression.callee.name);
+      return;
+    }
+    if (
+      expression.type === "LogicalExpression" ||
+      expression.type === "ConditionalExpression" ||
+      expression.type === "SequenceExpression"
+    ) {
+      const children =
+        expression.type === "LogicalExpression"
+          ? [expression.left, expression.right]
+          : expression.type === "ConditionalExpression"
+            ? [expression.consequent, expression.alternate]
+            : expression.expressions;
+      for (const child of children)
+        collectReturnedConstructors(child, constructors);
+    }
+  };
+  const returnedConstructors = (value) => {
+    let functionNodes = [];
+    if (isJavaScriptFunctionNode(value)) {
+      functionNodes = [value];
+    } else if (value?.type === "Identifier") {
+      const definitions = callableDefinitionsByName.get(value.name) ?? [];
+      if (definitions.length === 1) functionNodes = [definitions[0].node];
+    }
+    const constructors = new Set();
+    for (const functionNode of functionNodes) {
+      if (
+        functionNode.type === "ArrowFunctionExpression" &&
+        functionNode.body?.type !== "BlockStatement"
+      ) {
+        collectReturnedConstructors(functionNode.body, constructors);
+      } else {
+        walkDirectFunctionBody(functionNode, (node) => {
+          if (node.type === "ReturnStatement") {
+            collectReturnedConstructors(node.argument, constructors);
+          }
+        });
+      }
+    }
+    return constructors;
+  };
+  const expressionObjectPaths = (expression) => {
+    if (!expression) return [];
+    if (expression.type === "Identifier")
+      return [...(objectPaths.get(expression.name) ?? [])];
+    if (expression.type === "MemberExpression") {
+      const bases = expressionObjectPaths(expression.object);
+      const names =
+        !expression.computed && expression.property?.type === "Identifier"
+          ? [expression.property.name]
+          : staticRegistrationNames(
+              expression.property,
+              staticBindings,
+              staticArrays,
+            );
+      return bases.flatMap((base) =>
+        names.map((name) => [base, name].filter(Boolean).join(".")),
+      );
+    }
+    if (expression.type === "ConditionalExpression") {
+      return uniqueSorted([
+        ...expressionObjectPaths(expression.consequent),
+        ...expressionObjectPaths(expression.alternate),
+      ]);
+    }
+    if (expression.type === "LogicalExpression") {
+      return uniqueSorted([
+        ...expressionObjectPaths(expression.left),
+        ...expressionObjectPaths(expression.right),
+      ]);
+    }
+    return [];
+  };
+  const addObjectPaths = (name, paths) => {
+    if (!name || paths.length === 0) return false;
+    let known = objectPaths.get(name);
+    if (!known) {
+      known = new Set();
+      objectPaths.set(name, known);
+    }
+    const before = known.size;
+    for (const objectPath of paths) {
+      if (objectPath.split(".").filter(Boolean).length > 4) continue;
+      if (known.size >= 128 && !known.has(objectPath)) continue;
+      known.add(objectPath);
+    }
+    if (known.has("")) globalAliases.add(name);
+    return known.size !== before;
+  };
+  const observeGlobalRegistration = (
+    node,
+    property,
+    names,
+    value,
+    idiom,
+    basePaths = [""],
+  ) => {
+    if (names.length > 0) {
+      const classOwners = classOwnersForExpression(value);
+      const opaqueCall = classOwners.size > 0 ? null : opaqueCallValue(value);
+      if (opaqueCall) {
+        const iifeEvidence = reviewedIifeCallEvidence(opaqueCall);
+        if (reviewedClosedGlobalCallValue(opaqueCall)) {
+          // Timer registration returns a reviewed scheduler handle. Its
+          // lifecycle authority is inventoried at the timer API boundary.
+        } else {
+          opaqueCallShapeEvidence.set(value, {
+            evidence: iifeEvidence ?? callShapeEvidence(opaqueCall),
+            kind: iifeEvidence ? "iife-call-result" : "opaque-call-result",
+          });
+        }
+      }
+      resolvedRegistrations.add(node);
+      for (const basePath of basePaths) {
+        for (const registeredName of names) {
+          const pathSegments = [
+            ...basePath.split(".").filter(Boolean),
+            registeredName,
+          ];
+          installations.push({ pathSegments, value });
+        }
+      }
+      return;
+    }
+    if (isStaticallyNonPublicPropertyKey(property, nonPublicBindings)) {
+      resolvedRegistrations.add(node);
+      return;
+    }
+    if (!unresolvedRegistrations.has(node)) {
+      unresolvedRegistrations.set(node, { idiom });
+    }
+  };
+
+  // Establish root, nested-object, conditional, and IIFE-parameter aliases
+  // before registration discovery so source order cannot affect results.
+  let aliasChanged = true;
+  while (aliasChanged) {
+    aliasChanged = false;
+    walkAst(program, (node) => {
+      if (
+        node.type === "VariableDeclarator" &&
+        node.id?.type === "Identifier"
+      ) {
+        aliasChanged =
+          addObjectPaths(node.id.name, expressionObjectPaths(node.init)) ||
+          aliasChanged;
+      }
+      if (
+        node.type === "AssignmentExpression" &&
+        node.operator === "=" &&
+        node.left?.type === "Identifier"
+      ) {
+        aliasChanged =
+          addObjectPaths(node.left.name, expressionObjectPaths(node.right)) ||
+          aliasChanged;
+      }
+      if (
+        node.type === "CallExpression" &&
+        (node.callee?.type === "FunctionExpression" ||
+          node.callee?.type === "ArrowFunctionExpression")
+      ) {
+        for (let index = 0; index < node.callee.params.length; index += 1) {
+          const parameter = node.callee.params[index];
+          if (parameter?.type !== "Identifier") continue;
+          aliasChanged =
+            addObjectPaths(
+              parameter.name,
+              expressionObjectPaths(node.arguments[index]),
+            ) || aliasChanged;
+          const parameterValues = staticRegistrationNames(
+            node.arguments[index],
+            staticBindings,
+            staticArrays,
+          );
+          if (parameterValues.length > 0) {
+            const knownValues = staticBindings.get(parameter.name) ?? new Set();
+            const before = knownValues.size;
+            for (const value of parameterValues) knownValues.add(value);
+            staticBindings.set(parameter.name, knownValues);
+            if (knownValues.size !== before) aliasChanged = true;
+          }
+        }
+      }
+    });
+  }
+
+  // A runtime-supplied property key with an authored fallback is a closed
+  // conditional branch, but not one exact string. Preserve it as an explicit
+  // dynamic-table sentinel instead of silently dropping the member.
+  const computedRegistrationBindings = new Set();
+  walkAst(program, (node) => {
+    if (
+      node.type === "MemberExpression" &&
+      node.computed &&
+      node.property?.type === "Identifier" &&
+      expressionObjectPaths(node.object).length > 0
+    ) {
+      computedRegistrationBindings.add(node.property.name);
+    }
+  });
+  walkAst(program, (node) => {
+    if (
+      node.type !== "VariableDeclarator" ||
+      node.id?.type !== "Identifier" ||
+      expressionObjectPaths(node.init).length === 0
+    ) {
+      return;
+    }
+    if (!computedRegistrationBindings.has(node.id.name)) return;
+    const label = node.id.name
+      .replace(/([a-z0-9])([A-Z])/gu, "$1-$2")
+      .replace(/[^A-Za-z0-9]+/gu, "-")
+      .toLowerCase();
+    staticBindings.set(node.id.name, new Set([`[[dynamic-table:${label}]]`]));
+  });
+
+  walkAst(program, (node) => {
+    if (node.type === "FunctionDeclaration" && node.id?.name) {
+      functionDefinitions.set(node.id.name, node);
+    }
+    if (node.type === "CallExpression" && node.callee?.type === "Identifier") {
+      let calls = functionCalls.get(node.callee.name);
+      if (!calls) {
+        calls = [];
+        functionCalls.set(node.callee.name, calls);
+      }
+      calls.push(node);
+    }
+  });
+
+  const recordNode = (node, substitutions = staticBindings) => {
+    if (node.type === "FunctionDeclaration" && node.id?.name)
+      functionNames.add(node.id.name);
+    if (node.type === "ClassDeclaration" && node.id?.name) {
+      recordClassMembers(node, node.id.name, substitutions);
+    }
+
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+      if (node.init?.type === "ClassExpression") {
+        recordClassMembers(node.init, node.id.name, substitutions);
+        classExpressionOwners.set(node.init, node.id.name);
+      }
+      addExpressionMembers(node.id.name, node.init);
+    }
+
+    if (node.type === "AssignmentExpression" && node.operator === "=") {
+      if (node.left?.type === "Identifier") {
+        if (node.right?.type === "ClassExpression") {
+          recordClassMembers(node.right, node.left.name, substitutions);
+          classExpressionOwners.set(node.right, node.left.name);
+        }
+        addExpressionMembers(node.left.name, node.right);
+      }
+      const memberNames =
+        node.left?.type === "MemberExpression"
+          ? !node.left.computed && node.left.property?.type === "Identifier"
+            ? [node.left.property.name]
+            : staticRegistrationNames(
+                node.left.property,
+                substitutions,
+                staticArrays,
+              )
+          : [];
+      const memberName = memberNames[0] ?? null;
+      const prototype = prototypeOwner(node.left?.object);
+      if (prototype) {
+        observePrototypeRegistration(
+          node.left,
+          prototype,
+          node.left.property,
+          memberNames,
+          "computed-prototype-assignment",
+        );
+        for (const name of memberNames)
+          addMember(prototypeMembers, prototype, name);
+      }
+      if (
+        node.left?.type === "MemberExpression" &&
+        directMemberName(node.left) === "prototype" &&
+        node.left.object?.type === "Identifier" &&
+        node.right?.type === "ObjectExpression"
+      ) {
+        recordPrototypeObjectMembers(
+          node.left.object.name,
+          node.right,
+          "computed-prototype-object-assignment",
+          substitutions,
+        );
+      }
+
+      if (node.left?.type === "MemberExpression") {
+        const basePaths = expressionObjectPaths(node.left.object);
+        if (basePaths.length === 0) return;
+        observeGlobalRegistration(
+          node.left,
+          node.left.property,
+          memberNames,
+          node.right,
+          "member-assignment",
+          basePaths,
+        );
+      }
+    }
+
+    if (node.type === "CallExpression") {
+      const objectCall = callName(node);
+      const mutation = mutationCallName(node);
+      if (
+        node.callee?.type === "MemberExpression" &&
+        !node.callee.computed &&
+        node.callee.object?.type === "Identifier" &&
+        node.callee.object.name === "util" &&
+        node.callee.property?.type === "Identifier" &&
+        node.callee.property.name === "inherits" &&
+        node.arguments[0]?.type === "Identifier"
+      ) {
+        knownPrototypeOwners.add(node.arguments[0].name);
+        const inherited = node.arguments[1];
+        const sourceOwner =
+          inherited?.type === "Identifier"
+            ? inherited.name
+            : prototypeOwner(inherited);
+        addPrototypeSource(
+          node.arguments[0].name,
+          sourceOwner,
+          inherited ?? node,
+          "util-inherits",
+        );
+      }
+      const targetPrototype = prototypeOwner(node.arguments?.[0]);
+      if (
+        targetPrototype &&
+        (mutation === "Object.defineProperty" ||
+          mutation === "Reflect.defineProperty" ||
+          mutation === "Reflect.set")
+      ) {
+        const names = staticRegistrationNames(
+          node.arguments[1],
+          substitutions,
+          staticArrays,
+        );
+        observePrototypeRegistration(
+          node,
+          targetPrototype,
+          node.arguments[1],
+          names,
+          `computed-prototype-${mutation.replace(".", "-")}`,
+        );
+        for (const name of names)
+          addMember(prototypeMembers, targetPrototype, name);
+      }
+      if (targetPrototype && mutation === "Object.defineProperties") {
+        recordPrototypeObjectMembers(
+          targetPrototype,
+          node.arguments[1],
+          "computed-prototype-define-properties",
+          substitutions,
+        );
+      }
+      if (targetPrototype && mutation === "Object.assign") {
+        for (const source of node.arguments.slice(1)) {
+          recordPrototypeObjectMembers(
+            targetPrototype,
+            source,
+            "computed-prototype-object-assign",
+            substitutions,
+          );
+        }
+      }
+      const legacyAccessor = directMemberName(node.callee);
+      if (
+        legacyAccessor === "__defineGetter__" ||
+        legacyAccessor === "__defineSetter__"
+      ) {
+        const prototype = prototypeOwner(node.callee.object);
+        const names = staticRegistrationNames(
+          node.arguments[0],
+          substitutions,
+          staticArrays,
+        );
+        observePrototypeRegistration(
+          node,
+          prototype,
+          node.arguments[0],
+          names,
+          `computed-prototype-${legacyAccessor}`,
+        );
+        for (const name of names) addMember(prototypeMembers, prototype, name);
+      }
+
+      const objectTargetPaths = expressionObjectPaths(node.arguments?.[0]);
+      if (
+        (mutation === "Object.defineProperty" ||
+          mutation === "Reflect.defineProperty") &&
+        objectTargetPaths.length > 0
+      ) {
+        observeGlobalRegistration(
+          node,
+          node.arguments[1],
+          staticRegistrationNames(
+            node.arguments[1],
+            substitutions,
+            staticArrays,
+          ),
+          node.arguments[2]?.type === "ObjectExpression"
+            ? (node.arguments[2].properties.find(
+                (property) =>
+                  property.type === "ObjectProperty" &&
+                  !property.computed &&
+                  property.key?.type === "Identifier" &&
+                  property.key.name === "value",
+              )?.value ?? null)
+            : null,
+          mutation === "Object.defineProperty"
+            ? "define-property"
+            : "reflect-define-property",
+          objectTargetPaths,
+        );
+      }
+      if (mutation === "Reflect.set" && objectTargetPaths.length > 0) {
+        observeGlobalRegistration(
+          node,
+          node.arguments[1],
+          staticRegistrationNames(
+            node.arguments[1],
+            substitutions,
+            staticArrays,
+          ),
+          node.arguments[2] ?? null,
+          "reflect-set",
+          objectTargetPaths,
+        );
+      }
+      if (
+        mutation === "Object.defineProperties" &&
+        objectTargetPaths.length > 0
+      ) {
+        if (node.arguments[1]?.type !== "ObjectExpression") {
+          if (!unresolvedRegistrations.has(node)) {
+            unresolvedRegistrations.set(node, {
+              idiom: "opaque-define-properties-source",
+            });
+          }
+        } else {
+          for (const property of node.arguments[1].properties) {
+            if (property.type === "SpreadElement") {
+              if (!unresolvedRegistrations.has(property)) {
+                unresolvedRegistrations.set(property, {
+                  idiom: "opaque-define-properties-spread",
+                });
+              }
+              continue;
+            }
+            const names =
+              !property.computed && property.key?.type === "Identifier"
+                ? [property.key.name]
+                : staticPropertyName(property.key, substitutions);
+            observeGlobalRegistration(
+              property,
+              property.key,
+              names,
+              property.value?.type === "ObjectExpression"
+                ? (property.value.properties.find(
+                    (descriptorProperty) =>
+                      descriptorProperty.type === "ObjectProperty" &&
+                      !descriptorProperty.computed &&
+                      descriptorProperty.key?.type === "Identifier" &&
+                      descriptorProperty.key.name === "value",
+                  )?.value ?? null)
+                : null,
+              "define-properties",
+              objectTargetPaths,
+            );
+          }
+        }
+      }
+      if (mutation === "Object.assign" && objectTargetPaths.length > 0) {
+        for (const source of node.arguments.slice(1)) {
+          if (source?.type === "Identifier" && objectMembers.has(source.name)) {
+            observeGlobalRegistration(
+              source,
+              source,
+              [...objectMembers.get(source.name)],
+              null,
+              "object-assign-closed-binding",
+              objectTargetPaths,
+            );
+            continue;
+          }
+          if (source?.type !== "ObjectExpression") {
+            if (source && !unresolvedRegistrations.has(source)) {
+              unresolvedRegistrations.set(source, {
+                idiom: "opaque-object-assign-source",
+              });
+            }
+            continue;
+          }
+          for (const property of source.properties) {
+            if (property.type === "SpreadElement") {
+              if (!unresolvedRegistrations.has(property)) {
+                unresolvedRegistrations.set(property, {
+                  idiom: "opaque-object-assign-spread",
+                });
+              }
+              continue;
+            }
+            const names =
+              !property.computed && property.key?.type === "Identifier"
+                ? [property.key.name]
+                : staticPropertyName(property.key, substitutions);
+            observeGlobalRegistration(
+              property,
+              property.key,
+              names,
+              property.value,
+              "object-assign",
+              objectTargetPaths,
+            );
+          }
+        }
+      }
+
+      if (
+        node.callee?.type === "Identifier" &&
+        /^(?:define|install)(?:Lazy)?Global$/u.test(node.callee.name)
+      ) {
+        observeGlobalRegistration(
+          node,
+          node.arguments[0],
+          staticRegistrationNames(
+            node.arguments[0],
+            substitutions,
+            staticArrays,
+          ),
+          null,
+          "global-installer-call",
+        );
+      }
+
+      if (
+        node.callee?.type === "MemberExpression" &&
+        !node.callee.computed &&
+        node.callee.property?.type === "Identifier" &&
+        node.callee.property.name === "forEach"
+      ) {
+        forEachCalls.push(node);
+      }
+    }
+  };
+
+  walkAst(program, (node) => recordNode(node, staticBindings));
+
+  for (const call of forEachCalls) {
+    let values = [];
+    const receiver = call.callee.object;
+    if (receiver?.type === "ArrayExpression") {
+      values = receiver.elements.flatMap((element) =>
+        staticPropertyName(element, staticBindings),
+      );
+    } else if (receiver?.type === "Identifier") {
+      values = [...(staticArrays.get(receiver.name) ?? [])];
+    }
+    const callback = callbackFunction(call.arguments[0]);
+    const parameter = callback?.params[0];
+    if (values.length === 0 || parameter?.type !== "Identifier") continue;
+    const substitutions = mergeSubstitutions(
+      staticBindings,
+      new Map([[parameter.name, new Set(values)]]),
+    );
+    walkAst(callback.body, (node) => recordNode(node, substitutions));
+  }
+
+  // Resolve private installer helpers whose authored call sites supply only
+  // literal keys or members of a closed literal table. If even one call site
+  // is dynamic, the parameter remains unresolved and validation fails below.
+  for (const [name, definition] of functionDefinitions) {
+    const calls = functionCalls.get(name) ?? [];
+    if (calls.length === 0) continue;
+    const additions = new Map();
+    for (let index = 0; index < definition.params.length; index += 1) {
+      const parameter = definition.params[index];
+      if (parameter?.type !== "Identifier") continue;
+      const perCall = calls.map((call) =>
+        staticRegistrationNames(
+          call.arguments[index],
+          staticBindings,
+          staticArrays,
+        ),
+      );
+      if (perCall.some((values) => values.length === 0)) continue;
+      additions.set(parameter.name, new Set(perCall.flat()));
+    }
+    if (additions.size === 0) continue;
+    const substitutions = mergeSubstitutions(staticBindings, additions);
+    walkAst(definition.body, (node) => recordNode(node, substitutions));
+  }
+
+  for (const [owner, sources] of prototypeSources) {
+    for (const source of sources.values()) {
+      if (
+        source.sourceOwner &&
+        (knownPrototypeOwners.has(source.sourceOwner) ||
+          prototypeMembers.has(source.sourceOwner))
+      ) {
+        continue;
+      }
+      addMember(
+        prototypeMembers,
+        owner,
+        inheritedShapeSentinel(source.node, source.idiom),
+      );
+    }
+  }
+  let inheritedChanged = true;
+  while (inheritedChanged) {
+    inheritedChanged = false;
+    for (const [owner, sources] of prototypeSources) {
+      for (const source of sources.values()) {
+        if (!source.sourceOwner) continue;
+        const before = prototypeMembers.get(owner)?.size ?? 0;
+        for (const name of prototypeMembers.get(source.sourceOwner) ?? []) {
+          addMember(prototypeMembers, owner, name);
+        }
+        if ((prototypeMembers.get(owner)?.size ?? 0) !== before) {
+          inheritedChanged = true;
+        }
+      }
+    }
+  }
+
+  const unresolved = [...unresolvedRegistrations]
+    .filter(([node]) => !resolvedRegistrations.has(node))
+    .sort(([left], [right]) => (left.start ?? 0) - (right.start ?? 0))[0];
+  if (unresolved) {
+    const [node, registration] = unresolved;
+    throw new Error(
+      `${registrationContext(sourceText, node, sourcePath)}: unresolved computed global property registration (${registration.idiom})`,
+    );
+  }
+
+  const publicPrototypeOwners = new Set();
+  for (const { value } of installations) {
+    for (const owner of classOwnersForExpression(value)) {
+      publicPrototypeOwners.add(owner);
+    }
+    if (
+      value?.type === "NewExpression" &&
+      value.callee?.type === "Identifier"
+    ) {
+      publicPrototypeOwners.add(value.callee.name);
+    } else if (value?.type === "Identifier") {
+      publicPrototypeOwners.add(value.name);
+    }
+    for (const constructor of returnedConstructors(value)) {
+      publicPrototypeOwners.add(constructor);
+    }
+  }
+  const unresolvedPrototype = [...unresolvedPrototypeRegistrations]
+    .filter(
+      ([node, registration]) =>
+        !resolvedRegistrations.has(node) &&
+        publicPrototypeOwners.has(registration.owner),
+    )
+    .sort(([left], [right]) => (left.start ?? 0) - (right.start ?? 0))[0];
+  if (unresolvedPrototype) {
+    const [node, registration] = unresolvedPrototype;
+    throw new Error(
+      `${registrationContext(sourceText, node, sourcePath)}: unresolved computed public or returned-object member (${registration.idiom})`,
+    );
+  }
+
+  const sourceKey = `global_${path
+    .basename(sourcePath)
+    .replace(/\.[^.]+$/u, "")
+    .replace(/[^A-Za-z0-9]+/gu, "_")}`;
+  const discovered = new Map();
+  const addGlobal = (globalName, memberName = null, extraMetadata = {}) => {
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(globalName)) return;
+    if (
+      memberName !== null &&
+      !memberName
+        .split(".")
+        .every(
+          (segment) =>
+            /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(segment) ||
+            /^\[\[(?:return|Symbol\.[A-Za-z0-9_$]+|dynamic-table:[a-z0-9-]+)\]\]$/u.test(
+              segment,
+            ),
+        )
+    ) {
+      return;
+    }
+    const exportName =
+      memberName === null ? globalName : `${globalName}.${memberName}`;
+    const name = globalSurfaceName(exportName);
+    const ipcConditional =
+      path.basename(sourcePath) === "compat-polyfills.js" &&
+      /^process\.(?:channel|connected|disconnect|send|\[\[dynamic-table:(?:exact-channel-handle-key|k-channel-handle)\]\])/u.test(
+        exportName,
+      );
+    const harnessConditional =
+      path.basename(sourcePath) === "compat-polyfills.js" &&
+      new Set(["badly", "failed", "ok"]).has(exportName);
+    const evaluatorInstallation =
+      exportName === "eval" ? options.evaluatorInstallation : null;
+    const sourceRefs = uniqueSorted([
+      sourceSymbol(sourcePath, exportName),
+      ...(evaluatorInstallation?.sourceRefs ?? []),
+    ]);
+    const route = ipcConditional
+      ? "legacy-bootstrap-ipc"
+      : harnessConditional
+        ? "legacy-bootstrap-harness"
+        : "legacy-bootstrap";
+    const targetVariants = evaluatorInstallation?.targetVariants ?? [
+      ipcConditional
+        ? "conditional:EXACT_IPC_FD"
+        : harnessConditional
+          ? "conditional:EXACT_COMPAT_TEST"
+          : "default",
+    ];
+    const branches = normalizeInstallationBranches(
+      targetVariants.map((targetVariant) =>
+        makeInstallationBranch(route, targetVariant, sourceRefs),
+      ),
+    );
+    const row = makeSurface("native-op", name, sourceRefs, {
+      metadata: {
+        branches,
+        ...(ipcConditional
+          ? { conditionalGate: "EXACT_IPC_FD" }
+          : harnessConditional
+            ? { conditionalGate: "EXACT_COMPAT_TEST" }
+            : {}),
+        exportName,
+        globalName,
+        installationBranches: branches,
+        memberName,
+        moduleSpecifiers: [],
+        ...(exportName === "WebStreamsPolyfill"
+          ? { semanticRole: "implementation-container" }
+          : harnessConditional
+            ? { semanticRole: "harness-only-compat-global" }
+            : {}),
+        sourceKey,
+        surfaceType: "global-api",
+        ...extraMetadata,
+      },
+    });
+    const existing = discovered.get(name);
+    if (!existing) {
+      discovered.set(name, row);
+      return;
+    }
+    const [merged] = mergeSurfaceEvidence(
+      [existing, row],
+      `${sourcePath} duplicate static global discovery`,
+    );
+    discovered.set(name, merged);
+  };
+
+  const namespaceAliases = [];
+  for (const { pathSegments, value } of installations) {
+    const [globalName, ...memberSegments] = pathSegments;
+    if (!globalName) continue;
+    const installedMember =
+      memberSegments.length === 0 ? null : memberSegments.join(".");
+    const dynamicCallShape = opaqueCallShapeEvidence.get(value);
+    addGlobal(
+      globalName,
+      installedMember,
+      dynamicCallShape
+        ? {
+            dynamicNamespace: true,
+            dynamicNamespaceEvidence: dynamicCallShape.evidence,
+            dynamicNamespaceKind: dynamicCallShape.kind,
+          }
+        : {},
+    );
+    if (dynamicCallShape) {
+      const dynamicNamespaceRoot = [globalName, ...memberSegments].join(".");
+      const digest = dynamicCallShape.evidence
+        .replace(/^sha256-/u, "")
+        .slice(0, 12);
+      const sentinel = `[[dynamic-table:call-result-${digest}-properties]]`;
+      addGlobal(
+        globalName,
+        [installedMember, sentinel].filter(Boolean).join("."),
+        {
+          dynamicNamespace: true,
+          dynamicNamespaceEvidence: dynamicCallShape.evidence,
+          dynamicNamespaceKind: dynamicCallShape.kind,
+          dynamicNamespaceRoot,
+          semanticRoles: ["dynamic-call-result-shape"],
+        },
+      );
+    }
+    if (pathSegments.length === 1 && value) {
+      for (const sourceObjectPath of expressionObjectPaths(value)) {
+        if (sourceObjectPath)
+          namespaceAliases.push({ destination: globalName, sourceObjectPath });
+      }
+    }
+    let memberNames = [];
+    const installedClassOwners = classOwnersForExpression(value);
+    if (installedClassOwners.size > 0) {
+      memberNames = uniqueSorted(
+        [...installedClassOwners].flatMap((owner) => [
+          ...(prototypeMembers.get(owner) ?? []),
+        ]),
+      );
+    } else if (
+      value?.type === "NewExpression" &&
+      value.callee?.type === "Identifier"
+    ) {
+      memberNames = [...(prototypeMembers.get(value.callee.name) ?? [])];
+    } else if (value?.type === "Identifier") {
+      memberNames = uniqueSorted([
+        ...(prototypeMembers.get(value.name) ?? []),
+        ...(objectMembers.get(value.name) ?? []),
+      ]);
+    } else if (value?.type === "ObjectExpression") {
+      memberNames = objectPropertyNames(value);
+    }
+    for (const memberName of memberNames) {
+      addGlobal(
+        globalName,
+        [installedMember, memberName].filter(Boolean).join("."),
+      );
+    }
+    for (const constructor of returnedConstructors(value)) {
+      for (const memberName of prototypeMembers.get(constructor) ?? []) {
+        addGlobal(
+          globalName,
+          [installedMember, "[[return]]", memberName].filter(Boolean).join("."),
+        );
+      }
+    }
+
+    if (
+      globalName === "localStorage" &&
+      installedMember === null &&
+      value?.type === "NewExpression" &&
+      value.arguments[0]?.type === "BooleanLiteral" &&
+      value.arguments[0].value === true &&
+      functionNames.has("_load") &&
+      functionNames.has("_save")
+    ) {
+      const exportName = "localStorage.persistence";
+      const name = `global:${exportName}`;
+      discovered.set(
+        name,
+        makeSurface(
+          "native-op",
+          name,
+          [
+            sourceSymbol(sourcePath, "_load"),
+            sourceSymbol(sourcePath, "_save"),
+          ],
+          {
+            metadata: {
+              exportName,
+              globalName,
+              memberName: "persistence",
+              moduleSpecifiers: [],
+              semanticRole: "storage-persistence",
+              sourceKey,
+              surfaceType: "global-api",
+            },
+          },
+        ),
+      );
+    }
+  }
+
+  let namespaceChanged = true;
+  while (namespaceChanged) {
+    namespaceChanged = false;
+    for (const { destination, sourceObjectPath } of namespaceAliases) {
+      for (const row of [...discovered.values()]) {
+        if (
+          row.metadata.exportName !== sourceObjectPath &&
+          !row.metadata.exportName.startsWith(`${sourceObjectPath}.`)
+        ) {
+          continue;
+        }
+        const suffix = row.metadata.exportName
+          .slice(sourceObjectPath.length)
+          .replace(/^\./u, "");
+        const memberName = suffix || null;
+        const aliasMetadata = {};
+        if (row.metadata.dynamicNamespace === true) {
+          aliasMetadata.dynamicNamespace = true;
+          aliasMetadata.dynamicNamespaceEvidence =
+            row.metadata.dynamicNamespaceEvidence;
+          aliasMetadata.dynamicNamespaceKind =
+            row.metadata.dynamicNamespaceKind;
+          const dynamicRoot = row.metadata.dynamicNamespaceRoot;
+          if (dynamicRoot !== undefined) {
+            if (
+              dynamicRoot !== sourceObjectPath &&
+              !dynamicRoot.startsWith(`${sourceObjectPath}.`)
+            ) {
+              throw new Error(
+                `${sourcePath}: dynamic namespace root ${dynamicRoot} escapes aliased namespace ${sourceObjectPath}`,
+              );
+            }
+            aliasMetadata.dynamicNamespaceRoot = `${destination}${dynamicRoot.slice(sourceObjectPath.length)}`;
+          }
+          if (row.metadata.semanticRoles) {
+            aliasMetadata.semanticRoles = [...row.metadata.semanticRoles];
+          }
+        }
+        const before = discovered.size;
+        addGlobal(destination, memberName, aliasMetadata);
+        if (discovered.size !== before) namespaceChanged = true;
+      }
+    }
+  }
+
+  return sortSurfaces([...discovered.values()]);
+}
+
+const SHARED_RUNTIME_ENTRY = "packages/ibex-runtime-js/src/runtime-entry.ts";
+const SHARED_RUNTIME_SOURCE_ROOT = "packages/ibex-runtime-js/src";
+const GENERATED_AUTHORITY_PATH =
+  /(?:^|\/)(?:vendored-generated|generated|dist|out)(?:\/|$)|\.generated\.[A-Za-z0-9]+$/u;
+const DYNAMIC_TABLE_MEMBER = /^\[\[dynamic-table:[a-z0-9-]+\]\]$/u;
+
+function isPathInside(root, candidate) {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== ".." &&
+      !path.isAbsolute(relative))
+  );
+}
+
+function assertAuthoredAuthorityPath(
+  candidate,
+  sourceRoot,
+  label,
+  { allowGenerated = false } = {},
+) {
+  const normalized = posixPath(path.resolve(candidate));
+  if (!isPathInside(path.resolve(sourceRoot), path.resolve(candidate))) {
+    throw new Error(
+      `${label}: authored runtime path escapes source root: ${normalized}`,
+    );
+  }
+  if (!allowGenerated && GENERATED_AUTHORITY_PATH.test(normalized)) {
+    throw new Error(
+      `${label}: generated or vendored output cannot be inventory authority: ${normalized}`,
+    );
+  }
+}
+
+/** Verify that the active hermetic bundle command and discovery use one entry. */
+export function validateRuntimeBundleEntry(
+  packageJsonText,
+  sourcePath = "package.json",
+  expectedEntry = SHARED_RUNTIME_ENTRY,
+) {
+  let manifest;
+  try {
+    manifest = JSON.parse(packageJsonText);
+  } catch (error) {
+    throw new Error(`${sourcePath}: invalid JSON: ${error.message}`);
+  }
+  const command = manifest?.scripts?.["build:runtime"];
+  if (typeof command !== "string" || command.length === 0) {
+    throw new Error(`${sourcePath}: scripts.build:runtime is absent`);
+  }
+  const entries = [];
+  const pattern = /(?:^|\s)--entry(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s]+))/gu;
+  for (const match of command.matchAll(pattern))
+    entries.push(match[1] ?? match[2] ?? match[3]);
+  if (entries.length !== 1 || entries[0] !== expectedEntry) {
+    throw new Error(
+      `${sourcePath}: build:runtime entry drift: expected ${expectedEntry}, discovered ${entries.length === 0 ? "<none>" : entries.join(", ")}`,
+    );
+  }
+  return entries[0];
+}
+
+function globalSurfaceName(exportName) {
+  return exportName.startsWith("_") ? exportName : `global:${exportName}`;
+}
+
+function installationRouteForRow(row) {
+  const sourceKey = row.metadata?.sourceKey ?? "";
+  if (sourceKey === "shared_runtime") return ["shared-runtime", "all"];
+  if (sourceKey === "windows_native_shim")
+    return ["windows-native-shim", "windows"];
+  if (sourceKey === "evaluated_native_script")
+    return ["evaluated-native-script", "default"];
+  if (sourceKey === "native_jsi_global")
+    return ["native-jsi-global", "default"];
+  if (sourceKey === "hermes_intrinsic_evaluators")
+    return ["hermes-intrinsic", "default"];
+  if (sourceKey.startsWith("global_")) return ["legacy-bootstrap", "default"];
+  return ["source-derived", "default"];
+}
+
+function makeInstallationBranch(
+  route,
+  targetVariant,
+  sourceRefs,
+  branchKind = "single",
+) {
+  const normalizedRefs = uniqueSorted(sourceRefs);
+  return {
+    branchKind,
+    id: `${route}-${evidenceHash(`${route}\0${targetVariant}\0${normalizedRefs.join("\0")}`)}`,
+    kind: branchKind,
+    route,
+    sourceRefs: normalizedRefs,
+    targetVariant,
+  };
+}
+
+function normalizeInstallationBranches(branches) {
+  return normalizeComposedInstallationBranches(branches);
+}
+
+function implicitInstallationBranches(row) {
+  if (Array.isArray(row.metadata?.installationBranches)) {
+    return row.metadata.installationBranches;
+  }
+  if (row.metadata?.surfaceType !== "global-api") return [];
+  const [route, targetVariant] = installationRouteForRow(row);
+  return [makeInstallationBranch(route, targetVariant, row.sourceRefs)];
+}
+
+function sourcePathForRef(sourceRef) {
+  const separator = sourceRef.lastIndexOf("#");
+  return separator === -1 ? sourceRef : sourceRef.slice(0, separator);
+}
+
+function nativeEvidenceTargetVariant(sourceRef) {
+  const sourcePath = sourcePathForRef(sourceRef);
+  if (/(?:^|[_/])worklet(?:[_.\/]|$)/u.test(sourcePath)) return "worklet";
+  return abiTargetVariant(sourceRef);
+}
+
+/**
+ * A private-name observation is a second evidence view of an already observed
+ * global implementation, not another way to install it. Join that evidence to
+ * the concrete implementation branch with the same source and/or target. A
+ * source can legitimately support more than one route, so an ambiguous match
+ * enriches all existing candidates without manufacturing a new alternative.
+ */
+function mergeDualRoleInstallationBranches(globalRow, privateRow) {
+  const branches = implicitInstallationBranches(globalRow).map((branch) => ({
+    ...branch,
+    sourceRefs: [...branch.sourceRefs],
+  }));
+  if (branches.length === 0) {
+    throw new Error(
+      `${globalRow.observedKey}: dual-role global has no implementation branch`,
+    );
+  }
+
+  for (const sourceRef of privateRow.sourceRefs) {
+    if (branches.some((branch) => branch.sourceRefs.includes(sourceRef)))
+      continue;
+    const sourcePath = sourcePathForRef(sourceRef);
+    const targetVariant = nativeEvidenceTargetVariant(sourceRef);
+    let candidates = branches.filter((branch) =>
+      branch.sourceRefs.some(
+        (candidate) => sourcePathForRef(candidate) === sourcePath,
+      ),
+    );
+    if (candidates.length === 0) {
+      candidates = branches.filter(
+        (branch) => branch.targetVariant === targetVariant,
+      );
+    }
+    if (candidates.length === 0) {
+      candidates = branches.filter((branch) => branch.targetVariant === "all");
+    }
+    if (candidates.length === 0 && branches.length === 1) candidates = branches;
+    if (candidates.length === 0) {
+      // The observation identifies the operation but cannot distinguish among
+      // already-proven implementations. Retain it on those implementations;
+      // crucially, do not represent the evidence role as a new branch.
+      candidates = branches;
+    }
+    for (const branch of candidates) branch.sourceRefs.push(sourceRef);
+  }
+  return normalizeInstallationBranches(branches);
+}
+
+function tsUnwrapExpression(node) {
+  let current = node;
+  while (
+    current &&
+    (ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isParenthesizedExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isSatisfiesExpression(current))
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function tsMemberName(name, sourcePath) {
+  if (!name || ts.isPrivateIdentifier(name)) return null;
+  if (
+    ts.isIdentifier(name) ||
+    ts.isStringLiteralLike(name) ||
+    ts.isNumericLiteral(name)
+  ) {
+    return name.text;
+  }
+  if (ts.isComputedPropertyName(name)) {
+    const expression = tsUnwrapExpression(name.expression);
+    if (
+      ts.isPropertyAccessExpression(expression) &&
+      ts.isIdentifier(expression.expression) &&
+      expression.expression.text === "Symbol"
+    ) {
+      return `[[Symbol.${expression.name.text}]]`;
+    }
+    if (
+      ts.isCallExpression(expression) &&
+      ts.isPropertyAccessExpression(
+        tsUnwrapExpression(expression.expression),
+      ) &&
+      ts.isIdentifier(tsUnwrapExpression(expression.expression).expression) &&
+      tsUnwrapExpression(expression.expression).expression.text === "Symbol" &&
+      tsUnwrapExpression(expression.expression).name.text === "for" &&
+      ts.isStringLiteralLike(tsUnwrapExpression(expression.arguments[0]))
+    ) {
+      return `[[Symbol.for:${tsUnwrapExpression(expression.arguments[0]).text}]]`;
+    }
+    if (ts.isIdentifier(expression))
+      return `[[symbol-binding:${expression.text}]]`;
+    if (ts.isStringLiteralLike(expression) || ts.isNumericLiteral(expression))
+      return expression.text;
+    throw new Error(
+      `${sourcePath}: unresolved computed public class/object member ${name.getText().replace(/\s+/gu, " ")}`,
+    );
+  }
+  return null;
+}
+
+function tsHasNonPublicModifier(node) {
+  return Boolean(
+    node.modifiers?.some(
+      (modifier) =>
+        modifier.kind === ts.SyntaxKind.PrivateKeyword ||
+        modifier.kind === ts.SyntaxKind.ProtectedKeyword,
+    ),
+  );
+}
+
+function tsFunctionLikeDeclaration(node) {
+  const value = tsUnwrapExpression(node);
+  if (
+    ts.isFunctionDeclaration(value) ||
+    ts.isFunctionExpression(value) ||
+    ts.isArrowFunction(value) ||
+    ts.isMethodDeclaration(value) ||
+    ts.isGetAccessorDeclaration(value) ||
+    ts.isSetAccessorDeclaration(value) ||
+    ts.isConstructorDeclaration(value)
+  ) {
+    return value;
+  }
+  if (ts.isVariableDeclaration(value) && value.initializer) {
+    return tsFunctionLikeDeclaration(value.initializer);
+  }
+  return null;
+}
+
+function tsReturnExpressions(functionNode) {
+  if (ts.isArrowFunction(functionNode) && !ts.isBlock(functionNode.body))
+    return [functionNode.body];
+  const body = functionNode.body;
+  if (!body || !ts.isBlock(body)) return [];
+  const values = [];
+  const visit = (node) => {
+    if (node !== body && ts.isFunctionLike(node)) return;
+    if (ts.isReturnStatement(node) && node.expression) {
+      values.push(node.expression);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(body);
+  return values;
+}
+
+/**
+ * Discover every global installed by the authored shared-runtime module graph.
+ * The entry and every relative module are TypeScript authoring sources; bundle,
+ * vendored, generated, and output files are deliberately rejected as authority.
+ */
+export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
+  const absoluteRepoRoot = path.resolve(repoRoot);
+  const sourceRoot = path.join(absoluteRepoRoot, SHARED_RUNTIME_SOURCE_ROOT);
+  const entryPath = path.join(absoluteRepoRoot, SHARED_RUNTIME_ENTRY);
+  validateRuntimeBundleEntry(
+    readUtf8(path.join(absoluteRepoRoot, "package.json")),
+  );
+  assertAuthoredAuthorityPath(entryPath, sourceRoot, SHARED_RUNTIME_ENTRY);
+
+  const compilerOptions = {
+    allowJs: false,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    noEmit: true,
+    skipLibCheck: true,
+    target: ts.ScriptTarget.ESNext,
+  };
+  const program = ts.createProgram({
+    rootNames: [entryPath],
+    options: compilerOptions,
+  });
+  const checker = program.getTypeChecker();
+  const entrySource = program.getSourceFile(entryPath);
+  if (!entrySource)
+    throw new Error(
+      `${SHARED_RUNTIME_ENTRY}: TypeScript program omitted runtime entry`,
+    );
+
+  const authoredSources = program
+    .getSourceFiles()
+    .filter(
+      (source) =>
+        !source.isDeclarationFile &&
+        isPathInside(sourceRoot, source.fileName) &&
+        !GENERATED_AUTHORITY_PATH.test(posixPath(source.fileName)),
+    )
+    .sort((left, right) => compareText(left.fileName, right.fileName));
+  if (authoredSources.length === 0) {
+    throw new Error(
+      `${SHARED_RUNTIME_ENTRY}: authored TypeScript module graph is empty`,
+    );
+  }
+  for (const source of authoredSources) {
+    const relativePath = posixPath(
+      path.relative(absoluteRepoRoot, source.fileName),
+    );
+    assertAuthoredAuthorityPath(source.fileName, sourceRoot, relativePath);
+    for (const diagnostic of source.parseDiagnostics ?? []) {
+      throw new Error(
+        `${relativePath}: unable to parse authored runtime source: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`,
+      );
+    }
+    for (const statement of source.statements) {
+      if (
+        !ts.isImportDeclaration(statement) &&
+        !ts.isExportDeclaration(statement)
+      )
+        continue;
+      const specifier = statement.moduleSpecifier;
+      if (
+        !specifier ||
+        !ts.isStringLiteralLike(specifier) ||
+        !specifier.text.startsWith(".")
+      )
+        continue;
+      const resolution = ts.resolveModuleName(
+        specifier.text,
+        source.fileName,
+        compilerOptions,
+        ts.sys,
+      ).resolvedModule;
+      if (!resolution) {
+        throw new Error(
+          `${relativePath}: unresolved authored relative import ${JSON.stringify(specifier.text)}`,
+        );
+      }
+      assertAuthoredAuthorityPath(
+        resolution.resolvedFileName,
+        sourceRoot,
+        `${relativePath}: import ${JSON.stringify(specifier.text)}`,
+        { allowGenerated: true },
+      );
+    }
+  }
+
+  const relativeSourcePath = (node) =>
+    posixPath(path.relative(absoluteRepoRoot, node.getSourceFile().fileName));
+  const symbolAt = (node) => {
+    let symbol = checker.getSymbolAtLocation(node);
+    if (
+      ts.isIdentifier(node) &&
+      ts.isShorthandPropertyAssignment(node.parent) &&
+      node.parent.name === node
+    ) {
+      symbol = checker.getShorthandAssignmentValueSymbol(node.parent) ?? symbol;
+    }
+    const visited = new Set();
+    while (
+      symbol &&
+      (symbol.flags & ts.SymbolFlags.Alias) !== 0 &&
+      !visited.has(symbol)
+    ) {
+      visited.add(symbol);
+      symbol = checker.getAliasedSymbol(symbol);
+    }
+    return symbol ?? null;
+  };
+  const declarationIdentity = (node) =>
+    `${relativeSourcePath(node)}:${node.pos}:${node.end}`;
+  const enclosingName = (node) => {
+    let current = node;
+    while (current) {
+      if (
+        (ts.isFunctionDeclaration(current) ||
+          ts.isMethodDeclaration(current) ||
+          ts.isClassDeclaration(current) ||
+          ts.isClassExpression(current)) &&
+        current.name
+      ) {
+        return current.name.getText();
+      }
+      if (
+        (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
+        ts.isVariableDeclaration(current.parent) &&
+        ts.isIdentifier(current.parent.name)
+      ) {
+        return current.parent.name.text;
+      }
+      current = current.parent;
+    }
+    return "<module>";
+  };
+  const authoredRef = (node, suffix) =>
+    sourceSymbol(relativeSourcePath(node), `${enclosingName(node)}:${suffix}`);
+
+  const importBindings = [];
+  for (const statement of entrySource.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteralLike(statement.moduleSpecifier)
+    )
+      continue;
+    if (statement.moduleSpecifier.text !== "./bootstrap.js") continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      if ((element.propertyName ?? element.name).text === "installGlobals")
+        importBindings.push(element.name);
+    }
+  }
+  if (importBindings.length !== 1) {
+    throw new Error(
+      `${SHARED_RUNTIME_ENTRY}: expected exactly one named installGlobals import from ./bootstrap.js`,
+    );
+  }
+  const installSymbol = symbolAt(importBindings[0]);
+  const installCalls = [];
+  const findInstallCalls = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      symbolAt(tsUnwrapExpression(node.expression)) === installSymbol
+    ) {
+      installCalls.push(node);
+    }
+    ts.forEachChild(node, findInstallCalls);
+  };
+  findInstallCalls(entrySource);
+  if (
+    installCalls.length !== 1 ||
+    !ts.isExpressionStatement(installCalls[0].parent)
+  ) {
+    throw new Error(
+      `${SHARED_RUNTIME_ENTRY}: installGlobals must have exactly one direct top-level invocation`,
+    );
+  }
+
+  const literalArrays = new Map();
+  const arraySymbol = (expression) => {
+    const value = tsUnwrapExpression(expression);
+    return ts.isIdentifier(value) ? symbolAt(value) : null;
+  };
+  for (const source of authoredSources) {
+    const visit = (node) => {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer &&
+        ts.isArrayLiteralExpression(tsUnwrapExpression(node.initializer))
+      ) {
+        const symbol = symbolAt(node.name);
+        const values = tsUnwrapExpression(node.initializer)
+          .elements.map((element) => tsUnwrapExpression(element))
+          .filter((element) => ts.isStringLiteralLike(element))
+          .map((element) => element.text);
+        if (
+          symbol &&
+          values.length === tsUnwrapExpression(node.initializer).elements.length
+        ) {
+          literalArrays.set(symbol, new Set(values));
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  for (const source of authoredSources) {
+    const visit = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(tsUnwrapExpression(node.expression)) &&
+        tsUnwrapExpression(node.expression).name.text === "push"
+      ) {
+        const receiver = tsUnwrapExpression(node.expression).expression;
+        const symbol = arraySymbol(receiver);
+        const table = symbol ? literalArrays.get(symbol) : null;
+        if (table) {
+          const values = node.arguments.map((argument) =>
+            tsUnwrapExpression(argument),
+          );
+          if (values.every((argument) => ts.isStringLiteralLike(argument))) {
+            for (const value of values) table.add(value.text);
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+
+  const facts = new Map();
+  const globalAliases = new Map();
+  const installedSymbolPaths = new Map();
+  const addFact = (
+    segments,
+    refs,
+    memberKinds = ["registration"],
+    semanticRole,
+    valueShape,
+  ) => {
+    if (segments.length === 0) return;
+    const exportName = segments.join(".");
+    let fact = facts.get(exportName);
+    if (!fact) {
+      fact = {
+        exportName,
+        globalName: segments[0],
+        memberKinds: new Set(),
+        memberName: segments.length === 1 ? null : segments.slice(1).join("."),
+        refs: new Set(),
+        semanticRoles: new Set(),
+        valueShapes: new Set(),
+      };
+      facts.set(exportName, fact);
+    }
+    for (const ref of refs) fact.refs.add(ref);
+    for (const kind of memberKinds) fact.memberKinds.add(kind);
+    if (semanticRole) fact.semanticRoles.add(semanticRole);
+    if (valueShape) fact.valueShapes.add(valueShape);
+  };
+  const addPathFacts = (
+    segments,
+    refs,
+    memberKinds = ["registration"],
+    semanticRole,
+    valueShape,
+  ) => {
+    for (let length = 1; length <= segments.length; length += 1) {
+      const prefixName = segments.slice(0, length).join(".");
+      if (length < segments.length && facts.has(prefixName)) continue;
+      addFact(
+        segments.slice(0, length),
+        length === segments.length ? refs : refs.slice(0, 1),
+        length === segments.length ? memberKinds : ["namespace-prefix"],
+        semanticRole,
+        length === segments.length ? valueShape : undefined,
+      );
+    }
+  };
+
+  const bindingFor = (symbol, environment) =>
+    symbol ? environment.get(symbol) : null;
+  const staticStrings = (expression, environment, seen = new Set()) => {
+    const node = tsUnwrapExpression(expression);
+    if (!node) return [];
+    if (ts.isStringLiteralLike(node) || ts.isNumericLiteral(node))
+      return [node.text];
+    if (ts.isIdentifier(node)) {
+      const symbol = symbolAt(node);
+      if (!symbol || seen.has(symbol)) return [];
+      const bound = bindingFor(symbol, environment);
+      if (bound?.strings) return [...bound.strings];
+      if (literalArrays.has(symbol)) return [...literalArrays.get(symbol)];
+      seen.add(symbol);
+      const values = [];
+      for (const declaration of symbol.declarations ?? []) {
+        if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+          values.push(
+            ...staticStrings(declaration.initializer, environment, seen),
+          );
+        }
+        if (ts.isParameter(declaration) && bound?.expression) {
+          values.push(
+            ...staticStrings(bound.expression, bound.environment, seen),
+          );
+        }
+      }
+      return uniqueSorted(values);
+    }
+    if (ts.isConditionalExpression(node)) {
+      return uniqueSorted([
+        ...staticStrings(node.whenTrue, environment, seen),
+        ...staticStrings(node.whenFalse, environment, seen),
+      ]);
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.BarBarToken
+    ) {
+      return uniqueSorted([
+        ...staticStrings(node.left, environment, seen),
+        ...staticStrings(node.right, environment, seen),
+      ]);
+    }
+    return [];
+  };
+
+  const globalPaths = (
+    expression,
+    environment,
+    seen = new Set(),
+    includeInstalled = true,
+  ) => {
+    const node = tsUnwrapExpression(expression);
+    if (!node) return [];
+    if (ts.isIdentifier(node) && node.text === "globalThis") return [[]];
+    if (ts.isIdentifier(node)) {
+      const symbol = symbolAt(node);
+      if (!symbol || seen.has(symbol)) return [];
+      const bound = bindingFor(symbol, environment);
+      if (bound?.globalPaths)
+        return bound.globalPaths.map((segments) => [...segments]);
+      if (includeInstalled && installedSymbolPaths.has(symbol)) {
+        return installedSymbolPaths
+          .get(symbol)
+          .map((segments) => [...segments]);
+      }
+      seen.add(symbol);
+      const paths = [];
+      for (const declaration of symbol.declarations ?? []) {
+        if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
+          paths.push(
+            ...globalPaths(
+              declaration.initializer,
+              environment,
+              seen,
+              includeInstalled,
+            ),
+          );
+        }
+        if (ts.isParameter(declaration) && bound?.expression) {
+          paths.push(
+            ...globalPaths(
+              bound.expression,
+              bound.environment,
+              seen,
+              includeInstalled,
+            ),
+          );
+        }
+      }
+      return paths;
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isPropertyAccessChain(node)) {
+      return globalPaths(
+        node.expression,
+        environment,
+        seen,
+        includeInstalled,
+      ).map((segments) => [...segments, node.name.text]);
+    }
+    if (ts.isElementAccessExpression(node) || ts.isElementAccessChain(node)) {
+      const bases = globalPaths(
+        node.expression,
+        environment,
+        seen,
+        includeInstalled,
+      );
+      const names = staticStrings(node.argumentExpression, environment);
+      return bases.flatMap((segments) =>
+        names.map((name) => [...segments, name]),
+      );
+    }
+    if (ts.isConditionalExpression(node)) {
+      return [
+        ...globalPaths(node.whenTrue, environment, seen, includeInstalled),
+        ...globalPaths(node.whenFalse, environment, seen, includeInstalled),
+      ];
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      (node.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+        node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+    ) {
+      return [
+        ...globalPaths(node.left, environment, seen, includeInstalled),
+        ...globalPaths(node.right, environment, seen, includeInstalled),
+      ];
+    }
+    return [];
+  };
+
+  const dynamicTableValues = (expression, environment) => {
+    const node = tsUnwrapExpression(expression);
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(tsUnwrapExpression(node.expression)) &&
+      ts.isIdentifier(tsUnwrapExpression(node.expression).expression) &&
+      tsUnwrapExpression(node.expression).expression.text === "Object" &&
+      tsUnwrapExpression(node.expression).name.text === "entries" &&
+      ts.isIdentifier(tsUnwrapExpression(node.arguments[0])) &&
+      tsUnwrapExpression(node.arguments[0]).text === "_prevEnv"
+    ) {
+      return ["[[dynamic-table:host-process-env-properties]]"];
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(tsUnwrapExpression(node.expression)) &&
+      ts.isIdentifier(tsUnwrapExpression(node.expression).expression) &&
+      tsUnwrapExpression(node.expression).expression.text === "Object" &&
+      tsUnwrapExpression(node.expression).name.text === "getOwnPropertyNames"
+    ) {
+      const argument = tsUnwrapExpression(node.arguments[0]);
+      if (ts.isIdentifier(argument) && argument.text === "_oldProcess") {
+        return ["[[dynamic-table:host-process-own-properties]]"];
+      }
+      if (ts.isIdentifier(argument) && argument.text === "proto") {
+        return ["[[dynamic-table:host-process-prototype-properties]]"];
+      }
+      const paths = globalPaths(argument, environment);
+      if (paths.length === 1 && paths[0].length > 0) {
+        return [
+          `[[dynamic-table:${paths[0]
+            .join("-")
+            .replace(/[^a-z0-9-]/giu, "-")
+            .toLowerCase()}-own-properties]]`,
+        ];
+      }
+    }
+    return [];
+  };
+
+  const propertyNames = (name, environment, sourcePath) => {
+    if (!name) return [];
+    if (
+      ts.isIdentifier(name) ||
+      ts.isStringLiteralLike(name) ||
+      ts.isNumericLiteral(name)
+    ) {
+      return [name.text];
+    }
+    if (ts.isComputedPropertyName(name)) {
+      const values = staticStrings(name.expression, environment);
+      if (values.length > 0) return values;
+      const symbolName = tsMemberName(name, sourcePath);
+      return symbolName ? [symbolName] : [];
+    }
+    return [];
+  };
+
+  const registrationNames = (expression, environment) => {
+    const direct = staticStrings(expression, environment);
+    if (direct.length > 0) return direct;
+    const node = tsUnwrapExpression(expression);
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "Symbol"
+    ) {
+      return [`[[Symbol.${node.name.text}]]`];
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(tsUnwrapExpression(node.expression)) &&
+      ts.isIdentifier(tsUnwrapExpression(node.expression).expression) &&
+      tsUnwrapExpression(node.expression).expression.text === "Symbol" &&
+      tsUnwrapExpression(node.expression).name.text === "for" &&
+      ts.isStringLiteralLike(tsUnwrapExpression(node.arguments[0]))
+    ) {
+      return [`[[Symbol.for:${tsUnwrapExpression(node.arguments[0]).text}]]`];
+    }
+    if (ts.isIdentifier(node)) {
+      const symbol = symbolAt(node);
+      const isSymbolBinding = (symbol?.declarations ?? []).some(
+        (declaration) =>
+          ts.isVariableDeclaration(declaration) &&
+          declaration.initializer &&
+          ts.isCallExpression(tsUnwrapExpression(declaration.initializer)) &&
+          ts.isIdentifier(
+            tsUnwrapExpression(declaration.initializer).expression,
+          ) &&
+          tsUnwrapExpression(declaration.initializer).expression.text ===
+            "Symbol",
+      );
+      if (isSymbolBinding) return [`[[symbol-binding:${node.text}]]`];
+    }
+    return [];
+  };
+
+  const expressionSymbol = (expression, environment, seen = new Set()) => {
+    const node = tsUnwrapExpression(expression);
+    if (!node) return null;
+    if (ts.isIdentifier(node)) {
+      const symbol = symbolAt(node);
+      if (!symbol || seen.has(symbol)) return symbol;
+      const bound = bindingFor(symbol, environment);
+      if (bound?.expression) {
+        seen.add(symbol);
+        return expressionSymbol(bound.expression, bound.environment, seen);
+      }
+      return symbol;
+    }
+    if (ts.isPropertyAccessExpression(node)) return symbolAt(node.name);
+    if (ts.isClassExpression(node) && node.name) return symbolAt(node.name);
+    return null;
+  };
+
+  const callableDeclarations = (expression, environment, seen = new Set()) => {
+    const node = tsUnwrapExpression(expression);
+    if (!node) return [];
+    if (ts.isFunctionExpression(node) || ts.isArrowFunction(node))
+      return [node];
+    if (ts.isIdentifier(node)) {
+      const symbol = symbolAt(node);
+      if (!symbol || seen.has(symbol)) return [];
+      const bound = bindingFor(symbol, environment);
+      if (bound?.expression) {
+        seen.add(symbol);
+        return callableDeclarations(bound.expression, bound.environment, seen);
+      }
+      const declarations = [];
+      for (const declaration of symbol.declarations ?? []) {
+        const callable = tsFunctionLikeDeclaration(declaration);
+        if (callable) declarations.push(callable);
+      }
+      return declarations;
+    }
+    const symbol = symbolAt(
+      ts.isPropertyAccessExpression(node) ? node.name : node,
+    );
+    return (symbol?.declarations ?? []).flatMap((declaration) => {
+      const callable = tsFunctionLikeDeclaration(declaration);
+      return callable ? [callable] : [];
+    });
+  };
+
+  const invocationEnvironment = (declaration, call, callerEnvironment) => {
+    const environment = new Map(callerEnvironment);
+    for (let index = 0; index < declaration.parameters.length; index += 1) {
+      const parameter = declaration.parameters[index];
+      if (!ts.isIdentifier(parameter.name)) continue;
+      const symbol = symbolAt(parameter.name);
+      const argument = call.arguments?.[index];
+      if (!symbol || !argument) continue;
+      environment.set(symbol, {
+        expression: argument,
+        environment: callerEnvironment,
+        globalPaths: globalPaths(argument, callerEnvironment),
+        strings: new Set(staticStrings(argument, callerEnvironment)),
+      });
+    }
+    return environment;
+  };
+
+  const classAugmentations = new Map();
+  const addClassAugmentation = (symbol, augmentation) => {
+    if (!symbol) return;
+    let values = classAugmentations.get(symbol);
+    if (!values) {
+      values = [];
+      classAugmentations.set(symbol, values);
+    }
+    values.push(augmentation);
+  };
+  const augmentationTarget = (expression) => {
+    const node = tsUnwrapExpression(expression);
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "prototype") {
+      return {
+        memberKind: "prototype",
+        symbol: expressionSymbol(node.expression, new Map()),
+      };
+    }
+    if (ts.isIdentifier(node)) {
+      return {
+        memberKind: "static",
+        symbol: expressionSymbol(node, new Map()),
+      };
+    }
+    return null;
+  };
+  for (const source of authoredSources) {
+    const sourcePath = posixPath(
+      path.relative(absoluteRepoRoot, source.fileName),
+    );
+    const visit = (node) => {
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        (ts.isPropertyAccessExpression(tsUnwrapExpression(node.left)) ||
+          ts.isElementAccessExpression(tsUnwrapExpression(node.left)))
+      ) {
+        const left = tsUnwrapExpression(node.left);
+        const target = augmentationTarget(left.expression);
+        const names = ts.isPropertyAccessExpression(left)
+          ? [left.name.text]
+          : staticStrings(left.argumentExpression, new Map());
+        if (!target) {
+          ts.forEachChild(node, visit);
+          return;
+        }
+        for (const name of names) {
+          addClassAugmentation(target.symbol, {
+            memberKind: target.memberKind,
+            name,
+            node,
+            sourcePath,
+            value: node.right,
+          });
+        }
+      }
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(tsUnwrapExpression(node.expression)) &&
+        ts.isIdentifier(tsUnwrapExpression(node.expression).expression) &&
+        tsUnwrapExpression(node.expression).expression.text === "Object" &&
+        new Set(["defineProperty", "defineProperties", "assign"]).has(
+          tsUnwrapExpression(node.expression).name.text,
+        )
+      ) {
+        const method = tsUnwrapExpression(node.expression).name.text;
+        const target = augmentationTarget(node.arguments[0]);
+        if (target) {
+          if (method === "defineProperty") {
+            for (const name of staticStrings(node.arguments[1], new Map())) {
+              addClassAugmentation(target.symbol, {
+                memberKind: target.memberKind,
+                name,
+                node,
+                sourcePath,
+                value: node.arguments[2],
+              });
+            }
+          } else {
+            for (const object of node.arguments.slice(1)) {
+              const value = tsUnwrapExpression(object);
+              if (!ts.isObjectLiteralExpression(value)) continue;
+              for (const property of value.properties) {
+                if (ts.isSpreadAssignment(property)) continue;
+                for (const name of propertyNames(
+                  property.name,
+                  new Map(),
+                  sourcePath,
+                )) {
+                  addClassAugmentation(target.symbol, {
+                    memberKind: target.memberKind,
+                    name,
+                    node: property,
+                    sourcePath,
+                    value: ts.isPropertyAssignment(property)
+                      ? property.initializer
+                      : property,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+
+  const resolveValueExpressions = (
+    expression,
+    environment,
+    seen = new Set(),
+  ) => {
+    const node = tsUnwrapExpression(expression);
+    if (!node) return [];
+    if (ts.isConditionalExpression(node)) {
+      return [
+        ...resolveValueExpressions(node.whenTrue, environment, seen),
+        ...resolveValueExpressions(node.whenFalse, environment, seen),
+      ];
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      (node.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+        node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+    ) {
+      return [
+        ...resolveValueExpressions(node.left, environment, seen),
+        ...resolveValueExpressions(node.right, environment, seen),
+      ];
+    }
+    if (ts.isIdentifier(node)) {
+      const symbol = symbolAt(node);
+      if (!symbol || seen.has(symbol)) return [{ environment, node }];
+      const bound = bindingFor(symbol, environment);
+      if (bound?.expression) {
+        const nextSeen = new Set(seen).add(symbol);
+        return resolveValueExpressions(
+          bound.expression,
+          bound.environment,
+          nextSeen,
+        );
+      }
+      const declarations = symbol.declarations ?? [];
+      const classes = declarations.filter(
+        (declaration) =>
+          ts.isClassDeclaration(declaration) ||
+          ts.isClassExpression(declaration),
+      );
+      if (classes.length > 0)
+        return classes.map((declaration) => ({
+          environment,
+          node: declaration,
+        }));
+      const functions = declarations.filter((declaration) =>
+        tsFunctionLikeDeclaration(declaration),
+      );
+      const variables = declarations.filter(
+        (declaration) =>
+          ts.isVariableDeclaration(declaration) && declaration.initializer,
+      );
+      if (variables.length > 0) {
+        const nextSeen = new Set(seen).add(symbol);
+        return variables.flatMap((declaration) =>
+          resolveValueExpressions(
+            declaration.initializer,
+            environment,
+            nextSeen,
+          ),
+        );
+      }
+      if (functions.length > 0) {
+        return functions.map((declaration) => ({
+          environment,
+          node: tsFunctionLikeDeclaration(declaration),
+        }));
+      }
+      return [{ environment, node }];
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = tsUnwrapExpression(node.expression);
+      const calleeName = ts.isIdentifier(callee)
+        ? callee.text
+        : ts.isPropertyAccessExpression(callee)
+          ? callee.name.text
+          : "";
+      if (
+        new Set([
+          "preserveConstructorName",
+          "createGlobalBufferConstructor",
+        ]).has(calleeName)
+      ) {
+        return resolveValueExpressions(node.arguments[0], environment, seen);
+      }
+      const returns = [];
+      for (const declaration of callableDeclarations(callee, environment)) {
+        const invocation = invocationEnvironment(
+          declaration,
+          node,
+          environment,
+        );
+        for (const returned of tsReturnExpressions(declaration)) {
+          returns.push(...resolveValueExpressions(returned, invocation, seen));
+        }
+      }
+      return returns.length > 0 ? returns : [{ environment, node }];
+    }
+    return [{ environment, node }];
+  };
+
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // public read probes may use only a source-proven value shape. A path whose
+  // authored definitions disagree, or whose type is any/unknown, deliberately
+  // remains unprobeable rather than relying on the loaded runtime to choose a
+  // convenient interpretation.
+  const directValueShape = (expression) => {
+    const node = tsUnwrapExpression(expression);
+    if (!node) return null;
+    if (
+      ts.isFunctionDeclaration(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isArrowFunction(node) ||
+      ts.isMethodDeclaration(node) ||
+      ts.isClassDeclaration(node) ||
+      ts.isClassExpression(node)
+    ) {
+      return "callable";
+    }
+    if (
+      ts.isObjectLiteralExpression(node) ||
+      ts.isArrayLiteralExpression(node) ||
+      ts.isNewExpression(node) ||
+      ts.isStringLiteralLike(node) ||
+      ts.isNumericLiteral(node) ||
+      ts.isBigIntLiteral(node) ||
+      ts.isRegularExpressionLiteral(node) ||
+      node.kind === ts.SyntaxKind.TrueKeyword ||
+      node.kind === ts.SyntaxKind.FalseKeyword ||
+      node.kind === ts.SyntaxKind.NullKeyword ||
+      (ts.isIdentifier(node) &&
+        new Set(["undefined", "NaN", "Infinity"]).has(node.text))
+    ) {
+      return "data";
+    }
+    const type = checker.getTypeAtLocation(node);
+    const candidates = type.isUnionOrIntersection() ? type.types : [type];
+    const shapes = new Set();
+    for (const candidate of candidates) {
+      if (
+        (candidate.flags &
+          (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) !==
+        0
+      ) {
+        return null;
+      }
+      shapes.add(
+        candidate.getCallSignatures().length > 0 ||
+          candidate.getConstructSignatures().length > 0
+          ? "callable"
+          : "data",
+      );
+    }
+    return shapes.size === 1 ? [...shapes][0] : null;
+  };
+  const resolvedValueShape = (expression, environment) => {
+    const candidates = resolveValueExpressions(expression, environment).map(
+      (resolved) => directValueShape(resolved.node),
+    );
+    if (candidates.length === 0 || candidates.some((shape) => !shape)) {
+      return null;
+    }
+    const shapes = new Set(candidates);
+    return shapes.size === 1 ? [...shapes][0] : null;
+  };
+  const propertyValueShape = (property, environment) => {
+    if (ts.isMethodDeclaration(property)) return "callable";
+    if (ts.isGetAccessorDeclaration(property)) return "accessor";
+    if (ts.isSetAccessorDeclaration(property)) return null;
+    if (ts.isPropertyAssignment(property)) {
+      return resolvedValueShape(property.initializer, environment);
+    }
+    if (ts.isShorthandPropertyAssignment(property)) {
+      return resolvedValueShape(property.name, environment);
+    }
+    return null;
+  };
+  const descriptorValueShape = (descriptor, environment, sourcePath) => {
+    const node = tsUnwrapExpression(descriptor);
+    if (!node || !ts.isObjectLiteralExpression(node)) return null;
+    let accessor = false;
+    const values = [];
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) return null;
+      const names = propertyNames(property.name, environment, sourcePath);
+      if (names.includes("get")) {
+        if (
+          ts.isMethodDeclaration(property) ||
+          ts.isGetAccessorDeclaration(property) ||
+          (ts.isPropertyAssignment(property) &&
+            resolvedValueShape(property.initializer, environment) ===
+              "callable")
+        ) {
+          accessor = true;
+        } else {
+          return null;
+        }
+      }
+      if (names.includes("value") && ts.isPropertyAssignment(property)) {
+        values.push(resolvedValueShape(property.initializer, environment));
+      }
+    }
+    if (accessor && values.length > 0) return null;
+    if (accessor) return "accessor";
+    if (values.length === 0 || values.some((shape) => !shape)) return null;
+    const shapes = new Set(values);
+    return shapes.size === 1 ? [...shapes][0] : null;
+  };
+
+  const classTargets = (expression) => {
+    const node = tsUnwrapExpression(expression);
+    if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
+      return [{ declaration: node, mode: "constructor" }];
+    }
+    if (ts.isNewExpression(node)) {
+      const symbol = expressionSymbol(node.expression, new Map());
+      return (symbol?.declarations ?? [])
+        .filter(
+          (declaration) =>
+            ts.isClassDeclaration(declaration) ||
+            ts.isClassExpression(declaration),
+        )
+        .map((declaration) => ({ declaration, mode: "instance" }));
+    }
+    if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
+      const symbol = expressionSymbol(node, new Map());
+      return (symbol?.declarations ?? [])
+        .filter(
+          (declaration) =>
+            ts.isClassDeclaration(declaration) ||
+            ts.isClassExpression(declaration),
+        )
+        .map((declaration) => ({ declaration, mode: "constructor" }));
+    }
+    return [];
+  };
+
+  const collectObjectMembers = (
+    object,
+    environment,
+    baseSegments,
+    installRefs,
+    seenObjects,
+  ) => {
+    const node = tsUnwrapExpression(object);
+    if (!ts.isObjectLiteralExpression(node)) return;
+    const identity = declarationIdentity(node);
+    if (seenObjects.has(identity)) return;
+    seenObjects.add(identity);
+    const sourcePath = relativeSourcePath(node);
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spreads = resolveValueExpressions(
+          property.expression,
+          environment,
+        ).filter((resolved) =>
+          ts.isObjectLiteralExpression(tsUnwrapExpression(resolved.node)),
+        );
+        if (spreads.length === 0) {
+          throw new Error(
+            `${sourcePath}: opaque spread in installed global object ${baseSegments.join(".")}`,
+          );
+        }
+        for (const spread of spreads) {
+          collectObjectMembers(
+            spread.node,
+            spread.environment,
+            baseSegments,
+            installRefs,
+            seenObjects,
+          );
+        }
+        continue;
+      }
+      if (tsHasNonPublicModifier(property)) continue;
+      const names = propertyNames(property.name, environment, sourcePath);
+      if (names.length === 0) {
+        throw new Error(
+          `${sourcePath}: unresolved computed member in installed global object ${baseSegments.join(".")}`,
+        );
+      }
+      for (const name of names) {
+        const segments = [...baseSegments, name];
+        const memberKind = ts.isMethodDeclaration(property)
+          ? "object-method"
+          : ts.isGetAccessorDeclaration(property) ||
+              ts.isSetAccessorDeclaration(property)
+            ? "object-accessor"
+            : "object-property";
+        const refs = [
+          ...installRefs,
+          sourceSymbol(sourcePath, `${enclosingName(property)}.${name}`),
+        ];
+        addPathFacts(
+          segments,
+          refs,
+          [memberKind],
+          undefined,
+          propertyValueShape(property, environment),
+        );
+        if (ts.isPropertyAssignment(property)) {
+          for (const resolved of resolveValueExpressions(
+            property.initializer,
+            environment,
+          )) {
+            collectObjectMembers(
+              resolved.node,
+              resolved.environment,
+              segments,
+              refs,
+              seenObjects,
+            );
+          }
+        }
+      }
+    }
+  };
+
+  const collectClassMembers = (
+    declaration,
+    mode,
+    baseSegments,
+    installRefs,
+    seenClasses = new Set(),
+    inherited = false,
+  ) => {
+    const classIdentity = `${declarationIdentity(declaration)}:${mode}`;
+    if (seenClasses.has(classIdentity)) return;
+    const nextSeen = new Set(seenClasses).add(classIdentity);
+    const sourcePath = relativeSourcePath(declaration);
+    const className = declaration.name?.text ?? "<anonymous-class>";
+    const classSymbol = declaration.name
+      ? symbolAt(declaration.name)
+      : symbolAt(declaration);
+    for (const member of declaration.members) {
+      if (ts.isConstructorDeclaration(member) || tsHasNonPublicModifier(member))
+        continue;
+      const isStatic = Boolean(
+        member.modifiers?.some(
+          (modifier) => modifier.kind === ts.SyntaxKind.StaticKeyword,
+        ),
+      );
+      if (mode === "instance" && isStatic) continue;
+      const name = tsMemberName(member.name, sourcePath);
+      if (name === null) continue;
+      const memberKind = isStatic
+        ? "static"
+        : ts.isMethodDeclaration(member)
+          ? "prototype-method"
+          : ts.isGetAccessorDeclaration(member) ||
+              ts.isSetAccessorDeclaration(member)
+            ? "prototype-accessor"
+            : "instance-property";
+      const ref = sourceSymbol(
+        sourcePath,
+        isStatic ? `${className}.${name}` : `${className}.prototype.${name}`,
+      );
+      addPathFacts(
+        [...baseSegments, name],
+        [...installRefs, ref],
+        inherited ? [memberKind, "inherited"] : [memberKind],
+        undefined,
+        ts.isMethodDeclaration(member)
+          ? "callable"
+          : ts.isGetAccessorDeclaration(member)
+            ? "accessor"
+            : ts.isSetAccessorDeclaration(member)
+              ? undefined
+              : member.initializer
+                ? resolvedValueShape(member.initializer, new Map())
+                : directValueShape(member),
+      );
+    }
+    for (const augmentation of classAugmentations.get(classSymbol) ?? []) {
+      if (mode === "instance" && augmentation.memberKind === "static") continue;
+      addPathFacts(
+        [...baseSegments, augmentation.name],
+        [
+          ...installRefs,
+          sourceSymbol(
+            augmentation.sourcePath,
+            augmentation.memberKind === "prototype"
+              ? `${className}.prototype.${augmentation.name}`
+              : `${className}.${augmentation.name}`,
+          ),
+        ],
+        [
+          augmentation.memberKind === "prototype"
+            ? "prototype-assignment"
+            : "static-assignment",
+          ...(inherited ? ["inherited"] : []),
+        ],
+        undefined,
+        resolvedValueShape(augmentation.value, new Map()),
+      );
+    }
+
+    const extendsTypes = (declaration.heritageClauses ?? [])
+      .filter((clause) => clause.token === ts.SyntaxKind.ExtendsKeyword)
+      .flatMap((clause) => [...clause.types]);
+    for (const heritage of extendsTypes) {
+      const expression = tsUnwrapExpression(heritage.expression);
+      const symbol =
+        expressionSymbol(expression, new Map()) ?? symbolAt(expression);
+      const bases = (symbol?.declarations ?? []).filter(
+        (candidate) =>
+          (ts.isClassDeclaration(candidate) ||
+            ts.isClassExpression(candidate)) &&
+          isPathInside(sourceRoot, candidate.getSourceFile().fileName) &&
+          !GENERATED_AUTHORITY_PATH.test(
+            posixPath(candidate.getSourceFile().fileName),
+          ),
+      );
+      if (bases.length > 0) {
+        for (const base of bases) {
+          collectClassMembers(
+            base,
+            mode,
+            baseSegments,
+            installRefs,
+            nextSeen,
+            true,
+          );
+        }
+        continue;
+      }
+      const baseText = expression.getText().replace(/\s+/gu, " ");
+      const slug = baseText
+        .replace(/([a-z0-9])([A-Z])/gu, "$1-$2")
+        .replace(/[^A-Za-z0-9]+/gu, "-")
+        .replace(/^-|-$/gu, "")
+        .toLowerCase();
+      const digest = sha256Hex(
+        `${sourcePath}\0${className}\0${mode}\0${baseText}`,
+      ).slice(0, 10);
+      const sentinel = `[[dynamic-table:inherited-${slug || "external"}-${digest}-properties]]`;
+      addPathFacts(
+        [...baseSegments, sentinel],
+        [
+          ...installRefs,
+          sourceSymbol(sourcePath, `${className}:extends:${baseText}`),
+        ],
+        ["dynamic-table", "inherited-shape"],
+        "inherited-shape",
+      );
+    }
+  };
+
+  const typeClassTargets = (expression) => {
+    const type = checker.getTypeAtLocation(expression);
+    if (
+      (type.flags &
+        (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) !==
+      0
+    ) {
+      return [];
+    }
+    const candidates = [
+      type,
+      ...(type.isUnionOrIntersection() ? type.types : []),
+    ];
+    const targets = [];
+    for (const candidate of candidates) {
+      const symbol = candidate.getSymbol?.() ?? candidate.aliasSymbol;
+      for (const declaration of symbol?.declarations ?? []) {
+        if (
+          ts.isClassDeclaration(declaration) ||
+          ts.isClassExpression(declaration)
+        ) {
+          targets.push({ declaration, mode: "instance" });
+        }
+      }
+    }
+    return targets;
+  };
+
+  const collectRegisteredValueMembers = (
+    value,
+    environment,
+    baseSegments,
+    installRefs,
+  ) => {
+    const resolvedValues = resolveValueExpressions(value, environment);
+    if (resolvedValues.length === 0) {
+      throw new Error(
+        `${relativeSourcePath(value)}: unresolved installed binding for ${baseSegments.join(".")}: ${value.getText().replace(/\s+/gu, " ")}`,
+      );
+    }
+    let resolvedShape = false;
+    for (const resolved of resolvedValues) {
+      const node = tsUnwrapExpression(resolved.node);
+      if (
+        GENERATED_AUTHORITY_PATH.test(posixPath(node.getSourceFile().fileName))
+      ) {
+        throw new Error(
+          `${relativeSourcePath(node)}: generated or vendored output cannot be inventory authority for ${baseSegments.join(".")}`,
+        );
+      }
+      const targets = classTargets(node);
+      const resolvedTargets =
+        targets.length > 0 ? targets : typeClassTargets(node);
+      if (resolvedTargets.length > 0) {
+        resolvedShape = true;
+        for (const target of resolvedTargets) {
+          collectClassMembers(
+            target.declaration,
+            target.mode,
+            baseSegments,
+            installRefs,
+          );
+        }
+        continue;
+      }
+      if (ts.isObjectLiteralExpression(node)) {
+        resolvedShape = true;
+        collectObjectMembers(
+          node,
+          resolved.environment,
+          baseSegments,
+          installRefs,
+          new Set(),
+        );
+        continue;
+      }
+      if (
+        ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isArrowFunction(node) ||
+        ts.isMethodDeclaration(node) ||
+        ts.isGetAccessorDeclaration(node) ||
+        ts.isSetAccessorDeclaration(node)
+      ) {
+        resolvedShape = true;
+        const symbol = node.name
+          ? symbolAt(node.name)
+          : expressionSymbol(value, environment);
+        for (const augmentation of classAugmentations.get(symbol) ?? []) {
+          addPathFacts(
+            [...baseSegments, augmentation.name],
+            [
+              ...installRefs,
+              sourceSymbol(
+                augmentation.sourcePath,
+                `${enclosingName(node)}.${augmentation.name}`,
+              ),
+            ],
+            ["function-property"],
+            undefined,
+            resolvedValueShape(augmentation.value, new Map()),
+          );
+        }
+        continue;
+      }
+      if (globalPaths(node, resolved.environment).length > 0) {
+        resolvedShape = true;
+        continue;
+      }
+      if (
+        ts.isStringLiteralLike(node) ||
+        ts.isNumericLiteral(node) ||
+        node.kind === ts.SyntaxKind.TrueKeyword ||
+        node.kind === ts.SyntaxKind.FalseKeyword ||
+        node.kind === ts.SyntaxKind.NullKeyword ||
+        (ts.isIdentifier(node) &&
+          new Set(["undefined", "NaN", "Infinity"]).has(node.text))
+      ) {
+        resolvedShape = true;
+        continue;
+      }
+      // Calls and property reads can intentionally install a scalar/function
+      // whose declaration shape is not statically enumerable. Their root is
+      // still exact; only object/constructor bindings are required to resolve.
+      if (ts.isCallExpression(node) || ts.isPropertyAccessExpression(node)) {
+        resolvedShape = true;
+      }
+    }
+    if (!resolvedShape) {
+      throw new Error(
+        `${relativeSourcePath(value)}: unresolved installed binding shape for ${baseSegments.join(".")}: ${value.getText().replace(/\s+/gu, " ")}`,
+      );
+    }
+  };
+
+  const descriptorValues = (descriptor, environment, sourcePath) => {
+    const node = tsUnwrapExpression(descriptor);
+    if (!node || !ts.isObjectLiteralExpression(node)) return [];
+    const values = [];
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        throw new Error(
+          `${sourcePath}: opaque spread in global property descriptor`,
+        );
+      }
+      const names = propertyNames(property.name, environment, sourcePath);
+      if (names.includes("value") && ts.isPropertyAssignment(property)) {
+        values.push(property.initializer);
+      }
+      if (
+        names.includes("get") &&
+        (ts.isMethodDeclaration(property) ||
+          ts.isGetAccessorDeclaration(property))
+      ) {
+        values.push(...tsReturnExpressions(property));
+      }
+      if (
+        names.includes("get") &&
+        ts.isPropertyAssignment(property) &&
+        (ts.isArrowFunction(tsUnwrapExpression(property.initializer)) ||
+          ts.isFunctionExpression(tsUnwrapExpression(property.initializer)))
+      ) {
+        values.push(
+          ...tsReturnExpressions(tsUnwrapExpression(property.initializer)),
+        );
+      }
+    }
+    return values;
+  };
+
+  const functionQueue = [];
+  const visitedFunctions = new Set();
+  const environmentFingerprint = (declaration, environment) =>
+    declaration.parameters
+      .map((parameter) => {
+        if (!ts.isIdentifier(parameter.name)) return "<pattern>";
+        const binding = bindingFor(symbolAt(parameter.name), environment);
+        if (!binding) return `${parameter.name.text}=<unbound>`;
+        const locations = binding.expression
+          ? [
+              `${relativeSourcePath(binding.expression)}:${binding.expression.pos}`,
+            ]
+          : [];
+        return `${parameter.name.text}=g:${(binding.globalPaths ?? []).map((value) => value.join(".")).join("|")};s:${[
+          ...(binding.strings ?? []),
+        ].join("|")};e:${locations.join("|")}`;
+      })
+      .join(";");
+  const enqueueFunction = (declaration, environment) => {
+    if (!declaration?.body) return;
+    if (!isPathInside(sourceRoot, declaration.getSourceFile().fileName)) return;
+    const key = `${declarationIdentity(declaration)}\0${environmentFingerprint(declaration, environment)}`;
+    if (visitedFunctions.has(key)) return;
+    visitedFunctions.add(key);
+    functionQueue.push({ declaration, environment });
+  };
+
+  const assignmentBaseAndNames = (left, environment) => {
+    const node = tsUnwrapExpression(left);
+    if (ts.isPropertyAccessExpression(node)) {
+      return {
+        bases: globalPaths(node.expression, environment),
+        names: [node.name.text],
+      };
+    }
+    if (ts.isElementAccessExpression(node)) {
+      const bases = globalPaths(node.expression, environment);
+      let names = registrationNames(node.argumentExpression, environment);
+      if (names.length === 0 && ts.isIdentifier(node.argumentExpression)) {
+        const binding = bindingFor(
+          symbolAt(node.argumentExpression),
+          environment,
+        );
+        names = [...(binding?.strings ?? [])];
+      }
+      return { bases, names };
+    }
+    return { bases: [], names: [] };
+  };
+
+  const recordRegistration = (
+    segments,
+    value,
+    environment,
+    node,
+    memberKinds = ["registration"],
+    valueShapeOverride,
+  ) => {
+    const ref = authoredRef(node, `globals:${segments.join(".")}`);
+    const dynamicTable = DYNAMIC_TABLE_MEMBER.test(segments.at(-1) ?? "");
+    addPathFacts(
+      segments,
+      [ref],
+      dynamicTable ? [...memberKinds, "dynamic-table"] : memberKinds,
+      dynamicTable ? "host-object-overlay" : undefined,
+      valueShapeOverride ??
+        (value ? resolvedValueShape(value, environment) : undefined),
+    );
+    if (dynamicTable) return;
+    if (value) {
+      const valueNode = tsUnwrapExpression(value);
+      if (
+        ts.isNewExpression(valueNode) &&
+        ts.isIdentifier(tsUnwrapExpression(valueNode.expression)) &&
+        tsUnwrapExpression(valueNode.expression).text === "Proxy"
+      ) {
+        const proxiedPaths = globalPaths(valueNode.arguments?.[0], environment);
+        if (proxiedPaths.length > 0) {
+          const tableName = `[[dynamic-table:host-${segments
+            .join("-")
+            .replace(/[^a-z0-9-]/giu, "-")
+            .toLowerCase()}-properties]]`;
+          addPathFacts(
+            [...segments, tableName],
+            [ref],
+            ["dynamic-table", "proxy-overlay"],
+            "host-object-overlay",
+          );
+          return;
+        }
+      }
+      const symbol = expressionSymbol(valueNode, environment);
+      const moduleScopedSymbol = (symbol?.declarations ?? []).some(
+        (declaration) => {
+          let current = declaration.parent;
+          while (current && !ts.isSourceFile(current)) {
+            if (ts.isFunctionLike(current)) return false;
+            current = current.parent;
+          }
+          return Boolean(current);
+        },
+      );
+      if (
+        symbol &&
+        moduleScopedSymbol &&
+        (ts.isIdentifier(valueNode) || ts.isClassExpression(valueNode))
+      ) {
+        let paths = installedSymbolPaths.get(symbol);
+        if (!paths) {
+          paths = [];
+          installedSymbolPaths.set(symbol, paths);
+        }
+        paths.push(segments);
+      }
+      const aliases = globalPaths(
+        valueNode,
+        environment,
+        new Set(),
+        false,
+      ).filter((candidate) => candidate.length > 0);
+      for (const alias of aliases) {
+        let destinations = globalAliases.get(alias.join("."));
+        if (!destinations) {
+          destinations = [];
+          globalAliases.set(alias.join("."), destinations);
+        }
+        destinations.push({ ref, segments });
+      }
+      collectRegisteredValueMembers(value, environment, segments, [ref]);
+    }
+    if (
+      segments.length === 1 &&
+      segments[0] === "__exactHostNavigator" &&
+      value &&
+      globalPaths(value, environment).some(
+        (candidate) => candidate.join(".") === "navigator",
+      )
+    ) {
+      addPathFacts(
+        ["__exactHostNavigator", "[[dynamic-table:host-navigator-properties]]"],
+        [ref],
+        ["dynamic-table"],
+        "host-object-overlay",
+      );
+    }
+  };
+
+  let processNode;
+  const processObjectDefineCall = (call, environment) => {
+    const callee = tsUnwrapExpression(call.expression);
+    if (
+      !ts.isPropertyAccessExpression(callee) ||
+      !ts.isIdentifier(callee.expression) ||
+      callee.expression.text !== "Object"
+    ) {
+      return false;
+    }
+    const method = callee.name.text;
+    if (!new Set(["defineProperty", "defineProperties", "assign"]).has(method))
+      return false;
+    const target = call.arguments[0];
+    const bases = target ? globalPaths(target, environment) : [];
+    if (bases.length === 0) return false;
+    const sourcePath = relativeSourcePath(call);
+
+    if (method === "defineProperty") {
+      const names = registrationNames(call.arguments[1], environment);
+      if (names.length === 0) {
+        throw new Error(
+          `${sourcePath}: unresolved computed global property registration ${call.arguments[1]?.getText() ?? "<missing>"}`,
+        );
+      }
+      const descriptor = call.arguments[2];
+      const values = descriptor
+        ? descriptorValues(descriptor, environment, sourcePath)
+        : [];
+      for (const base of bases) {
+        for (const name of names) {
+          const segments = [...base, name];
+          recordRegistration(segments, values[0] ?? null, environment, call, [
+            "define-property",
+          ], descriptorValueShape(descriptor, environment, sourcePath));
+          for (const value of values.slice(1)) {
+            collectRegisteredValueMembers(value, environment, segments, [
+              authoredRef(call, `globals:${segments.join(".")}`),
+            ]);
+          }
+        }
+      }
+      const descriptorNode = tsUnwrapExpression(descriptor);
+      if (descriptorNode && ts.isObjectLiteralExpression(descriptorNode)) {
+        for (const property of descriptorNode.properties) {
+          const propertyNamesFound = propertyNames(
+            property.name,
+            environment,
+            sourcePath,
+          );
+          if (
+            propertyNamesFound.includes("get") &&
+            (ts.isMethodDeclaration(property) ||
+              ts.isGetAccessorDeclaration(property))
+          ) {
+            enqueueFunction(property, environment);
+          }
+          if (
+            propertyNamesFound.includes("get") &&
+            ts.isPropertyAssignment(property) &&
+            (ts.isArrowFunction(tsUnwrapExpression(property.initializer)) ||
+              ts.isFunctionExpression(tsUnwrapExpression(property.initializer)))
+          ) {
+            enqueueFunction(
+              tsUnwrapExpression(property.initializer),
+              environment,
+            );
+          }
+        }
+      }
+      return true;
+    }
+
+    for (const object of call.arguments.slice(1)) {
+      const literals = resolveValueExpressions(object, environment)
+        .map((resolved) => ({
+          environment: resolved.environment,
+          node: tsUnwrapExpression(resolved.node),
+        }))
+        .filter((resolved) => ts.isObjectLiteralExpression(resolved.node));
+      if (literals.length === 0) {
+        throw new Error(
+          `${sourcePath}: opaque ${method} source in global registration`,
+        );
+      }
+      for (const resolvedLiteral of literals) {
+        for (const property of resolvedLiteral.node.properties) {
+          if (ts.isSpreadAssignment(property)) {
+            throw new Error(
+              `${sourcePath}: opaque spread in global ${method} registration`,
+            );
+          }
+          const names = propertyNames(
+            property.name,
+            resolvedLiteral.environment,
+            sourcePath,
+          );
+          if (names.length === 0) {
+            throw new Error(
+              `${sourcePath}: unresolved computed global ${method} registration`,
+            );
+          }
+          const descriptor = ts.isPropertyAssignment(property)
+            ? property.initializer
+            : ts.isShorthandPropertyAssignment(property)
+              ? property.name
+              : property;
+          const values =
+            method === "defineProperties"
+              ? descriptorValues(
+                  descriptor,
+                  resolvedLiteral.environment,
+                  sourcePath,
+                )
+              : [descriptor];
+          for (const base of bases) {
+            for (const name of names) {
+              const segments = [...base, name];
+              recordRegistration(
+                segments,
+                values[0] ?? null,
+                resolvedLiteral.environment,
+                property,
+                [
+                  method === "defineProperties"
+                    ? "define-properties"
+                    : "object-assign",
+                ],
+                method === "defineProperties"
+                  ? descriptorValueShape(
+                      descriptor,
+                      resolvedLiteral.environment,
+                      sourcePath,
+                    )
+                  : propertyValueShape(
+                      property,
+                      resolvedLiteral.environment,
+                    ),
+              );
+              for (const value of values.slice(1)) {
+                collectRegisteredValueMembers(
+                  value,
+                  resolvedLiteral.environment,
+                  segments,
+                  [authoredRef(property, `globals:${segments.join(".")}`)],
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+    return true;
+  };
+
+  processNode = (node, environment) => {
+    if (!node) return;
+    if (
+      ts.isFunctionLike(node) ||
+      ts.isClassDeclaration(node) ||
+      ts.isClassExpression(node)
+    )
+      return;
+
+    if (ts.isForOfStatement(node)) {
+      processNode(node.expression, environment);
+      const values = uniqueSorted([
+        ...staticStrings(node.expression, environment),
+        ...dynamicTableValues(node.expression, environment),
+      ]);
+      const loopEnvironment = new Map(environment);
+      if (
+        ts.isVariableDeclarationList(node.initializer) &&
+        node.initializer.declarations.length === 1 &&
+        ts.isIdentifier(node.initializer.declarations[0].name)
+      ) {
+        const symbol = symbolAt(node.initializer.declarations[0].name);
+        if (symbol) loopEnvironment.set(symbol, { strings: new Set(values) });
+      } else if (
+        ts.isVariableDeclarationList(node.initializer) &&
+        node.initializer.declarations.length === 1 &&
+        ts.isArrayBindingPattern(node.initializer.declarations[0].name)
+      ) {
+        const first = node.initializer.declarations[0].name.elements[0];
+        if (
+          first &&
+          ts.isBindingElement(first) &&
+          ts.isIdentifier(first.name)
+        ) {
+          const symbol = symbolAt(first.name);
+          if (symbol) loopEnvironment.set(symbol, { strings: new Set(values) });
+        }
+      }
+      processNode(node.statement, loopEnvironment);
+      return;
+    }
+
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      (ts.isPropertyAccessExpression(tsUnwrapExpression(node.left)) ||
+        ts.isElementAccessExpression(tsUnwrapExpression(node.left)))
+    ) {
+      const { bases, names } = assignmentBaseAndNames(node.left, environment);
+      if (bases.length > 0 && names.length === 0) {
+        throw new Error(
+          `${relativeSourcePath(node)}: unresolved computed global property registration ${node.left.getText().replace(/\s+/gu, " ")}`,
+        );
+      }
+      for (const base of bases) {
+        for (const name of names) {
+          recordRegistration([...base, name], node.right, environment, node, [
+            "assignment",
+          ]);
+        }
+      }
+    }
+
+    if (ts.isCallExpression(node)) {
+      processObjectDefineCall(node, environment);
+      for (const declaration of callableDeclarations(
+        node.expression,
+        environment,
+      )) {
+        enqueueFunction(
+          declaration,
+          invocationEnvironment(declaration, node, environment),
+        );
+      }
+    }
+
+    ts.forEachChild(node, (child) => processNode(child, environment));
+  };
+
+  for (const source of authoredSources) {
+    for (const statement of source.statements)
+      processNode(statement, new Map());
+  }
+  while (functionQueue.length > 0) {
+    const { declaration, environment } = functionQueue.shift();
+    processNode(declaration.body, environment);
+  }
+
+  // Propagate authored namespace aliases (notably Exact -> Bun) after every
+  // nested member has been observed. The global object aliases window/self are
+  // intentionally roots only: recursively copying the entire inventory would
+  // manufacture duplicate spellings rather than distinct APIs.
+  let aliasesChanged = true;
+  while (aliasesChanged) {
+    aliasesChanged = false;
+    for (const [sourceName, destinations] of globalAliases) {
+      for (const [exportName, fact] of [...facts]) {
+        if (
+          exportName !== sourceName &&
+          !exportName.startsWith(`${sourceName}.`)
+        )
+          continue;
+        const suffix = exportName.slice(sourceName.length).replace(/^\./u, "");
+        for (const destination of destinations) {
+          if (destination.segments.length !== 1) continue;
+          const aliasName = [destination.segments[0], suffix]
+            .filter(Boolean)
+            .join(".");
+          if (facts.has(aliasName)) continue;
+          addFact(
+            aliasName.split("."),
+            [...fact.refs, destination.ref],
+            [...fact.memberKinds, "namespace-alias"],
+            undefined,
+            fact.valueShapes.size === 1 ? [...fact.valueShapes][0] : undefined,
+          );
+          aliasesChanged = true;
+        }
+      }
+    }
+  }
+
+  const rows = [];
+  for (const fact of facts.values()) {
+    const sourceRefs = uniqueSorted(fact.refs);
+    const branch = makeInstallationBranch("shared-runtime", "all", sourceRefs);
+    const name = globalSurfaceName(fact.exportName);
+    const metadata = {
+      branches: [branch],
+      exportName: fact.exportName,
+      globalName: fact.globalName,
+      installationBranches: [branch],
+      memberKinds: uniqueSorted(fact.memberKinds),
+      memberName: fact.memberName,
+      moduleSpecifiers: [],
+      sourceKey: "shared_runtime",
+      surfaceType: "global-api",
+    };
+    const accessPath = fact.exportName.split(".");
+    const sourceProvesEveryAccessSegment = accessPath.every((_, index) => {
+      const prefix = facts.get(accessPath.slice(0, index + 1).join("."));
+      return (
+        prefix &&
+        [...prefix.memberKinds].some(
+          (kind) =>
+            !new Set([
+              "dynamic-table",
+              "inherited-shape",
+              "namespace-prefix",
+            ]).has(kind),
+        )
+      );
+    });
+    if (sourceProvesEveryAccessSegment)
+      metadata.publicReadAccessSourceProven = true;
+    if (fact.semanticRoles.size > 0)
+      metadata.semanticRoles = uniqueSorted(fact.semanticRoles);
+    if (fact.valueShapes.size === 1)
+      metadata.valueShape = [...fact.valueShapes][0];
+    rows.push(makeSurface("native-op", name, sourceRefs, { metadata }));
+  }
+  const sortedRows = sortSurfaces(rows);
+  const inheritedReviewRows = sortedRows
+    .filter(
+      (row) =>
+        row.metadata?.memberKinds?.includes("inherited") ||
+        row.metadata?.memberKinds?.includes("inherited-shape"),
+    )
+    .map((row) => ({
+      memberKinds: row.metadata.memberKinds,
+      name: row.name,
+      sourceRefs: row.sourceRefs,
+    }));
+  if (inheritedReviewRows.length > 0) {
+    const inheritedShapeReviewId = `sha256-${sha256Hex(JSON.stringify(inheritedReviewRows))}`;
+    for (const row of sortedRows) {
+      if (
+        !row.metadata?.memberKinds?.includes("inherited") &&
+        !row.metadata?.memberKinds?.includes("inherited-shape")
+      ) {
+        continue;
+      }
+      row.metadata.inheritedShape = true;
+      row.metadata.inheritedShapeReviewId = inheritedShapeReviewId;
+      row.metadata.semanticRoles = uniqueSorted([
+        ...(row.metadata.semanticRoles ?? []),
+        "inherited-global-shape",
+      ]);
+    }
+  }
+  return sortedRows;
+}
+
+function cppStatementRanges(tokens) {
+  const ranges = [];
+  let start = 0;
+  let parenDepth = 0;
+  let braceDepth = 0;
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index].type !== "punctuation") continue;
+    const value = tokens[index].value;
+    if (value === "(") parenDepth += 1;
+    if (value === ")") parenDepth -= 1;
+    if (value === "{") braceDepth += 1;
+    if (value === "}") braceDepth -= 1;
+    if (value === ";" && parenDepth === 0) {
+      ranges.push([start, index]);
+      start = index + 1;
+    }
+  }
+  if (start < tokens.length) ranges.push([start, tokens.length]);
+  return ranges;
+}
+
+function cppAssignmentVariable(tokens) {
+  const equals = tokens.findIndex((token) => token.value === "=");
+  if (equals === -1) return null;
+  for (let index = equals - 1; index >= 0; index -= 1) {
+    if (tokens[index].type !== "identifier") continue;
+    if (
+      new Set(["const", "static", "char", "auto", "string"]).has(
+        tokens[index].value,
+      )
+    )
+      continue;
+    return tokens[index].value;
+  }
+  return null;
+}
+
+/**
+ * Scan only C++ string constants that structurally flow into
+ * evaluateJavaScript. Merely containing a JavaScript-looking raw string is not
+ * evidence that the runtime installs it.
+ */
+export function scanEvaluatedCppGlobalScripts(
+  text,
+  sourcePath = "<native-source>",
+) {
+  const tokens = lexCpp(text, sourcePath);
+  const statementRecords = cppStatementRanges(tokens).map(([start, end]) => ({
+    end,
+    start,
+    tokens: tokens.slice(start, end + 1),
+  }));
+  const statements = statementRecords.map((record) => record.tokens);
+  const scripts = new Map();
+  for (const statement of statements) {
+    const variable = cppAssignmentVariable(statement);
+    if (!variable) continue;
+    const values = statement
+      .filter((token) => token.type === "string")
+      .map((token) => token.value);
+    if (values.length === 0) continue;
+    const script = values.join("");
+    // Ignore ordinary labels/URLs cheaply. Evaluated scripts always contain at
+    // least one JavaScript statement delimiter or function/object expression.
+    if (!/[;{}()]/u.test(script)) continue;
+    scripts.set(variable, script);
+  }
+
+  const evaluated = new Map();
+  const nearestSources = (name, beforeIndex, seen = new Set()) => {
+    const key = `${name}\0${beforeIndex}`;
+    if (seen.has(key)) return new Set();
+    seen.add(key);
+    const direct = new Set(scripts.has(name) ? [name] : []);
+    const record = [...statementRecords]
+      .reverse()
+      .find(
+        (candidate) =>
+          candidate.start < beforeIndex &&
+          cppAssignmentVariable(candidate.tokens) === name,
+      );
+    if (!record) return direct;
+    const equals = record.tokens.findIndex((token) => token.value === "=");
+    for (const token of record.tokens.slice(equals + 1)) {
+      if (token.type !== "identifier" || token.value === name) continue;
+      for (const source of nearestSources(token.value, record.start, seen))
+        direct.add(source);
+    }
+    return direct;
+  };
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index].value !== "evaluateJavaScript"
+    )
+      continue;
+    const open =
+      tokens
+        .slice(index + 1)
+        .findIndex(
+          (token) => token.type === "punctuation" && token.value === "(",
+        ) +
+      index +
+      1;
+    if (open <= index) continue;
+    const close = matchingToken(tokens, open, "(", ")");
+    if (close === -1)
+      throw new Error(
+        `${sourcePath}: evaluateJavaScript call has no closing parenthesis`,
+      );
+    let comma = close;
+    let depth = 0;
+    for (let cursor = open + 1; cursor < close; cursor += 1) {
+      if (tokens[cursor].type !== "punctuation") continue;
+      if (tokens[cursor].value === "(" || tokens[cursor].value === "<")
+        depth += 1;
+      if (tokens[cursor].value === ")" || tokens[cursor].value === ">")
+        depth -= 1;
+      if (tokens[cursor].value === "," && depth === 0) {
+        comma = cursor;
+        break;
+      }
+    }
+    const firstArgument = tokens.slice(open + 1, comma);
+    const sources = new Set();
+    for (const token of firstArgument) {
+      if (token.type !== "identifier") continue;
+      for (const source of nearestSources(token.value, index))
+        sources.add(source);
+    }
+    if (sources.size === 0) continue;
+    const sourceUrl = tokens
+      .slice(comma + 1, close)
+      .find((token) => token.type === "string")?.value;
+    for (const source of sources) {
+      let urls = evaluated.get(source);
+      if (!urls) {
+        urls = new Set();
+        evaluated.set(source, urls);
+      }
+      if (sourceUrl) urls.add(sourceUrl);
+    }
+  }
+
+  const rows = [];
+  for (const [variable, urls] of evaluated) {
+    const script = scripts.get(variable);
+    if (script === undefined) continue;
+    const scanned = scanStaticGlobalApiSurfaces(
+      script,
+      `${sourcePath}#embedded:${variable}`,
+    );
+    const windowsShim = /^windows[A-Z]/u.test(variable);
+    const route = windowsShim
+      ? "windows-native-shim"
+      : "evaluated-native-script";
+    const targetVariant = windowsShim
+      ? "windows"
+      : sourcePath.includes("worklet")
+        ? "worklet"
+        : "default";
+    for (const row of scanned) {
+      const sourceRefs = [
+        sourceSymbol(
+          sourcePath,
+          `embedded:${variable}:${row.metadata.exportName}`,
+        ),
+      ];
+      const branch = makeInstallationBranch(route, targetVariant, sourceRefs);
+      rows.push({
+        ...row,
+        sourceRefs,
+        metadata: {
+          ...row.metadata,
+          branches: [branch],
+          evaluatedScript: variable,
+          installationBranches: [branch],
+          sourceKey: windowsShim
+            ? "windows_native_shim"
+            : "evaluated_native_script",
+          sourceUrls: uniqueSorted(urls),
+        },
+      });
+    }
+  }
+  return mergeSurfaceEvidence(
+    rows,
+    `${sourcePath} evaluated JavaScript global inventory`,
+  );
+}
+
+function cppCallArguments(tokens, open, close) {
+  const argumentsList = [];
+  let start = open + 1;
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let angleDepth = 0;
+  for (let index = open + 1; index < close; index += 1) {
+    const value = tokens[index].value;
+    if (value === "(" || value === "[") parenDepth += 1;
+    if (value === ")" || value === "]") parenDepth -= 1;
+    if (value === "{") braceDepth += 1;
+    if (value === "}") braceDepth -= 1;
+    if (value === "<") angleDepth += 1;
+    if (value === ">") angleDepth = Math.max(0, angleDepth - 1);
+    if (
+      value === "," &&
+      parenDepth === 0 &&
+      braceDepth === 0 &&
+      angleDepth === 0
+    ) {
+      argumentsList.push(tokens.slice(start, index));
+      start = index + 1;
+    }
+  }
+  argumentsList.push(tokens.slice(start, close));
+  return argumentsList;
+}
+
+function cppLiteralArgument(tokens) {
+  const strings = tokens.filter((token) => token.type === "string");
+  return strings.length === 1 ? strings[0].value : null;
+}
+
+function cppUnsignedIntegerArgument(tokens) {
+  const text = tokens.map((token) => token.value).join("");
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(text)) return null;
+  const value = Number(text);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
+/**
+ * Recover direct `createFromHostFunction` assignments.  This is intentionally
+ * narrower than the general JSI inventory: a public probe may call a global
+ * only when source proves both the function identity and declared arity.  An
+ * object property, factory return, alias, or dynamically named registration
+ * stays unprobeable until a separate descriptor is authored.
+ */
+function cppAssignedHostFunctions(tokens, sourcePath) {
+  const functions = new Map();
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index]?.value !== "createFromHostFunction" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: createFromHostFunction call has no closing parenthesis`,
+      );
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    if (args.length < 4) continue;
+    const functionName = cppLiteralArgument(args[1]);
+    const arity = cppUnsignedIntegerArgument(args[2]);
+    if (functionName === null || arity === null) continue;
+
+    let equals = index - 1;
+    while (
+      equals >= 0 &&
+      tokens[equals].value !== "=" &&
+      tokens[equals].value !== ";" &&
+      tokens[equals].value !== "{" &&
+      tokens[equals].value !== "}"
+    ) {
+      equals -= 1;
+    }
+    if (equals < 1 || tokens[equals].value !== "=") continue;
+    let variable = equals - 1;
+    while (variable >= 0 && tokens[variable].type !== "identifier") {
+      variable -= 1;
+    }
+    if (variable < 0) continue;
+    const variableName = tokens[variable].value;
+    const descriptor = { arity, functionName };
+    const prior = functions.get(variableName);
+    if (prior === null) continue;
+    if (prior && JSON.stringify(prior) !== JSON.stringify(descriptor)) {
+      // Common local names such as `executor` can be reused by independent
+      // nested factories. That makes the assignment ambiguous for public
+      // invocation purposes, so retain no descriptor rather than guessing.
+      functions.set(variableName, null);
+      continue;
+    }
+    functions.set(variableName, descriptor);
+  }
+  return functions;
+}
+
+function cppMovedOrDirectIdentifier(tokens) {
+  if (tokens.length === 1 && tokens[0].type === "identifier") {
+    return tokens[0].value;
+  }
+  const move = tokens.findIndex(
+    (token, index) =>
+      token.value === "move" &&
+      tokens[index + 1]?.value === "(" &&
+      tokens[index + 2]?.type === "identifier" &&
+      tokens[index + 3]?.value === ")",
+  );
+  return move === -1 ? null : tokens[move + 2].value;
+}
+
+function getAllEnvironmentInstallationBranches(tokens, sourcePath, baseRefs) {
+  const definitions = [];
+  for (let index = 0; index < tokens.length - 2; index += 1) {
+    if (
+      tokens[index]?.value !== "getAllEnvFn" ||
+      tokens[index + 1]?.value !== "="
+    ) {
+      continue;
+    }
+    let factoryIndex = index + 2;
+    while (
+      factoryIndex < tokens.length &&
+      tokens[factoryIndex]?.value !== "createFromHostFunction" &&
+      tokens[factoryIndex]?.value !== ";"
+    ) {
+      factoryIndex += 1;
+    }
+    if (
+      tokens[factoryIndex]?.value !== "createFromHostFunction" ||
+      tokens[factoryIndex + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, factoryIndex + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: __exactGetAllEnv factory call is unterminated`,
+      );
+    }
+    const args = cppCallArguments(tokens, factoryIndex + 1, close);
+    if (args.length < 4) {
+      throw new Error(
+        `${sourcePath}: __exactGetAllEnv factory lacks its callback`,
+      );
+    }
+    definitions.push(args.at(-1));
+  }
+  if (definitions.length !== 1) {
+    throw new Error(
+      `${sourcePath}: expected one structural getAllEnvFn definition; observed ${definitions.length}`,
+    );
+  }
+
+  const callback = definitions[0];
+  const indexOf = (value, start = 0) =>
+    callback.findIndex(
+      (token, index) => index >= start && token.value === value,
+    );
+  const windowsMacro = indexOf("_WIN32");
+  const windowsAccessor = indexOf("GetEnvironmentStringsW", windowsMacro + 1);
+  const appleMacro = indexOf("__APPLE__", windowsAccessor + 1);
+  const appleAccessor = indexOf("_NSGetEnviron", appleMacro + 1);
+  const posixScope = indexOf("::", appleAccessor + 1);
+  const posixAccessor = callback.findIndex(
+    (token, index) =>
+      index > posixScope &&
+      token.value === "environ" &&
+      callback[index - 1]?.value === "::",
+  );
+  if (
+    windowsMacro === -1 ||
+    windowsAccessor === -1 ||
+    appleMacro === -1 ||
+    appleAccessor === -1 ||
+    posixScope === -1 ||
+    posixAccessor === -1 ||
+    !(
+      windowsMacro < windowsAccessor &&
+      windowsAccessor < appleMacro &&
+      appleMacro < appleAccessor &&
+      appleAccessor < posixAccessor
+    )
+  ) {
+    throw new Error(
+      `${sourcePath}: __exactGetAllEnv must retain exact Windows/Apple/POSIX enumeration branches`,
+    );
+  }
+
+  const specifications = [
+    ["apple", "_NSGetEnviron"],
+    ["posix", "::environ"],
+    ["windows", "GetEnvironmentStringsW"],
+  ];
+  return specifications.map(([targetVariant, accessor]) => {
+    const sourceRefs = uniqueSorted([
+      ...baseRefs,
+      sourceSymbol(sourcePath, `__exactGetAllEnv:${targetVariant}:${accessor}`),
+    ]);
+    return makeInstallationBranch(
+      "native-env-enumeration",
+      targetVariant,
+      sourceRefs,
+      "alternative",
+    );
+  });
+}
+
+/** Discover public and private JSI object registrations reachable from globals. */
+export function scanCppGlobalPropertySurfaces(
+  text,
+  sourcePath = "<native-source>",
+) {
+  const tokens = lexCpp(text, sourcePath);
+  const assignedHostFunctions = cppAssignedHostFunctions(tokens, sourcePath);
+  const calls = [];
+  const objectOwners = new Set();
+  const closedGlobalTableNames = new Set();
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index + 1]?.value !== "." ||
+      tokens[index + 2]?.value !== "setProperty" ||
+      tokens[index + 3]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 3, "(", ")");
+    if (close === -1)
+      throw new Error(
+        `${sourcePath}: setProperty call has no closing parenthesis`,
+      );
+    const args = cppCallArguments(tokens, index + 3, close);
+    if (args.length < 3) continue;
+    objectOwners.add(tokens[index].value);
+    calls.push({
+      args,
+      globalTarget: false,
+      owner: tokens[index].value,
+    });
+  }
+
+  // global().setProperty has a call expression rather than an identifier as
+  // its target, so collect it in a second structural pass.
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index].value !== "setProperty" ||
+      tokens[index - 1]?.value !== "." ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const prefix = tokens.slice(Math.max(0, index - 12), index - 1);
+    if (
+      !prefix.some(
+        (token, offset) =>
+          token.value === "global" && prefix[offset + 1]?.value === "(",
+      )
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1)
+      throw new Error(
+        `${sourcePath}: global setProperty call has no closing parenthesis`,
+      );
+    const args = cppCallArguments(tokens, index + 1, close);
+    if (args.length < 3) continue;
+    calls.push({ args, globalTarget: true, owner: null });
+  }
+
+  // The Windows unsupported-module helper forwards each member of a closed
+  // authored initializer list to installUnsupportedGlobal. Preserve the
+  // dynamic helper sentinel below, but also resolve its concrete call-site
+  // members so each unsupported implementation has a real Windows branch.
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index].value !== "installUnsupportedModule" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: installUnsupportedModule call has no closing parenthesis`,
+      );
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    for (const name of args
+      .slice(1)
+      .flat()
+      .filter((token) => token.type === "string")) {
+      if (PRIVATE_NATIVE_IDENTIFIER.test(name.value))
+        closedGlobalTableNames.add(name.value);
+    }
+  }
+
+  const valueOwners = (argument) => {
+    const owners = [];
+    if (
+      argument.length === 1 &&
+      argument[0].type === "identifier" &&
+      objectOwners.has(argument[0].value)
+    ) {
+      owners.push(argument[0].value);
+    }
+    for (let index = 0; index < argument.length; index += 1) {
+      if (
+        argument[index].value === "move" &&
+        argument[index + 1]?.value === "(" &&
+        argument[index + 2]?.type === "identifier" &&
+        objectOwners.has(argument[index + 2].value)
+      ) {
+        owners.push(argument[index + 2].value);
+      }
+      if (
+        argument[index].type === "identifier" &&
+        /^make[A-Z]/u.test(argument[index].value) &&
+        argument[index + 1]?.value === "("
+      ) {
+        const suffix = argument[index].value.slice(4).toLowerCase();
+        for (const owner of objectOwners) {
+          if (owner.toLowerCase() === suffix) owners.push(owner);
+        }
+      }
+    }
+    return uniqueSorted(owners);
+  };
+
+  const ownerPaths = new Map();
+  const facts = new Map();
+  const publicInvocations = new Map();
+  const dynamicFacts = new Set();
+  const propertyNameForCall = (call) => {
+    const literal = cppLiteralArgument(call.args[1]);
+    if (literal) return literal;
+    const label = call.globalTarget
+      ? "native-global-name"
+      : `${call.owner
+          .replace(/([a-z0-9])([A-Z])/gu, "$1-$2")
+          .replace(/[^A-Za-z0-9]+/gu, "-")
+          .toLowerCase()}-properties`;
+    return `[[dynamic-table:${label}]]`;
+  };
+  const addOwnerPath = (owner, objectPath) => {
+    let paths = ownerPaths.get(owner);
+    if (!paths) {
+      paths = new Set();
+      ownerPaths.set(owner, paths);
+    }
+    const before = paths.size;
+    paths.add(objectPath);
+    return paths.size !== before;
+  };
+  const addFact = (exportName) => {
+    if (!facts.has(exportName)) facts.set(exportName, new Set());
+    facts
+      .get(exportName)
+      .add(sourceSymbol(sourcePath, `jsi-global:${exportName}`));
+  };
+
+  for (const call of calls.filter((candidate) => candidate.globalTarget)) {
+    const name = propertyNameForCall(call);
+    if (DYNAMIC_TABLE_MEMBER.test(name)) dynamicFacts.add(name);
+    addFact(name);
+    const assigned = cppMovedOrDirectIdentifier(call.args[2]);
+    const hostFunction = assignedHostFunctions.get(assigned);
+    if (
+      hostFunction &&
+      hostFunction.functionName === name &&
+      !DYNAMIC_TABLE_MEMBER.test(name)
+    ) {
+      publicInvocations.set(name, {
+        arity: hostFunction.arity,
+        globalName: name,
+        kind: "native-global-function",
+        sourceRef: sourceSymbol(sourcePath, `jsi-global:${name}`),
+      });
+    }
+    for (const owner of valueOwners(call.args[2])) addOwnerPath(owner, name);
+  }
+  for (const name of closedGlobalTableNames) addFact(name);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const call of calls.filter((candidate) => !candidate.globalTarget)) {
+      const name = propertyNameForCall(call);
+      for (const basePath of ownerPaths.get(call.owner) ?? []) {
+        const exportName = `${basePath}.${name}`;
+        if (DYNAMIC_TABLE_MEMBER.test(name)) dynamicFacts.add(exportName);
+        const before = facts.size;
+        addFact(exportName);
+        if (facts.size !== before) changed = true;
+        for (const owner of valueOwners(call.args[2])) {
+          changed = addOwnerPath(owner, exportName) || changed;
+        }
+      }
+    }
+  }
+
+  const targetVariant = sourcePath.includes("windows")
+    ? "windows"
+    : sourcePath.includes("ios")
+      ? "ios"
+      : sourcePath.includes("android")
+        ? "android"
+        : sourcePath.includes("worklet")
+          ? "worklet"
+          : "default";
+  return sortSurfaces(
+    [...facts.entries()].map(([exportName, refs]) => {
+      const [globalName, ...memberSegments] = exportName.split(".");
+      const baseRefs = uniqueSorted(refs);
+      const branches =
+        exportName === "__exactGetAllEnv"
+          ? getAllEnvironmentInstallationBranches(tokens, sourcePath, baseRefs)
+          : [
+              makeInstallationBranch(
+                "native-jsi-global",
+                targetVariant,
+                baseRefs,
+              ),
+            ];
+      const sourceRefs = uniqueSorted(
+        branches.flatMap((branch) => branch.sourceRefs),
+      );
+      const name = globalSurfaceName(exportName);
+      return makeSurface("native-op", name, sourceRefs, {
+        metadata: {
+          branches,
+          exportName,
+          globalName,
+          installationBranches: branches,
+          memberKinds: [
+            dynamicFacts.has(exportName)
+              ? "dynamic-table"
+              : memberSegments.length === 0
+                ? "native-root"
+                : "native-object-member",
+          ],
+          memberName:
+            memberSegments.length === 0 ? null : memberSegments.join("."),
+          moduleSpecifiers: [],
+          ...(publicInvocations.has(exportName)
+            ? { publicInvocation: publicInvocations.get(exportName) }
+            : {}),
+          sourceKey: "native_jsi_global",
+          surfaceType: "global-api",
+          ...(dynamicFacts.has(exportName)
+            ? { semanticRoles: ["runtime-property-overlay"] }
+            : {}),
+        },
+      });
+    }),
+  );
+}
+
+const KNOWN_HERMES_EVALUATORS = new Set([
+  "AsyncFunction",
+  "AsyncGeneratorFunction",
+  "Function",
+  "GeneratorFunction",
+  "eval",
+]);
+
+const REVIEWED_HERMES_PATCH_PATHS = [
+  "patches/hermes/0001-domain-package-principal.patch",
+  "patches/hermes/0002-frame-attribution-helper.patch",
+  "patches/hermes/0003-capability-bridge-exports.patch",
+  "patches/hermes/0004-native-compartment-globals.patch",
+  "patches/hermes/0005-native-compartment-refinements.patch",
+  "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch",
+  "patches/hermes/0007-fail-closed-async-deputy-attribution.patch",
+  "patches/hermes/0008-schedule-time-principal-capture.patch",
+];
+
+const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
+  "AsyncFunction",
+  "Function",
+  "GeneratorFunction",
+  "eval",
+];
+const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
+  "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
+
+// These are reviewed reachability claims for exact checked-in artifact
+// identities, not a floating statement about Hermes releases. Source discovery
+// emits a new identity sentinel when any authority changes; the independent
+// semantic classifier then rejects it until this snapshot is reviewed too.
+// @ref LLP 0013#upstream-tracking-and-re-derivation — the desktop pin plus
+// patch stack is the fork; Android and Windows consume separate pinned channels.
+const REVIEWED_HERMES_EVALUATOR_PROFILES = [
+  {
+    id: "android-maven",
+    targetVariant: "android",
+    identity: {
+      artifact: "com.facebook.hermes:hermes-android",
+      variant: "debug",
+      version: "250829098.0.14",
+    },
+    reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
+    sourceRefs: [
+      "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
+      "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
+      "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
+    ],
+  },
+  {
+    id: "source-patched",
+    targetVariant: "default",
+    identity: {
+      artifact: "facebook/hermes",
+      patchApplicationAuthorityDigest:
+        "sha256-9069b232960ccad873a51477c45adbc6b3126b0d845398fe251fe414d5bc63bd",
+      patchIdentityAuthorityDigest:
+        "sha256-84edac8af0c2f253d97320fcaa78358bc2616c393d692bd1c93f06eed45b8a7a",
+      patchStackDigest:
+        "sha256-75c76960ba5710524abe1d2957d41927dfc4ad8871badb24b7526d4f8e38a1f0",
+      sourceBuildAuthorityDigests: {
+        "scripts/build-hermes-linux.sh":
+          "sha256-101c625bc1ea5868827088a7eacaceb35a8f229431baf96f351b830ef784e27b",
+        "scripts/build-hermes.sh":
+          "sha256-9aca630d1dd2ad913e52a5045ed373ebb6602d31c4c2f35f828fb498d8a88cfb",
+      },
+      sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
+      sourceRef: "260318099.0.0-stable",
+      sourceVersion: "260318099.0.0",
+    },
+    reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
+    sourceRefs: [
+      "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+      "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+      "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+      "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+      "scripts/apply-hermes-patches.sh#patches",
+      "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+      "scripts/build-hermes.sh#apply-hermes-patches.sh",
+      ...REVIEWED_HERMES_PATCH_PATHS.map((patchPath) =>
+        sourceSymbol(patchPath, "patch-content"),
+      ),
+    ],
+  },
+  {
+    id: "windows-nuget",
+    targetVariant: "windows",
+    identity: {
+      artifact: "ReactNative.Hermes.Windows",
+      version: "0.71.1",
+    },
+    reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
+    sourceRefs: [
+      "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
+      "scripts/install-windows-hermes.ps1#Version",
+    ],
+  },
+];
+
+function sha256Hex(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
+function canonicalReviewValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalReviewValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort(compareText)
+        .map((key) => [key, canonicalReviewValue(value[key])]),
+    );
+  }
+  return value;
+}
+
+function hermesEvaluatorReviewId(profiles, lockdownTamingDigest) {
+  if (!/^sha256-[a-f0-9]{64}$/u.test(lockdownTamingDigest ?? "")) {
+    throw new Error("Hermes evaluator review has no exact lockdown digest");
+  }
+  const normalized = profiles
+    .map((profile) => ({
+      ...profile,
+      reachableEvaluators: uniqueSorted(profile.reachableEvaluators ?? []),
+      sourceRefs: uniqueSorted(profile.sourceRefs ?? []),
+    }))
+    .sort((left, right) => compareText(left.id, right.id));
+  return `hermes-evaluators.${sha256Hex(
+    JSON.stringify(
+      canonicalReviewValue({
+        lockdownTamingDigest,
+        profiles: normalized,
+      }),
+    ),
+  )}`;
+}
+
+export const HERMES_EVALUATOR_REVIEW_ID = hermesEvaluatorReviewId(
+  REVIEWED_HERMES_EVALUATOR_PROFILES,
+  REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST,
+);
+
+function oneSourceMatch(text, pattern, label) {
+  const matches = [...text.matchAll(pattern)];
+  if (matches.length !== 1) {
+    throw new Error(`${label}: expected exactly one source identity match`);
+  }
+  return matches[0];
+}
+
+function requireOneSourceLine(text, line, label) {
+  const matches = text
+    .split(/\r?\n/u)
+    .filter((candidate) => candidate === line);
+  if (matches.length !== 1) {
+    throw new Error(`${label}: expected exactly one source authority line`);
+  }
+}
+
+function shellDefaultValue(text, variable, sourcePath) {
+  const escaped = variable.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  return oneSourceMatch(
+    text,
+    new RegExp(`^${escaped}="\\$\\{${escaped}:-([^"\\r\\n]+)\\}"$`, "gmu"),
+    `${sourcePath}#${variable}`,
+  )[1];
+}
+
+function resolveCheckedShellTemplate(value, variables, label) {
+  let resolved = value;
+  for (const [name, replacement] of Object.entries(variables)) {
+    resolved = resolved
+      .replaceAll(`\${${name}}`, replacement)
+      .replaceAll(`$${name}`, replacement);
+  }
+  if (resolved.includes("$")) {
+    throw new Error(`${label}: unresolved shell identity expression ${value}`);
+  }
+  return resolved;
+}
+
+function canonicalPatchInputs(patches) {
+  if (!Array.isArray(patches) || patches.length === 0) {
+    throw new Error("Hermes evaluator identity has no patch-stack evidence");
+  }
+  const seen = new Set();
+  return patches
+    .map((patch) => {
+      const sourcePath = posixPath(String(patch?.sourcePath ?? ""));
+      if (
+        !/^patches\/hermes\/[A-Za-z0-9_.-]+\.patch$/u.test(sourcePath) ||
+        (!Buffer.isBuffer(patch?.content) && typeof patch?.content !== "string")
+      ) {
+        throw new Error(
+          `Hermes evaluator identity has malformed patch evidence ${sourcePath || "<missing>"}`,
+        );
+      }
+      if (seen.has(sourcePath)) {
+        throw new Error(
+          `Hermes evaluator identity has duplicate patch evidence ${sourcePath}`,
+        );
+      }
+      seen.add(sourcePath);
+      return { sourcePath, content: patch.content };
+    })
+    .sort((left, right) => compareText(left.sourcePath, right.sourcePath));
+}
+
+function hermesPatchStackDigest(patches) {
+  const shasumLines = canonicalPatchInputs(patches)
+    .map(({ sourcePath, content }) => `${sha256Hex(content)}  ${sourcePath}\n`)
+    .join("");
+  return `sha256-${sha256Hex(shasumLines)}`;
+}
+
+function cloneHermesEvaluatorProfiles(profiles) {
+  return profiles.map((profile) => ({
+    id: profile.id,
+    targetVariant: profile.targetVariant,
+    identity: { ...profile.identity },
+    reachableEvaluators: [...profile.reachableEvaluators],
+    sourceRefs: [...profile.sourceRefs],
+  }));
+}
+
+/**
+ * Recover every checked-in Hermes artifact identity without executing an
+ * engine or a shell. An identity change intentionally changes the review ID,
+ * so the independent classifier fails until possible new Function-family
+ * constructors are reviewed.
+ */
+export function scanHermesEvaluatorIdentityProfiles({
+  hermesVersionText,
+  androidInstallerText,
+  windowsInstallerText,
+  patchApplicationText,
+  appleSourceBuildText,
+  linuxSourceBuildText,
+  patches,
+  hermesVersionPath = "scripts/hermes-version.sh",
+  androidInstallerPath = "scripts/install-android-hermes.sh",
+  windowsInstallerPath = "scripts/install-windows-hermes.ps1",
+  patchApplicationPath = "scripts/apply-hermes-patches.sh",
+  appleSourceBuildPath = "scripts/build-hermes.sh",
+  linuxSourceBuildPath = "scripts/build-hermes-linux.sh",
+}) {
+  const sourceVersion = shellDefaultValue(
+    hermesVersionText,
+    "IBEX_HERMES_VERSION",
+    hermesVersionPath,
+  );
+  const sourceRef = resolveCheckedShellTemplate(
+    shellDefaultValue(
+      hermesVersionText,
+      "IBEX_HERMES_SOURCE_REF",
+      hermesVersionPath,
+    ),
+    { IBEX_HERMES_VERSION: sourceVersion },
+    `${hermesVersionPath}#IBEX_HERMES_SOURCE_REF`,
+  );
+  const sourceCommit = shellDefaultValue(
+    hermesVersionText,
+    "IBEX_HERMES_SOURCE_COMMIT",
+    hermesVersionPath,
+  );
+  const androidVersion = shellDefaultValue(
+    hermesVersionText,
+    "IBEX_HERMES_ANDROID_VERSION",
+    hermesVersionPath,
+  );
+  const buildRefAuthority =
+    'IBEX_HERMES_BUILD_REF="${IBEX_HERMES_BUILD_REF:-${IBEX_HERMES_SOURCE_COMMIT:-$IBEX_HERMES_SOURCE_REF}}"';
+  if (!hermesVersionText.split(/\r?\n/u).includes(buildRefAuthority)) {
+    throw new Error(
+      `${hermesVersionPath}#IBEX_HERMES_BUILD_REF: checked-in build-ref authority drift`,
+    );
+  }
+  const patchAuthorityStart = hermesVersionText.indexOf("ibex_sha256() {");
+  if (patchAuthorityStart === -1) {
+    throw new Error(
+      `${hermesVersionPath}#ibex_hermes_patch_digest: patch identity authority is absent`,
+    );
+  }
+  const patchIdentityAuthorityDigest = `sha256-${sha256Hex(
+    hermesVersionText.slice(patchAuthorityStart),
+  )}`;
+  const normalizedPatches = canonicalPatchInputs(patches);
+
+  for (const [label, line] of [
+    ["patch glob", 'patches=("$PATCH_DIR"/*.patch)'],
+    ["ordered patch loop", 'for patch in "${patches[@]}"; do'],
+    ["patch application", '  git apply "$patch"'],
+  ]) {
+    requireOneSourceLine(
+      patchApplicationText,
+      line,
+      `${patchApplicationPath}#${label}`,
+    );
+  }
+  const sourceBuildConsumers = [
+    {
+      sourcePath: appleSourceBuildPath,
+      text: appleSourceBuildText,
+      invocation: '"$SCRIPT_DIR/apply-hermes-patches.sh" "$HERMES_SRC"',
+    },
+    {
+      sourcePath: linuxSourceBuildPath,
+      text: linuxSourceBuildText,
+      invocation: '"$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"',
+    },
+  ];
+  for (const consumer of sourceBuildConsumers) {
+    requireOneSourceLine(
+      consumer.text,
+      consumer.invocation,
+      `${consumer.sourcePath}#apply-hermes-patches.sh`,
+    );
+  }
+  const patchApplicationAuthorityDigest = `sha256-${sha256Hex(
+    patchApplicationText,
+  )}`;
+  const sourceBuildAuthorityDigests = Object.fromEntries(
+    sourceBuildConsumers.map((consumer) => [
+      consumer.sourcePath,
+      `sha256-${sha256Hex(consumer.text)}`,
+    ]),
+  );
+
+  const androidVersionAuthority =
+    'HERMES_ANDROID_VERSION="${HERMES_ANDROID_VERSION:-$IBEX_HERMES_ANDROID_VERSION}"';
+  if (!androidInstallerText.split(/\r?\n/u).includes(androidVersionAuthority)) {
+    throw new Error(
+      `${androidInstallerPath}#HERMES_ANDROID_VERSION: checked-in Android version authority drift`,
+    );
+  }
+  const androidVariant = shellDefaultValue(
+    androidInstallerText,
+    "ANDROID_HERMES_VARIANT",
+    androidInstallerPath,
+  );
+  const androidArtifact = oneSourceMatch(
+    androidInstallerText,
+    /download_aar\s+"([A-Za-z0-9.]+)"\s+"([A-Za-z0-9.-]+)"\s+"\$HERMES_ANDROID_VERSION"\s+"\$ANDROID_HERMES_VARIANT"/gu,
+    `${androidInstallerPath}#Hermes-Maven-coordinate`,
+  );
+
+  const windowsVersion = oneSourceMatch(
+    windowsInstallerText,
+    /^\s*\[string\]\$Version\s*=\s*"([^"]+)"\s*,?$/gmu,
+    `${windowsInstallerPath}#Version`,
+  )[1];
+  const windowsArtifact = oneSourceMatch(
+    windowsInstallerText,
+    /https:\/\/www\.nuget\.org\/api\/v2\/package\/([A-Za-z0-9.]+)\/\$Version/gu,
+    `${windowsInstallerPath}#NuGet-coordinate`,
+  )[1];
+
+  const discovered = [
+    {
+      id: "android-maven",
+      targetVariant: "android",
+      identity: {
+        artifact: `${androidArtifact[1]}:${androidArtifact[2]}`,
+        variant: androidVariant,
+        version: androidVersion,
+      },
+      reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
+      sourceRefs: [
+        sourceSymbol(hermesVersionPath, "IBEX_HERMES_ANDROID_VERSION"),
+        sourceSymbol(androidInstallerPath, "ANDROID_HERMES_VARIANT"),
+        sourceSymbol(
+          androidInstallerPath,
+          `${androidArtifact[1]}:${androidArtifact[2]}`,
+        ),
+      ],
+    },
+    {
+      id: "source-patched",
+      targetVariant: "default",
+      identity: {
+        artifact: "facebook/hermes",
+        patchApplicationAuthorityDigest,
+        patchIdentityAuthorityDigest,
+        patchStackDigest: hermesPatchStackDigest(normalizedPatches),
+        sourceBuildAuthorityDigests,
+        sourceCommit,
+        sourceRef,
+        sourceVersion,
+      },
+      reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
+      sourceRefs: [
+        sourceSymbol(hermesVersionPath, "IBEX_HERMES_SOURCE_COMMIT"),
+        sourceSymbol(hermesVersionPath, "IBEX_HERMES_SOURCE_REF"),
+        sourceSymbol(hermesVersionPath, "IBEX_HERMES_VERSION"),
+        sourceSymbol(hermesVersionPath, "ibex_hermes_patch_digest"),
+        sourceSymbol(patchApplicationPath, "patches"),
+        ...sourceBuildConsumers.map((consumer) =>
+          sourceSymbol(consumer.sourcePath, "apply-hermes-patches.sh"),
+        ),
+        ...normalizedPatches.map(({ sourcePath }) =>
+          sourceSymbol(sourcePath, "patch-content"),
+        ),
+      ],
+    },
+    {
+      id: "windows-nuget",
+      targetVariant: "windows",
+      identity: {
+        artifact: windowsArtifact,
+        version: windowsVersion,
+      },
+      reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
+      sourceRefs: [
+        sourceSymbol(windowsInstallerPath, windowsArtifact),
+        sourceSymbol(windowsInstallerPath, "Version"),
+      ],
+    },
+  ];
+  return cloneHermesEvaluatorProfiles(discovered);
+}
+
+export function discoverHermesEvaluatorIdentityProfiles(repoRoot) {
+  const patchRoot = path.join(repoRoot, "patches", "hermes");
+  const patchEntries = fs
+    .readdirSync(patchRoot, { withFileTypes: true })
+    .filter((entry) => entry.name.endsWith(".patch"));
+  const symbolicPatches = patchEntries
+    .filter((entry) => entry.isSymbolicLink())
+    .map((entry) => entry.name)
+    .sort(compareText);
+  if (symbolicPatches.length > 0) {
+    throw new Error(
+      `Hermes patch stack must not contain symbolic links: ${symbolicPatches.join(", ")}`,
+    );
+  }
+  const patches = patchEntries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".patch"))
+    .map((entry) => ({
+      sourcePath: `patches/hermes/${entry.name}`,
+      content: fs.readFileSync(path.join(patchRoot, entry.name)),
+    }));
+  return scanHermesEvaluatorIdentityProfiles({
+    hermesVersionText: readUtf8(
+      path.join(repoRoot, "scripts", "hermes-version.sh"),
+    ),
+    androidInstallerText: readUtf8(
+      path.join(repoRoot, "scripts", "install-android-hermes.sh"),
+    ),
+    windowsInstallerText: readUtf8(
+      path.join(repoRoot, "scripts", "install-windows-hermes.ps1"),
+    ),
+    patchApplicationText: readUtf8(
+      path.join(repoRoot, "scripts", "apply-hermes-patches.sh"),
+    ),
+    appleSourceBuildText: readUtf8(
+      path.join(repoRoot, "scripts", "build-hermes.sh"),
+    ),
+    linuxSourceBuildText: readUtf8(
+      path.join(repoRoot, "scripts", "build-hermes-linux.sh"),
+    ),
+    patches,
+  });
+}
+
+function normalizedHermesEvaluatorProfiles(profiles, label) {
+  if (!Array.isArray(profiles) || profiles.length === 0) {
+    throw new Error(`${label}: Hermes engine identity profiles are absent`);
+  }
+  const ids = new Set();
+  return profiles
+    .map((profile) => {
+      if (
+        !profile ||
+        typeof profile.id !== "string" ||
+        !/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(profile.id) ||
+        typeof profile.targetVariant !== "string" ||
+        profile.targetVariant.length === 0 ||
+        !profile.identity ||
+        typeof profile.identity !== "object" ||
+        Array.isArray(profile.identity)
+      ) {
+        throw new Error(`${label}: malformed Hermes engine identity profile`);
+      }
+      if (ids.has(profile.id)) {
+        throw new Error(
+          `${label}: duplicate Hermes engine profile ${profile.id}`,
+        );
+      }
+      ids.add(profile.id);
+      const reachableEvaluators = uniqueSorted(
+        profile.reachableEvaluators ?? [],
+      );
+      if (
+        reachableEvaluators.length === 0 ||
+        reachableEvaluators.some((name) => !KNOWN_HERMES_EVALUATORS.has(name))
+      ) {
+        throw new Error(
+          `${label}: Hermes engine profile ${profile.id} has unknown or empty evaluator reachability`,
+        );
+      }
+      const sourceRefs = uniqueSorted(profile.sourceRefs ?? []);
+      if (sourceRefs.length === 0) {
+        throw new Error(
+          `${label}: Hermes engine profile ${profile.id} has no source evidence`,
+        );
+      }
+      return {
+        id: profile.id,
+        targetVariant: profile.targetVariant,
+        identity: { ...profile.identity },
+        reachableEvaluators,
+        sourceRefs,
+      };
+    })
+    .sort((left, right) => compareText(left.id, right.id));
+}
+
+/**
+ * Reconcile inherited Hermes evaluator reachability with the exact lockdown
+ * script that tames it. These globals do not appear as authored assignments,
+ * so source-derived global scanning alone cannot observe them.
+ */
+export function scanLockdownEvaluatorSurfaces(
+  text,
+  sourcePath = "src/engine/hermes_runtime.cc",
+  engineProfiles,
+) {
+  const profiles = normalizedHermesEvaluatorProfiles(
+    engineProfiles,
+    `${sourcePath}#lockdownJS`,
+  );
+  const tokens = lexCpp(text, sourcePath);
+  const assignmentStarts = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type === "identifier" &&
+      tokens[index].value === "lockdownJS" &&
+      tokens[index + 1]?.value === "="
+    )
+      assignmentStarts.push(index);
+  }
+  if (assignmentStarts.length !== 1) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected one exact lockdown script assignment`,
+    );
+  }
+  const assignmentStart = assignmentStarts[0];
+  if (
+    tokenSequenceCount(
+      tokens.map((token) => token.value),
+      ["std", "::", "string", "lockdownJS", "="],
+    ) !== 1
+  ) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected one exact std::string declaration`,
+    );
+  }
+  let assignmentEnd = assignmentStart + 2;
+  while (
+    assignmentEnd < tokens.length &&
+    tokens[assignmentEnd].value !== ";"
+  ) {
+    assignmentEnd += 1;
+  }
+  if (assignmentEnd === tokens.length) {
+    throw new Error(`${sourcePath}#lockdownJS: unterminated script assignment`);
+  }
+  const assignmentTokens = tokens.slice(assignmentStart + 2, assignmentEnd);
+  const assignmentValues = assignmentTokens.map((token) => token.value);
+  const armedSelector = [
+    "+",
+    "(",
+    "handle",
+    "->",
+    "armed",
+    "?",
+    "true",
+    ":",
+    "false",
+    ")",
+    "+",
+  ];
+  const selectorIndex = tokenSequenceIndex(assignmentValues, armedSelector);
+  if (
+    tokenSequenceCount(assignmentValues, armedSelector) !== 1 ||
+    assignmentTokens[selectorIndex + 6]?.type !== "string" ||
+    assignmentTokens[selectorIndex + 8]?.type !== "string"
+  ) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected one exact handle->armed selector`,
+    );
+  }
+  const parts = assignmentTokens
+    .filter((token) => token.type === "string")
+    .map((token) => token.value);
+  if (
+    parts.length !== 4 ||
+    parts[1] !== "true" ||
+    parts[2] !== "false"
+  ) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected exact armed and diagnostic script parts`,
+    );
+  }
+  // Reconstruct the production armed form. The diagnostic false form is not
+  // target evidence and cannot satisfy the fail-closed claim.
+  const script = `${parts[0]}true${parts[3]}`;
+  const lockdownTamingDigest = `sha256-${sha256Hex(script)}`;
+  const tokenValues = tokens.map((token) => token.value);
+  for (const [label, sequence] of [
+    [
+      "StringBuffer source",
+      ["StringBuffer", ">", "(", "lockdownJS", ".", "c_str", "(", ")", ")"],
+    ],
+    [
+      "runtime evaluation",
+      ["evaluateJavaScript", "(", "buffer", ",", "<lockdown>", ")"],
+    ],
+  ]) {
+    if (tokenSequenceCount(tokenValues, sequence) !== 1) {
+      throw new Error(
+        `${sourcePath}#lockdownJS: expected one exact ${label} route`,
+      );
+    }
+  }
+  const engineIdentityReviewId = hermesEvaluatorReviewId(
+    profiles,
+    lockdownTamingDigest,
+  );
+
+  const names = new Set();
+  walkAst(parseJavaScript(script, `${sourcePath}#lockdownJS`), (node) => {
+    if (node.type !== "CallExpression" || node.callee?.type !== "Identifier")
+      return;
+    if (node.callee.name === "tameCtor") {
+      for (const name of staticPropertyName(node.arguments[1])) names.add(name);
+    }
+    if (node.callee.name === "makeTamed") {
+      for (const name of staticPropertyName(node.arguments[0])) names.add(name);
+    }
+  });
+  const tamedEvaluators = uniqueSorted(names);
+  const reachableEvaluators = uniqueSorted(
+    profiles.flatMap((profile) => profile.reachableEvaluators),
+  );
+  if (JSON.stringify(tamedEvaluators) !== JSON.stringify(reachableEvaluators)) {
+    const reachable = new Set(reachableEvaluators);
+    const tamed = new Set(tamedEvaluators);
+    throw new Error(
+      `${sourcePath}#lockdownJS: evaluator reachability/taming drift: untamed [${reachableEvaluators.filter((name) => !tamed.has(name)).join(", ")}]; tamed-but-unreachable [${tamedEvaluators.filter((name) => !reachable.has(name)).join(", ")}]`,
+    );
+  }
+
+  return tamedEvaluators.map((globalName) => {
+    const name = `global:${globalName}`;
+    const applicableProfiles = profiles.filter((profile) =>
+      profile.reachableEvaluators.includes(globalName),
+    );
+    const tamingRef = sourceSymbol(sourcePath, `lockdownJS:${globalName}`);
+    const branches = applicableProfiles.map((profile) => {
+      const identityDigest = sha256Hex(
+        JSON.stringify(canonicalReviewValue(profile.identity)),
+      );
+      const identityAuthorityRef =
+        profile.sourceRefs.find((sourceRef) =>
+          sourceRef.startsWith("scripts/hermes-version.sh#"),
+        ) ?? profile.sourceRefs[0];
+      return {
+        ...makeInstallationBranch(
+          `hermes-intrinsic-${profile.id}-${identityDigest.slice(0, 12)}-${lockdownTamingDigest.slice(7, 19)}`,
+          profile.targetVariant,
+          [
+            tamingRef,
+            sourceSymbol(sourcePath, `lockdown-taming:${lockdownTamingDigest}`),
+            ...profile.sourceRefs,
+            sourceSymbol(
+              sourcePathForRef(identityAuthorityRef),
+              `evaluator-identity:sha256-${identityDigest}`,
+            ),
+          ],
+          applicableProfiles.length > 1 ? "alternative" : "single",
+        ),
+        // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory
+        // — build-time engine overrides keep pin provenance provisional.
+        // The checked-in pin is the default build authority, but build.rs can
+        // consume an explicit external Hermes. WP10 must bind the exact engine
+        // binary before this inventory evidence can become conformance proof.
+        stubDisposition: "not-structurally-proven",
+      };
+    });
+    return makeSurface(
+      "native-op",
+      name,
+      uniqueSorted(branches.flatMap((branch) => branch.sourceRefs)),
+      {
+        metadata: {
+          branches,
+          engineIdentityReviewId,
+          engineProfileIds: applicableProfiles.map((profile) => profile.id),
+          evidenceType: "hermes-evaluator-reachability",
+          exportName: globalName,
+          globalName,
+          installationBranches: branches,
+          lockdownTamingDigest,
+          memberName: null,
+          moduleSpecifiers: [],
+          reachability:
+            globalName === "eval" || globalName === "Function"
+              ? "inherited-global"
+              : "intrinsic-constructor",
+          sourceKey: "hermes_intrinsic_evaluators",
+          surfaceType: "global-api",
+          tamingEvidence: "lockdownJS",
+        },
+      },
+    );
+  });
+}
+
+/** Pure normalizer for the values imported from modules.ts. */
+export function scanModuleSpecifierEntries(
+  moduleExports,
+  sourcePath = "modules.ts",
+) {
+  const { bootstrapInternalModules = [], meta, sources, specifiers } =
+    moduleExports ?? {};
+  if (!Array.isArray(specifiers) || specifiers.length === 0) {
+    throw new Error(
+      `${sourcePath}: exported specifiers must be a non-empty array`,
+    );
+  }
+  if (!sources || typeof sources !== "object") {
+    throw new Error(`${sourcePath}: exported sources map is missing`);
+  }
+  const defaults = meta?.defaults ?? {};
+  if (
+    !Array.isArray(bootstrapInternalModules) ||
+    bootstrapInternalModules.some(
+      (name) => typeof name !== "string" || name.length === 0,
+    ) ||
+    new Set(bootstrapInternalModules).size !== bootstrapInternalModules.length
+  ) {
+    throw new Error(
+      `${sourcePath}: bootstrapInternalModules must be a unique string array`,
+    );
+  }
+  const bootstrapInternalSet = new Set(bootstrapInternalModules);
+  const rows = [];
+  const names = new Set();
+
+  for (const [groupIndex, group] of specifiers.entries()) {
+    if (!group || !Array.isArray(group.names) || group.names.length === 0) {
+      throw new Error(
+        `${sourcePath}: specifier group ${groupIndex} has no names`,
+      );
+    }
+    if (typeof group.source !== "string" || group.source.length === 0) {
+      throw new Error(
+        `${sourcePath}: specifier group ${groupIndex} has no source key`,
+      );
+    }
+    if (!Object.hasOwn(sources, group.source)) {
+      throw new Error(
+        `${sourcePath}: unknown source key ${JSON.stringify(group.source)}`,
+      );
+    }
+    for (const name of group.names) {
+      if (typeof name !== "string" || name.length === 0) {
+        throw new Error(
+          `${sourcePath}: specifier group ${groupIndex} contains an empty name`,
+        );
+      }
+      if (names.has(name)) {
+        throw new Error(
+          `${sourcePath}: duplicate builtin specifier ${JSON.stringify(name)}`,
+        );
+      }
+      names.add(name);
+      const bundleExternal =
+        group.bundleExternal ?? defaults.bundleExternal ?? true;
+      const moduleBuiltin =
+        group.moduleBuiltin ?? defaults.moduleBuiltin ?? true;
+      // @ref LLP 0004#one-source-many-specifiers — every registry alias remains
+      // package-importable under an exact policy grant even when it is neither
+      // advertised nor bundler-external. A same-named bootstrap internal is the
+      // exception: loadInternal() preempts the manifest source.
+      const importReachability = bootstrapInternalSet.has(name)
+        ? "bootstrap-internal"
+        : "public";
+      rows.push(
+        makeSurface(
+          "builtin",
+          name,
+          [sourceSymbol(sourcePath, `specifiers:${group.source}`)],
+          {
+            metadata: {
+              sourceKey: group.source,
+              bundleExternal,
+              importReachability,
+              moduleBuiltin,
+            },
+          },
+        ),
+      );
+    }
+  }
+  assertUniqueObservedKeys(rows, sourcePath);
+  return sortSurfaces(rows);
+}
+
+/** Import modules.ts through Bun and normalize its authored specifier groups. */
+export async function scanModuleSpecifiers(
+  modulePath,
+  sourcePath = "modules.ts",
+) {
+  const moduleExports = await import(pathToFileURL(modulePath).href);
+  return scanModuleSpecifierEntries(moduleExports, sourcePath);
+}
+
+// @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
+// literal immutable builtin dependencies join to exact source/export routes;
+// unresolved or tampered receivers remain explicit ambiguity.
+function composeRequiredBuiltinRoutes(exports, aliases) {
+  const sourceKeyBySpecifier = new Map(
+    aliases.map((alias) => [alias.name, alias.metadata.sourceKey]),
+  );
+  const rowBySourceExport = new Map(
+    exports
+      .filter(
+        (row) =>
+          typeof row.metadata?.sourceKey === "string" &&
+          typeof row.metadata?.exportName === "string",
+      )
+      .map((row) => [
+        `${row.metadata.sourceKey}\u0000${row.metadata.exportName}`,
+        row,
+      ]),
+  );
+  const states = new Map();
+  for (const row of exports) {
+    const evidence = row.metadata?.enforcementRouteEvidence;
+    if (evidence?.kind !== "static-builtin-call-graph") continue;
+    states.set(row.observedKey, {
+      ambiguous: new Set(evidence.ambiguousCallees ?? []),
+      baseTerminals: new Set(evidence.terminals ?? []),
+      derivedPaths: new Map(),
+      paths: new Set(evidence.paths ?? []),
+      terminals: new Set(evidence.terminals ?? []),
+    });
+  }
+
+  const resolvedDependencies = new Map();
+  for (const row of exports) {
+    const evidence = row.metadata?.enforcementRouteEvidence;
+    if (evidence?.kind !== "static-builtin-call-graph") continue;
+    const dependencies = [];
+    for (const dependency of evidence.requiredExportCalls ?? []) {
+      const sourceKey = sourceKeyBySpecifier.get(dependency.moduleSpecifier);
+      const target = sourceKey
+        ? rowBySourceExport.get(`${sourceKey}\u0000${dependency.exportName}`)
+        : null;
+      dependencies.push({ dependency, target });
+      if (!target) {
+        states
+          .get(row.observedKey)
+          .ambiguous.add(
+            `unresolved-required-export:${dependency.moduleSpecifier}:${dependency.exportName}`,
+          );
+      }
+    }
+    resolvedDependencies.set(row.observedKey, dependencies);
+  }
+
+  const betterPath = (candidate, existing) =>
+    existing === undefined ||
+    candidate.length < existing.length ||
+    (candidate.length === existing.length && compareText(candidate, existing) < 0);
+  let changed = true;
+  let iterations = 0;
+  while (changed && iterations <= states.size) {
+    changed = false;
+    iterations += 1;
+    for (const row of exports) {
+      const state = states.get(row.observedKey);
+      if (!state) continue;
+      for (const { dependency, target } of
+        resolvedDependencies.get(row.observedKey) ?? []) {
+        const targetState = target ? states.get(target.observedKey) : null;
+        if (!targetState) continue;
+        for (const ambiguity of targetState.ambiguous) {
+          if (!state.ambiguous.has(ambiguity)) {
+            state.ambiguous.add(ambiguity);
+            changed = true;
+          }
+        }
+        for (const terminal of targetState.terminals) {
+          if (!state.terminals.has(terminal)) {
+            state.terminals.add(terminal);
+            changed = true;
+          }
+          if (state.baseTerminals.has(terminal)) continue;
+          const targetPath =
+            targetState.derivedPaths.get(terminal) ??
+            [...targetState.paths]
+              .filter((routePath) => routePath.endsWith(` -> ${terminal}`))
+              .sort((left, right) =>
+                left.length - right.length || compareText(left, right),
+              )[0] ??
+            `export:${dependency.exportName} -> ${terminal}`;
+          for (const dependencyPath of dependency.paths) {
+            const candidate = `${dependencyPath} -> ${targetPath}`;
+            const existing = state.derivedPaths.get(terminal);
+            if (betterPath(candidate, existing)) {
+              state.derivedPaths.set(terminal, candidate);
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (changed) {
+    throw new Error("builtin required-export route composition did not converge");
+  }
+  for (const row of exports) {
+    const evidence = row.metadata?.enforcementRouteEvidence;
+    const state = states.get(row.observedKey);
+    if (!evidence || !state) continue;
+    evidence.ambiguousCallees = uniqueSorted(state.ambiguous);
+    evidence.paths = uniqueSorted([
+      ...state.paths,
+      ...state.derivedPaths.values(),
+    ]);
+    evidence.terminals = uniqueSorted(state.terminals);
+  }
+}
+
+/** Discover both manifest aliases and the statically named exports they expose. */
+export async function scanBuiltinSurfaces(
+  modulePath,
+  repoRoot,
+  sourcePath = "modules.ts",
+) {
+  const moduleExports = await import(pathToFileURL(modulePath).href);
+  const aliases = scanModuleSpecifierEntries(moduleExports, sourcePath);
+  const aliasesBySource = new Map();
+  for (const alias of aliases) {
+    const sourceKey = alias.metadata.sourceKey;
+    let sourceAliases = aliasesBySource.get(sourceKey);
+    if (!sourceAliases) {
+      sourceAliases = [];
+      aliasesBySource.set(sourceKey, sourceAliases);
+    }
+    sourceAliases.push(alias);
+  }
+
+  const exports = [];
+  for (const sourceKey of Object.keys(moduleExports.sources).sort(
+    compareText,
+  )) {
+    const source = moduleExports.sources[sourceKey];
+    let text;
+    let authoredPath;
+    if (source.kind === "generated") {
+      if (typeof source.path !== "string" || source.path.length === 0) {
+        throw new Error(
+          `${sourcePath}: generated source ${sourceKey} has no path`,
+        );
+      }
+      authoredPath = posixPath(path.join("src", source.path));
+      text = readUtf8(path.join(repoRoot, authoredPath));
+    } else if (source.kind === "repo") {
+      if (typeof source.path !== "string" || source.path.length === 0) {
+        throw new Error(`${sourcePath}: repo source ${sourceKey} has no path`);
+      }
+      authoredPath = posixPath(source.path);
+      text = readUtf8(path.join(repoRoot, authoredPath));
+    } else if (source.kind === "inline") {
+      if (typeof source.code !== "string") {
+        throw new Error(
+          `${sourcePath}: inline source ${sourceKey} has no code`,
+        );
+      }
+      authoredPath = sourcePath;
+      text = source.code;
+    } else {
+      throw new Error(
+        `${sourcePath}: source ${sourceKey} has unknown kind ${JSON.stringify(source.kind)}`,
+      );
+    }
+    const sourceAliases = aliasesBySource.get(sourceKey) ?? [];
+    exports.push(
+      ...scanStaticBuiltinExports(text, {
+        bootstrapInternalModuleSpecifiers: sourceAliases
+          .filter(
+            (alias) =>
+              alias.metadata.importReachability === "bootstrap-internal",
+          )
+          .map((alias) => alias.name),
+        sourceKey,
+        sourceKind: source.kind,
+        sourcePath: authoredPath,
+        moduleSpecifiers: sourceAliases.map((alias) => alias.name),
+        publicModuleSpecifiers: sourceAliases
+          .filter((alias) => alias.metadata.importReachability === "public")
+          .map((alias) => alias.name),
+      }),
+    );
+  }
+
+  composeRequiredBuiltinRoutes(exports, aliases);
+
+  const inheritedReviewRows = exports
+    .filter((row) => row.metadata?.inheritedShape === true)
+    .map((row) => ({
+      exportIdioms: row.metadata.exportIdioms,
+      name: row.name,
+      sourceRefs: row.sourceRefs,
+    }))
+    .sort((left, right) => compareText(left.name, right.name));
+  if (inheritedReviewRows.length > 0) {
+    const inheritedShapeReviewId = `sha256-${sha256Hex(JSON.stringify(inheritedReviewRows))}`;
+    for (const row of exports) {
+      if (row.metadata?.inheritedShape === true) {
+        row.metadata.inheritedShapeReviewId = inheritedShapeReviewId;
+      }
+    }
+  }
+
+  const rows = sortSurfaces([...aliases, ...exports]);
+  assertUniqueObservedKeys(rows, "builtin alias and export inventory");
+  return rows;
+}
+
+export function scanRuntimeCommandClasses(
+  manifestInput,
+  sourcePath = "runtime-surface.json",
+) {
+  let manifest = manifestInput;
+  if (typeof manifestInput === "string") {
+    try {
+      manifest = JSON.parse(manifestInput);
+    } catch (error) {
+      throw new Error(`${sourcePath}: invalid JSON: ${error.message}`);
+    }
+  }
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error(`${sourcePath}: command manifest must be an object`);
+  }
+
+  const rows = [];
+  const names = new Set();
+  for (const [field, variant] of COMMAND_CLASSES) {
+    const commands = manifest[field];
+    if (!Array.isArray(commands) || commands.length === 0) {
+      throw new Error(`${sourcePath}: ${field} must be a non-empty array`);
+    }
+    for (const name of commands) {
+      if (typeof name !== "string" || name.length === 0) {
+        throw new Error(`${sourcePath}: ${field} contains an empty command`);
+      }
+      if (names.has(name)) {
+        throw new Error(
+          `${sourcePath}: duplicate runtime command ${JSON.stringify(name)}`,
+        );
+      }
+      names.add(name);
+      rows.push(
+        makeSurface("cli", name, [sourceSymbol(sourcePath, field)], {
+          variant,
+          metadata: { commandClass: field },
+        }),
+      );
+    }
+  }
+  assertUniqueObservedKeys(rows, sourcePath);
+  return sortSurfaces(rows);
+}
+
+function cliSurfaceComponent(value) {
+  return encodeURIComponent(String(value));
+}
+
+function assertExactObjectKeys(value, allowed, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) {
+    throw new Error(
+      `${label} has unreviewed fields: ${unknown.sort(compareText).join(", ")}`,
+    );
+  }
+}
+
+function cliStringArray(value, label, { allowEmpty = false } = {}) {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  for (const entry of value) {
+    if (typeof entry !== "string" || (!allowEmpty && entry.length === 0)) {
+      throw new Error(`${label} contains an invalid string value`);
+    }
+  }
+  if (new Set(value).size !== value.length) {
+    throw new Error(`${label} contains a duplicate value`);
+  }
+  return value;
+}
+
+const CLI_VALUE_SHAPE_KEYS = new Set([
+  "action",
+  "allowHyphenValues",
+  "defaultMissingValues",
+  "defaultValues",
+  "maxValues",
+  "minValues",
+  "possibleValues",
+  "possibleValuesHidden",
+  "required",
+  "valueDomain",
+  "valueNames",
+]);
+
+function validateCliValueShape(shape, label) {
+  assertExactObjectKeys(shape, CLI_VALUE_SHAPE_KEYS, label);
+  for (const key of CLI_VALUE_SHAPE_KEYS) {
+    if (!Object.hasOwn(shape, key))
+      throw new Error(`${label} is missing ${key}`);
+  }
+  if (
+    !new Set(["Append", "Count", "Set", "SetFalse", "SetTrue"]).has(
+      shape.action,
+    )
+  ) {
+    throw new Error(
+      `${label} has unreviewed action ${JSON.stringify(shape.action)}`,
+    );
+  }
+  if (
+    !Number.isSafeInteger(shape.minValues) ||
+    shape.minValues < 0 ||
+    (shape.maxValues !== null &&
+      (!Number.isSafeInteger(shape.maxValues) ||
+        shape.maxValues < shape.minValues))
+  ) {
+    throw new Error(`${label} has invalid value arity`);
+  }
+  for (const field of [
+    "allowHyphenValues",
+    "possibleValuesHidden",
+    "required",
+  ]) {
+    if (typeof shape[field] !== "boolean")
+      throw new Error(`${label}.${field} must be boolean`);
+  }
+  if (!new Set(["none", "arbitrary", "enumerated"]).has(shape.valueDomain)) {
+    throw new Error(
+      `${label} has unknown valueDomain ${JSON.stringify(shape.valueDomain)}`,
+    );
+  }
+  cliStringArray(shape.valueNames, `${label}.valueNames`);
+  cliStringArray(shape.defaultValues, `${label}.defaultValues`, {
+    allowEmpty: true,
+  });
+  cliStringArray(shape.defaultMissingValues, `${label}.defaultMissingValues`, {
+    allowEmpty: true,
+  });
+  if (!Array.isArray(shape.possibleValues)) {
+    throw new Error(`${label}.possibleValues must be an array`);
+  }
+  for (const [index, possible] of shape.possibleValues.entries()) {
+    const possibleLabel = `${label}.possibleValues[${index}]`;
+    assertExactObjectKeys(
+      possible,
+      new Set(["aliases", "hidden", "value"]),
+      possibleLabel,
+    );
+    if (typeof possible.value !== "string" || possible.value.length === 0) {
+      throw new Error(`${possibleLabel}.value must be a non-empty string`);
+    }
+    if (typeof possible.hidden !== "boolean") {
+      throw new Error(`${possibleLabel}.hidden must be boolean`);
+    }
+    cliStringArray(possible.aliases, `${possibleLabel}.aliases`);
+  }
+  const expectedDomain =
+    shape.maxValues === 0
+      ? "none"
+      : shape.possibleValues.length === 0
+        ? "arbitrary"
+        : "enumerated";
+  if (shape.valueDomain !== expectedDomain) {
+    throw new Error(
+      `${label} valueDomain does not match its arity and possible values`,
+    );
+  }
+}
+
+function cliValueShapeRows(kind, pathName, id, shape, sourcePath, refPrefix) {
+  const prefix = `${kind}:${cliSurfaceComponent(pathName)}:${cliSurfaceComponent(id)}`;
+  const refs = [sourceSymbol(sourcePath, refPrefix)];
+  const rows = [
+    makeSurface("cli", `${prefix}:action:${shape.action}`, refs, {
+      metadata: { action: shape.action, evidenceType: "cli-value-action" },
+    }),
+    makeSurface(
+      "cli",
+      `${prefix}:arity:${shape.minValues}:${shape.maxValues === null ? "unbounded" : shape.maxValues}`,
+      refs,
+      {
+        metadata: {
+          evidenceType: "cli-value-arity",
+          maxValues: shape.maxValues,
+          minValues: shape.minValues,
+        },
+      },
+    ),
+  ];
+  for (const valueName of shape.valueNames) {
+    rows.push(
+      makeSurface(
+        "cli",
+        `${prefix}:value-name:${cliSurfaceComponent(valueName)}`,
+        refs,
+        {
+          metadata: { evidenceType: "cli-value-name", valueName },
+        },
+      ),
+    );
+  }
+  for (const possible of shape.possibleValues) {
+    rows.push(
+      makeSurface(
+        "cli",
+        `${prefix}:enum:${cliSurfaceComponent(possible.value)}`,
+        refs,
+        {
+          metadata: {
+            aliases: possible.aliases,
+            evidenceType: "cli-enum-value",
+            hidden: possible.hidden,
+            value: possible.value,
+          },
+        },
+      ),
+    );
+    for (const alias of possible.aliases) {
+      rows.push(
+        makeSurface(
+          "cli",
+          `${prefix}:enum-alias:${cliSurfaceComponent(possible.value)}:${cliSurfaceComponent(alias)}`,
+          refs,
+          {
+            metadata: {
+              canonicalValue: possible.value,
+              evidenceType: "cli-enum-alias",
+              value: alias,
+            },
+          },
+        ),
+      );
+    }
+  }
+  for (const value of shape.defaultValues) {
+    rows.push(
+      makeSurface(
+        "cli",
+        `${prefix}:default:${cliSurfaceComponent(value)}`,
+        refs,
+        {
+          metadata: { evidenceType: "cli-default-value", value },
+        },
+      ),
+    );
+  }
+  for (const value of shape.defaultMissingValues) {
+    rows.push(
+      makeSurface(
+        "cli",
+        `${prefix}:default-missing:${cliSurfaceComponent(value)}`,
+        refs,
+        {
+          metadata: { evidenceType: "cli-default-missing-value", value },
+        },
+      ),
+    );
+  }
+  return rows;
+}
+
+/**
+ * Expand the recursive Clap manifest into exact route and value-shape rows.
+ * Shape components receive their own observed keys so aliases, actions,
+ * enums, defaults, and arity changes cannot hide inside opaque metadata.
+ */
+export function scanRuntimeCliSurfaces(
+  manifestInput,
+  sourcePath = "runtime-surface.json",
+) {
+  let manifest = manifestInput;
+  if (typeof manifestInput === "string") {
+    try {
+      manifest = JSON.parse(manifestInput);
+    } catch (error) {
+      throw new Error(`${sourcePath}: invalid JSON: ${error.message}`);
+    }
+  }
+  const rows = scanRuntimeCommandClasses(manifest, sourcePath);
+  if (manifest.version !== 4) {
+    throw new Error(`${sourcePath}: recursive CLI manifest version must be 4`);
+  }
+  assertExactObjectKeys(
+    manifest.clapSurface,
+    new Set([
+      "$comment",
+      "commands",
+      "frameworkGenerated",
+      "positionalArguments",
+      "semanticRelations",
+    ]),
+    `${sourcePath}: clapSurface`,
+  );
+  const commands = manifest.clapSurface?.commands;
+  if (!Array.isArray(commands) || commands.length === 0) {
+    throw new Error(
+      `${sourcePath}: clapSurface.commands must be a non-empty array`,
+    );
+  }
+
+  const commandPaths = new Set();
+  const argumentsByCommand = new Map();
+  for (const [commandIndex, command] of commands.entries()) {
+    const commandLabel = `${sourcePath}: clapSurface.commands[${commandIndex}]`;
+    assertExactObjectKeys(
+      command,
+      new Set([
+        "hidden",
+        "hiddenAliases",
+        "longFlag",
+        "options",
+        "path",
+        "positionals",
+        "shortFlag",
+        "visibleAliases",
+      ]),
+      commandLabel,
+    );
+    if (
+      typeof command.path !== "string" ||
+      !/^ibex(?: [A-Za-z0-9_-]+)*$/u.test(command.path)
+    ) {
+      throw new Error(
+        `${commandLabel}.path is not a canonical ibex command path`,
+      );
+    }
+    if (commandPaths.has(command.path)) {
+      throw new Error(
+        `${sourcePath}: duplicate Clap command path ${JSON.stringify(command.path)}`,
+      );
+    }
+    commandPaths.add(command.path);
+    const commandRef = `clapSurface.command:${command.path}`;
+    rows.push(
+      makeSurface(
+        "cli",
+        `command:${cliSurfaceComponent(command.path)}`,
+        [sourceSymbol(sourcePath, commandRef)],
+        {
+          metadata: {
+            evidenceType: "cli-command-route",
+            hidden: command.hidden === true,
+            longFlag: command.longFlag ?? null,
+            path: command.path,
+            shortFlag: command.shortFlag ?? null,
+          },
+        },
+      ),
+    );
+    for (const aliasKind of ["visibleAliases", "hiddenAliases"]) {
+      const aliases = cliStringArray(
+        command[aliasKind] ?? [],
+        `${commandLabel}.${aliasKind}`,
+      );
+      for (const alias of aliases) {
+        rows.push(
+          makeSurface(
+            "cli",
+            `command-alias:${cliSurfaceComponent(command.path)}:${cliSurfaceComponent(alias)}`,
+            [sourceSymbol(sourcePath, commandRef)],
+            {
+              metadata: {
+                alias,
+                aliasVisibility:
+                  aliasKind === "visibleAliases" ? "visible" : "hidden",
+                commandPath: command.path,
+                evidenceType: "cli-command-alias",
+              },
+            },
+          ),
+        );
+      }
+    }
+
+    const argumentIds = new Set();
+    const options = command.options ?? [];
+    if (!Array.isArray(options))
+      throw new Error(`${commandLabel}.options must be an array`);
+    for (const [optionIndex, option] of options.entries()) {
+      const optionLabel = `${commandLabel}.options[${optionIndex}]`;
+      assertExactObjectKeys(
+        option,
+        new Set([
+          "hidden",
+          "hiddenAliases",
+          "id",
+          "names",
+          "valueShape",
+          "visibleAliases",
+        ]),
+        optionLabel,
+      );
+      if (
+        typeof option.id !== "string" ||
+        !/^[A-Za-z_][A-Za-z0-9_-]*$/u.test(option.id)
+      ) {
+        throw new Error(`${optionLabel}.id is invalid`);
+      }
+      if (argumentIds.has(option.id)) {
+        throw new Error(
+          `${commandLabel} has duplicate argument id ${JSON.stringify(option.id)}`,
+        );
+      }
+      argumentIds.add(option.id);
+      let commandArguments = argumentsByCommand.get(command.path);
+      if (!commandArguments) {
+        commandArguments = new Map();
+        argumentsByCommand.set(command.path, commandArguments);
+      }
+      commandArguments.set(option.id, {
+        argumentKind: "option",
+        valueShape: option.valueShape,
+      });
+      const names = cliStringArray(option.names, `${optionLabel}.names`);
+      if (
+        names.length === 0 ||
+        names.some(
+          (name) =>
+            !/^(?:--[A-Za-z0-9][A-Za-z0-9-]*|-[A-Za-z0-9])$/u.test(name),
+        )
+      ) {
+        throw new Error(`${optionLabel}.names has an invalid option route`);
+      }
+      validateCliValueShape(option.valueShape, `${optionLabel}.valueShape`);
+      const ref = `clapSurface.command:${command.path}:option:${option.id}`;
+      const refs = [sourceSymbol(sourcePath, ref)];
+      rows.push(
+        makeSurface(
+          "cli",
+          `option:${cliSurfaceComponent(command.path)}:${cliSurfaceComponent(option.id)}`,
+          refs,
+          {
+            metadata: {
+              commandPath: command.path,
+              evidenceType: "cli-option-route",
+              hidden: option.hidden === true,
+              id: option.id,
+              valueShape: option.valueShape,
+            },
+          },
+        ),
+      );
+      const routedNames = [
+        ...names.map((name) => ["primary", name]),
+        ...cliStringArray(
+          option.visibleAliases ?? [],
+          `${optionLabel}.visibleAliases`,
+        ).map((name) => ["visible-alias", name]),
+        ...cliStringArray(
+          option.hiddenAliases ?? [],
+          `${optionLabel}.hiddenAliases`,
+        ).map((name) => ["hidden-alias", name]),
+      ];
+      for (const [routeKind, name] of routedNames) {
+        if (!/^(?:--[A-Za-z0-9][A-Za-z0-9-]*|-[A-Za-z0-9])$/u.test(name)) {
+          throw new Error(
+            `${optionLabel} has invalid ${routeKind} ${JSON.stringify(name)}`,
+          );
+        }
+        rows.push(
+          makeSurface(
+            "cli",
+            `option-name:${cliSurfaceComponent(command.path)}:${cliSurfaceComponent(option.id)}:${cliSurfaceComponent(name)}`,
+            refs,
+            {
+              metadata: { evidenceType: "cli-option-name", name, routeKind },
+            },
+          ),
+        );
+      }
+      rows.push(
+        ...cliValueShapeRows(
+          "option",
+          command.path,
+          option.id,
+          option.valueShape,
+          sourcePath,
+          ref,
+        ),
+      );
+    }
+
+    const positionals = command.positionals ?? [];
+    if (!Array.isArray(positionals)) {
+      throw new Error(`${commandLabel}.positionals must be an array`);
+    }
+    for (const [positionalIndex, positional] of positionals.entries()) {
+      const positionalLabel = `${commandLabel}.positionals[${positionalIndex}]`;
+      assertExactObjectKeys(
+        positional,
+        new Set(["id", "index", "passthrough", "valueShape"]),
+        positionalLabel,
+      );
+      if (
+        typeof positional.id !== "string" ||
+        !/^[A-Za-z_][A-Za-z0-9_-]*$/u.test(positional.id)
+      ) {
+        throw new Error(`${positionalLabel}.id is invalid`);
+      }
+      if (argumentIds.has(positional.id)) {
+        throw new Error(
+          `${commandLabel} has duplicate argument id ${JSON.stringify(positional.id)}`,
+        );
+      }
+      argumentIds.add(positional.id);
+      let commandArguments = argumentsByCommand.get(command.path);
+      if (!commandArguments) {
+        commandArguments = new Map();
+        argumentsByCommand.set(command.path, commandArguments);
+      }
+      commandArguments.set(positional.id, {
+        argumentKind: "positional",
+        valueShape: positional.valueShape,
+      });
+      if (!Number.isSafeInteger(positional.index) || positional.index < 1) {
+        throw new Error(`${positionalLabel}.index must be a positive integer`);
+      }
+      if (typeof positional.passthrough !== "boolean") {
+        throw new Error(`${positionalLabel}.passthrough must be boolean`);
+      }
+      validateCliValueShape(
+        positional.valueShape,
+        `${positionalLabel}.valueShape`,
+      );
+      if (
+        positional.passthrough !==
+        (positional.valueShape.maxValues === null &&
+          positional.valueShape.allowHyphenValues)
+      ) {
+        throw new Error(
+          `${positionalLabel}.passthrough does not match its value shape`,
+        );
+      }
+      const ref = `clapSurface.command:${command.path}:positional:${positional.id}`;
+      rows.push(
+        makeSurface(
+          "cli",
+          `positional:${cliSurfaceComponent(command.path)}:${cliSurfaceComponent(positional.id)}`,
+          [sourceSymbol(sourcePath, ref)],
+          {
+            metadata: {
+              commandPath: command.path,
+              evidenceType: "cli-positional-route",
+              id: positional.id,
+              index: positional.index,
+              passthrough: positional.passthrough,
+              valueShape: positional.valueShape,
+            },
+          },
+        ),
+      );
+      rows.push(
+        ...cliValueShapeRows(
+          "positional",
+          command.path,
+          positional.id,
+          positional.valueShape,
+          sourcePath,
+          ref,
+        ),
+      );
+    }
+  }
+
+  const semanticRelations = manifest.clapSurface.semanticRelations;
+  assertExactObjectKeys(
+    semanticRelations,
+    new Set(["argumentConflicts", "nonEnumeratedParsers"]),
+    `${sourcePath}: clapSurface.semanticRelations`,
+  );
+  const conflicts = semanticRelations.argumentConflicts;
+  if (!Array.isArray(conflicts)) {
+    throw new Error(
+      `${sourcePath}: clapSurface.semanticRelations.argumentConflicts must be an array`,
+    );
+  }
+  const conflictKeys = new Set();
+  for (const [index, conflict] of conflicts.entries()) {
+    const label = `${sourcePath}: clapSurface.semanticRelations.argumentConflicts[${index}]`;
+    assertExactObjectKeys(
+      conflict,
+      new Set(["argumentId", "commandPath", "conflictsWith"]),
+      label,
+    );
+    const commandArguments = argumentsByCommand.get(conflict.commandPath);
+    if (!commandArguments?.has(conflict.argumentId)) {
+      throw new Error(`${label} references an unknown source argument`);
+    }
+    const targets = cliStringArray(
+      conflict.conflictsWith,
+      `${label}.conflictsWith`,
+    );
+    if (targets.length === 0) {
+      throw new Error(`${label}.conflictsWith must not be empty`);
+    }
+    for (const target of targets) {
+      if (target === conflict.argumentId || !commandArguments.has(target)) {
+        throw new Error(`${label} references an invalid conflict target`);
+      }
+      const key = `${conflict.commandPath}\0${conflict.argumentId}\0${target}`;
+      if (conflictKeys.has(key)) {
+        throw new Error(`${label} duplicates an argument conflict`);
+      }
+      conflictKeys.add(key);
+      const ref =
+        `clapSurface.semanticRelations:argument-conflict:` +
+        `${conflict.commandPath}:${conflict.argumentId}:${target}`;
+      rows.push(
+        makeSurface(
+          "cli",
+          `argument-conflict:${cliSurfaceComponent(conflict.commandPath)}:${cliSurfaceComponent(conflict.argumentId)}:${cliSurfaceComponent(target)}`,
+          [sourceSymbol(sourcePath, ref)],
+          {
+            metadata: {
+              argumentId: conflict.argumentId,
+              commandPath: conflict.commandPath,
+              conflictsWith: target,
+              evidenceType: "cli-argument-conflict",
+            },
+          },
+        ),
+      );
+    }
+  }
+
+  const parserRelations = semanticRelations.nonEnumeratedParsers;
+  if (!Array.isArray(parserRelations)) {
+    throw new Error(
+      `${sourcePath}: clapSurface.semanticRelations.nonEnumeratedParsers must be an array`,
+    );
+  }
+  const reviewedParserKinds = new Set([
+    "os-path",
+    "unsigned-integer-u16",
+    "unsigned-integer-u64",
+    "unsigned-integer-usize",
+    "utf8-string",
+  ]);
+  const parserKeys = new Set();
+  for (const [index, parser] of parserRelations.entries()) {
+    const label = `${sourcePath}: clapSurface.semanticRelations.nonEnumeratedParsers[${index}]`;
+    assertExactObjectKeys(
+      parser,
+      new Set(["argumentId", "commandPath", "parserKind"]),
+      label,
+    );
+    const argument = argumentsByCommand
+      .get(parser.commandPath)
+      ?.get(parser.argumentId);
+    if (!argument || argument.valueShape.valueDomain !== "arbitrary") {
+      throw new Error(`${label} does not reference a non-enumerated argument`);
+    }
+    if (!reviewedParserKinds.has(parser.parserKind)) {
+      throw new Error(
+        `${label} has unreviewed parserKind ${JSON.stringify(parser.parserKind)}`,
+      );
+    }
+    const key = `${parser.commandPath}\0${parser.argumentId}`;
+    if (parserKeys.has(key)) {
+      throw new Error(`${label} duplicates a non-enumerated parser`);
+    }
+    parserKeys.add(key);
+    const ref =
+      `clapSurface.semanticRelations:parser:` +
+      `${parser.commandPath}:${parser.argumentId}:${parser.parserKind}`;
+    rows.push(
+      makeSurface(
+        "cli",
+        `argument-parser:${cliSurfaceComponent(parser.commandPath)}:${cliSurfaceComponent(parser.argumentId)}:${cliSurfaceComponent(parser.parserKind)}`,
+        [sourceSymbol(sourcePath, ref)],
+        {
+          metadata: {
+            argumentId: parser.argumentId,
+            commandPath: parser.commandPath,
+            evidenceType: "cli-non-enumerated-parser",
+            parserKind: parser.parserKind,
+          },
+        },
+      ),
+    );
+  }
+  const arbitraryArguments = [];
+  for (const [commandPath, commandArguments] of argumentsByCommand) {
+    for (const [argumentId, argument] of commandArguments) {
+      if (argument.valueShape.valueDomain === "arbitrary") {
+        arbitraryArguments.push(`${commandPath}\0${argumentId}`);
+      }
+    }
+  }
+  const missingParsers = arbitraryArguments.filter(
+    (key) => !parserKeys.has(key),
+  );
+  if (
+    missingParsers.length > 0 ||
+    parserKeys.size !== arbitraryArguments.length
+  ) {
+    throw new Error(
+      `${sourcePath}: every non-enumerated CLI argument must have exactly one reviewed parser relation`,
+    );
+  }
+  assertUniqueObservedKeys(
+    rows,
+    `${sourcePath} recursive CLI surface inventory`,
+  );
+  return sortSurfaces(rows);
+}
+
+function mergeHermesEvaluatorEvidence(existing, row, label) {
+  const evaluatorClaims = [existing, row].filter(
+    (candidate) =>
+      candidate.metadata?.evidenceType === "hermes-evaluator-reachability",
+  );
+  if (evaluatorClaims.length === 0) return;
+  const evidenceKeys = [
+    "engineIdentityReviewId",
+    "engineProfileIds",
+    "evidenceType",
+    "lockdownTamingDigest",
+    "reachability",
+    "tamingEvidence",
+  ];
+  for (const claim of evaluatorClaims) {
+    if (
+      typeof claim.metadata.engineIdentityReviewId !== "string" ||
+      !Array.isArray(claim.metadata.engineProfileIds) ||
+      claim.metadata.engineProfileIds.length === 0 ||
+      !/^sha256-[a-f0-9]{64}$/u.test(
+        claim.metadata.lockdownTamingDigest ?? "",
+      ) ||
+      typeof claim.metadata.reachability !== "string" ||
+      claim.metadata.tamingEvidence !== "lockdownJS"
+    ) {
+      throw new Error(
+        `${label}: malformed Hermes evaluator evidence for ${claim.observedKey}`,
+      );
+    }
+  }
+  const authority = evaluatorClaims[0].metadata;
+  for (const claim of evaluatorClaims.slice(1)) {
+    for (const key of evidenceKeys) {
+      if (
+        JSON.stringify(claim.metadata[key]) !== JSON.stringify(authority[key])
+      ) {
+        throw new Error(
+          `${label}: conflicting Hermes evaluator evidence for ${claim.observedKey}`,
+        );
+      }
+    }
+  }
+  existing.metadata ??= {};
+  for (const key of evidenceKeys) {
+    existing.metadata[key] = structuredClone(authority[key]);
+  }
+}
+
+function mergeDynamicNamespaceEvidence(existing, row, label) {
+  const evidenceKeys = [
+    "dynamicNamespaceEvidence",
+    "dynamicNamespaceKind",
+    "dynamicNamespaceRoot",
+  ];
+  const claims = [existing, row].filter(
+    (candidate) =>
+      candidate.metadata?.dynamicNamespace === true ||
+      evidenceKeys.some((key) => candidate.metadata?.[key] !== undefined),
+  );
+  if (claims.length === 0) return;
+  for (const claim of claims) {
+    if (
+      claim.metadata?.dynamicNamespace !== true ||
+      !/^sha256-[a-f0-9]{64}$/u.test(
+        claim.metadata.dynamicNamespaceEvidence ?? "",
+      ) ||
+      !new Set(["iife-call-result", "opaque-call-result"]).has(
+        claim.metadata.dynamicNamespaceKind,
+      )
+    ) {
+      throw new Error(
+        `${label}: malformed dynamic-namespace evidence for ${claim.observedKey}`,
+      );
+    }
+  }
+  const authority = claims[0].metadata;
+  for (const claim of claims.slice(1)) {
+    for (const key of evidenceKeys) {
+      const authorityValue = authority[key];
+      const claimValue = claim.metadata[key];
+      if (
+        authorityValue !== undefined &&
+        claimValue !== undefined &&
+        JSON.stringify(claimValue) !== JSON.stringify(authorityValue)
+      ) {
+        throw new Error(
+          `${label}: conflicting dynamic-namespace evidence for ${claim.observedKey}`,
+        );
+      }
+    }
+  }
+  existing.metadata ??= {};
+  existing.metadata.dynamicNamespace = true;
+  for (const key of evidenceKeys) {
+    const value = claims.find((claim) => claim.metadata[key] !== undefined)
+      ?.metadata[key];
+    if (value !== undefined) existing.metadata[key] = structuredClone(value);
+  }
+}
+
+function mergeSurfaceEvidence(rows, label) {
+  const merged = new Map();
+  for (const row of rows) {
+    const existing = merged.get(row.observedKey);
+    if (!existing) {
+      merged.set(row.observedKey, structuredClone(row));
+      continue;
+    }
+    const existingIsGlobalApi = existing.metadata?.surfaceType === "global-api";
+    const rowIsGlobalApi = row.metadata?.surfaceType === "global-api";
+    const dualNativeGlobalRole =
+      existing.kind === "native-op" &&
+      row.kind === "native-op" &&
+      existingIsGlobalApi !== rowIsGlobalApi;
+    const installationBranches = dualNativeGlobalRole
+      ? mergeDualRoleInstallationBranches(
+          existingIsGlobalApi ? existing : row,
+          existingIsGlobalApi ? row : existing,
+        )
+      : normalizeInstallationBranches([
+          ...implicitInstallationBranches(existing),
+          ...implicitInstallationBranches(row),
+        ]);
+    existing.sourceRefs = uniqueSorted([
+      ...existing.sourceRefs,
+      ...row.sourceRefs,
+    ]);
+    if (dualNativeGlobalRole) {
+      existing.metadata ??= {};
+      existing.metadata.surfaceType = "global-api";
+      existing.metadata.surfaceTypes = [
+        "global-api",
+        "private-native-operation",
+      ];
+      existing.metadata.semanticRoles = uniqueSorted([
+        ...(existing.metadata.semanticRoles ?? []),
+        ...(row.metadata?.semanticRoles ?? []),
+        "global-api-installation",
+        "private-native-operation",
+      ]);
+    }
+    if (installationBranches.length > 0) {
+      existing.metadata ??= {};
+      existing.metadata.installationBranches = installationBranches;
+      existing.metadata.branches = installationBranches;
+    }
+    // @ref LLP 0013#mechanism-1-lockdown — a compatibility shim may also
+    // install `eval`; merging its route must not erase pin-bound taming proof.
+    mergeHermesEvaluatorEvidence(existing, row, label);
+    mergeDynamicNamespaceEvidence(existing, row, label);
+    for (const listKey of ["memberKinds", "semanticRoles"]) {
+      if (existing.metadata?.[listKey] || row.metadata?.[listKey]) {
+        existing.metadata ??= {};
+        existing.metadata[listKey] = uniqueSorted([
+          ...(existing.metadata[listKey] ?? []),
+          ...(row.metadata?.[listKey] ?? []),
+        ]);
+      }
+    }
+    if (
+      existing.metadata?.inheritedShape === true ||
+      row.metadata?.inheritedShape === true
+    ) {
+      existing.metadata ??= {};
+      existing.metadata.inheritedShape = true;
+      const reviewIds = uniqueSorted(
+        [
+          existing.metadata.inheritedShapeReviewId,
+          row.metadata?.inheritedShapeReviewId,
+        ].filter(Boolean),
+      );
+      if (reviewIds.length !== 1) {
+        throw new Error(
+          `${label}: conflicting inherited-shape review evidence for ${row.observedKey}`,
+        );
+      }
+      existing.metadata.inheritedShapeReviewId = reviewIds[0];
+    }
+    if (existing.metadata?.sourceKey || row.metadata?.sourceKey) {
+      existing.metadata.sourceKeys = uniqueSorted([
+        ...(existing.metadata.sourceKeys ??
+          [existing.metadata.sourceKey].filter(Boolean)),
+        ...(row.metadata?.sourceKeys ??
+          [row.metadata?.sourceKey].filter(Boolean)),
+      ]);
+    }
+    for (const countKey of ["definitionCount", "occurrenceCount"]) {
+      if (row.metadata?.[countKey] !== undefined) {
+        existing.metadata[countKey] =
+          (existing.metadata[countKey] ?? 0) + row.metadata[countKey];
+      }
+    }
+  }
+  const result = sortSurfaces([...merged.values()]);
+  for (const row of result) {
+    if (row.metadata?.surfaceType !== "global-api") continue;
+    const branches = normalizeInstallationBranches(
+      implicitInstallationBranches(row),
+    );
+    if (branches.length === 0) {
+      throw new Error(
+        `${label}: global API ${row.observedKey} has no installation branch`,
+      );
+    }
+    const branchRefs = uniqueSorted(
+      branches.flatMap((branch) => branch.sourceRefs),
+    );
+    if (JSON.stringify(branchRefs) !== JSON.stringify(row.sourceRefs)) {
+      throw new Error(
+        `${label}: global API ${row.observedKey} installation branches do not cover exact source refs`,
+      );
+    }
+    row.metadata.installationBranches = branches;
+    row.metadata.branches = branches;
+  }
+  assertUniqueObservedKeys(result, label);
+  return result;
+}
+
+/**
+ * Derive callback producers and startup installers/scripts from one native
+ * translation unit. Callback calls group by stable enclosing-definition
+ * identity, so source reordering cannot rename the producer while additions
+ * still change its occurrence evidence.
+ */
+export function scanNativeLifecycleSurfaces(
+  text,
+  sourcePath = "<native-source>",
+) {
+  const tokens = lexCpp(text, sourcePath);
+  const rows = [];
+  const definitions = cppFunctionDefinitions(tokens);
+  const definitionNameIndexes = new Set(
+    definitions.map((definition) => definition.nameIndex),
+  );
+  const directCallNameIndexes = new Set(
+    cppCallExpressions(tokens).map((call) => call.nameIndex),
+  );
+  const callbackProducers = new Map();
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index].value !== "pushRuntimeCallback" ||
+      tokens[index + 1]?.value !== "(" ||
+      definitionNameIndexes.has(index)
+    ) {
+      continue;
+    }
+    const previous = tokens[index - 1]?.value;
+    // Header declarations are not producers. Calls are preceded by statement
+    // punctuation/flow, while the declaration is preceded by its return type.
+    if (previous === "void") continue;
+    const enclosing = definitions
+      .filter(
+        (definition) =>
+          definition.bodyOpen < index && index < definition.bodyClose,
+      )
+      .sort(
+        (left, right) =>
+          left.bodyClose - left.bodyOpen - (right.bodyClose - right.bodyOpen),
+      )[0];
+    if (!enclosing) {
+      throw new Error(
+        `${sourcePath}: pushRuntimeCallback producer has no structural enclosing definition`,
+      );
+    }
+    const existing = callbackProducers.get(enclosing.identity);
+    if (existing) {
+      existing.occurrenceCount += 1;
+    } else {
+      callbackProducers.set(enclosing.identity, {
+        enclosingDefinition: enclosing.identity,
+        occurrenceCount: 1,
+      });
+    }
+  }
+  for (const {
+    enclosingDefinition,
+    occurrenceCount,
+  } of callbackProducers.values()) {
+    rows.push(
+      makeSurface(
+        "callback",
+        `producer:${sourcePath}:${enclosingDefinition}:pushRuntimeCallback`,
+        [
+          sourceSymbol(
+            sourcePath,
+            `${enclosingDefinition}:pushRuntimeCallback`,
+          ),
+        ],
+        {
+          metadata: {
+            enclosingDefinition,
+            evidenceType: "push-runtime-callback-producer",
+            occurrenceCount,
+            producer: "pushRuntimeCallback",
+          },
+        },
+      ),
+    );
+  }
+
+  const scriptCounts = new Map();
+  for (const token of tokens) {
+    if (token.type !== "string" || !/^<[a-z][a-z0-9._-]*>$/u.test(token.value))
+      continue;
+    scriptCounts.set(token.value, (scriptCounts.get(token.value) ?? 0) + 1);
+  }
+  for (const [url, occurrenceCount] of scriptCounts) {
+    rows.push(
+      makeSurface(
+        "startup",
+        `script:${url.slice(1, -1)}`,
+        [sourceSymbol(sourcePath, `script:${url}`)],
+        {
+          metadata: {
+            evidenceType: "startup-evaluation-url",
+            occurrenceCount,
+            sourceUrl: url,
+          },
+        },
+      ),
+    );
+  }
+
+  for (const definition of definitions) {
+    const isInstaller = /^install[A-Z][A-Za-z0-9_]*$/u.test(definition.name);
+    if (isInstaller) {
+      rows.push(
+        makeSurface(
+          "startup",
+          `installer:${definition.name}`,
+          [sourceSymbol(sourcePath, definition.name)],
+          {
+            metadata: {
+              definitionCount: 1,
+              evidenceType: "installer-definition",
+              installer: definition.name,
+            },
+          },
+        ),
+      );
+    }
+  }
+
+  const enclosingDefinition = (tokenIndex) =>
+    definitions
+      .filter(
+        (definition) =>
+          definition.bodyOpen < tokenIndex && tokenIndex < definition.bodyClose,
+      )
+      .sort(
+        (left, right) =>
+          left.bodyClose - left.bodyOpen - (right.bodyClose - right.bodyOpen),
+      )[0];
+  const lifecycleCaller = (tokenIndex) =>
+    enclosingDefinition(tokenIndex) ?? {
+      identity: "translation-unit-fallback",
+      structuralFallback: true,
+    };
+  const evaluationRoutes = new Map();
+  const installationRoutes = new Map();
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index]?.type === "identifier" &&
+      tokens[index].value === "evaluateJavaScript" &&
+      tokens[index + 1]?.value === "("
+    ) {
+      const caller = lifecycleCaller(index);
+      const close = matchingToken(tokens, index + 1, "(", ")");
+      if (close === -1) {
+        throw new Error(
+          `${sourcePath}: evaluateJavaScript call has no closing parenthesis`,
+        );
+      }
+      for (const argument of tokens.slice(index + 2, close)) {
+        if (
+          argument.type !== "string" ||
+          !/^<[a-z][a-z0-9._-]*>$/u.test(argument.value)
+        ) {
+          continue;
+        }
+        const sourceUrl = argument.value;
+        const key = `${caller.identity}\0${sourceUrl}`;
+        const route = evaluationRoutes.get(key) ?? {
+          caller: caller.identity,
+          occurrenceCount: 0,
+          sourceUrl,
+          structuralFallback: caller.structuralFallback === true,
+        };
+        route.occurrenceCount += 1;
+        evaluationRoutes.set(key, route);
+      }
+    }
+    if (
+      tokens[index]?.type === "identifier" &&
+      /^install[A-Z][A-Za-z0-9_]*$/u.test(tokens[index].value) &&
+      tokens[index + 1]?.value === "(" &&
+      !definitionNameIndexes.has(index) &&
+      directCallNameIndexes.has(index)
+    ) {
+      const caller = lifecycleCaller(index);
+      const installer = tokens[index].value;
+      const key = `${caller.identity}\0${installer}`;
+      const route = installationRoutes.get(key) ?? {
+        caller: caller.identity,
+        installer,
+        occurrenceCount: 0,
+        structuralFallback: caller.structuralFallback === true,
+      };
+      route.occurrenceCount += 1;
+      installationRoutes.set(key, route);
+    }
+  }
+  for (const route of evaluationRoutes.values()) {
+    const url = route.sourceUrl.slice(1, -1);
+    rows.push(
+      makeSurface(
+        "startup",
+        `evaluation:${route.caller}:${url}`,
+        [
+          sourceSymbol(
+            sourcePath,
+            `${route.caller}:evaluateJavaScript:${route.sourceUrl}`,
+          ),
+        ],
+        {
+          metadata: {
+            caller: route.caller,
+            evidenceType: "startup-evaluation-route",
+            occurrenceCount: route.occurrenceCount,
+            sourceUrl: route.sourceUrl,
+            ...(route.structuralFallback
+              ? { structuralFallback: "translation-unit" }
+              : {}),
+          },
+        },
+      ),
+    );
+  }
+  for (const route of installationRoutes.values()) {
+    rows.push(
+      makeSurface(
+        "startup",
+        `install-route:${route.caller}:${route.installer}`,
+        [sourceSymbol(sourcePath, `${route.caller}:${route.installer}`)],
+        {
+          metadata: {
+            caller: route.caller,
+            evidenceType: "startup-installer-call-route",
+            installer: route.installer,
+            occurrenceCount: route.occurrenceCount,
+            ...(route.structuralFallback
+              ? { structuralFallback: "translation-unit" }
+              : {}),
+          },
+        },
+      ),
+    );
+  }
+  return mergeSurfaceEvidence(rows, `${sourcePath} native lifecycle inventory`);
+}
+
+const LOADER_FUNCTION_NAME =
+  /(?:builtin|capabilit|compile|import|load|module|principal|resolve)/iu;
+
+function containsKindMember(node) {
+  let found = false;
+  walkAst(node, (candidate) => {
+    if (
+      candidate.type === "MemberExpression" &&
+      ((!candidate.computed &&
+        candidate.property?.type === "Identifier" &&
+        candidate.property.name === "kind") ||
+        (candidate.computed &&
+          candidate.property?.type === "StringLiteral" &&
+          candidate.property.value === "kind"))
+    ) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+function normalizeLoaderKind(value) {
+  const normalized = value
+    .replace(/([a-z0-9])([A-Z])/gu, "$1-$2")
+    .replaceAll("_", "-")
+    .toLowerCase();
+  if (normalized === "cjs" || normalized === "common-js") return "commonjs";
+  if (normalized === "module") return "esm";
+  if (normalized === "addon") return "native-addon";
+  if (
+    new Set(["builtin", "esm", "json", "native-addon", "wasm"]).has(normalized)
+  )
+    return normalized;
+  return normalized;
+}
+
+/** Source-derived JS loader functions and record-kind decision branches. */
+export function scanJavaScriptLoaderSurfaces(
+  text,
+  sourcePath = "<loader-source>",
+) {
+  const program = parseJavaScript(text, sourcePath);
+  const rows = [];
+  const functionCounts = new Map();
+  const kindRefs = new Map();
+  for (const definition of javascriptFunctionDefinitions(program)) {
+    if (!LOADER_FUNCTION_NAME.test(definition.name)) continue;
+    functionCounts.set(
+      definition.name,
+      (functionCounts.get(definition.name) ?? 0) + 1,
+    );
+  }
+  walkAst(program, (node) => {
+    if (
+      new Set([
+        "BinaryExpression",
+        "ConditionalExpression",
+        "LogicalExpression",
+      ]).has(node.type) &&
+      containsKindMember(node)
+    ) {
+      walkAst(node, (candidate) => {
+        if (
+          candidate.type === "StringLiteral" &&
+          /^[A-Za-z][A-Za-z0-9_-]*$/u.test(candidate.value)
+        ) {
+          const kind = normalizeLoaderKind(candidate.value);
+          if (!kindRefs.has(kind)) kindRefs.set(kind, 0);
+          kindRefs.set(kind, kindRefs.get(kind) + 1);
+        }
+      });
+    }
+  });
+
+  for (const [name, occurrenceCount] of functionCounts) {
+    rows.push(
+      makeSurface(
+        "loader",
+        `function:javascript:${name}`,
+        [sourceSymbol(sourcePath, name)],
+        {
+          metadata: { evidenceType: "loader-function", occurrenceCount },
+        },
+      ),
+    );
+  }
+  for (const [kind, occurrenceCount] of kindRefs) {
+    rows.push(
+      makeSurface(
+        "loader",
+        `kind:${kind}`,
+        [sourceSymbol(sourcePath, `kind:${kind}`)],
+        {
+          metadata: {
+            evidenceType: "loader-kind-branch",
+            loaderKind: kind,
+            occurrenceCount,
+          },
+        },
+      ),
+    );
+  }
+  return mergeSurfaceEvidence(
+    rows,
+    `${sourcePath} JavaScript loader inventory`,
+  );
+}
+
+function walkAstWithAncestors(root, visitor) {
+  const visit = (node, ancestors) => {
+    if (!node || typeof node !== "object") return;
+    if (typeof node.type === "string") visitor(node, ancestors);
+    const nextAncestors =
+      typeof node.type === "string" ? [...ancestors, node] : ancestors;
+    for (const [key, value] of Object.entries(node)) {
+      if (
+        new Set(["comments", "errors", "extra", "loc", "start", "end"]).has(key)
+      ) {
+        continue;
+      }
+      if (Array.isArray(value)) {
+        for (const child of value) visit(child, nextAncestors);
+      } else if (value && typeof value === "object") {
+        visit(value, nextAncestors);
+      }
+    }
+  };
+  visit(root, []);
+}
+
+function staticMemberChain(node) {
+  if (node?.type === "Identifier") return [node.name];
+  if (node?.type !== "MemberExpression") return null;
+  const parent = staticMemberChain(node.object);
+  const member = directMemberName(node);
+  return parent && member !== null ? [...parent, member] : null;
+}
+
+function equalityStrings(node, identifiers) {
+  const values = new Set();
+  walkAst(node, (candidate) => {
+    if (
+      candidate.type === "BinaryExpression" &&
+      new Set(["==", "==="]).has(candidate.operator)
+    ) {
+      const pairs = [
+        [candidate.left, candidate.right],
+        [candidate.right, candidate.left],
+      ];
+      for (const [identifier, literal] of pairs) {
+        if (
+          identifier?.type === "Identifier" &&
+          identifiers.has(identifier.name) &&
+          literal?.type === "StringLiteral"
+        ) {
+          values.add(literal.value);
+        }
+      }
+    }
+    if (
+      candidate.type === "CallExpression" &&
+      candidate.callee?.type === "MemberExpression" &&
+      directMemberName(candidate.callee) === "indexOf" &&
+      candidate.callee.object?.type === "Identifier" &&
+      identifiers.has(candidate.callee.object.name) &&
+      candidate.arguments[0]?.type === "StringLiteral"
+    ) {
+      values.add(candidate.arguments[0].value);
+    }
+  });
+  return values;
+}
+
+/** Exact internal routes, entry points, and lazy bootstrap installers. */
+export function scanJavaScriptLoaderRoutes(
+  text,
+  sourcePath = "src/engine/bootstrap/module-loader.js",
+) {
+  const program = parseJavaScript(text, sourcePath);
+  const definitions = new Map(
+    javascriptFunctionDefinitions(program).map((definition) => [
+      definition.name,
+      definition.node,
+    ]),
+  );
+  const rows = [];
+
+  const internalModules = [];
+  walkAst(program, (node) => {
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.id.name === "internalModules"
+    ) {
+      internalModules.push(node.init);
+    }
+  });
+  if (
+    internalModules.length !== 1 ||
+    internalModules[0]?.type !== "ObjectExpression"
+  ) {
+    throw new Error(
+      `${sourcePath}: expected one static internalModules object`,
+    );
+  }
+  const internalNames = new Set();
+  for (const property of internalModules[0].properties) {
+    if (property.type === "SpreadElement") {
+      throw new Error(
+        `${sourcePath}: internalModules has an opaque spread route`,
+      );
+    }
+    const names =
+      !property.computed && property.key?.type === "Identifier"
+        ? [property.key.name]
+        : staticPropertyName(property.key);
+    if (names.length !== 1) {
+      throw new Error(
+        `${registrationContext(text, property, sourcePath)}: unresolved computed internal loader route`,
+      );
+    }
+    internalNames.add(names[0]);
+  }
+  for (const [functionName, identifiers] of [
+    ["loadInternal", new Set(["normalized"])],
+    ["_loadNamedStreamInternal", new Set(["name"])],
+  ]) {
+    const definition = definitions.get(functionName);
+    if (!definition)
+      throw new Error(
+        `${sourcePath}: missing loader route function ${functionName}`,
+      );
+    for (const name of equalityStrings(definition.body, identifiers))
+      internalNames.add(name);
+  }
+  for (const name of internalNames) {
+    rows.push(
+      makeSurface(
+        "loader",
+        `internal-route:${name}`,
+        [sourceSymbol(sourcePath, `internal-route:${name}`)],
+        {
+          metadata: { evidenceType: "internal-loader-route", specifier: name },
+        },
+      ),
+    );
+  }
+
+  const lazyRoutes = new Map();
+  walkAstWithAncestors(program, (node, ancestors) => {
+    if (
+      node.type !== "CallExpression" ||
+      node.callee?.type !== "Identifier" ||
+      !/^__exactEnsure[A-Z][A-Za-z0-9_]*$/u.test(node.callee.name)
+    ) {
+      return;
+    }
+    const installer = node.callee.name;
+    const enclosingIfs = ancestors.filter(
+      (ancestor) => ancestor.type === "IfStatement",
+    );
+    const specifiers = new Set();
+    for (const statement of enclosingIfs) {
+      for (const specifier of equalityStrings(
+        statement.test,
+        new Set(["specifier"]),
+      )) {
+        specifiers.add(specifier);
+      }
+    }
+    if (specifiers.size === 0) {
+      throw new Error(
+        `${registrationContext(text, node, sourcePath)}: lazy installer ${installer} has no exact specifier routes`,
+      );
+    }
+    const existing = lazyRoutes.get(installer) ?? new Set();
+    for (const specifier of specifiers) existing.add(specifier);
+    lazyRoutes.set(installer, existing);
+  });
+  if (lazyRoutes.size === 0)
+    throw new Error(`${sourcePath}: no lazy loader installers discovered`);
+  for (const [installer, specifiers] of lazyRoutes) {
+    for (const specifier of specifiers) {
+      rows.push(
+        makeSurface(
+          "loader",
+          `lazy-installer:${installer}:${specifier}`,
+          [sourceSymbol(sourcePath, `${installer}:${specifier}`)],
+          {
+            metadata: {
+              evidenceType: "lazy-loader-installer-route",
+              installer,
+              specifier,
+            },
+          },
+        ),
+      );
+    }
+  }
+
+  const definitionRoutes = new Map([
+    ["__exactResolvePath", "entry:resolve-path"],
+    ["importImpl", "entry:dynamic-import"],
+    ["load", "entry:load"],
+    ["loadInternal", "entry:load-internal"],
+    ["localRequire", "entry:local-require"],
+    ["moduleDynamicImport", "entry:module-dynamic-import"],
+  ]);
+  for (const [definition, route] of definitionRoutes) {
+    if (!definitions.has(definition)) {
+      throw new Error(
+        `${sourcePath}: loader entry route ${definition} is absent`,
+      );
+    }
+    rows.push(
+      makeSurface("loader", route, [sourceSymbol(sourcePath, definition)], {
+        metadata: {
+          evidenceType: "loader-entry-route",
+          implementation: definition,
+        },
+      }),
+    );
+  }
+
+  const globalRoutes = new Map([
+    ["globalThis.__exactRequire", "entry:exact-require"],
+    ["globalThis.import", "entry:global-import"],
+    ["globalThis.importModule", "entry:import-module"],
+    ["globalThis.require", "entry:global-require"],
+    ["globalThis.require.resolve", "entry:require-resolve"],
+  ]);
+  const observedGlobals = new Set();
+  walkAst(program, (node) => {
+    if (node.type === "AssignmentExpression") {
+      const chain = staticMemberChain(node.left);
+      if (chain) observedGlobals.add(chain.join("."));
+    }
+    if (
+      node.type === "CallExpression" &&
+      callName(node) === "defineProperty" &&
+      node.arguments[0]?.type === "Identifier" &&
+      node.arguments[0].name === "globalThis" &&
+      node.arguments[1]?.type === "StringLiteral"
+    ) {
+      observedGlobals.add(`globalThis.${node.arguments[1].value}`);
+    }
+  });
+  for (const [globalName, route] of globalRoutes) {
+    if (!observedGlobals.has(globalName)) {
+      throw new Error(
+        `${sourcePath}: loader global entry ${globalName} is absent`,
+      );
+    }
+    rows.push(
+      makeSurface("loader", route, [sourceSymbol(sourcePath, globalName)], {
+        metadata: { evidenceType: "loader-entry-route", globalName },
+      }),
+    );
+  }
+
+  return sortSurfaces(rows);
+}
+
+/** Source-derived Rust loader functions and ModuleKind/ModuleType branches. */
+export function scanRustLoaderSurfaces(text, sourcePath = "<loader-source>") {
+  const tokens = rustProductionTokens(text, sourcePath);
+  const rows = [];
+  const functionCounts = new Map();
+  const kindCounts = new Map();
+
+  for (const definition of rustFunctionDefinitions(tokens)) {
+    if (!LOADER_FUNCTION_NAME.test(definition.name)) continue;
+    functionCounts.set(
+      definition.name,
+      (functionCounts.get(definition.name) ?? 0) + 1,
+    );
+  }
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type === "identifier" &&
+      new Set(["ModuleKind", "ModuleType"]).has(tokens[index].value) &&
+      tokens[index + 1]?.value === ":" &&
+      tokens[index + 2]?.value === ":" &&
+      tokens[index + 3]?.type === "identifier"
+    ) {
+      const kind = normalizeLoaderKind(tokens[index + 3].value);
+      kindCounts.set(kind, (kindCounts.get(kind) ?? 0) + 1);
+    }
+  }
+
+  for (const [name, occurrenceCount] of functionCounts) {
+    rows.push(
+      makeSurface(
+        "loader",
+        `function:rust:${name}`,
+        [sourceSymbol(sourcePath, name)],
+        {
+          metadata: { evidenceType: "loader-function", occurrenceCount },
+        },
+      ),
+    );
+  }
+  for (const [kind, occurrenceCount] of kindCounts) {
+    rows.push(
+      makeSurface(
+        "loader",
+        `kind:${kind}`,
+        [sourceSymbol(sourcePath, `kind:${kind}`)],
+        {
+          metadata: {
+            evidenceType: "loader-kind-branch",
+            loaderKind: kind,
+            occurrenceCount,
+          },
+        },
+      ),
+    );
+  }
+  return mergeSurfaceEvidence(rows, `${sourcePath} Rust loader inventory`);
+}
+
+function rustQualifiedCallPath(tokens, terminalIndex) {
+  const segments = [tokens[terminalIndex].value];
+  let cursor = terminalIndex;
+  while (
+    tokens[cursor - 1]?.value === ":" &&
+    tokens[cursor - 2]?.value === ":" &&
+    tokens[cursor - 3]?.type === "identifier"
+  ) {
+    segments.unshift(tokens[cursor - 3].value);
+    cursor -= 3;
+  }
+  return segments;
+}
+
+function qualifiedLoaderAuthorityOperation(segments) {
+  const joined = segments.join("::");
+  const terminal = segments.at(-1);
+  const authorityPrefix =
+    /^(?:std::(?:env|fs|io|net|process)|(?:async_std|tokio)::(?:fs|io|net|process))::/u.test(
+      joined,
+    ) ||
+    /^(?:Command|File|OpenOptions|TcpListener|TcpStream|UdpSocket|UnixListener|UnixStream)::/u.test(
+      joined,
+    );
+  if (!authorityPrefix) return null;
+  if (/(?:^|::)Command::new$/u.test(joined)) return "command-new";
+  if (/^(?:std::)?env::/u.test(joined)) return `env-${terminal}`;
+  if (/^std::process::/u.test(joined)) return `process-${terminal}`;
+  return terminal;
+}
+
+function loaderExternalCallIdentity(tokens, index, localNames) {
+  if (tokens[index]?.type !== "identifier" || tokens[index + 1]?.value !== "(")
+    return null;
+  const name = tokens[index].value;
+  if (new Set(["if", "loop", "match", "return", "while"]).has(name)) {
+    return null;
+  }
+  const qualified = rustQualifiedCallPath(tokens, index);
+  if (qualified.length > 1) return `qualified:${qualified.join("::")}`;
+  if (tokens[index - 1]?.value === ".") return `method:${name}`;
+  if (localNames.has(name)) return null;
+  return `call:${name}`;
+}
+
+/**
+ * Follow the production-local Rust call graph from reviewed loader roots.
+ * Categories are kept separate because resolution, loader-cache I/O,
+ * in-process transformation, and the opt-in subprocess escape hatch have
+ * different authority semantics even when they share helpers.
+ */
+export function scanRustLoaderRoutes(sources) {
+  if (!Array.isArray(sources) || sources.length === 0) {
+    throw new Error("Rust loader route scan requires source inputs");
+  }
+  const records = [];
+  for (const source of sources) {
+    const tokens = rustProductionTokens(source.text, source.sourcePath);
+    for (const definition of rustFunctionDefinitions(tokens)) {
+      records.push({ definition, sourcePath: source.sourcePath, tokens });
+    }
+  }
+  const byName = new Map();
+  for (const record of records) {
+    const values = byName.get(record.definition.name) ?? [];
+    values.push(record);
+    byName.set(record.definition.name, values);
+  }
+
+  const ignoredAmbiguousCallees = new Set([
+    "clone",
+    "default",
+    "from",
+    "into",
+    "new",
+  ]);
+  const localCalls = (record) => {
+    const calls = new Set();
+    const { bodyOpen, bodyClose } = record.definition;
+    for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
+      const token = record.tokens[index];
+      if (
+        token?.type !== "identifier" ||
+        record.tokens[index + 1]?.value !== "(" ||
+        ignoredAmbiguousCallees.has(token.value) ||
+        !byName.has(token.value)
+      ) {
+        continue;
+      }
+      calls.add(token.value);
+    }
+    return calls;
+  };
+
+  const categories = new Map([
+    [
+      "resolution",
+      [
+        "normalize_import_target",
+        "resolve",
+        "resolve_meta",
+        "resolve_package_import",
+      ],
+    ],
+    ["load", ["load_module_source", "load_source"]],
+    [
+      "cache",
+      [
+        "ensure_transpile_cache_dir",
+        "enforce_transpile_cache_quota",
+        "module_cache_key",
+        "publish_transpile_artifact",
+        "resolve_transpile_cache_dir",
+        "transpile_cache_is_valid",
+        "transpile_cache_dir",
+      ],
+    ],
+    [
+      "transform",
+      ["run_transpile_command", "transpile_module", "transpile_source_to_cjs"],
+    ],
+    ["subprocess", ["run_transpile_subprocess"]],
+  ]);
+  const rows = [];
+  const operationNames = new Set([
+    "canonicalize",
+    "create_dir_all",
+    "metadata",
+    "read",
+    "read_to_string",
+    "remove_file",
+    "rename",
+    "status",
+    "write",
+  ]);
+
+  for (const [category, roots] of categories) {
+    for (const root of roots) {
+      if (!byName.has(root)) {
+        throw new Error(`Rust loader ${category} root ${root} is absent`);
+      }
+    }
+    const reachable = new Set(roots);
+    const queue = [...roots];
+    while (queue.length > 0) {
+      const name = queue.shift();
+      for (const record of byName.get(name) ?? []) {
+        for (const call of localCalls(record)) {
+          if (reachable.has(call)) continue;
+          reachable.add(call);
+          queue.push(call);
+        }
+      }
+    }
+
+    const operationRefs = new Map();
+    const operationPaths = new Map();
+    const externalCalls = new Map();
+    const addOperation = (operation, record, functionName, callIdentity) => {
+      const refsForOperation = operationRefs.get(operation) ?? new Set();
+      refsForOperation.add(
+        sourceSymbol(
+          record.sourcePath,
+          `${functionName}:operation:${callIdentity}`,
+        ),
+      );
+      operationRefs.set(operation, refsForOperation);
+      const paths = operationPaths.get(operation) ?? new Set();
+      paths.add(callIdentity);
+      operationPaths.set(operation, paths);
+    };
+    for (const name of reachable) {
+      const functionRecords = byName.get(name) ?? [];
+      const refs = functionRecords.map((record) =>
+        sourceSymbol(record.sourcePath, name),
+      );
+      const callees = uniqueSorted(
+        functionRecords.flatMap((record) => [...localCalls(record)]),
+      );
+      rows.push(
+        makeSurface("loader", `route:${category}:rust:${name}`, refs, {
+          metadata: {
+            callees,
+            category,
+            evidenceType: "transitive-rust-loader-route",
+            roots,
+          },
+        }),
+      );
+      for (const record of functionRecords) {
+        const { bodyOpen, bodyClose } = record.definition;
+        for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
+          const identity = loaderExternalCallIdentity(
+            record.tokens,
+            index,
+            byName,
+          );
+          if (!identity) continue;
+          const evidenceKey = `${record.sourcePath}\0${name}\0${identity}`;
+          externalCalls.set(
+            evidenceKey,
+            (externalCalls.get(evidenceKey) ?? 0) + 1,
+          );
+
+          const qualified = rustQualifiedCallPath(record.tokens, index);
+          const qualifiedOperation =
+            qualified.length > 1
+              ? qualifiedLoaderAuthorityOperation(qualified)
+              : null;
+          const terminal = record.tokens[index].value;
+          const operation =
+            qualifiedOperation ??
+            (operationNames.has(terminal) ? terminal : null);
+          if (operation) addOperation(operation, record, name, identity);
+        }
+      }
+    }
+    if (externalCalls.size === 0) {
+      throw new Error(`Rust loader ${category} route has no external calls`);
+    }
+    rows.push(
+      makeSurface(
+        "loader",
+        `external-calls:${category}`,
+        [...externalCalls.entries()].map(([key, occurrenceCount]) => {
+          const [sourcePath, functionName, identity] = key.split("\0");
+          return sourceSymbol(
+            sourcePath,
+            `${functionName}:external:${identity}:count-${occurrenceCount}`,
+          );
+        }),
+        {
+          metadata: {
+            category,
+            evidenceType: "rust-loader-external-call-set",
+            externalCallCount: [...externalCalls.values()].reduce(
+              (total, count) => total + count,
+              0,
+            ),
+          },
+        },
+      ),
+    );
+    for (const [operation, refs] of operationRefs) {
+      rows.push(
+        makeSurface("loader", `operation:${category}:${operation}`, [...refs], {
+          metadata: {
+            category,
+            evidenceType: "rust-loader-operation",
+            operation,
+            qualifiedPaths: uniqueSorted(operationPaths.get(operation) ?? []),
+          },
+        }),
+      );
+    }
+  }
+
+  const engines = new Map();
+  for (const record of records) {
+    for (
+      let index = record.definition.bodyOpen + 1;
+      index < record.definition.bodyClose;
+      index += 1
+    ) {
+      if (
+        record.tokens[index]?.value === "TransformEngine" &&
+        record.tokens[index + 1]?.value === ":" &&
+        record.tokens[index + 2]?.value === ":" &&
+        record.tokens[index + 3]?.type === "identifier"
+      ) {
+        if (!/^[A-Z][A-Za-z0-9_]*$/u.test(record.tokens[index + 3].value))
+          continue;
+        const engine = record.tokens[index + 3].value.toLowerCase();
+        const refs = engines.get(engine) ?? new Set();
+        refs.add(sourceSymbol(record.sourcePath, record.definition.name));
+        engines.set(engine, refs);
+      }
+    }
+  }
+  if (engines.size === 0)
+    throw new Error("Rust loader transform engines are absent");
+  for (const [engine, refs] of engines) {
+    rows.push(
+      makeSurface("loader", `transform-engine:${engine}`, [...refs], {
+        metadata: { engine, evidenceType: "rust-loader-transform-engine" },
+      }),
+    );
+  }
+
+  return mergeSurfaceEvidence(rows, "transitive Rust loader route inventory");
+}
+
+function rustDefinitionByName(tokens, name, sourcePath) {
+  const definitions = rustFunctionDefinitions(tokens).filter(
+    (definition) => definition.name === name,
+  );
+  if (definitions.length !== 1) {
+    throw new Error(
+      `${sourcePath}: expected exactly one production Rust function ${name}; observed ${definitions.length}`,
+    );
+  }
+  return definitions[0];
+}
+
+function sameRustTokens(tokens, source, label) {
+  const expected = rustProductionTokens(source, label);
+  if (tokens.length !== expected.length) return false;
+  return tokens.every(
+    (token, index) =>
+      token.type === expected[index].type &&
+      token.value === expected[index].value,
+  );
+}
+
+function rustTokenEvidence(tokens) {
+  return tokens.map((token) => [token.type, token.value]);
+}
+
+const REVIEWED_CDP_FUNCTION_BODY_DIGESTS = new Map([
+  [
+    "start_server",
+    "sha256-669a9ac3395e7e783a158caa34ad9d9a72f819e5a333185df898570bcad78e11",
+  ],
+  [
+    "run_server",
+    "sha256-2c037e85158be7ea241843993511f5e3123398a479c23b0bad3999d3aa9d44d9",
+  ],
+  [
+    "handle_connection",
+    "sha256-092bbcafd01c8ab21dee1196294dd0b9a1c3d70e2a84de27b500266b1bae2732",
+  ],
+]);
+
+function assertCdpFunctionBodyClosure(tokens, definition, sourcePath) {
+  const body = tokens.slice(definition.bodyOpen + 1, definition.bodyClose);
+  const observed = `sha256-${sha256Hex(JSON.stringify(rustTokenEvidence(body)))}`;
+  const expected = REVIEWED_CDP_FUNCTION_BODY_DIGESTS.get(definition.name);
+  if (observed !== expected) {
+    throw new Error(
+      `${sourcePath}: CDP ${definition.name} body drifted from its reviewed ` +
+        `token evidence; observed ${observed}`,
+    );
+  }
+}
+
+function cdpDispatchMatch(tokens, definition, subject, sourcePath) {
+  const matches = [];
+  for (
+    let index = definition.bodyOpen + 1;
+    index < definition.bodyClose;
+    index += 1
+  ) {
+    if (
+      tokens[index]?.value !== "match" ||
+      tokens[index + 1]?.value !== subject ||
+      tokens[index + 2]?.value !== "{"
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 2, "{", "}");
+    if (close !== -1 && close < definition.bodyClose) {
+      matches.push({ close, matchIndex: index, open: index + 2, subject });
+      index = close;
+    }
+  }
+  if (matches.length !== 1) {
+    throw new Error(
+      `${sourcePath}: expected exactly one structural CDP match ${subject} ` +
+        `dispatch; observed ${matches.length}`,
+    );
+  }
+  return matches[0];
+}
+
+/**
+ * Enumerate only top-level string arms from one reviewed dispatch. Every arm
+ * must be a closed string-alternative pattern or the single wildcard. A new
+ * constant, guard, nested match, or dynamic pattern therefore cannot become a
+ * route without changing this inventory contract.
+ */
+function cdpDispatchStringAlternatives(tokens, dispatch, accept, sourcePath) {
+  const values = [];
+  const matchingClose = { "(": ")", "[": "]", "{": "}" };
+  let wildcardCount = 0;
+  let index = dispatch.open + 1;
+  while (index < dispatch.close) {
+    while (tokens[index]?.value === ",") index += 1;
+    if (index >= dispatch.close) break;
+
+    const patternStart = index;
+    let arrow = -1;
+    while (index < dispatch.close) {
+      const closeValue = matchingClose[tokens[index]?.value];
+      if (closeValue) {
+        const close = matchingToken(
+          tokens,
+          index,
+          tokens[index].value,
+          closeValue,
+        );
+        if (close === -1 || close > dispatch.close) {
+          throw new Error(
+            `${sourcePath}: malformed CDP ${dispatch.subject} arm`,
+          );
+        }
+        index = close + 1;
+        continue;
+      }
+      if (tokens[index]?.value === "=" && tokens[index + 1]?.value === ">") {
+        arrow = index;
+        break;
+      }
+      if (tokens[index]?.value === ",") break;
+      index += 1;
+    }
+    if (arrow === -1) {
+      throw new Error(
+        `${sourcePath}: unreviewed CDP ${dispatch.subject} dispatch arm`,
+      );
+    }
+
+    const pattern = tokens.slice(patternStart, arrow);
+    if (pattern.length === 1 && pattern[0]?.value === "_") {
+      wildcardCount += 1;
+    } else {
+      for (let cursor = 0; cursor < pattern.length; cursor += 2) {
+        const alternative = pattern[cursor];
+        if (
+          alternative?.type !== "string" ||
+          !accept(alternative.value) ||
+          (cursor + 1 < pattern.length && pattern[cursor + 1]?.value !== "|")
+        ) {
+          throw new Error(
+            `${sourcePath}: unreviewed CDP ${dispatch.subject} dispatch pattern`,
+          );
+        }
+        values.push(alternative.value);
+      }
+    }
+
+    index = arrow + 2;
+    const expressionClose = matchingClose[tokens[index]?.value];
+    if (expressionClose) {
+      const close = matchingToken(
+        tokens,
+        index,
+        tokens[index].value,
+        expressionClose,
+      );
+      if (close === -1 || close > dispatch.close) {
+        throw new Error(`${sourcePath}: malformed CDP ${dispatch.subject} arm`);
+      }
+      index = close + 1;
+    } else {
+      while (index < dispatch.close && tokens[index]?.value !== ",") {
+        const closeValue = matchingClose[tokens[index]?.value];
+        if (closeValue) {
+          const close = matchingToken(
+            tokens,
+            index,
+            tokens[index].value,
+            closeValue,
+          );
+          if (close === -1 || close > dispatch.close) {
+            throw new Error(
+              `${sourcePath}: malformed CDP ${dispatch.subject} arm`,
+            );
+          }
+          index = close + 1;
+        } else {
+          index += 1;
+        }
+      }
+    }
+    if (tokens[index]?.value === ",") index += 1;
+  }
+
+  if (wildcardCount !== 1) {
+    throw new Error(
+      `${sourcePath}: expected exactly one CDP ${dispatch.subject} wildcard; observed ${wildcardCount}`,
+    );
+  }
+  const unique = uniqueSorted(values);
+  if (unique.length !== values.length) {
+    throw new Error(
+      `${sourcePath}: duplicate CDP ${dispatch.subject} dispatch alternative`,
+    );
+  }
+  return unique;
+}
+
+function assertCdpDispatchSubjectClosure(
+  tokens,
+  definition,
+  dispatch,
+  sourcePath,
+) {
+  const before = [];
+  const after = [];
+  for (
+    let index = definition.bodyOpen + 1;
+    index < dispatch.matchIndex;
+    index += 1
+  ) {
+    if (
+      tokens[index]?.type === "identifier" &&
+      tokens[index].value === dispatch.subject
+    ) {
+      before.push(index);
+    }
+  }
+  for (
+    let index = dispatch.close + 1;
+    index < definition.bodyClose;
+    index += 1
+  ) {
+    if (
+      tokens[index]?.type === "identifier" &&
+      tokens[index].value === dispatch.subject
+    ) {
+      after.push(index);
+    }
+  }
+
+  if (dispatch.subject === "path") {
+    const exactBinding =
+      before.length === 1 &&
+      tokens[before[0] - 1]?.value === "let" &&
+      tokens[before[0] + 1]?.value === "=";
+    if (!exactBinding || after.length !== 0) {
+      throw new Error(
+        `${sourcePath}: CDP path is used outside its reviewed match dispatch`,
+      );
+    }
+    return;
+  }
+
+  if (before.length !== 0) {
+    throw new Error(
+      `${sourcePath}: CDP method is used before its reviewed match dispatch`,
+    );
+  }
+  const exactFallbackUse = (index) =>
+    tokens[index - 4]?.value === "method_not_found_response" &&
+    tokens[index - 3]?.value === "(" &&
+    tokens[index - 2]?.value === "id" &&
+    tokens[index - 1]?.value === "," &&
+    tokens[index + 1]?.value === ")";
+  if (after.length > 1 || after.some((index) => !exactFallbackUse(index))) {
+    throw new Error(
+      `${sourcePath}: CDP method is used after its reviewed match dispatch`,
+    );
+  }
+}
+
+const REVIEWED_CDP_HTTP_PREFIX = String.raw`
+  let mut buf = Vec::new();
+  let mut tmp = [0u8; 1024];
+  let read_result = tokio::time::timeout(CDP_HTTP_READ_TIMEOUT, async {
+      loop {
+          let n = stream.read(&mut tmp).await?;
+          if n == 0 {
+              break;
+          }
+          buf.extend_from_slice(&tmp[..n]);
+          if buf.windows(4).any(|w| w == b"\r\n\r\n") || buf.len() > 8192 {
+              break;
+          }
+      }
+      Ok::<(), std::io::Error>(())
+  })
+  .await;
+  match read_result {
+      Ok(result) => result?,
+      Err(_) => {
+          write_tcp_with_timeout(
+              stream,
+              b"HTTP/1.1 408 Request Timeout\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+          )
+          .await?;
+          return Ok(());
+      }
+  }
+
+  let request = String::from_utf8_lossy(&buf);
+  let mut lines = request.lines();
+  let request_line = lines.next().unwrap_or("");
+  let mut parts = request_line.split_whitespace();
+  let _method = parts.next().unwrap_or("GET");
+  let path = parts.next().unwrap_or("/");
+  if !cdp_request_headers_allowed(&request) {
+      write_http_response(stream, "403 Forbidden", "{}").await?;
+      return Ok(());
+  }
+
+  let websocket_url = format!("ws://{}/", local_addr);
+  let devtools_url = format!(
+      "devtools://devtools/bundled/inspector.html?ws={}/",
+      local_addr
+  );
+  let devtools_compat_url = format!(
+      "chrome-devtools://devtools/bundled/inspector.html?ws={}/",
+      local_addr
+  );
+  let (status, body) =
+`;
+
+const REVIEWED_CDP_HTTP_SUFFIX = String.raw`
+  ;
+  write_http_response(stream, status, &body).await
+`;
+
+/**
+ * The route arms are enumerated separately. Every other token in the HTTP
+ * handler is one reviewed template so raw `buf`/`tmp` checks, reparses,
+ * aliases, early returns, and post-match response rewrites cannot add a route
+ * while leaving `match path` byte-identical.
+ */
+function assertCdpHttpHandlerClosure(tokens, definition, dispatch, sourcePath) {
+  const prefix = tokens.slice(definition.bodyOpen + 1, dispatch.matchIndex);
+  const suffix = tokens.slice(dispatch.close + 1, definition.bodyClose);
+  if (
+    !sameRustTokens(
+      prefix,
+      REVIEWED_CDP_HTTP_PREFIX,
+      "reviewed CDP HTTP prefix",
+    )
+  ) {
+    throw new Error(
+      `${sourcePath}: CDP HTTP handler prefix drifted from its reviewed token template ` +
+        `(evidence ${evidenceHash(JSON.stringify(rustTokenEvidence(prefix)))})`,
+    );
+  }
+  if (
+    !sameRustTokens(
+      suffix,
+      REVIEWED_CDP_HTTP_SUFFIX,
+      "reviewed CDP HTTP suffix",
+    )
+  ) {
+    throw new Error(
+      `${sourcePath}: CDP HTTP handler suffix drifted from its reviewed token template ` +
+        `(evidence ${evidenceHash(JSON.stringify(rustTokenEvidence(suffix)))})`,
+    );
+  }
+}
+
+function cdpWildcardArm(tokens, dispatch, sourcePath) {
+  const candidates = [];
+  const matchingClose = { "(": ")", "[": "]", "{": "}" };
+  for (let index = dispatch.open + 1; index < dispatch.close; index += 1) {
+    const closeValue = matchingClose[tokens[index]?.value];
+    if (closeValue) {
+      const close = matchingToken(
+        tokens,
+        index,
+        tokens[index].value,
+        closeValue,
+      );
+      if (close === -1 || close > dispatch.close) {
+        throw new Error(`${sourcePath}: malformed CDP method dispatch`);
+      }
+      index = close;
+      continue;
+    }
+    if (
+      tokens[index]?.value === "_" &&
+      tokens[index + 1]?.value === "=" &&
+      tokens[index + 2]?.value === ">"
+    ) {
+      candidates.push(index);
+    }
+  }
+  if (candidates.length !== 1) {
+    throw new Error(
+      `${sourcePath}: expected exactly one structural CDP wildcard ` +
+        `fallback; observed ${candidates.length}`,
+    );
+  }
+
+  const wildcard = candidates[0];
+  const expressionStart = wildcard + 3;
+  let expressionEnd = expressionStart;
+  if (tokens[expressionStart]?.value === "{") {
+    const close = matchingToken(tokens, expressionStart, "{", "}");
+    if (close === -1 || close > dispatch.close) {
+      throw new Error(`${sourcePath}: malformed CDP wildcard block`);
+    }
+    expressionEnd = close + 1;
+  } else {
+    while (
+      expressionEnd < dispatch.close &&
+      tokens[expressionEnd]?.value !== ","
+    ) {
+      const closeValue = matchingClose[tokens[expressionEnd]?.value];
+      if (closeValue) {
+        const close = matchingToken(
+          tokens,
+          expressionEnd,
+          tokens[expressionEnd].value,
+          closeValue,
+        );
+        if (close === -1 || close > dispatch.close) {
+          throw new Error(`${sourcePath}: malformed CDP wildcard expression`);
+        }
+        expressionEnd = close + 1;
+      } else {
+        expressionEnd += 1;
+      }
+    }
+  }
+
+  let afterArm = expressionEnd;
+  if (tokens[afterArm]?.value === ",") afterArm += 1;
+  return {
+    expression: tokens.slice(expressionStart, expressionEnd),
+    isFinal: afterArm === dispatch.close,
+    wildcard,
+  };
+}
+
+function cdpJsonRpcErrorCode(helperTokens) {
+  for (let index = 0; index < helperTokens.length - 3; index += 1) {
+    if (
+      helperTokens[index]?.type !== "string" ||
+      helperTokens[index].value !== "code" ||
+      helperTokens[index + 1]?.value !== ":"
+    ) {
+      continue;
+    }
+    let cursor = index + 2;
+    let sign = 1;
+    if (helperTokens[cursor]?.value === "-") {
+      sign = -1;
+      cursor += 1;
+    }
+    let digits = "";
+    while (/^[0-9]$/u.test(helperTokens[cursor]?.value ?? "")) {
+      digits += helperTokens[cursor].value;
+      cursor += 1;
+    }
+    if (digits.length > 0 && helperTokens[cursor]?.value === ",") {
+      return sign * Number.parseInt(digits, 10);
+    }
+  }
+  return null;
+}
+
+function exactCdpMethodNotFoundHelper(helperTokens, errorCode) {
+  if (!Number.isSafeInteger(errorCode)) return false;
+  return sameRustTokens(
+    helperTokens,
+    String.raw`
+      json!({
+          "id": id,
+          "error": {
+              "code": ${errorCode},
+              "message": format!("'{}' wasn't found", method)
+          }
+      })
+    `,
+    "<expected CDP method-not-found helper>",
+  );
+}
+
+function exactCdpFallbackTail(tailTokens) {
+  const tails = [
+    String.raw`
+      let response = method_not_found_response(id, method);
+      ctx.write.send(Message::Text(response.to_string())).await?;
+      Ok(())
+    `,
+    String.raw`
+      let response = method_not_found_response(id, method);
+      if cdp_log_enabled() {
+          eprintln!("CDP <- id={} error={}", id, response);
+      }
+      ctx.write.send(Message::Text(response.to_string())).await?;
+      Ok(())
+    `,
+    String.raw`
+      let response = method_not_found_response(id, method);
+      if cdp_log_enabled() {
+          eprintln!("CDP <- id={} error={}", id, response);
+      }
+      ctx.send_text(response.to_string()).await?;
+      Ok(())
+    `,
+  ];
+  return tails.some((tail, index) =>
+    sameRustTokens(tailTokens, tail, `<expected CDP fallback tail ${index}>`),
+  );
+}
+
+function cdpUnknownMethodFallbackSurface(
+  tokens,
+  requestHandler,
+  dispatch,
+  sourcePath,
+) {
+  const wildcard = cdpWildcardArm(tokens, dispatch, sourcePath);
+  const tailTokens = tokens.slice(dispatch.close + 1, requestHandler.bodyClose);
+  const helperDefinitions = rustFunctionDefinitions(tokens).filter(
+    (definition) => definition.name === "method_not_found_response",
+  );
+  const helper = helperDefinitions.length === 1 ? helperDefinitions[0] : null;
+  const helperTokens = helper
+    ? tokens.slice(helper.bodyOpen + 1, helper.bodyClose)
+    : [];
+  const semanticEvidence = evidenceHash(
+    JSON.stringify({
+      helper: rustTokenEvidence(helperTokens),
+      tail: rustTokenEvidence(tailTokens),
+      wildcard: rustTokenEvidence(wildcard.expression),
+      wildcardIsFinal: wildcard.isFinal,
+    }),
+  );
+
+  const emptyWildcard = sameRustTokens(
+    wildcard.expression,
+    "{}",
+    "<expected CDP fallthrough wildcard>",
+  );
+  const silentSuccess = ["return Ok(())", "{ return Ok(()); }"]
+    .map((source, index) =>
+      sameRustTokens(
+        wildcard.expression,
+        source,
+        `<expected CDP silent fallback ${index}>`,
+      ),
+    )
+    .some(Boolean);
+
+  let disposition;
+  let metadata;
+  const sourceRefs = [
+    sourceSymbol(sourcePath, "handle_request:unknown-method-fallback"),
+  ];
+  if (wildcard.isFinal && silentSuccess) {
+    disposition = "silent-success";
+    metadata = {
+      evidenceType: "cdp-unknown-method-fallback",
+      responseDisposition: "none",
+      semanticEvidence,
+      wildcardDisposition: "return-ok",
+    };
+  } else {
+    const errorCode = cdpJsonRpcErrorCode(helperTokens);
+    const exactMethodNotFound =
+      wildcard.isFinal &&
+      emptyWildcard &&
+      exactCdpFallbackTail(tailTokens) &&
+      exactCdpMethodNotFoundHelper(helperTokens, errorCode);
+    if (exactMethodNotFound) {
+      disposition = `json-rpc-error-${errorCode}`;
+      metadata = {
+        errorCode,
+        evidenceType: "cdp-unknown-method-fallback",
+        responseDisposition: "json-rpc-error",
+        responseHelper: "method_not_found_response",
+        semanticEvidence,
+        wildcardDisposition: "fallthrough",
+      };
+      sourceRefs.push(sourceSymbol(sourcePath, "method_not_found_response"));
+    } else {
+      disposition = `unreviewed-${semanticEvidence}`;
+      metadata = {
+        evidenceType: "cdp-unknown-method-fallback",
+        responseDisposition: "unreviewed",
+        semanticEvidence,
+        wildcardDisposition: emptyWildcard
+          ? "fallthrough"
+          : wildcard.isFinal
+            ? "unreviewed"
+            : "non-final",
+      };
+      if (helper) {
+        sourceRefs.push(sourceSymbol(sourcePath, "method_not_found_response"));
+      }
+    }
+  }
+
+  return makeSurface(
+    "native-op",
+    `inspector.cdp-request-fallback:${disposition}`,
+    sourceRefs,
+    { metadata },
+  );
+}
+
+/**
+ * Discover the CDP listener plus every statically accepted HTTP and protocol
+ * request route and the fail-closed unknown-method disposition. This
+ * intentionally observes the production Rust dispatch rather than maintaining
+ * a second protocol allowlist.
+ */
+export function scanCdpSurfaces(text, sourcePath = "src/bin/ibex/cdp/mod.rs") {
+  const tokens = rustProductionTokens(text, sourcePath);
+  const startServer = rustDefinitionByName(tokens, "start_server", sourcePath);
+  const runServer = rustDefinitionByName(tokens, "run_server", sourcePath);
+  const handleConnection = rustDefinitionByName(
+    tokens,
+    "handle_connection",
+    sourcePath,
+  );
+  const httpHandler = rustDefinitionByName(
+    tokens,
+    "handle_http_request",
+    sourcePath,
+  );
+  const requestHandler = rustDefinitionByName(
+    tokens,
+    "handle_request",
+    sourcePath,
+  );
+
+  for (const definition of [startServer, runServer, handleConnection]) {
+    assertCdpFunctionBodyClosure(tokens, definition, sourcePath);
+  }
+
+  const callsIn = (definition, name) => {
+    let count = 0;
+    for (
+      let index = definition.bodyOpen + 1;
+      index < definition.bodyClose;
+      index += 1
+    ) {
+      if (
+        tokens[index]?.value === "." &&
+        tokens[index + 1]?.type === "identifier" &&
+        tokens[index + 1].value === name &&
+        tokens[index + 2]?.value === "("
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  };
+  const listenerOperations = {
+    accept: callsIn(runServer, "accept"),
+    bind: callsIn(startServer, "bind"),
+    listen: callsIn(startServer, "listen"),
+  };
+  for (const [operation, count] of Object.entries(listenerOperations)) {
+    if (count === 0) {
+      throw new Error(
+        `${sourcePath}: CDP listener route has no structural ${operation} call`,
+      );
+    }
+  }
+
+  const rows = [
+    makeSurface(
+      "native-op",
+      "inspector.cdp-listener",
+      [
+        sourceSymbol(sourcePath, "start_server"),
+        sourceSymbol(sourcePath, "run_server"),
+      ],
+      {
+        metadata: {
+          evidenceType: "cdp-listener-route",
+          listenerOperations,
+        },
+      },
+    ),
+  ];
+
+  const httpDispatch = cdpDispatchMatch(
+    tokens,
+    httpHandler,
+    "path",
+    sourcePath,
+  );
+  assertCdpDispatchSubjectClosure(
+    tokens,
+    httpHandler,
+    httpDispatch,
+    sourcePath,
+  );
+  assertCdpHttpHandlerClosure(tokens, httpHandler, httpDispatch, sourcePath);
+  const httpPaths = cdpDispatchStringAlternatives(
+    tokens,
+    httpDispatch,
+    (value) => /^\/[A-Za-z0-9/_-]+$/u.test(value),
+    sourcePath,
+  );
+  for (const route of httpPaths) {
+    rows.push(
+      makeSurface(
+        "native-op",
+        `inspector.cdp-http:${route}`,
+        [sourceSymbol(sourcePath, `handle_http_request:${route}`)],
+        {
+          metadata: { evidenceType: "cdp-http-route", route },
+        },
+      ),
+    );
+  }
+
+  const requestDispatch = cdpDispatchMatch(
+    tokens,
+    requestHandler,
+    "method",
+    sourcePath,
+  );
+  assertCdpDispatchSubjectClosure(
+    tokens,
+    requestHandler,
+    requestDispatch,
+    sourcePath,
+  );
+  const methods = cdpDispatchStringAlternatives(
+    tokens,
+    requestDispatch,
+    (value) => /^[A-Z][A-Za-z0-9]+\.[A-Za-z][A-Za-z0-9]+$/u.test(value),
+    sourcePath,
+  );
+  for (const method of methods) {
+    rows.push(
+      makeSurface(
+        "native-op",
+        `inspector.cdp-request:${method}`,
+        [sourceSymbol(sourcePath, `handle_request:${method}`)],
+        {
+          metadata: { evidenceType: "cdp-request-route", method },
+        },
+      ),
+    );
+  }
+
+  rows.push(
+    cdpUnknownMethodFallbackSurface(
+      tokens,
+      requestHandler,
+      requestDispatch,
+      sourcePath,
+    ),
+  );
+
+  if (httpPaths.length === 0 || methods.length === 0) {
+    throw new Error(`${sourcePath}: CDP route inventory is unexpectedly empty`);
+  }
+  return sortSurfaces(rows);
+}
+
+function environmentContext(sourcePath, direction) {
+  if (direction !== "read") {
+    if (sourcePath.endsWith("native_android_networking.cc"))
+      return "trusted-bootstrap-output";
+    if (sourcePath.endsWith("hermes_runtime_process.cc"))
+      return "spawn-child-env";
+    if (
+      sourcePath.includes("/child-process.js") ||
+      sourcePath.includes("/cluster.js")
+    ) {
+      return "spawn-child-env";
+    }
+    return "runtime-bootstrap-output";
+  }
+  if (
+    sourcePath.includes("/host/") ||
+    sourcePath.includes("/builtins/") ||
+    sourcePath.includes("/fetch/") ||
+    sourcePath.includes("/streams/")
+  ) {
+    return "runtime-input";
+  }
+  return "startup-input";
+}
+
+function createEnvironmentCollector() {
+  const exact = new Map();
+  const dynamic = new Map();
+  const validName = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+
+  const add = ({ accessor, direction, language, name, sourcePath }) => {
+    if (!validName.test(name)) {
+      throw new Error(
+        `${sourcePath}: invalid static environment name ${JSON.stringify(name)}`,
+      );
+    }
+    const authoredName = name;
+    if (name.toLowerCase() === "comspec") name = "COMSPEC";
+    const entry = exact.get(name) ?? {
+      accessDirections: new Set(),
+      accessors: new Set(),
+      authoredNames: new Set(),
+      contexts: new Set(),
+      languages: new Set(),
+      sourceRefs: new Set(),
+    };
+    entry.accessDirections.add(direction);
+    entry.accessors.add(accessor);
+    entry.authoredNames.add(authoredName);
+    entry.contexts.add(environmentContext(sourcePath, direction));
+    entry.languages.add(language);
+    entry.sourceRefs.add(
+      sourceSymbol(sourcePath, `${accessor}:${name}:${direction}`),
+    );
+    exact.set(name, entry);
+  };
+
+  const addDynamic = ({
+    accessor,
+    direction = "read",
+    language,
+    sourcePath,
+  }) => {
+    const key = `${language}:${accessor}`;
+    const entry = dynamic.get(key) ?? {
+      accessDirections: new Set(),
+      accessors: new Set(),
+      contexts: new Set(),
+      languages: new Set(),
+      sourceRefs: new Set(),
+    };
+    entry.accessDirections.add(direction);
+    entry.accessors.add(accessor);
+    entry.contexts.add(environmentContext(sourcePath, direction));
+    entry.languages.add(language);
+    entry.sourceRefs.add(
+      sourceSymbol(sourcePath, `${accessor}:dynamic:${direction}`),
+    );
+    dynamic.set(key, entry);
+  };
+
+  const rows = () => {
+    const emit = (name, entry, dynamicKey = null) =>
+      makeSurface("startup", name, [...entry.sourceRefs], {
+        metadata: {
+          accessDirections: uniqueSorted(entry.accessDirections),
+          accessors: uniqueSorted(entry.accessors),
+          authoredNames: uniqueSorted(entry.authoredNames ?? []),
+          contexts: uniqueSorted(entry.contexts),
+          dynamic: dynamicKey !== null,
+          dynamicKey,
+          evidenceType:
+            dynamicKey === null
+              ? "static-runtime-environment-control"
+              : "dynamic-runtime-environment-sentinel",
+          languages: uniqueSorted(entry.languages),
+        },
+      });
+    return sortSurfaces([
+      ...[...exact.entries()].map(([name, entry]) =>
+        emit(`env:${name}`, entry),
+      ),
+      ...[...dynamic.entries()].map(([key, entry]) =>
+        emit(`env:<dynamic>:${key}`, entry, key),
+      ),
+    ]);
+  };
+  return { add, addDynamic, rows };
+}
+
+function parseEnvironmentJavaScript(text, sourcePath) {
+  const extension = path.extname(sourcePath);
+  const plugins = [];
+  if (extension === ".ts" || extension === ".tsx") plugins.push("typescript");
+  if (extension === ".jsx" || extension === ".tsx") plugins.push("jsx");
+  try {
+    return parseSync(text, {
+      ast: true,
+      babelrc: false,
+      code: false,
+      configFile: false,
+      parserOpts: {
+        allowReturnOutsideFunction: true,
+        plugins,
+      },
+      sourceType: "unambiguous",
+    }).program;
+  } catch (error) {
+    throw new Error(
+      `${sourcePath}: unable to parse environment source: ${error.message}`,
+    );
+  }
+}
+
+function unwrapEnvironmentExpression(node) {
+  let current = node;
+  while (
+    current &&
+    new Set([
+      "ChainExpression",
+      "TSAsExpression",
+      "TSNonNullExpression",
+      "TSSatisfiesExpression",
+      "TypeCastExpression",
+    ]).has(current.type)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function environmentMemberName(node) {
+  const current = unwrapEnvironmentExpression(node);
+  if (
+    !new Set(["MemberExpression", "OptionalMemberExpression"]).has(
+      current?.type,
+    )
+  )
+    return null;
+  if (!current.computed && current.property?.type === "Identifier")
+    return current.property.name;
+  if (current.computed && current.property?.type === "StringLiteral")
+    return current.property.value;
+  return null;
+}
+
+function environmentMemberChain(node) {
+  const current = unwrapEnvironmentExpression(node);
+  if (current?.type === "Identifier") return [current.name];
+  if (
+    !new Set(["MemberExpression", "OptionalMemberExpression"]).has(
+      current?.type,
+    )
+  )
+    return null;
+  const parent = environmentMemberChain(current.object);
+  const member = environmentMemberName(current);
+  return parent && member !== null ? [...parent, member] : null;
+}
+
+function expressionIsProcessAlias(node, processAliases) {
+  const current = unwrapEnvironmentExpression(node);
+  if (!current) return false;
+  if (current.type === "Identifier") return processAliases.has(current.name);
+  const chain = environmentMemberChain(current);
+  if (chain && chain.length >= 2 && chain.at(-1) === "process") {
+    return true;
+  }
+  if (current.type === "LogicalExpression") {
+    return (
+      expressionIsProcessAlias(current.left, processAliases) ||
+      expressionIsProcessAlias(current.right, processAliases)
+    );
+  }
+  if (current.type === "ConditionalExpression") {
+    return (
+      expressionIsProcessAlias(current.consequent, processAliases) ||
+      expressionIsProcessAlias(current.alternate, processAliases)
+    );
+  }
+  if (current.type === "SequenceExpression") {
+    return expressionIsProcessAlias(current.expressions.at(-1), processAliases);
+  }
+  if (current.type === "ObjectExpression") {
+    return current.properties.some(
+      (property) =>
+        property.type === "SpreadElement" &&
+        expressionIsProcessAlias(property.argument, processAliases),
+    );
+  }
+  return false;
+}
+
+function isDirectProcessEnvironment(node, processAliases) {
+  const current = unwrapEnvironmentExpression(node);
+  return Boolean(
+    new Set(["MemberExpression", "OptionalMemberExpression"]).has(
+      current?.type,
+    ) &&
+    environmentMemberName(current) === "env" &&
+    expressionIsProcessAlias(current.object, processAliases),
+  );
+}
+
+function expressionIsEnvironmentAlias(node, aliases, processAliases) {
+  const current = unwrapEnvironmentExpression(node);
+  if (!current) return false;
+  if (isDirectProcessEnvironment(current, processAliases)) return true;
+  if (current.type === "Identifier") return aliases.has(current.name);
+  if (current.type === "LogicalExpression") {
+    return (
+      expressionIsEnvironmentAlias(current.left, aliases, processAliases) ||
+      expressionIsEnvironmentAlias(current.right, aliases, processAliases)
+    );
+  }
+  if (current.type === "ConditionalExpression") {
+    return (
+      expressionIsEnvironmentAlias(
+        current.consequent,
+        aliases,
+        processAliases,
+      ) ||
+      expressionIsEnvironmentAlias(current.alternate, aliases, processAliases)
+    );
+  }
+  if (current.type === "SequenceExpression") {
+    return expressionIsEnvironmentAlias(
+      current.expressions.at(-1),
+      aliases,
+      processAliases,
+    );
+  }
+  return false;
+}
+
+function scanJavaScriptEnvironmentSource(text, sourcePath, collector) {
+  const program = parseEnvironmentJavaScript(text, sourcePath);
+  const aliases = new Set();
+  const processAliases = new Set(["process"]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    walkAst(program, (node) => {
+      let binding = null;
+      let expression = null;
+      if (node.type === "VariableDeclarator") {
+        binding = node.id;
+        expression = node.init;
+      } else if (
+        node.type === "AssignmentExpression" &&
+        node.operator === "="
+      ) {
+        binding = node.left;
+        expression = node.right;
+      }
+      if (!binding || !expression) return;
+      if (binding.type === "Identifier") {
+        if (
+          !processAliases.has(binding.name) &&
+          expressionIsProcessAlias(expression, processAliases)
+        ) {
+          processAliases.add(binding.name);
+          changed = true;
+        }
+        if (
+          !aliases.has(binding.name) &&
+          expressionIsEnvironmentAlias(expression, aliases, processAliases)
+        ) {
+          aliases.add(binding.name);
+          changed = true;
+        }
+        return;
+      }
+      if (
+        binding.type !== "ObjectPattern" ||
+        !expressionIsProcessAlias(expression, processAliases)
+      ) {
+        return;
+      }
+      for (const property of binding.properties) {
+        if (property.type === "RestElement") {
+          if (
+            property.argument?.type === "Identifier" &&
+            !processAliases.has(property.argument.name)
+          ) {
+            processAliases.add(property.argument.name);
+            changed = true;
+          }
+          continue;
+        }
+        const names = property.computed
+          ? staticPropertyName(property.key)
+          : property.key?.type === "Identifier"
+            ? [property.key.name]
+            : staticPropertyName(property.key);
+        const destination =
+          property.value?.type === "Identifier"
+            ? property.value
+            : property.value?.type === "AssignmentPattern" &&
+                property.value.left?.type === "Identifier"
+              ? property.value.left
+              : null;
+        if (
+          names.length === 1 &&
+          names[0] === "env" &&
+          destination &&
+          !aliases.has(destination.name)
+        ) {
+          aliases.add(destination.name);
+          changed = true;
+        }
+      }
+    });
+  }
+
+  walkAst(program, (node) => {
+    const binding =
+      node.type === "VariableDeclarator"
+        ? node.id
+        : node.type === "AssignmentExpression" && node.operator === "="
+          ? node.left
+          : null;
+    const expression =
+      node.type === "VariableDeclarator"
+        ? node.init
+        : node.type === "AssignmentExpression"
+          ? node.right
+          : null;
+    if (
+      binding?.type !== "ObjectPattern" ||
+      !expressionIsProcessAlias(expression, processAliases)
+    ) {
+      return;
+    }
+    if (
+      binding.properties.some(
+        (property) =>
+          property.type !== "RestElement" &&
+          property.computed &&
+          staticPropertyName(property.key).length === 0,
+      )
+    ) {
+      collector.addDynamic({
+        accessor: "process-destructure",
+        language: "javascript",
+        sourcePath,
+      });
+    }
+
+    for (const property of binding.properties) {
+      if (property.type === "RestElement") continue;
+      const names = property.computed
+        ? staticPropertyName(property.key)
+        : property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key);
+      if (names.length !== 1 || names[0] !== "env") continue;
+      const destination =
+        property.value?.type === "AssignmentPattern"
+          ? property.value.left
+          : property.value;
+      if (destination?.type !== "ObjectPattern") continue;
+
+      for (const environmentProperty of destination.properties) {
+        if (environmentProperty.type === "RestElement") {
+          collector.addDynamic({
+            accessor: "process-destructure",
+            language: "javascript",
+            sourcePath,
+          });
+          continue;
+        }
+        const environmentNames = environmentProperty.computed
+          ? staticPropertyName(environmentProperty.key)
+          : environmentProperty.key?.type === "Identifier"
+            ? [environmentProperty.key.name]
+            : staticPropertyName(environmentProperty.key);
+        if (environmentNames.length !== 1) {
+          collector.addDynamic({
+            accessor: "process-destructure",
+            language: "javascript",
+            sourcePath,
+          });
+          continue;
+        }
+        collector.add({
+          accessor: "process-destructure",
+          direction: "read",
+          language: "javascript",
+          name: environmentNames[0],
+          sourcePath,
+        });
+      }
+    }
+  });
+
+  // A process value that crosses an unreviewed binding or call boundary can
+  // be used to recover process.env under a name that this local alias analysis
+  // cannot prove. Keep those flows visible as one conservative dynamic
+  // environment sentinel instead of silently treating them as unrelated data.
+  // Direct identifier assignments and one-level process/env destructuring are
+  // handled exactly by the fixed-point pass above.
+  walkAst(program, (node) => {
+    const carriesProcess = (expression) =>
+      expressionIsProcessAlias(expression, processAliases);
+    const argumentsCarryProcess = (argumentsList) =>
+      argumentsList.some((argument) =>
+        argument?.type === "SpreadElement"
+          ? carriesProcess(argument.argument)
+          : carriesProcess(argument),
+      );
+    let unresolved = false;
+    if (node.type === "VariableDeclarator" && carriesProcess(node.init)) {
+      unresolved = !new Set(["Identifier", "ObjectPattern"]).has(node.id?.type);
+    } else if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      carriesProcess(node.right)
+    ) {
+      unresolved = !new Set(["Identifier", "ObjectPattern"]).has(
+        node.left?.type,
+      );
+    } else if (
+      node.type === "AssignmentPattern" &&
+      carriesProcess(node.right)
+    ) {
+      unresolved = true;
+    } else if (
+      new Set([
+        "CallExpression",
+        "OptionalCallExpression",
+        "NewExpression",
+      ]).has(node.type)
+    ) {
+      unresolved = argumentsCarryProcess(node.arguments ?? []);
+    } else if (node.type === "ArrayExpression") {
+      unresolved = node.elements.some(
+        (element) =>
+          element &&
+          (element.type === "SpreadElement"
+            ? carriesProcess(element.argument)
+            : carriesProcess(element)),
+      );
+    } else if (node.type === "ObjectProperty") {
+      unresolved =
+        carriesProcess(node.value) ||
+        (node.computed && carriesProcess(node.key));
+    } else if (node.type === "SpreadElement") {
+      unresolved = carriesProcess(node.argument);
+    } else if (
+      new Set([
+        "ClassPrivateProperty",
+        "ClassProperty",
+        "PropertyDefinition",
+      ]).has(node.type)
+    ) {
+      unresolved =
+        carriesProcess(node.value) ||
+        (node.computed && carriesProcess(node.key));
+    } else if (
+      new Set([
+        "AwaitExpression",
+        "ReturnStatement",
+        "ThrowStatement",
+        "YieldExpression",
+      ]).has(node.type)
+    ) {
+      unresolved = carriesProcess(node.argument);
+    } else if (node.type === "ExportDefaultDeclaration") {
+      unresolved = carriesProcess(node.declaration);
+    } else if (node.type === "ExportNamedDeclaration") {
+      unresolved =
+        (node.declaration?.type === "VariableDeclaration" &&
+          node.declaration.declarations.some((declaration) =>
+            carriesProcess(declaration.init),
+          )) ||
+        (node.specifiers ?? []).some((specifier) =>
+          carriesProcess(specifier.local),
+        );
+    } else if (
+      node.type === "ArrowFunctionExpression" &&
+      node.body?.type !== "BlockStatement"
+    ) {
+      unresolved = carriesProcess(node.body);
+    } else if (node.type === "JSXExpressionContainer") {
+      unresolved = carriesProcess(node.expression);
+    } else if (node.type === "TemplateLiteral") {
+      unresolved = node.expressions.some(carriesProcess);
+    } else if (node.type === "TaggedTemplateExpression") {
+      unresolved = carriesProcess(node.tag);
+    } else if (
+      new Set(["ForInStatement", "ForOfStatement", "WithStatement"]).has(
+        node.type,
+      )
+    ) {
+      unresolved = carriesProcess(node.right ?? node.object);
+    }
+    if (unresolved) {
+      collector.addDynamic({
+        accessor: "process-binding-flow",
+        language: "javascript",
+        sourcePath,
+      });
+    }
+  });
+
+  const isEnvironmentObject = (node) => {
+    const current = unwrapEnvironmentExpression(node);
+    return Boolean(
+      isDirectProcessEnvironment(current, processAliases) ||
+      (current?.type === "Identifier" && aliases.has(current.name)),
+    );
+  };
+  const environmentMutation = (call) => {
+    if (call?.type !== "CallExpression") return null;
+    const callee = environmentMemberChain(call.callee)?.join(".");
+    const mutation = new Map([
+      [
+        "Object.assign",
+        {
+          accessor: "Object.assign(process.env)",
+          direction: "write",
+          mode: "sources",
+        },
+      ],
+      [
+        "Object.defineProperties",
+        {
+          accessor: "Object.defineProperties(process.env)",
+          direction: "write",
+          mode: "descriptor-object",
+        },
+      ],
+      [
+        "Object.defineProperty",
+        {
+          accessor: "Object.defineProperty(process.env)",
+          direction: "write",
+          mode: "key",
+        },
+      ],
+      [
+        "Reflect.defineProperty",
+        {
+          accessor: "Reflect.defineProperty(process.env)",
+          direction: "write",
+          mode: "key",
+        },
+      ],
+      [
+        "Reflect.deleteProperty",
+        {
+          accessor: "Reflect.deleteProperty(process.env)",
+          direction: "unset",
+          mode: "key",
+        },
+      ],
+      [
+        "Reflect.set",
+        {
+          accessor: "Reflect.set(process.env)",
+          direction: "write",
+          mode: "key",
+        },
+      ],
+    ]).get(callee);
+    if (!mutation || !isEnvironmentObject(call.arguments[0])) return null;
+    return mutation;
+  };
+  const recordMutationName = (node, mutation) => {
+    const current = unwrapEnvironmentExpression(node);
+    if (current?.type === "StringLiteral") {
+      collector.add({
+        accessor: mutation.accessor,
+        direction: mutation.direction,
+        language: "javascript",
+        name: current.value,
+        sourcePath,
+      });
+      return true;
+    }
+    return false;
+  };
+  const recordDescriptorObject = (node, mutation) => {
+    const current = unwrapEnvironmentExpression(node);
+    if (current?.type !== "ObjectExpression") return false;
+    let exact = true;
+    for (const property of current.properties) {
+      if (property.type === "SpreadElement") {
+        exact = false;
+        continue;
+      }
+      const names =
+        !property.computed && property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key);
+      if (property.computed || names.length !== 1) {
+        exact = false;
+        continue;
+      }
+      collector.add({
+        accessor: mutation.accessor,
+        direction: mutation.direction,
+        language: "javascript",
+        name: names[0],
+        sourcePath,
+      });
+    }
+    return exact;
+  };
+  const meaningfulParent = (ancestors) => {
+    for (let index = ancestors.length - 1; index >= 0; index -= 1) {
+      const candidate = ancestors[index];
+      if (
+        !new Set([
+          "ChainExpression",
+          "TSAsExpression",
+          "TSNonNullExpression",
+          "TSSatisfiesExpression",
+          "TypeCastExpression",
+        ]).has(candidate.type)
+      ) {
+        return candidate;
+      }
+    }
+    return null;
+  };
+
+  walkAstWithAncestors(program, (node, ancestors) => {
+    const current = unwrapEnvironmentExpression(node);
+    if (current !== node) return;
+    if (current?.type === "CallExpression") {
+      const mutation = environmentMutation(current);
+      if (mutation) {
+        let exact = true;
+        if (mutation.mode === "key") {
+          exact = recordMutationName(current.arguments[1], mutation);
+        } else if (mutation.mode === "descriptor-object") {
+          exact = recordDescriptorObject(current.arguments[1], mutation);
+        } else {
+          for (const source of current.arguments.slice(1)) {
+            exact = recordDescriptorObject(source, mutation) && exact;
+          }
+        }
+        if (!exact) {
+          collector.addDynamic({
+            accessor: mutation.accessor,
+            direction: mutation.direction,
+            language: "javascript",
+            sourcePath,
+          });
+        }
+        return;
+      }
+      const callee = unwrapEnvironmentExpression(current.callee);
+      if (callee?.type === "Identifier" && callee.name === "readRuntimeEnv") {
+        const argument = current.arguments[0];
+        if (argument?.type === "StringLiteral") {
+          collector.add({
+            accessor: "readRuntimeEnv",
+            direction: "read",
+            language: "javascript",
+            name: argument.value,
+            sourcePath,
+          });
+        } else {
+          collector.addDynamic({
+            accessor: "readRuntimeEnv",
+            language: "javascript",
+            sourcePath,
+          });
+        }
+      }
+      return;
+    }
+    if (
+      !new Set(["MemberExpression", "OptionalMemberExpression"]).has(
+        current?.type,
+      )
+    )
+      return;
+    if (
+      expressionIsProcessAlias(current.object, processAliases) &&
+      environmentMemberName(current) === null
+    ) {
+      collector.addDynamic({
+        accessor: "process[]",
+        language: "javascript",
+        sourcePath,
+      });
+      return;
+    }
+    if (!isEnvironmentObject(current.object)) {
+      if (!isDirectProcessEnvironment(current, processAliases)) return;
+      const parent = meaningfulParent(ancestors);
+      const parentCurrent = unwrapEnvironmentExpression(parent);
+      if (
+        parentCurrent?.type === "CallExpression" &&
+        environmentMutation(parentCurrent) &&
+        unwrapEnvironmentExpression(parentCurrent.arguments[0]) === current
+      ) {
+        // The call-level record above owns the exact write/unset direction.
+        return;
+      }
+      if (
+        new Set(["MemberExpression", "OptionalMemberExpression"]).has(
+          parentCurrent?.type,
+        ) &&
+        unwrapEnvironmentExpression(parentCurrent.object) === current
+      ) {
+        return;
+      }
+      collector.addDynamic({
+        accessor: "process.env",
+        language: "javascript",
+        sourcePath,
+      });
+      return;
+    }
+
+    const property = environmentMemberName(current);
+    const parent = meaningfulParent(ancestors);
+    let direction = "read";
+    if (
+      parent?.type === "AssignmentExpression" &&
+      unwrapEnvironmentExpression(parent.left) === current
+    ) {
+      direction = "write";
+    } else if (
+      parent?.type === "UnaryExpression" &&
+      parent.operator === "delete" &&
+      unwrapEnvironmentExpression(parent.argument) === current
+    ) {
+      direction = "unset";
+    }
+    if (property === null) {
+      collector.addDynamic({
+        accessor: "process.env[]",
+        direction,
+        language: "javascript",
+        sourcePath,
+      });
+      return;
+    }
+    collector.add({
+      accessor: "process.env",
+      direction,
+      language: "javascript",
+      name: property,
+      sourcePath,
+    });
+  });
+
+  // Spawn environment objects are intentionally local copies rather than
+  // process.env aliases. Their exact control keys still need output direction.
+  if (
+    sourcePath.includes("/child-process.js") ||
+    sourcePath.includes("/cluster.js")
+  ) {
+    walkAstWithAncestors(program, (node, ancestors) => {
+      const current = unwrapEnvironmentExpression(node);
+      if (
+        !new Set(["MemberExpression", "OptionalMemberExpression"]).has(
+          current?.type,
+        )
+      )
+        return;
+      if (unwrapEnvironmentExpression(current.object)?.type !== "Identifier")
+        return;
+      if (!/^env$/iu.test(unwrapEnvironmentExpression(current.object).name))
+        return;
+      const name = environmentMemberName(current);
+      if (!name || !/^(?:EXACT|IBEX|NODE)_/u.test(name)) return;
+      const parent = ancestors.at(-1);
+      const direction =
+        parent?.type === "UnaryExpression" && parent.operator === "delete"
+          ? "unset"
+          : parent?.type === "AssignmentExpression"
+            ? "write"
+            : "read";
+      collector.add({
+        accessor: "spawn-env-object",
+        direction,
+        language: "javascript",
+        name,
+        sourcePath,
+      });
+    });
+  }
+}
+
+function tokenCallArguments(tokens, openIndex) {
+  const close = matchingToken(tokens, openIndex, "(", ")");
+  if (close === -1) return null;
+  const argumentsList = [];
+  let start = openIndex + 1;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  for (let index = start; index < close; index += 1) {
+    const value = tokens[index].value;
+    if (value === "(") parenDepth += 1;
+    if (value === ")") parenDepth -= 1;
+    if (value === "[") bracketDepth += 1;
+    if (value === "]") bracketDepth -= 1;
+    if (value === "{") braceDepth += 1;
+    if (value === "}") braceDepth -= 1;
+    if (
+      value === "," &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0
+    ) {
+      argumentsList.push(tokens.slice(start, index));
+      start = index + 1;
+    }
+  }
+  argumentsList.push(tokens.slice(start, close));
+  return argumentsList;
+}
+
+function staticTokenArgument(tokens, constants) {
+  for (const token of tokens) {
+    if (token.type === "string") return token.value;
+    if (token.type === "identifier" && constants.has(token.value))
+      return constants.get(token.value);
+  }
+  return null;
+}
+
+function rustStringConstants(tokens) {
+  const constants = new Map();
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      !new Set(["const", "static"]).has(tokens[index]?.value) ||
+      tokens[index + 1]?.type !== "identifier"
+    ) {
+      continue;
+    }
+    const name = tokens[index + 1].value;
+    let cursor = index + 2;
+    while (
+      cursor < tokens.length &&
+      !new Set(["=", ";"]).has(tokens[cursor].value)
+    )
+      cursor += 1;
+    if (tokens[cursor]?.value !== "=") continue;
+    const end = tokens.findIndex(
+      (token, tokenIndex) => tokenIndex > cursor && token.value === ";",
+    );
+    if (end === -1) continue;
+    const value = staticTokenArgument(tokens.slice(cursor + 1, end), constants);
+    if (value !== null) constants.set(name, value);
+  }
+  return constants;
+}
+
+function scanRustEnvironmentSource(text, sourcePath, collector) {
+  const tokens = rustProductionTokens(text, sourcePath);
+  const constants = rustStringConstants(tokens);
+  const directApis = new Map([
+    ["remove_var", "unset"],
+    ["set_var", "write"],
+    ["var", "read"],
+    ["var_os", "read"],
+  ]);
+  const helperArities = new Map([
+    ["env_flag_enabled", 1],
+    ["runtime_env", 2],
+    ["timeout_from_env", 1],
+  ]);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const name = tokens[index]?.value;
+    if (tokens[index + 1]?.value !== "(") continue;
+    const argumentsList = tokenCallArguments(tokens, index + 1);
+    if (!argumentsList) continue;
+    const precededByEnv =
+      tokens[index - 1]?.value === ":" &&
+      tokens[index - 2]?.value === ":" &&
+      tokens[index - 3]?.value === "env";
+    if (directApis.has(name) && precededByEnv) {
+      const direction = directApis.get(name);
+      const value = staticTokenArgument(argumentsList[0] ?? [], constants);
+      if (value === null) {
+        collector.addDynamic({
+          accessor: `env::${name}`,
+          direction,
+          language: "rust",
+          sourcePath,
+        });
+      } else {
+        collector.add({
+          accessor: `env::${name}`,
+          direction,
+          language: "rust",
+          name: value,
+          sourcePath,
+        });
+      }
+      continue;
+    }
+    if (new Set(["vars", "vars_os"]).has(name) && precededByEnv) {
+      collector.addDynamic({
+        accessor: `env::${name}`,
+        language: "rust",
+        sourcePath,
+      });
+      continue;
+    }
+    if (!helperArities.has(name)) continue;
+    const expected = helperArities.get(name);
+    for (let argumentIndex = 0; argumentIndex < expected; argumentIndex += 1) {
+      const value = staticTokenArgument(
+        argumentsList[argumentIndex] ?? [],
+        constants,
+      );
+      if (value === null) {
+        collector.addDynamic({ accessor: name, language: "rust", sourcePath });
+      } else {
+        collector.add({
+          accessor: name,
+          direction: "read",
+          language: "rust",
+          name: value,
+          sourcePath,
+        });
+      }
+    }
+  }
+}
+
+function cppStringConstants(tokens) {
+  const constants = new Map();
+  for (let index = 0; index < tokens.length - 2; index += 1) {
+    if (tokens[index]?.type !== "identifier") continue;
+    let cursor = index + 1;
+    if (tokens[cursor]?.value !== "=") continue;
+    cursor += 1;
+    if (
+      tokens[cursor]?.type === "identifier" &&
+      new Set(["L", "U", "u", "u8"]).has(tokens[cursor].value)
+    ) {
+      cursor += 1;
+    }
+    if (tokens[cursor]?.type === "string")
+      constants.set(tokens[index].value, tokens[cursor].value);
+  }
+  return constants;
+}
+
+function scanCppEnvironmentSource(text, sourcePath, collector) {
+  const tokens = lexCpp(text, sourcePath);
+  const constants = cppStringConstants(tokens);
+  const definitions = cppFunctionDefinitions(tokens);
+  const definitionNameIndexes = new Set(
+    definitions
+      .filter(
+        (definition) =>
+          !definitions.some(
+            (candidate) =>
+              candidate !== definition &&
+              candidate.bodyOpen < definition.nameIndex &&
+              definition.nameIndex < candidate.bodyClose,
+          ),
+      )
+      .map((definition) => definition.nameIndex),
+  );
+  const accessors = new Map([
+    ["GetEnvironmentVariableA", "read"],
+    ["GetEnvironmentVariableW", "read"],
+    ["SetEnvironmentVariableA", "write"],
+    ["SetEnvironmentVariableW", "write"],
+    ["env_flag_enabled", "read"],
+    ["getenv", "read"],
+    ["getenvString", "read"],
+    ["setenv", "write"],
+    ["unsetenv", "unset"],
+  ]);
+  const enumerationAccessors = new Set([
+    "GetEnvironmentStringsW",
+    "_NSGetEnviron",
+  ]);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const accessor = tokens[index]?.value;
+    if (
+      accessor === "s_setEnvEntry" &&
+      tokens[index + 1]?.value === "(" &&
+      !definitionNameIndexes.has(index)
+    ) {
+      const argumentsList = tokenCallArguments(tokens, index + 1);
+      if (!argumentsList) continue;
+      const name = staticTokenArgument(argumentsList[1] ?? [], constants);
+      if (name === null) {
+        collector.addDynamic({
+          accessor,
+          direction: "write",
+          language: "cpp",
+          sourcePath,
+        });
+      } else {
+        collector.add({
+          accessor,
+          direction: "write",
+          language: "cpp",
+          name,
+          sourcePath,
+        });
+      }
+      continue;
+    }
+    if (
+      enumerationAccessors.has(accessor) &&
+      tokens[index + 1]?.value === "(" &&
+      !definitionNameIndexes.has(index)
+    ) {
+      collector.addDynamic({
+        accessor,
+        direction: "read",
+        language: "cpp",
+        sourcePath,
+      });
+      continue;
+    }
+    if (
+      accessor === "environ" &&
+      tokens[index - 1]?.value === "::" &&
+      tokens[index + 1]?.value !== "("
+    ) {
+      collector.addDynamic({
+        accessor: "::environ",
+        direction: "read",
+        language: "cpp",
+        sourcePath,
+      });
+      continue;
+    }
+    if (
+      !accessors.has(accessor) ||
+      tokens[index + 1]?.value !== "(" ||
+      definitionNameIndexes.has(index)
+    ) {
+      continue;
+    }
+    const argumentsList = tokenCallArguments(tokens, index + 1);
+    if (!argumentsList) continue;
+    const direction = accessors.get(accessor);
+    const name = staticTokenArgument(argumentsList[0] ?? [], constants);
+    if (name === null) {
+      collector.addDynamic({
+        accessor,
+        direction,
+        language: "cpp",
+        sourcePath,
+      });
+    } else {
+      collector.add({ accessor, direction, language: "cpp", name, sourcePath });
+    }
+  }
+}
+
+/**
+ * Inventory authored runtime environment controls across JS/TS, Rust, and
+ * native sources. Callers decide the production source set; generated files,
+ * build scripts, tests, and devtools are deliberately outside this scanner.
+ */
+export function scanRuntimeEnvironmentSurfaces({
+  javascript = [],
+  native = [],
+  rust = [],
+}) {
+  const collector = createEnvironmentCollector();
+  for (const source of javascript) {
+    scanJavaScriptEnvironmentSource(source.text, source.sourcePath, collector);
+  }
+  for (const source of rust) {
+    scanRustEnvironmentSource(source.text, source.sourcePath, collector);
+  }
+  for (const source of native) {
+    scanCppEnvironmentSource(source.text, source.sourcePath, collector);
+  }
+  const rows = collector.rows();
+  if (rows.length === 0)
+    throw new Error("runtime environment surface inventory is empty");
+  return rows;
+}
+
+export function isRuntimeEnvironmentSourceAllowed(relativePath) {
+  const normalized = posixPath(relativePath);
+  return (
+    !normalized.includes("generated") &&
+    !/(?:^|\/)(?:__tests__|benchmarks?|devtools|fixtures?|tests?)(?:\/|$)/u.test(
+      normalized,
+    ) &&
+    !/(?:^|\/)[^/]*devtools[^/]*(?:\/|$)/u.test(normalized) &&
+    !/\.(?:bench|e2e|fixture|spec|test)\.[^/]+$/u.test(normalized) &&
+    !/(?:^|[/_-])tests?\.(?:c|cc|cpp|cxx|m|mm|rs)$/u.test(normalized) &&
+    !normalized.endsWith("/build.rs") &&
+    normalized !== "build.rs" &&
+    !normalized.startsWith("src/bin/ibex/compat/")
+  );
+}
+
+const FIXED_EVIDENCE_TYPES = new Set([
+  "cpp-call",
+  "cpp-data",
+  "cpp-function",
+  "cpp-type",
+  "javascript-function",
+  "public-abi",
+  "rust-function",
+]);
+
+const FIXED_EVIDENCE_ROLES = new Set([
+  "implementation",
+  "implementation-container",
+]);
+
+function definitionEvidenceRows(type, sourcePath, definitions) {
+  const counts = new Map();
+  for (const definition of definitions) {
+    counts.set(definition.name, (counts.get(definition.name) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([symbol, occurrenceCount]) => ({
+    type,
+    sourceRef: sourceSymbol(sourcePath, symbol),
+    occurrenceCount,
+  }));
+}
+
+/** Structural definitions available to the fixed semantic inventory. */
+export function scanFixedRuntimeEvidenceCandidates(text, sourcePath) {
+  const extension = path.extname(sourcePath);
+  let rows;
+  if (new Set([".js", ".cjs", ".mjs"]).has(extension)) {
+    const program = parseJavaScript(text, sourcePath);
+    rows = definitionEvidenceRows(
+      "javascript-function",
+      sourcePath,
+      javascriptFunctionDefinitions(program),
+    );
+  } else if (extension === ".rs") {
+    const tokens = rustProductionTokens(text, sourcePath);
+    rows = [
+      ...definitionEvidenceRows(
+        "rust-function",
+        sourcePath,
+        rustFunctionDefinitions(tokens),
+      ),
+      ...scanRustPublicAbiDefinitions(text, sourcePath).map((row) => ({
+        type: "public-abi",
+        sourceRef: row.sourceRefs[0],
+        occurrenceCount: 1,
+      })),
+    ];
+  } else if (NATIVE_SOURCE_EXTENSIONS.has(extension)) {
+    const tokens = lexCpp(text, sourcePath);
+    rows = [
+      ...definitionEvidenceRows(
+        "cpp-call",
+        sourcePath,
+        cppCallExpressions(tokens),
+      ),
+      ...definitionEvidenceRows(
+        "cpp-function",
+        sourcePath,
+        cppFunctionDefinitions(tokens),
+      ),
+      ...definitionEvidenceRows(
+        "cpp-type",
+        sourcePath,
+        cppTypeDefinitions(tokens),
+      ),
+      ...definitionEvidenceRows(
+        "cpp-data",
+        sourcePath,
+        cppDataDefinitions(tokens),
+      ),
+      ...scanCppPublicAbiDefinitions(text, sourcePath).map((row) => ({
+        type: "public-abi",
+        sourceRef: row.sourceRefs[0],
+        occurrenceCount: 1,
+      })),
+    ];
+  } else {
+    throw new Error(
+      `${sourcePath}: unsupported fixed-evidence source extension ${extension}`,
+    );
+  }
+
+  return rows.sort((left, right) =>
+    compareText(
+      `${left.type}\0${left.sourceRef}`,
+      `${right.type}\0${right.sourceRef}`,
+    ),
+  );
+}
+
+function fixedEvidence(type, file, symbol, role = "implementation") {
+  return { type, file, symbol, role };
+}
+
+function fixedSurface(kind, name, ...evidence) {
+  return { kind, name, evidence };
+}
+
+function implementationContainer(type, file, symbol) {
+  return fixedEvidence(type, file, symbol, "implementation-container");
+}
+
+const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
+  // Loader branches. Several intentionally share a source symbol: they are
+  // distinct decision branches in load(), not duplicate handwritten tables.
+  fixedSurface(
+    "loader",
+    "install",
+    implementationContainer(
+      "cpp-function",
+      "src/engine/hermes_bootstrap.cc",
+      "installModuleLoader",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "internal-module",
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "loadInternal",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "builtin-module",
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "builtinCacheKeyFor",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "empty-specifier-rejection",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/mod.rs",
+      "resolve_meta",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "private-package-import",
+    fixedEvidence(
+      "rust-function",
+      "src/module_loader/mod.rs",
+      "resolve_package_import",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "unknown-exact-rejection",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/mod.rs",
+      "resolve_meta",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "unsupported-node-rejection",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/mod.rs",
+      "resolve_meta",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "oxc-on-disk-resolution",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/mod.rs",
+      "resolve_with_oxc",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "native-resolve",
+    implementationContainer(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "load",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "import-policy-bare",
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "checkImportGate",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "import-policy-resolved-path",
+    implementationContainer(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "load",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "package-principal",
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "packagePrincipalFor",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "package-compile",
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "compileModuleBody",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "json-module",
+    implementationContainer(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "load",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "commonjs-module",
+    implementationContainer(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "load",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "esm-module",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/mod.rs",
+      "resolve_with_oxc",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "wasm-module",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/mod.rs",
+      "resolve_with_oxc",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "native-addon-module",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/mod.rs",
+      "resolve_with_oxc",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "dynamic-import",
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "importImpl",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "require-resolve",
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "__exactResolvePath",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "import-needs",
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/module-loader.js",
+      "grantCapabilities",
+    ),
+  ),
+
+  // Callback and continuation branches, including the native-principal stamp
+  // that must survive scheduling and be restored only around the callback.
+  fixedSurface(
+    "callback",
+    "queue-enqueue",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime.cc",
+      "pushRuntimeCallback",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "queue-drain",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime.cc",
+      "drainCallbackQueue",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "next-tick-drain",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime.cc",
+      "runNextTickQueue",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "microtask-drain",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime.cc",
+      "drainMicrotasks",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "timer-invoke",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime.cc",
+      "ex_hermes_poll",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "native-principal-restore",
+    fixedEvidence(
+      "cpp-type",
+      "src/engine/hermes_runtime_internal.h",
+      "ScopedNativePrincipal",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "host-call-async-resolve",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime.cc",
+      "ex_hermes_resolve_host_call",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "watchdog-heartbeat",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime.cc",
+      "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "signal-delivery",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_crypto.cc",
+      "signalWatcherThreadMain",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "fetch-delivery",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_fetch.cc",
+      "installFetchGlobals",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "filesystem-async-delivery",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_fs.cc",
+      "startFsAsync",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "dns-async-delivery",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_dns.cc",
+      "startDnsAsync",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "http-wait-delivery",
+    implementationContainer(
+      "cpp-function",
+      "src/engine/hermes_runtime_http.cc",
+      "installHttpHostFunctions",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "http-writable-delivery",
+    implementationContainer(
+      "cpp-function",
+      "src/engine/hermes_runtime_http.cc",
+      "installHttpHostFunctions",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "websocket-context-release",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime.cc",
+      "native_ws_release_context",
+    ),
+  ),
+  ...[
+    "websocket-open-delivery",
+    "websocket-text-delivery",
+    "websocket-binary-delivery",
+    "websocket-close-delivery",
+    "websocket-error-delivery",
+    "websocket-bytes-sent-delivery",
+  ].map((name) =>
+    fixedSurface(
+      "callback",
+      name,
+      implementationContainer(
+        "cpp-function",
+        "src/engine/hermes_runtime_websocket.cc",
+        "installWebSocketGlobals",
+      ),
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "ios-dispatch",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime_ios.cc",
+      "ex_hermes_set_dispatch_callback",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "ios-dispatch-debug-context",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime_ios.cc",
+      "ex_hermes_set_dispatch_with_debug_context_callback",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "ios-module-dispatch",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime_ios.cc",
+      "ex_hermes_set_module_dispatch_callback",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "ios-module-sync",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime_ios.cc",
+      "ex_hermes_set_module_sync_callback",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "worklet-measure",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime_worklet.cc",
+      "ex_worklet_set_measure_callback",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "worklet-scheduled-drain",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime_worklet.cc",
+      "ex_worklet_drain_scheduled",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "android-animation-frame",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_android.cc",
+      "android_animation_frame_callback",
+    ),
+  ),
+  fixedSurface(
+    "callback",
+    "android-platform-event",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_android.cc",
+      "android_platform_event_available",
+    ),
+  ),
+
+  // Startup is an authority-bearing route of its own: it constructs surfaces,
+  // labels trusted deputies, and closes bootstrap-only escape hatches.
+  fixedSurface(
+    "startup",
+    "runtime-create",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime.cc",
+      "ex_hermes_create_armed",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "globals-install",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime.cc",
+      "installGlobals",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "module-loader-install",
+    implementationContainer(
+      "cpp-function",
+      "src/engine/hermes_bootstrap.cc",
+      "installModuleLoader",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "shared-runtime-install",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_bootstrap.cc",
+      "installSharedRuntimeBundle",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "legacy-lazy-bootstrap",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_bootstrap.cc",
+      "installLegacyLazyBootstrapGetters",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "legacy-process-compat",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_bootstrap.cc",
+      "runLegacyProcessCompatFix",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "capability-hardening-seal",
+    fixedEvidence(
+      "cpp-data",
+      "src/engine/hermes_runtime.cc",
+      "kCapabilityHardeningJS",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "eager-native-seal",
+    fixedEvidence(
+      "cpp-data",
+      "src/engine/hermes_runtime.cc",
+      "kEagerInstallSealJS",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "lockdown-install",
+    fixedEvidence("cpp-data", "src/engine/hermes_runtime.cc", "lockdownJS"),
+  ),
+  fixedSurface(
+    "startup",
+    "freeze-seal",
+    fixedEvidence("cpp-data", "src/engine/hermes_runtime.cc", "kFreezeSealJS"),
+  ),
+  fixedSurface(
+    "startup",
+    "compartment-registry-install",
+    fixedEvidence(
+      "cpp-data",
+      "src/engine/hermes_runtime.cc",
+      "kCompartmentRegistryJS",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "web-streams-install",
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_bootstrap.cc",
+      "installWebStreamsPolyfill",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "scheduler-principal-capture",
+    fixedEvidence(
+      "cpp-call",
+      "src/engine/hermes_runtime.cc",
+      "ex_hermes_vm_set_job_scheduler_capture",
+    ),
+  ),
+];
+
+const INSPECTOR_SYMBOLS = [
+  "ex_hermes_debugger_enable",
+  "ex_hermes_debugger_get_scripts",
+  "ex_hermes_debugger_get_script_source",
+  "ex_hermes_debugger_set_breakpoint",
+  "ex_hermes_debugger_remove_breakpoint",
+  "ex_hermes_debugger_pause",
+  "ex_hermes_debugger_resume",
+  "ex_hermes_debugger_next_event",
+  "ex_hermes_debugger_eval",
+];
+
+for (const symbol of INSPECTOR_SYMBOLS) {
+  FIXED_RUNTIME_SURFACE_DEFINITIONS.push(
+    fixedSurface(
+      "native-op",
+      `inspector.debugger-${symbol.slice("ex_hermes_debugger_".length).replaceAll("_", "-")}`,
+      fixedEvidence(
+        "public-abi",
+        "src/engine/hermes_runtime_debugger.cc",
+        symbol,
+      ),
+      fixedEvidence(
+        "public-abi",
+        "src/engine/hermes_runtime_platform_windows.cc",
+        symbol,
+      ),
+    ),
+  );
+}
+
+function canonicalFixedEvidence(evidence, label) {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) {
+    throw new Error(`${label}: fixed evidence must be an object`);
+  }
+  const { type, file, symbol, role } = evidence;
+  if (!FIXED_EVIDENCE_TYPES.has(type)) {
+    throw new Error(
+      `${label}: unknown fixed evidence type ${JSON.stringify(type)}`,
+    );
+  }
+  if (!FIXED_EVIDENCE_ROLES.has(role)) {
+    throw new Error(
+      `${label}: unknown fixed evidence role ${JSON.stringify(role)}`,
+    );
+  }
+  if (
+    typeof file !== "string" ||
+    file.length === 0 ||
+    file.includes("\\") ||
+    file.includes("#") ||
+    path.posix.isAbsolute(file) ||
+    /^[A-Za-z]:/u.test(file) ||
+    path.posix.normalize(file) !== file ||
+    file === "." ||
+    file.startsWith("../") ||
+    file.includes("/../") ||
+    file.includes("/./")
+  ) {
+    throw new Error(
+      `${label}: non-canonical fixed evidence path ${JSON.stringify(file)}`,
+    );
+  }
+  if (
+    typeof symbol !== "string" ||
+    !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(symbol)
+  ) {
+    throw new Error(
+      `${label}: invalid fixed evidence symbol ${JSON.stringify(symbol)}`,
+    );
+  }
+  return { type, file, symbol, role, sourceRef: sourceSymbol(file, symbol) };
+}
+
+function canonicalFixedDefinitions(definitions) {
+  if (!Array.isArray(definitions) || definitions.length === 0) {
+    throw new Error(
+      "fixed runtime surface definitions must be a non-empty array",
+    );
+  }
+  const normalized = [];
+  const observedKeys = new Set();
+  const evidenceUses = new Map();
+
+  for (const definition of definitions) {
+    if (
+      !definition ||
+      typeof definition !== "object" ||
+      Array.isArray(definition)
+    ) {
+      throw new Error("fixed runtime surface definition must be an object");
+    }
+    const { kind, name } = definition;
+    const observedKey = `${kind}:${name}`;
+    if (
+      !COVERAGE_KINDS.has(kind) ||
+      typeof name !== "string" ||
+      name.length === 0
+    ) {
+      throw new Error(
+        `${observedKey}: malformed fixed runtime surface definition`,
+      );
+    }
+    if (observedKeys.has(observedKey)) {
+      throw new Error(
+        `fixed runtime surface inventory: duplicate observed key ${observedKey}`,
+      );
+    }
+    observedKeys.add(observedKey);
+    if (
+      !Array.isArray(definition.evidence) ||
+      definition.evidence.length === 0
+    ) {
+      throw new Error(
+        `${observedKey}: fixed runtime surface has no structural evidence`,
+      );
+    }
+    const evidence = definition.evidence.map((row, index) =>
+      canonicalFixedEvidence(row, `${observedKey}.evidence[${index}]`),
+    );
+    const evidenceKeys = new Set();
+    for (const row of evidence) {
+      const evidenceKey = `${row.type}\0${row.sourceRef}`;
+      if (evidenceKeys.has(evidenceKey)) {
+        throw new Error(
+          `${observedKey}: duplicate fixed evidence ${row.type}:${row.sourceRef}`,
+        );
+      }
+      evidenceKeys.add(evidenceKey);
+      const uses = evidenceUses.get(row.sourceRef) ?? [];
+      uses.push({ observedKey, role: row.role });
+      evidenceUses.set(row.sourceRef, uses);
+    }
+    normalized.push({ kind, name, observedKey, evidence });
+  }
+
+  for (const [sourceRef, uses] of evidenceUses) {
+    const distinctSurfaces = new Set(uses.map((use) => use.observedKey));
+    const shared = distinctSurfaces.size > 1;
+    for (const use of uses) {
+      if (shared && use.role !== "implementation-container") {
+        throw new Error(
+          `${sourceRef}: shared fixed evidence for ${[...distinctSurfaces].sort(compareText).join(", ")} must use role implementation-container`,
+        );
+      }
+      if (!shared && use.role === "implementation-container") {
+        throw new Error(
+          `${sourceRef}: implementation-container evidence is not shared by multiple fixed surfaces`,
+        );
+      }
+    }
+  }
+
+  return normalized;
+}
+
+/** Return fresh rows so callers cannot mutate the module-level fixed inventory. */
+export function fixedRuntimeSurfaceInventory(
+  definitions = FIXED_RUNTIME_SURFACE_DEFINITIONS,
+) {
+  const rows = canonicalFixedDefinitions(definitions).map((definition) =>
+    makeSurface(
+      definition.kind,
+      definition.name,
+      definition.evidence.map((evidence) => evidence.sourceRef),
+    ),
+  );
+  assertUniqueObservedKeys(rows, "fixed runtime surface inventory");
+  return sortSurfaces(rows);
+}
+
+export function validateFixedRuntimeSurfaceRefs(
+  repoRoot,
+  surfaces,
+  definitions = FIXED_RUNTIME_SURFACE_DEFINITIONS,
+) {
+  const normalizedDefinitions = canonicalFixedDefinitions(definitions);
+  assertUniqueObservedKeys(surfaces, "fixed runtime surface validation input");
+  const surfacesByKey = new Map(
+    surfaces.map((surface) => [surface.observedKey, surface]),
+  );
+  if (surfacesByKey.size !== normalizedDefinitions.length) {
+    throw new Error(
+      `fixed runtime surface validation input has ${surfacesByKey.size} rows; expected ${normalizedDefinitions.length}`,
+    );
+  }
+
+  const rootPath = fs.realpathSync(repoRoot);
+  const candidateCache = new Map();
+  for (const definition of normalizedDefinitions) {
+    const surface = surfacesByKey.get(definition.observedKey);
+    if (!surface) {
+      throw new Error(
+        `${definition.observedKey}: fixed runtime surface is missing`,
+      );
+    }
+    const expectedRefs = uniqueSorted(
+      definition.evidence.map((evidence) => evidence.sourceRef),
+    );
+    if (JSON.stringify(surface.sourceRefs) !== JSON.stringify(expectedRefs)) {
+      throw new Error(
+        `${definition.observedKey}: fixed source refs do not match typed evidence`,
+      );
+    }
+
+    for (const evidence of definition.evidence) {
+      let candidates = candidateCache.get(evidence.file);
+      if (!candidates) {
+        const lexicalPath = path.resolve(rootPath, ...evidence.file.split("/"));
+        if (
+          lexicalPath !== rootPath &&
+          !lexicalPath.startsWith(`${rootPath}${path.sep}`)
+        ) {
+          throw new Error(
+            `${evidence.sourceRef}: fixed evidence escapes repository root`,
+          );
+        }
+        const realPath = fs.realpathSync(lexicalPath);
+        if (
+          realPath !== rootPath &&
+          !realPath.startsWith(`${rootPath}${path.sep}`)
+        ) {
+          throw new Error(
+            `${evidence.sourceRef}: fixed evidence resolves outside repository root`,
+          );
+        }
+        const canonicalRelative = posixPath(path.relative(rootPath, realPath));
+        if (canonicalRelative !== evidence.file) {
+          throw new Error(
+            `${evidence.sourceRef}: fixed evidence path is not the canonical repository path ${canonicalRelative}`,
+          );
+        }
+        candidates = scanFixedRuntimeEvidenceCandidates(
+          readUtf8(realPath),
+          evidence.file,
+        );
+        candidateCache.set(evidence.file, candidates);
+      }
+
+      const candidate = candidates.find(
+        (row) =>
+          row.type === evidence.type && row.sourceRef === evidence.sourceRef,
+      );
+      if (!candidate) {
+        const observedTypes = uniqueSorted(
+          candidates
+            .filter((row) => row.sourceRef === evidence.sourceRef)
+            .map((row) => row.type),
+        );
+        throw new Error(
+          `${evidence.sourceRef}: expected structural ${evidence.type} definition is absent${observedTypes.length ? `; observed ${observedTypes.join(", ")}` : ""}`,
+        );
+      }
+      if (candidate.occurrenceCount !== 1) {
+        throw new Error(
+          `${evidence.sourceRef}: expected exactly one structural ${evidence.type} definition; observed ${candidate.occurrenceCount}`,
+        );
+      }
+    }
+  }
+}
+
+function listFiles(root, predicate) {
+  const files = [];
+  const visit = (directory) => {
+    const entries = fs
+      .readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => compareText(left.name, right.name));
+    for (const entry of entries) {
+      const filePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(filePath);
+      } else if (entry.isFile() && predicate(filePath)) {
+        files.push(filePath);
+      }
+    }
+  };
+  visit(root);
+  return files;
+}
+
+function mergePrivateNativeRows(rows) {
+  const merged = new Map();
+  for (const row of rows) {
+    const existing = merged.get(row.observedKey);
+    if (!existing) {
+      merged.set(row.observedKey, structuredClone(row));
+      continue;
+    }
+    existing.sourceRefs = uniqueSorted([
+      ...existing.sourceRefs,
+      ...row.sourceRefs,
+    ]);
+    existing.metadata.occurrenceCount += row.metadata.occurrenceCount;
+  }
+  return sortSurfaces([...merged.values()]);
+}
+
+function abiTargetVariant(sourceRef) {
+  const sourcePath = sourceRef.slice(0, sourceRef.lastIndexOf("#"));
+  if (sourcePath.startsWith("src/bin/")) return "binary";
+  if (/(?:^|[_/])windows(?:[_.\/]|$)/u.test(sourcePath)) return "windows";
+  if (/(?:^|[_/])ios(?:[_.\/]|$)/u.test(sourcePath)) return "ios";
+  if (/(?:^|[_/])android(?:[_.\/]|$)/u.test(sourcePath)) return "android";
+  return "default";
+}
+
+function mergeAbiDefinitionRows(rows) {
+  const byName = new Map();
+  for (const row of rows) {
+    let definitions = byName.get(row.name);
+    if (!definitions) {
+      definitions = [];
+      byName.set(row.name, definitions);
+    }
+    for (const sourceRef of row.sourceRefs) {
+      definitions.push({
+        language: row.metadata.language,
+        sourceRef,
+        targetVariant: abiTargetVariant(sourceRef),
+        unsafe: row.metadata.unsafe,
+        weak: row.metadata.weak,
+      });
+    }
+  }
+
+  const merged = [];
+  for (const [name, definitions] of byName) {
+    definitions.sort((left, right) =>
+      compareText(left.sourceRef, right.sourceRef),
+    );
+    for (let leftIndex = 0; leftIndex < definitions.length; leftIndex += 1) {
+      for (
+        let rightIndex = leftIndex + 1;
+        rightIndex < definitions.length;
+        rightIndex += 1
+      ) {
+        const left = definitions[leftIndex];
+        const right = definitions[rightIndex];
+        if (
+          left.targetVariant === right.targetVariant &&
+          !left.weak &&
+          !right.weak
+        ) {
+          throw new Error(
+            `public ABI inventory: duplicate strong ${left.targetVariant} definition ${name}: ${left.sourceRef}, ${right.sourceRef}`,
+          );
+        }
+      }
+    }
+    const byTargetVariant = new Map();
+    for (const definition of definitions) {
+      let variantDefinitions = byTargetVariant.get(definition.targetVariant);
+      if (!variantDefinitions) {
+        variantDefinitions = [];
+        byTargetVariant.set(definition.targetVariant, variantDefinitions);
+      }
+      variantDefinitions.push(definition);
+    }
+    const alternatives = byTargetVariant.size > 1;
+    const branches = [...byTargetVariant.entries()]
+      .sort(([left], [right]) => compareText(left, right))
+      .map(([targetVariant, variantDefinitions]) => {
+        const sourceRefs = variantDefinitions.map(
+          (definition) => definition.sourceRef,
+        );
+        const allWeak = variantDefinitions.every(
+          (definition) => definition.weak,
+        );
+        const someWeak = variantDefinitions.some(
+          (definition) => definition.weak,
+        );
+        return {
+          id: targetVariant,
+          kind: alternatives ? "alternative" : "single",
+          sourceRefs,
+          stubDisposition: allWeak
+            ? "weak-fallback"
+            : someWeak
+              ? "contains-weak-fallback"
+              : "not-structurally-proven",
+          targetVariant,
+        };
+      });
+    merged.push(
+      makeSurface(
+        "host-abi",
+        name,
+        definitions.map((definition) => definition.sourceRef),
+        {
+          metadata: {
+            alternatives: branches,
+            branches,
+            definitions,
+            provenanceLimitation:
+              "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
+          },
+        },
+      ),
+    );
+  }
+  return sortSurfaces(merged);
+}
+
+function assertNonemptyCategories(categories) {
+  for (const [name, rows] of Object.entries(categories)) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error(`repository surface inventory category ${name} is empty`);
+    }
+  }
+}
+
+/**
+ * Discover the complete observed input set from a repository checkout.
+ * Results are byte-reproducible and contain no filesystem timestamps or
+ * line-number references.
+ */
+export async function discoverRepositorySurfaces(repoRoot) {
+  const engineRoot = path.join(repoRoot, "src", "engine");
+  const sourceRoot = path.join(repoRoot, "src");
+  const bootstrapRoot = path.join(engineRoot, "bootstrap");
+  const nativeFiles = listFiles(sourceRoot, (candidate) =>
+    NATIVE_SOURCE_EXTENSIONS.has(path.extname(candidate)),
+  );
+
+  const nativeRows = [];
+  const nativeGlobalRows = [];
+  const lifecycleRows = [];
+  const abiRows = [];
+  for (const filePath of nativeFiles) {
+    const relativePath = posixPath(path.relative(repoRoot, filePath));
+    const source = readUtf8(filePath);
+    if (filePath.startsWith(`${engineRoot}${path.sep}`)) {
+      nativeRows.push(...scanPrivateNativeIdentifiers(source, relativePath));
+      nativeGlobalRows.push(
+        ...scanCppGlobalPropertySurfaces(source, relativePath),
+      );
+      nativeGlobalRows.push(
+        ...scanEvaluatedCppGlobalScripts(source, relativePath),
+      );
+      lifecycleRows.push(...scanNativeLifecycleSurfaces(source, relativePath));
+    }
+    abiRows.push(...scanCppPublicAbiDefinitions(source, relativePath));
+  }
+
+  for (const filePath of listFiles(
+    sourceRoot,
+    (candidate) => path.extname(candidate) === ".rs",
+  )) {
+    const relativePath = posixPath(path.relative(repoRoot, filePath));
+    abiRows.push(
+      ...scanRustPublicAbiDefinitions(readUtf8(filePath), relativePath),
+    );
+  }
+  const androidJavaPath =
+    "platform/android/java/dev/ibex/runtime/IbexNetworking.java";
+  const androidCppPath = "src/engine/native_android_networking.cc";
+  const androidJavaRows = scanAndroidJavaBridgeSurfaces(
+    readUtf8(path.join(repoRoot, androidJavaPath)),
+    androidJavaPath,
+  );
+  const androidBindings = scanAndroidCppBridgeBindings(
+    readUtf8(path.join(repoRoot, androidCppPath)),
+    androidCppPath,
+  );
+  const hostAbi = sortSurfaces([
+    ...mergeAbiDefinitionRows(abiRows),
+    ...joinAndroidBridgeImplementationRefs(
+      androidJavaRows,
+      androidBindings,
+      androidCppPath,
+    ),
+  ]);
+  assertUniqueObservedKeys(
+    hostAbi,
+    "public host/engine/worklet/Android ABI inventory",
+  );
+  const declaredEmbeddingAbi = scanCppPublicAbiDeclarations(
+    readUtf8(path.join(repoRoot, "include", "exact_runtime.h")),
+    "include/exact_runtime.h",
+  ).filter((name) => /^(?:ex_android_|ex_hermes_|ex_worklet_)/u.test(name));
+  const definedEmbeddingAbi = hostAbi
+    .map((row) => row.name)
+    .filter((name) => /^(?:ex_android_|ex_hermes_|ex_worklet_)/u.test(name));
+  if (
+    JSON.stringify(declaredEmbeddingAbi) !== JSON.stringify(definedEmbeddingAbi)
+  ) {
+    const declared = new Set(declaredEmbeddingAbi);
+    const defined = new Set(definedEmbeddingAbi);
+    throw new Error(
+      `embedding ABI declaration/definition drift: declarations without definitions [${declaredEmbeddingAbi.filter((name) => !defined.has(name)).join(", ")}]; definitions without declarations [${definedEmbeddingAbi.filter((name) => !declared.has(name)).join(", ")}]`,
+    );
+  }
+
+  const builtins = await scanBuiltinSurfaces(
+    path.join(repoRoot, "modules.ts"),
+    repoRoot,
+    "modules.ts",
+  );
+  const cli = scanRuntimeCliSurfaces(
+    readUtf8(path.join(repoRoot, "runtime-surface.json")),
+    "runtime-surface.json",
+  );
+
+  const globalRows = [
+    ...scanSharedRuntimeGlobalSurfaces(repoRoot),
+    ...nativeGlobalRows,
+  ];
+  const legacyEvaluatorInstallations =
+    scanLegacyEvaluatorBootstrapInstallations(
+      readUtf8(path.join(engineRoot, "hermes_bootstrap.cc")),
+      "src/engine/hermes_bootstrap.cc",
+    );
+  for (const filePath of listFiles(
+    bootstrapRoot,
+    (candidate) => path.extname(candidate) === ".js",
+  )) {
+    const relativePath = posixPath(path.relative(repoRoot, filePath));
+    globalRows.push(
+      ...scanStaticGlobalApiSurfaces(readUtf8(filePath), relativePath, {
+        evaluatorInstallation:
+          legacyEvaluatorInstallations[path.basename(filePath)],
+      }),
+    );
+  }
+  const hermesEvaluatorProfiles =
+    discoverHermesEvaluatorIdentityProfiles(repoRoot);
+  globalRows.push(
+    ...scanLockdownEvaluatorSurfaces(
+      readUtf8(path.join(engineRoot, "hermes_runtime.cc")),
+      "src/engine/hermes_runtime.cc",
+      hermesEvaluatorProfiles,
+    ),
+  );
+  const globals = mergeSurfaceEvidence(
+    globalRows,
+    "bootstrap global API inventory",
+  );
+  const nativeOps = mergeSurfaceEvidence(
+    [
+      ...globals,
+      ...mergePrivateNativeRows(nativeRows),
+      ...discoverNativeNetworkingBackendSurfaces(repoRoot),
+    ],
+    "native and global operation inventory",
+  );
+
+  const fixed = fixedRuntimeSurfaceInventory();
+  validateFixedRuntimeSurfaceRefs(repoRoot, fixed);
+  const environmentSourceAllowed = (filePath) =>
+    isRuntimeEnvironmentSourceAllowed(
+      posixPath(path.relative(repoRoot, filePath)),
+    );
+  const environmentJavaScriptFiles = [
+    ...listFiles(
+      bootstrapRoot,
+      (candidate) => path.extname(candidate) === ".js",
+    ),
+    ...listFiles(
+      path.join(sourceRoot, "builtins"),
+      (candidate) => path.extname(candidate) === ".js",
+    ),
+    ...listFiles(
+      path.join(repoRoot, "packages", "ibex-runtime-js", "src"),
+      (candidate) =>
+        new Set([".js", ".jsx", ".ts", ".tsx"]).has(path.extname(candidate)),
+    ),
+  ].filter(environmentSourceAllowed);
+  const environmentRows = scanRuntimeEnvironmentSurfaces({
+    javascript: environmentJavaScriptFiles.map((filePath) => ({
+      sourcePath: posixPath(path.relative(repoRoot, filePath)),
+      text: readUtf8(filePath),
+    })),
+    native: nativeFiles
+      .filter(
+        (filePath) =>
+          new Set([".c", ".cc", ".cpp", ".cxx", ".m", ".mm"]).has(
+            path.extname(filePath),
+          ) && environmentSourceAllowed(filePath),
+      )
+      .map((filePath) => ({
+        sourcePath: posixPath(path.relative(repoRoot, filePath)),
+        text: readUtf8(filePath),
+      })),
+    rust: listFiles(
+      sourceRoot,
+      (candidate) => path.extname(candidate) === ".rs",
+    )
+      .filter(environmentSourceAllowed)
+      .map((filePath) => ({
+        sourcePath: posixPath(path.relative(repoRoot, filePath)),
+        text: readUtf8(filePath),
+      })),
+  });
+  const loader = mergeSurfaceEvidence(
+    [
+      ...fixed.filter((row) => row.kind === "loader"),
+      ...scanJavaScriptLoaderSurfaces(
+        readUtf8(path.join(bootstrapRoot, "module-loader.js")),
+        "src/engine/bootstrap/module-loader.js",
+      ),
+      ...scanJavaScriptLoaderRoutes(
+        readUtf8(path.join(bootstrapRoot, "module-loader.js")),
+        "src/engine/bootstrap/module-loader.js",
+      ),
+      ...scanRustLoaderSurfaces(
+        readUtf8(path.join(repoRoot, "src", "module_loader", "mod.rs")),
+        "src/module_loader/mod.rs",
+      ),
+      ...scanRustLoaderRoutes([
+        {
+          sourcePath: "src/module_loader/mod.rs",
+          text: readUtf8(path.join(repoRoot, "src", "module_loader", "mod.rs")),
+        },
+        {
+          sourcePath: "src/module_loader/transpile.rs",
+          text: readUtf8(
+            path.join(repoRoot, "src", "module_loader", "transpile.rs"),
+          ),
+        },
+      ]),
+    ],
+    "loader source inventory",
+  );
+  const callbacks = mergeSurfaceEvidence(
+    [
+      ...fixed.filter((row) => row.kind === "callback"),
+      ...lifecycleRows.filter((row) => row.kind === "callback"),
+    ],
+    "callback source inventory",
+  );
+  const startup = mergeSurfaceEvidence(
+    [
+      ...fixed.filter((row) => row.kind === "startup"),
+      ...lifecycleRows.filter((row) => row.kind === "startup"),
+      ...environmentRows,
+    ],
+    "startup source inventory",
+  );
+  const inspector = mergeSurfaceEvidence(
+    [
+      ...fixed.filter(
+        (row) => row.kind === "native-op" && row.name.startsWith("inspector."),
+      ),
+      ...scanCdpSurfaces(
+        readUtf8(path.join(repoRoot, "src", "bin", "ibex", "cdp", "mod.rs")),
+        "src/bin/ibex/cdp/mod.rs",
+      ),
+    ],
+    "inspector route inventory",
+  );
+  const routedFixedKeys = new Set(
+    [...loader, ...callbacks, ...startup, ...inspector]
+      .filter((row) =>
+        fixed.some((fixedRow) => fixedRow.observedKey === row.observedKey),
+      )
+      .map((row) => row.observedKey),
+  );
+  const unroutedFixed = fixed.filter(
+    (row) => !routedFixedKeys.has(row.observedKey),
+  );
+  if (unroutedFixed.length) {
+    throw new Error(
+      `fixed runtime surfaces are not routed into the repository inventory: ${unroutedFixed
+        .map((row) => row.observedKey)
+        .join(", ")}`,
+    );
+  }
+
+  const discoveredLoaderKinds = uniqueSorted(
+    loader
+      .filter((row) => row.metadata?.evidenceType === "loader-kind-branch")
+      .map((row) => row.metadata.loaderKind),
+  );
+  const expectedLoaderKinds = [
+    "builtin",
+    "commonjs",
+    "esm",
+    "json",
+    "native-addon",
+    "wasm",
+  ];
+  if (
+    JSON.stringify(discoveredLoaderKinds) !==
+    JSON.stringify(expectedLoaderKinds)
+  ) {
+    throw new Error(
+      `loader kind inventory drift: expected ${expectedLoaderKinds.join(", ")}, discovered ${discoveredLoaderKinds.join(", ")}`,
+    );
+  }
+
+  const categories = {
+    nativeOps,
+    hostAbi,
+    builtins,
+    globals,
+    cli,
+    loader,
+    callbacks,
+    startup,
+    inspector,
+  };
+  assertNonemptyCategories(categories);
+
+  const surfaces = sortSurfaces([
+    ...nativeOps,
+    ...hostAbi,
+    ...builtins,
+    ...cli,
+    ...loader,
+    ...callbacks,
+    ...startup,
+    ...inspector,
+  ]);
+  assertUniqueObservedKeys(surfaces, "repository surface inventory");
+
+  return {
+    ...categories,
+    commands: cli,
+    surfaces,
+  };
+}

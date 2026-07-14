@@ -5,7 +5,7 @@
 **Systems:** CLI Runtime, Runtime, Build, Distribution, Documentation
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-06
+**Revised:** 2026-07-11
 **Related:** LLP 0000; LLP 0002; LLP 0005; LLP 0006
 
 ## Summary
@@ -47,18 +47,58 @@ the repo root, next to `runtime-identity.json` (LLP 0012). It lives in this
 repo — ibex-side, with the clap tree it describes — not in exact: after the
 LLP 0180 split stranded exact's original manifest and its clap-tree pin
 (exact-side LLP 0175 §8.1a), the manifest moved here with the binary
-(ENG-22429). Two tests pin it in-process:
+(ENG-22429).
 
-- `src/bin/ibex/cli.rs::surface_manifest_matches_clap_tree` — the clap tree's
-  visible and hidden subcommands match the manifest exactly, and reserved and
-  legacy names are absent from clap entirely.
+Manifest version 4 includes a deterministic `clapSurface.commands` inventory.
+Each row identifies one canonical recursive command path and, when present,
+its hidden state, command flag forms, visible and hidden aliases, options, and
+positionals. Each option records its stable clap ID, canonical long/short
+spellings, hidden state, visible or hidden aliases, and its recorded
+`valueShape`. Positionals record their stable clap ID, index, passthrough
+status, and the same value shape. A value shape fixes the Clap action,
+requiredness, value names, minimum and maximum cardinality (`maxValues: null`
+means unbounded), whether the domain is none/arbitrary/enumerated, every
+possible value plus its aliases and hidden state, whether possible values are
+hidden, ordinary defaults, default-missing values, and hyphen handling.
+`clapSurface.semanticRelations` separately records every reflected argument
+conflict and one stable reviewed parser kind for each non-enumerated value.
+Type-erased numeric parsers additionally have exact boundary probes. Optional
+command and option fields whose values would be false, null, or empty are
+omitted. An unbounded positional that allows hyphen-prefixed values is
+classified as passthrough. This is an exact contract for the recorded parser
+semantics, not a claim that help text or every Clap-internal setting is
+serialized. The source-side test accepts only reviewed `#[arg]` and
+`#[command]` attribute keys, so a new unrepresented parser relation fails
+before it can hide behind an unchanged manifest. The accepted inventory
+currently contains 14 command paths including the root, 57 options, and 7
+positionals, of which the root and `run` `ARGS` positionals are passthrough.
+
+Clap's generated help arguments, generated version arguments, and generated
+`help` subcommand are parser controls and are excluded from the inventory.
+Authored command and argument identities are captured before `Command::build`
+adds those controls, rather than inferred from the name or action afterward.
+Explicitly authored Help/Version actions and an authored `help` subcommand
+therefore remain included when generated controls are disabled. In particular,
+root `--version`, `-v`, and hidden alias `-V` are an Ibex option, and
+`ibex version` is an Ibex command. Focused tests pin the authority in-process:
+
+- `src/bin/ibex/cli.rs::surface_manifest_matches_clap_tree` — builds and walks
+  the clap tree recursively, requires an exact one-to-one join for every
+  authored command, option, alias, positional, reviewed parser kind, and
+  conflict relation; checks the top-level visible and hidden sets; and requires
+  reserved and legacy names to remain absent from clap entirely.
+- `src/bin/ibex/cli.rs::authored_controls_are_not_confused_with_generated_controls`
+  proves the pre-build identity distinction with synthetic and authored
+  Help/Version controls, while the source-attribute and numeric-boundary tests
+  fail closed on unrepresented relations or parser drift.
 - `src/bin/ibex/main.rs::dispatcher_tables_match_surface_manifest` — the
   pre-clap dispatcher tables own exactly the manifest's reserved and legacy
   names.
 
-Adding or hiding a runtime command means updating the clap tree, the manifest,
-and this document together. Exact's behavior guards may read this manifest from
-the vendored pin; the copy here is authoritative.
+Adding or hiding a runtime command, or changing an option, alias, or positional,
+means updating the clap tree, the manifest, and this document together. Exact's
+behavior guards may read this manifest from the vendored pin; the copy here is
+authoritative.
 
 ## Binary Implementation
 

@@ -89,6 +89,13 @@ static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> wsConnectio
 static std::unordered_map<void*, uint32_t> wsTaskToId;
 static uint32_t nextWsId = 1;
 
+static uint32_t allocateWsIdLocked() {
+    if (nextWsId == 0) return 0;
+    uint32_t id = nextWsId;
+    nextWsId += 1; // unsigned wrap leaves the allocator permanently exhausted
+    return id;
+}
+
 static uint32_t wsIdForTask(NSURLSessionTask* task) {
     if (!task) {
         return 0;
@@ -482,11 +489,13 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             return;
         }
 
+        bool shouldDeliverMessage = false;
         {
             std::lock_guard<std::mutex> lock(wsMutex);
             auto it = wsConnections.find(ws_id);
             if (it == wsConnections.end() || it->second->closed) return;
             it->second->receive_in_flight = false;
+            shouldDeliverMessage = !it->second->close_requested_by_client;
             if (it->second->flow_controlled_receive) {
                 it->second->receive_paused = true;
                 if (it->second->task) {
@@ -495,7 +504,7 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             }
         }
 
-            if (message.type == NSURLSessionWebSocketMessageTypeString) {
+            if (shouldDeliverMessage && message.type == NSURLSessionWebSocketMessageTypeString) {
                 NSString* str = message.string;
                 const char* utf8 = [str UTF8String];
                 // U+0000 is valid inside a WebSocket text frame; strlen would
@@ -504,7 +513,7 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
                 if (context && message_cb) {
                     message_cb(ws_id, (const uint8_t*)(utf8 ? utf8 : ""), utf8Length, 1, context);
                 }
-            } else if (message.type == NSURLSessionWebSocketMessageTypeData) {
+            } else if (shouldDeliverMessage && message.type == NSURLSessionWebSocketMessageTypeData) {
                 NSData* data = message.data;
                 if (context && message_cb) {
                     message_cb(ws_id, (const uint8_t*)[data bytes], [data length], 0, context);
@@ -625,8 +634,9 @@ extern "C" uint32_t native_ws_connect(
         uint32_t wsId;
         {
             std::lock_guard<std::mutex> lock(wsMutex);
-            wsId = nextWsId++;
+            wsId = allocateWsIdLocked();
         }
+        if (wsId == 0) return 0;
 
         // One session shared by all sockets; delegate callbacks route back to
         // the owning entry via wsTaskToId. @ref LLP 0003#the-platform-shims-map
@@ -677,7 +687,10 @@ extern "C" uint32_t native_ws_connect(
 
         {
             std::lock_guard<std::mutex> lock(wsMutex);
-            wsConnections[wsId] = entry;
+            if (!wsConnections.emplace(wsId, entry).second) {
+                [task cancel];
+                return 0;
+            }
             wsTaskToId[(__bridge void*)task] = wsId;
         }
 

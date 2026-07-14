@@ -46,26 +46,38 @@ fn fixture_path(name: &str) -> String {
         .into_owned()
 }
 
-/// Run a JS expression under `ibex -p` and return the last stdout line.
+/// Run a JS expression through the explicit foreground audit diagnostic and
+/// return the last stdout line. The wrapper preserves `-p`'s promise-awaiting
+/// behavior without exposing source text as a command-line argument.
 async fn eval(js: &str) -> String {
+    let dir = tempfile::tempdir().expect("create eval tempdir");
+    let entry = dir.path().join("eval.js");
+    std::fs::write(
+        &entry,
+        format!(
+            "(function () {{\n  var watchdog = setTimeout(function () {{\n    console.error('diagnostic eval timed out');\n    process.exitCode = 1;\n  }}, 55000);\n  var result = (\n{js}\n  );\n  function resolve(value) {{\n    clearTimeout(watchdog);\n    console.log(value);\n  }}\n  function reject(error) {{\n    clearTimeout(watchdog);\n    console.error(error && error.stack || error);\n    process.exitCode = 1;\n  }}\n  if (result && typeof result.then === 'function') result.then(resolve, reject);\n  else resolve(result);\n}})();\n"
+        ),
+    )
+    .expect("write eval fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-p").arg(js);
+    cmd.arg("capsec").arg("audit").arg(&entry);
     let output = timeout(Duration::from_secs(60), cmd.output())
         .await
-        .expect("ibex -p timed out")
+        .expect("ibex capsec audit timed out")
         .expect("failed to spawn or read ibex process output");
     assert!(
         output.status.success(),
-        "ibex -p should exit successfully: status={:?}, stderr={}",
+        "ibex capsec audit should exit successfully: status={:?}, stderr={}",
         output.status.code(),
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8_lossy(&output.stdout)
-        .trim_end()
-        .lines()
-        .last()
-        .unwrap_or("")
-        .to_string()
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.trim().is_empty(),
+        "ibex capsec audit returned no result: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    stdout.trim_end().lines().last().unwrap_or("").to_string()
 }
 
 /// JS prologue loading the fixture RSA key pair. The private key is the
@@ -213,6 +225,74 @@ async fn sign_and_verify_with_bad_pem_key_throw_instead_of_hmac() {
     );
 }
 
+/// PEM supplied as a Buffer (directly or through the key-options object) is
+/// still asymmetric key material. It must take the native public-key path,
+/// never the legacy symmetric HMAC compatibility path.
+#[tokio::test]
+async fn pem_buffers_use_asymmetric_sign_and_verify() {
+    let js = format!(
+        "(function(){{ {prologue} \
+           var privBuf = Buffer.from(priv); var pubBuf = Buffer.from(pub); \
+           try {{ \
+             var direct = c.sign('sha256', msg, privBuf); \
+             var option = c.sign('sha256', msg, {{ key: privBuf }}); \
+             return JSON.stringify([ \
+               c.verify('sha256', msg, pubBuf, direct), \
+               c.verify('sha256', msg, {{ key: pubBuf }}, option) \
+             ]); \
+           }} catch (e) {{ return 'ERR:' + e.message; }} \
+         }})()",
+        prologue = key_prologue()
+    );
+    let result = eval(&js).await;
+    if result.starts_with("ERR:") && is_unavailable(&result) {
+        eprintln!("skipping: asymmetric crypto bridge unavailable ({result})");
+        return;
+    }
+    assert_eq!(
+        result, "[true,true]",
+        "Buffer-backed PEM keys must use asymmetric sign/verify"
+    );
+}
+
+/// ENG-24283: binary PKCS#8/SPKI keys are asymmetric even when supplied
+/// directly as Buffer/TypedArray values. Unsupported DER/JWK imports must fail
+/// explicitly; they must never fall through to the legacy HMAC compatibility
+/// path. A merely 0x30-prefixed non-DER secret remains a symmetric key.
+#[tokio::test]
+async fn der_and_jwk_keys_never_fall_through_to_hmac() {
+    let js = format!(
+        "(function(){{ var c = require('crypto'); var fs = require('fs'); \
+           function pemDer(path) {{ \
+             var pem = fs.readFileSync(path, 'utf8'); \
+             return Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\\s/g, ''), 'base64'); \
+           }} \
+           var priv = pemDer({priv:?}); var pub = pemDer({pub:?}); \
+           var data = Buffer.from('not-an-hmac'); var outcomes = []; \
+           function throws(fn) {{ try {{ fn(); return false; }} catch (_) {{ return true; }} }} \
+           outcomes.push(throws(function() {{ c.sign('sha256', data, priv); }})); \
+           outcomes.push(throws(function() {{ c.verify('sha256', data, pub, Buffer.alloc(32)); }})); \
+           outcomes.push(throws(function() {{ c.sign('sha256', data, {{key: priv, format:'der', type:'pkcs8'}}); }})); \
+           var importedPriv = c.createPrivateKey({{key: priv, format:'der', type:'pkcs8'}}); \
+           var importedPub = c.createPublicKey({{key: pub, format:'der', type:'spki'}}); \
+           outcomes.push(throws(function() {{ c.sign('sha256', data, importedPriv); }})); \
+           outcomes.push(throws(function() {{ c.verify('sha256', data, importedPub, Buffer.alloc(32)); }})); \
+           var jwk = c.createPublicKey({{key: {{kty:'RSA', n:'AQAB', e:'AQAB'}}, format:'jwk'}}); \
+           outcomes.push(throws(function() {{ c.verify('sha256', data, jwk, Buffer.alloc(32)); }})); \
+           var secret = Buffer.alloc(200, 7); secret[0]=0x30; secret[1]=0x82; secret[2]=0xff; secret[3]=0xff; \
+           var mac = c.sign('sha256', data, secret); \
+           outcomes.push(c.verify('sha256', data, secret, mac)); \
+           return JSON.stringify(outcomes); }})()",
+        priv = fixture_path("rsa2048_priv.pem"),
+        pub = fixture_path("rsa2048_pub.pem"),
+    );
+    assert_eq!(
+        eval(&js).await,
+        "[true,true,true,true,true,true,true]",
+        "DER/imported keys must fail closed while a non-DER binary secret remains usable"
+    );
+}
+
 /// ENG-23129 finding 2: an unsupported hash must throw instead of silently
 /// signing SHA-256; sha224 must either be honestly unsupported (SecKey) or
 /// produce a real SHA-224 signature (OpenSSL) — never a SHA-256 one.
@@ -342,6 +422,32 @@ async fn ecdh_class_agrees_or_throws_honestly() {
     );
 }
 
+/// ENG-24255: Ibex has no vetted native KEM backend. The compatibility
+/// surface must be an explicit unsupported operation, never a deterministic
+/// "shared secret" derivable from public ciphertext (and therefore identical
+/// for two unrelated private keys).
+#[tokio::test]
+async fn kem_surface_fails_closed_until_a_vetted_backend_exists() {
+    let js = "(function(){ var c = require('crypto'); \
+        function code(fn) { try { fn(); return 'no-throw'; } catch (e) { return e.code + '|' + e.message; } } \
+        var ciphertext = Buffer.alloc(32, 7); \
+        return JSON.stringify({ \
+          encapsulate: code(function(){ c.encapsulate({ kty:'OKP', crv:'X25519', x:'AA' }); }), \
+          privateA: code(function(){ c.decapsulate({ kty:'OKP', crv:'X25519', d:'AA' }, ciphertext); }), \
+          privateB: code(function(){ c.decapsulate({ kty:'OKP', crv:'X25519', d:'BB' }, ciphertext); }) \
+        }); })()";
+    let result = eval(js).await;
+    let parsed: serde_json::Value = serde_json::from_str(&result).expect("JSON result");
+    for field in ["encapsulate", "privateA", "privateB"] {
+        let message = parsed[field].as_str().unwrap_or("");
+        assert!(
+            message.starts_with("ERR_CRYPTO_KEM_NOT_SUPPORTED|")
+                && message.contains("not supported"),
+            "{field} must fail with the explicit unsupported error: {result}"
+        );
+    }
+}
+
 /// ENG-23301: classic-DH peer public values outside [2, p-2] must be rejected
 /// with ERR_CRYPTO_INVALID_KEYLEN (Node oracle: "Supplied key is too
 /// small"/"too large"); in-range values keep working.
@@ -442,11 +548,14 @@ async fn hash_finalization_and_stream_lifecycle() {
           clearTimeout(timer); \
           console.log(err ? 'ERR' : 'pipeline:' + h.read().toString('hex').slice(0, 12)); \
         });";
+    let dir = tempfile::tempdir().expect("create pipeline tempdir");
+    let entry = dir.path().join("pipeline.js");
+    std::fs::write(&entry, script).expect("write pipeline fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(script);
+    cmd.arg("capsec").arg("audit").arg(&entry);
     let output = timeout(Duration::from_secs(60), cmd.output())
         .await
-        .expect("ibex -e timed out")
+        .expect("ibex capsec audit timed out")
         .expect("failed to run ibex");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -482,7 +591,7 @@ async fn ecdh_curves_primes_dh_encoding_and_cipher_validation() {
         try { c.createCipheriv('aes-128-ctr', Buffer.alloc(16), Buffer.alloc(3)); out.badIv = 'no-throw'; } \
         catch (e) { out.badIv = e.code; } \
         return JSON.stringify(out); })()";
-    let result = eval(&js).await;
+    let result = eval(js).await;
     let parsed: serde_json::Value = serde_json::from_str(&result).expect("JSON result");
     // On reduced profiles EC keygen may throw honestly; both are acceptable,
     // silently generating a P-256 key (length 65) is not.
@@ -522,6 +631,212 @@ async fn ecdh_curves_primes_dh_encoding_and_cipher_validation() {
     assert_eq!(
         parsed["badIv"], "ERR_CRYPTO_INVALID_IV",
         "CTR must validate IV length: {result}"
+    );
+}
+
+/// The reduced BigInt implementation must reject work that can monopolize the
+/// runtime thread, and it must never ignore an explicitly requested DSA P1363
+/// wire encoding that its native bridge cannot produce.
+#[tokio::test]
+async fn prime_sync_work_is_bounded_and_dsa_p1363_fails_loudly() {
+    let js = "(function(){ var c = require('crypto'); var out = {}; \
+        function code(name, fn) { try { fn(); out[name] = 'no-throw'; } catch (e) { out[name] = e.code; } } \
+        code('generate', function(){ c.generatePrimeSync(513); }); \
+        code('safe', function(){ c.generatePrimeSync(257, { safe: true }); }); \
+        code('candidate', function(){ c.checkPrimeSync(1n << 512n); }); \
+        code('rounds', function(){ c.checkPrimeSync(65537n, { checks: 65 }); }); \
+        code('dhGenerate', function(){ c.createDiffieHellman(513); }); \
+        code('addZero', function(){ c.generatePrimeSync(16, { add: 0n }); }); \
+        code('addZeroBuffer', function(){ c.generatePrimeSync(16, { add: Buffer.from([0]) }); }); \
+        code('addOversizedBuffer', function(){ c.generatePrimeSync(16, { add: Buffer.alloc(65, 1) }); }); \
+        code('remNotSmaller', function(){ c.generatePrimeSync(16, { add: Buffer.from([4]), rem: Buffer.from([4]) }); }); \
+        out.safeDefaultRem = Number(c.generatePrimeSync(16, { safe: true, add: 4n, bigint: true }) % 4n); \
+        out.defaultRem = Number(c.generatePrimeSync(16, { add: 4n, bigint: true }) % 4n); \
+        var dsaDer = Buffer.from('300b06072a8648ce380401', 'hex'); \
+        var dsaPem = '-----BEGIN PUBLIC KEY-----\\n' + dsaDer.toString('base64') + '\\n-----END PUBLIC KEY-----'; \
+        var traditionalDsa = '-----BEGIN DSA PRIVATE KEY-----\\nMAkCAQACAQECAQE=\\n-----END DSA PRIVATE KEY-----'; \
+        code('dsaSign', function(){ c.sign('sha256', Buffer.from('x'), { key: dsaPem, dsaEncoding: 'ieee-p1363' }); }); \
+        code('dsaVerify', function(){ c.verify('sha256', Buffer.from('x'), { key: dsaPem, dsaEncoding: 'ieee-p1363' }, Buffer.alloc(40)); }); \
+        code('traditionalDsa', function(){ c.sign('sha256', Buffer.from('x'), { key: traditionalDsa, dsaEncoding: 'ieee-p1363' }); }); \
+        return JSON.stringify(out); })()";
+    let result = eval(js).await;
+    assert_eq!(
+        result,
+        r#"{"generate":"ERR_CRYPTO_OPERATION_FAILED","safe":"ERR_CRYPTO_OPERATION_FAILED","candidate":"ERR_CRYPTO_OPERATION_FAILED","rounds":"ERR_CRYPTO_OPERATION_FAILED","dhGenerate":"ERR_CRYPTO_OPERATION_FAILED","addZero":"ERR_OUT_OF_RANGE","addZeroBuffer":"ERR_OUT_OF_RANGE","addOversizedBuffer":"ERR_OUT_OF_RANGE","remNotSmaller":"ERR_OUT_OF_RANGE","safeDefaultRem":3,"defaultRem":1,"dsaSign":"ERR_OSSL_UNSUPPORTED","dsaVerify":"ERR_OSSL_UNSUPPORTED","traditionalDsa":"ERR_OSSL_UNSUPPORTED"}"#,
+        "sync work bounds and P1363 rejection must fail explicitly: {result}"
+    );
+}
+
+/// Cross-check P1363 conversion in both directions against Node/OpenSSL for
+/// every coordinate width supported by the compatibility layer. This catches
+/// the easy-to-miss P-521 case (66-byte coordinates, not a power-of-two byte
+/// width) as well as P-256/P-384.
+#[cfg(any(target_os = "macos", feature = "openssl-crypto"))]
+#[tokio::test]
+async fn ec_p1363_interoperates_with_node_for_p256_p384_and_p521() {
+    let oracle = r#"
+const c = require('crypto');
+const msg = Buffer.from('ibex-p1363-cross-implementation');
+const curves = [['P-256','prime256v1'], ['P-384','secp384r1'], ['P-521','secp521r1']];
+const vectors = curves.map(([name, namedCurve]) => {
+  const pair = c.generateKeyPairSync('ec', {
+    namedCurve,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+  });
+  const signature = c.sign('sha256', msg, { key: pair.privateKey, dsaEncoding: 'ieee-p1363' });
+  return { name, publicKey: pair.publicKey, privateKey: pair.privateKey, signature: signature.toString('base64') };
+});
+process.stdout.write(JSON.stringify(vectors));
+"#;
+    let oracle_output = Command::new("node")
+        .arg("-e")
+        .arg(oracle)
+        .output()
+        .await
+        .expect("Node oracle is required by the supported asymmetric crypto matrix");
+    assert!(
+        oracle_output.status.success(),
+        "Node failed to generate P1363 interoperability vectors: {}",
+        String::from_utf8_lossy(&oracle_output.stderr)
+    );
+    let vectors = String::from_utf8(oracle_output.stdout).expect("Node vector JSON is UTF-8");
+    let ibex_js = format!(
+        r#"(function(){{
+          var c = require('crypto');
+          var msg = Buffer.from('ibex-p1363-cross-implementation');
+          var vectors = {vectors};
+          try {{
+            return JSON.stringify(vectors.map(function(v) {{
+              var nodeSignature = Buffer.from(v.signature, 'base64');
+              var verified = c.verify('sha256', msg,
+                {{ key: v.publicKey, dsaEncoding: 'ieee-p1363' }}, nodeSignature);
+              var ibexSignature = c.sign('sha256', msg,
+                {{ key: v.privateKey, dsaEncoding: 'ieee-p1363' }});
+              return {{ name: v.name, verified: verified, length: ibexSignature.length,
+                signature: ibexSignature.toString('base64') }};
+            }}));
+          }} catch (e) {{ return 'ERR:' + (e.code || '') + ':' + e.message; }}
+        }})()"#
+    );
+    let ibex_result = eval(&ibex_js).await;
+    assert!(
+        !(ibex_result.starts_with("ERR:") && is_unavailable(&ibex_result)),
+        "the supported asymmetric crypto matrix must provide its platform bridge: {ibex_result}"
+    );
+    let ibex_signatures: serde_json::Value = serde_json::from_str(&ibex_result)
+        .unwrap_or_else(|error| panic!("Ibex P1363 result JSON {ibex_result:?}: {error}"));
+    let expected_lengths = [64_u64, 96, 132];
+    for (index, expected) in expected_lengths.into_iter().enumerate() {
+        assert_eq!(
+            ibex_signatures[index]["verified"], true,
+            "Ibex must verify Node's P1363 signature: {ibex_result}"
+        );
+        assert_eq!(
+            ibex_signatures[index]["length"], expected,
+            "P1363 coordinate width is wrong: {ibex_result}"
+        );
+    }
+
+    let verify_oracle = r#"
+const c = require('crypto');
+const vectors = JSON.parse(process.env.IBEX_EC_VECTORS);
+const signatures = JSON.parse(process.env.IBEX_EC_SIGNATURES);
+const msg = Buffer.from('ibex-p1363-cross-implementation');
+process.stdout.write(JSON.stringify(signatures.map((entry, i) =>
+  c.verify('sha256', msg, { key: vectors[i].publicKey, dsaEncoding: 'ieee-p1363' },
+    Buffer.from(entry.signature, 'base64')))));
+"#;
+    let verified = Command::new("node")
+        .arg("-e")
+        .arg(verify_oracle)
+        .env("IBEX_EC_VECTORS", &vectors)
+        .env("IBEX_EC_SIGNATURES", &ibex_result)
+        .output()
+        .await
+        .expect("Node verifier runs");
+    assert!(
+        verified.status.success(),
+        "Node verifier failed: {}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&verified.stdout),
+        "[true,true,true]",
+        "Node must verify every Ibex P1363 signature"
+    );
+}
+
+/// The macOS default profile must import Node's unencrypted PKCS#8 EC keys
+/// without the optional OpenSSL backend, while keeping the compatibility
+/// fallback deliberately narrow. Malformed algorithm/curve identifiers,
+/// inconsistent embedded public points, and trailing DER must throw rather
+/// than being reinterpreted as symmetric HMAC keys.
+#[cfg(all(target_os = "macos", not(feature = "openssl-crypto")))]
+#[tokio::test]
+async fn macos_default_ec_pkcs8_import_is_strict() {
+    let oracle = r#"
+const c = require('crypto');
+const pair = c.generateKeyPairSync('ec', {
+  namedCurve: 'prime256v1',
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+});
+process.stdout.write(JSON.stringify(pair));
+"#;
+    let oracle_output = Command::new("node")
+        .arg("-e")
+        .arg(oracle)
+        .output()
+        .await
+        .expect("Node oracle is required by the crypto compatibility matrix");
+    assert!(
+        oracle_output.status.success(),
+        "Node failed to generate the strict PKCS#8 fixture: {}",
+        String::from_utf8_lossy(&oracle_output.stderr)
+    );
+    let pair = String::from_utf8(oracle_output.stdout).expect("Node key pair JSON is UTF-8");
+    let js = format!(
+        r#"(function(){{
+          var c = require('crypto');
+          var pair = {pair};
+          var msg = Buffer.from('strict-pkcs8-import');
+          function pemToDer(pem) {{
+            return Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\s/g, ''), 'base64');
+          }}
+          function derToPem(der) {{
+            var body = der.toString('base64').replace(/(.{{64}})/g, '$1\n');
+            return '-----BEGIN PRIVATE KEY-----\n' + body +
+              (body.endsWith('\n') ? '' : '\n') + '-----END PRIVATE KEY-----\n';
+          }}
+          function replaceLastByte(der, hex, value) {{
+            var needle = Buffer.from(hex, 'hex');
+            var offset = der.indexOf(needle);
+            if (offset < 0) throw new Error('test DER marker missing');
+            var copy = Buffer.from(der);
+            copy[offset + needle.length - 1] = value;
+            return copy;
+          }}
+          function rejects(der) {{
+            try {{ c.sign('sha256', msg, derToPem(der)); return false; }}
+            catch (_) {{ return true; }}
+          }}
+          var der = pemToDer(pair.privateKey);
+          var valid = c.sign('sha256', msg, pair.privateKey);
+          var badPoint = Buffer.from(der); badPoint[badPoint.length - 1] ^= 1;
+          return JSON.stringify({{
+            valid: c.verify('sha256', msg, pair.publicKey, valid),
+            algorithm: rejects(replaceLastByte(der, '06072a8648ce3d0201', 2)),
+            curve: rejects(replaceLastByte(der, '06082a8648ce3d030107', 8)),
+            point: rejects(badPoint),
+            trailing: rejects(Buffer.concat([der, Buffer.from([0])]))
+          }});
+        }})()"#
+    );
+    let result = eval(&js).await;
+    assert_eq!(
+        result, r#"{"valid":true,"algorithm":true,"curve":true,"point":true,"trailing":true}"#,
+        "default SecKey PKCS#8 import must accept only a consistent supported EC key"
     );
 }
 

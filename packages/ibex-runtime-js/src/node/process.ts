@@ -1277,7 +1277,16 @@ export function createEnvProxy(): Record<string, string | undefined> {
 
   function refreshNativeCache(): Record<string, string> {
     if (typeof __exactGetAllEnv === 'function') {
-      nativeCache = { ...__exactGetAllEnv() };
+      try {
+        nativeCache = { ...__exactGetAllEnv() };
+      } catch (_error) {
+        // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — the compatibility facade represents denied host environment values as absent.
+        // Native capability denial is represented as absence at the
+        // Node-compatible process.env layer. Direct native callers still see
+        // the typed denial, while bootstrap cannot be aborted by probing an
+        // ungranted key.
+        nativeCache = {};
+      }
     } else if (nativeCache === null) {
       nativeCache = {};
     }
@@ -1285,13 +1294,20 @@ export function createEnvProxy(): Record<string, string | undefined> {
   }
 
   function getNativeValue(key: string): string | undefined {
-    if (nativeCache && Object.prototype.hasOwnProperty.call(nativeCache, key)) {
-      return nativeCache[key];
-    }
     if (typeof __exactGetEnv === 'function') {
-      const value = __exactGetEnv(key);
+      let value: string | undefined;
+      try {
+        value = __exactGetEnv(key);
+      } catch (_error) {
+        if (nativeCache) {
+          delete nativeCache[key];
+        }
+        return undefined;
+      }
       if (value !== undefined) {
-        refreshNativeCache()[key] = value;
+        (nativeCache ??= {})[key] = value;
+      } else if (nativeCache) {
+        delete nativeCache[key];
       }
       return value;
     }
@@ -1869,7 +1885,9 @@ class Process {
         if (message.indexOf('process:signal') !== -1) {
           throw e;
         }
-        // Fall through to manual handling if native kill fails (e.g. sandbox)
+        // Native errno is authoritative. EPERM means the process exists but
+        // cannot be signalled; rewriting it as ESRCH is incorrect.
+        throw e;
       }
     }
     // Signal 0 is an existence check — always succeeds for our own pid

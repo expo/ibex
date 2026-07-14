@@ -28,6 +28,13 @@ function legacyNumberValue(getter) {
   return fn;
 }
 
+function authorizeSystemInfo(kind) {
+  if (typeof __exactAuthorizeSystemInfo === 'function') {
+    return __exactAuthorizeSystemInfo(kind);
+  }
+  return undefined;
+}
+
 function androidPlatformVersion() {
   // @ref LLP 0008#os-info — Android reports the Java host SDK version through os.release/version.
   if (_platform !== "android" || typeof globalThis === "undefined") return null;
@@ -43,16 +50,23 @@ function androidPlatformVersion() {
   return null;
 }
 
-function platform() { return _platform; }
-function arch() { return _arch; }
+function platform() {
+  authorizeSystemInfo(11);
+  return _platform;
+}
+function arch() {
+  authorizeSystemInfo(0);
+  return _arch;
+}
 function type() {
+  authorizeSystemInfo(11);
   if (_platform === "android") return "Android";
   if (_platform === "darwin") return "Darwin";
   if (_platform === "linux") return "Linux";
   if (_platform === "win32") return "Windows_NT";
   return "Unknown";
 }
-function release() {
+function releaseValue() {
   var androidVersion = androidPlatformVersion();
   if (androidVersion) return androidVersion;
   if (typeof globalThis !== "undefined" && globalThis.process) {
@@ -60,24 +74,35 @@ function release() {
   }
   return "0.0.0";
 }
+function release() {
+  authorizeSystemInfo(10);
+  return releaseValue();
+}
 function homedir() {
-  if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.env) {
-    return globalThis.process.env.HOME || globalThis.process.env.USERPROFILE || "/";
-  }
-  return "/";
+  var storagePaths = authorizeSystemInfo(13);
+  return storagePaths && typeof storagePaths.home === "string"
+    ? storagePaths.home
+    : "/";
 }
 function tmpdir() {
-  if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.env) {
-    var tempPath =
-      globalThis.process.env.TMPDIR ||
-      globalThis.process.env.TMP ||
-      globalThis.process.env.TEMP ||
-      "/tmp";
+  var storagePaths = authorizeSystemInfo(13);
+  if (storagePaths && typeof storagePaths.temporary === "string") {
+    var tempPath = storagePaths.temporary;
     if (typeof tempPath === "string" &&
         tempPath.length > 1 &&
-        tempPath[tempPath.length - 1] === "/" &&
-        tempPath.indexOf('\\') === -1) {
-      return tempPath.slice(0, -1);
+        tempPath[tempPath.length - 1] === "/") {
+      var containsBackslash = false;
+      for (var i = 0; i < tempPath.length; i++) {
+        if (tempPath[i] === "\\") {
+          containsBackslash = true;
+          break;
+        }
+      }
+      if (!containsBackslash) {
+        var trimmed = "";
+        for (var j = 0; j < tempPath.length - 1; j++) trimmed += tempPath[j];
+        return trimmed;
+      }
     }
     return tempPath;
   }
@@ -88,19 +113,21 @@ function hostname() {
   return "localhost";
 }
 function version() {
+  authorizeSystemInfo(10);
   var androidVersion = androidPlatformVersion();
   if (androidVersion) return "Android " + androidVersion;
-  if (typeof __exactGetOsVersion === 'function') {
-    return __exactGetOsVersion();
-  }
   if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.__exactOSVersion) {
     return globalThis.process.__exactOSVersion;
   }
-  return release();
+  return releaseValue();
 }
-function machine() { return _arch; }
+function machine() {
+  authorizeSystemInfo(0);
+  return _arch;
+}
 function availableParallelism() {
-  return cpus().length > 0 ? cpus().length : 1;
+  var processors = cpus();
+  return processors.length > 0 ? processors.length : 1;
 }
 
 function _validatePid(pid) {
@@ -178,7 +205,10 @@ function uptime() {
   }
   return 1;
 }
-function endianness() { return "LE"; }
+function endianness() {
+  authorizeSystemInfo(0);
+  return "LE";
+}
 function networkInterfaces() {
   if (typeof __exactGetNetworkInterfaces === 'function') return __exactGetNetworkInterfaces();
   return {};

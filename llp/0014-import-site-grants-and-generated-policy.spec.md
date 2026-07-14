@@ -5,7 +5,16 @@
 **Systems:** Build, Module Loader, Runtime, CLI
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
 **Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests)
+
+> **Current implementation (2026-07-11):** authoring produces the versioned,
+> digest-bound canonical typed policy defined by LLP 0021. References below to
+> the unversioned `PolicyFile`, permissive execution, environment endowments,
+> or audit/enforce mode selection describe the superseded rollout and must not
+> be used as current CLI or deployment guidance. Production accepts only
+> `purpose: production`, `mode: enforce`; audit is the separate foreground
+> `ibex capsec audit` workflow.
 
 ## Summary
 
@@ -218,39 +227,40 @@ this.
 
 ## The generated artifact
 
-The artifact is a `PolicyFile` (`src/host/policy.rs`) — the runtime loads
-it directly via `--policy` — extended with generation metadata the runtime
-ignores:
+The artifact is the canonical `ibex/capsec-policy/1` review policy. The trusted
+arming step consumes it; the legacy `PolicyFile` is not a production-policy
+form. ESM authors encode a JSON array of typed selectors in the string-valued
+`authorities` import attribute. CommonJS authors use a JSON-only second
+argument, `require("pkg", {"authorities":[...]})`. Both forms are stripped
+before execution. Legacy colon-delimited `grants` and `also` strings are
+rejected at the canonical boundary rather than copied or silently omitted.
 
 ```jsonc
 {
-  "generated": {
-    "version": 1,
-    "tool": "generate-policy.mjs",
-    "entry": "app.js"          // repo-relative; no timestamps (reproducible)
-  },
+  "policySchema": "ibex/capsec-policy/1",
+  "capsVocab": "ibex/capsec/1",
+  "semanticCore": "capsec/semantics/1",
+  "vocabDigest": "sha256-...",
+  "registryDigest": "sha256-...",
+  "policyDigest": "sha256-...",
+  "purpose": "production",
   "mode": "enforce",
-  "packages": {
-    "image-lib":       { "capabilities": ["fs:read:/app/images"],
-                         "builtins": ["node:fs", "node:path"] },  // observed imports
-    "tmp-file-helper": { "capabilities": ["fs:read:/app/images"],
-                         "builtins": [] },
-    "evil-pkg":        { "builtins": [] }   // closed on every surface
-  },
-  "provenance": {
-    "image-lib": [
-      { "capability": "fs:read:/app/images", "site": "app.js:1" }
-    ],
-    "tmp-file-helper": [
-      { "capability": "fs:read:/app/images", "site": "app.js:1", "via": "also" }
-    ]
-  }
+  "principals": [{
+    "principal": { "kind": "package", "name": "image-lib",
+      "integrity": "sha256-...", "locator": "image-lib@2.4.1" },
+    "floor": [{ "authority": { "cap": "fs:read", "resource": {
+      "kind": "path-tree", "path": { "root": "project", "components": [] }
+    }}, "provenance": [{ "kind": "import-site", "source": "app.js:1" }] }],
+    "denials": [], "escalationCeiling": [],
+    "imports": { "builtins": ["node:fs"], "packages": [] },
+    "endowments": []
+  }]
 }
 ```
 
 Normative properties:
 
-- **Every package in the analyzed graph appears**, granted or not, and
+- **Every integrity-bound package in the analyzed graph appears**, granted or not, and
   every entry carries an explicit `builtins` list (`[]` when the package
   imports no builtin). The runtime reads an *absent* `builtins` as
   "unrestricted on the import axis", so the generator never omits it —
@@ -265,13 +275,12 @@ Normative properties:
   timestamps, no absolute paths, sorted keys.
 - **Committed and drift-checked.** The artifact is checked in like a
   lockfile. `generate-policy.mjs --check` regenerates and fails CI on any
-  difference, reporting **expansions** (new packages with grants, new
-  capabilities, **and new builtin imports** — `pkg: import node:child_process`)
-  separately from shrinkage — expansion is the review tripwire; shrinkage is
-  free. A hijacked release that adds a builtin import therefore surfaces as a
-  mandatory review diff. This is what converts "hodgepodge nobody dares touch"
-  into a reviewable record: the aggregate diff appears in the PR next to the
-  import-site change that caused it.
+  difference, reporting typed authority **expansions** separately from
+  narrowings, mixed changes, semantic vocabulary changes, and graph/package
+  identity changes separately. Package/builtin imports, endowments, denial
+  removal, and ceiling widening participate in authority classification rather
+  than being mislabeled as structural drift. Provenance-only changes remain
+  loud diffs.
 
 ## Dynamic grants and the static ceiling
 
@@ -422,12 +431,14 @@ between them (ENG-22644).
 
 #### Conformance
 
-`import-grants.test.mjs` (bun) covers parse/strip/union/intersect/cascade
-and the fail-closed cases; `tests/llp0013_compartments.rs` covers the
-end-to-end red-team properties: a grant attribute inside `node_modules`
-confers nothing; the generated artifact contains every reachable package;
-`--check` fails on drift; an enforce-mode run under the generated artifact
-contains the ungranted package while the granted one works.
+`import-grants.test.mjs` (bun) covers parse/strip/union/intersect/cascade and
+the fail-closed cases. LLP 0021 replaced this document's string-policy artifact
+and legacy end-to-end runner with strict typed policy ingress, authenticated
+package-graph arming, and loaded-engine callback/conformance tests. The checked
+case-by-case retirement join is
+`tests/fixtures/capsec-rev2/llp0013-retirement-map.json`; the surviving
+`tests/llp0013_compartments.rs` target guards stale-policy refusal and the two
+non-policy runtime regressions that still require the diagnostic executable.
 
 ## References
 

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/target-attestations.schema.json",
+  "title": "Ibex capsec content-addressed conformance attestations",
+  "type": "object",
+  "required": ["targetAttestationSchema", "profile", "attestations"],
+  "properties": {
+    "targetAttestationSchema": { "const": "ibex/capsec-target-attestations/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "attestations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "target",
+          "conformanceDigest",
+          "reportRawContentDigest",
+          "sourceRevision",
+          "sourceTreeDigest",
+          "engineBinaryDigest",
+          "recipeCatalogDigest",
+          "recipeCatalogRawContentDigest",
+          "publicSurfaceExecutionDigest",
+          "publicSurfaceExecutionRawContentDigest"
+        ],
+        "properties": {
+          "target": { "$ref": "#/$defs/target" },
+          "conformanceDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "reportRawContentDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "sourceRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "sourceTreeDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "engineBinaryDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "recipeCatalogDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "recipeCatalogRawContentDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "publicSurfaceExecutionDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "publicSurfaceExecutionRawContentDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

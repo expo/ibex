@@ -433,9 +433,6 @@ export class FileHandle {
         }
         chunks.push(chunk);
         totalLength += chunk.byteLength;
-        if (chunk.byteLength < 64 * 1024) {
-          break;
-        }
       }
       const bytes = concatChunks(chunks, totalLength);
       const encoding = typeof options === 'string' ? options : options?.encoding;

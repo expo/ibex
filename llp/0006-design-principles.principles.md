@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Build, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-07 (SecurityMode vocabulary updated to `Permissive | Audit | Enforce`)
+**Revised:** 2026-07-12 (generic host-call bridge is diagnostic-only and armed runtimes fail closed); 2026-07-07 (SecurityMode vocabulary updated to `Permissive | Audit | Enforce`)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0003 (engine bridge); LLP 0005 (build pipeline)
 
 ## Summary
@@ -91,9 +91,10 @@ degraded states explicit at the JS boundary is defensive.]`
 `src/engine/hermes_runtime.cc` includes Hermes/JSI headers and constructs a
 Hermes runtime `[observed]` (`src/engine/hermes_runtime.cc:14-15, 1391-1403`).
 The public C symbols still name Hermes (`ex_hermes_*`) `[observed]`
-(`include/exact_runtime.h:34-65, 151-156`). Native capability access is routed
-through a generic `__hostCall(op, argsJson)` string channel plus typed host
-functions
+(`include/exact_runtime.h:34-65, 151-156`). Diagnostic native access may use a
+generic `__hostCall(op, argsJson)` string channel; armed production capability
+access uses typed host functions and the generic setters/resolver are silent
+no-ops
 ([LLP 0002](./0002-host-embedding-abi.spec.md),
 [LLP 0003](./0003-hermes-engine-bridge.explainer.md)).
 
@@ -105,16 +106,16 @@ multi-engine plan.
 
 ## Prefer typed host functions; reserve the generic bridge
 
-**Observed:** High-traffic subsystems get dedicated JSI host functions installed
+**Observed:** Production subsystems get dedicated JSI host functions installed
 (often lazily via `__exactEnsure*`) `[observed]`
-(`src/engine/hermes_runtime.cc:1056-1072, 1197-1283`), while `__hostCall` is
-the catch-all string/JSON channel `[observed]`
-(`src/engine/hermes_runtime.cc:1754-1806`).
+(`src/engine/hermes_runtime.cc`), while `__hostCall` is a diagnostic-only
+catch-all string/JSON channel. Armed bridge setters and async resolution return
+before mutating bridge state `[observed]` (`src/engine/hermes_runtime.cc`).
 
-**Inferred:** `[inferred: the generic bridge keeps the surface small and easy to
-add to; dedicated functions exist where the per-call JSON encode/parse and
-string dispatch of `__hostCall` would cost too much. The split is "narrow
-default, specialize under load."]`
+**Inferred:** `[inferred: the generic bridge remains useful for contained
+diagnostics and embedder tooling, but its open-ended string dispatch is too
+broad for an armed authority boundary. Production APIs are dedicated so their
+capability and argument contracts are explicit.]`
 
 ## Capability-gated host, explicit host mode
 

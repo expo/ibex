@@ -169,6 +169,7 @@ static NSURLSession* sharedSession = nil;
 static FetchSessionDelegate* sharedDelegate = nil;
 static std::mutex fetchTasksMutex;
 static NSMutableDictionary<NSNumber*, NSURLSessionTask*>* fetchTasks = nil;
+static NSMutableDictionary<NSNumber*, NSNumber*>* fetchTaskOwners = nil;
 
 static NSURLSession* getSession() {
     static dispatch_once_t onceToken;
@@ -199,8 +200,17 @@ static NSMutableDictionary<NSNumber*, NSURLSessionTask*>* getFetchTasks() {
     return fetchTasks;
 }
 
+static NSMutableDictionary<NSNumber*, NSNumber*>* getFetchTaskOwners() {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        fetchTaskOwners = [NSMutableDictionary new];
+    });
+    return fetchTaskOwners;
+}
+
 extern "C" void native_fetch_perform(
     uint32_t request_id,
+    uint64_t runtime_nonce,
     const char* method,
     const char* url,
     const char* headers,
@@ -257,6 +267,7 @@ extern "C" void native_fetch_perform(
                 {
                     std::lock_guard<std::mutex> lock(fetchTasksMutex);
                     [getFetchTasks() removeObjectForKey:requestKey];
+                    [getFetchTaskOwners() removeObjectForKey:requestKey];
                 }
                 if (error) {
                     std::string message = error.localizedDescription
@@ -322,19 +333,27 @@ extern "C" void native_fetch_perform(
         {
             std::lock_guard<std::mutex> lock(fetchTasksMutex);
             [getFetchTasks() setObject:task forKey:requestKey];
+            [getFetchTaskOwners()
+                setObject:[NSNumber numberWithUnsignedLongLong:runtime_nonce]
+                   forKey:requestKey];
         }
         [task resume];
     }
 }
 
-extern "C" void native_fetch_cancel(uint32_t request_id) {
+extern "C" void native_fetch_cancel(uint32_t request_id, uint64_t runtime_nonce) {
     @autoreleasepool {
         NSNumber* requestKey = [NSNumber numberWithUnsignedInt:request_id];
         NSURLSessionTask* task = nil;
         {
             std::lock_guard<std::mutex> lock(fetchTasksMutex);
+            NSNumber* owner = [getFetchTaskOwners() objectForKey:requestKey];
+            if (!owner || [owner unsignedLongLongValue] != runtime_nonce) {
+                return;
+            }
             task = [getFetchTasks() objectForKey:requestKey];
             [getFetchTasks() removeObjectForKey:requestKey];
+            [getFetchTaskOwners() removeObjectForKey:requestKey];
         }
         if (task) {
             [task cancel];

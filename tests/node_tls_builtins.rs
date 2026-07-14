@@ -16,6 +16,7 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
+const AUDIT_STARTUP_HEADROOM_SECS: u64 = 30;
 
 /// Self-signed localhost certificate (SAN: DNS:localhost, IP:127.0.0.1),
 /// valid until 2046, used purely as in-process emulation fixture material.
@@ -66,6 +67,8 @@ Md/fFsEQi8gONn+RDAEJjd+CR+EchO6UjciR+fZtUMeqhqM6Eq4td8d7t3t7/93v
 GZp+REcWUDv3rRhch2XhCaD5Hw==
 -----END PRIVATE KEY-----";
 
+const WRONG_CLIENT_KEY: &str = include_str!("fixtures/crypto/rsa2048_priv_pkcs1.pem");
+
 /// Prefix a script with `KEY`/`CERT` consts holding the fixture PEMs.
 fn with_fixture_pems(script: &str) -> String {
     format!(
@@ -77,13 +80,24 @@ fn with_fixture_pems(script: &str) -> String {
 }
 
 async fn run_script(script: &str, secs: u64) -> Value {
+    let dir = tempfile::tempdir().expect("create script tempdir");
+    let entry = dir.path().join("app.js");
+    std::fs::write(&entry, script).expect("write script fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(script);
+    cmd.arg("capsec").arg("audit").arg(&entry);
 
-    let output = timeout(Duration::from_secs(secs), cmd.output())
-        .await
-        .expect("ibex process timed out (harness-level; the script watchdog should fire first)")
-        .expect("failed to spawn or read ibex process output");
+    // `secs` remains the fixture's semantic runtime budget (and its JS
+    // watchdog should fire within it). Foreground audit first performs bundle
+    // generation/authentication, which can wait on the shared content-cache
+    // lock before any fixture code or watchdog exists, so account for that
+    // startup phase separately while keeping the harness strictly bounded.
+    let output = timeout(
+        Duration::from_secs(secs.saturating_add(AUDIT_STARTUP_HEADROOM_SECS)),
+        cmd.output(),
+    )
+    .await
+    .expect("ibex process timed out (harness-level; the script watchdog should fire first)")
+    .expect("failed to spawn or read ibex process output");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -164,6 +178,79 @@ console.log(JSON.stringify(out));
         v["tlsBytes"].as_u64().unwrap_or(0) > 0,
         "engine should emit initial TLS bytes: {v}"
     );
+}
+
+#[tokio::test]
+async fn node_tls_native_read_limits_reject_unbounded_allocations() {
+    let script = r#"
+require('tls');
+var id = __exactTlsEngineNew(JSON.stringify({ host: 'localhost', servername: 'localhost' }));
+var bad = [NaN, Infinity, 65537, 1.5, 0, '64'];
+var out = [];
+for (var i = 0; i < bad.length; i++) {
+  try { __exactTlsEngineReadTls(id, bad[i]); out.push(false); } catch (_) { out.push(true); }
+  try { __exactTlsEngineReadPlain(id, bad[i]); out.push(false); } catch (_) { out.push(true); }
+}
+__exactTlsEngineClose(id);
+console.log(JSON.stringify(out));
+"#;
+    let v = run_script(script, 5).await;
+    assert_eq!(
+        v,
+        serde_json::json!([true, true, true, true, true, true, true, true, true, true, true, true]),
+        "native TLS read limits must reject invalid or oversized allocations"
+    );
+}
+
+#[tokio::test]
+async fn node_tls_native_reads_ignore_replaced_retaining_buffer_constructors() {
+    // A native read reserves the Rust engine until its exact-size destination
+    // is ready. Replace both public constructors with valid but retaining
+    // wrappers: neither wrapper may run while that lease is live, or user code
+    // could keep the destination and observe TLS records after the host call.
+    let script = r#"
+require('tls');
+var id = __exactTlsEngineNew(JSON.stringify({ host: 'localhost', servername: 'localhost' }));
+var OriginalArrayBuffer = globalThis.ArrayBuffer;
+var OriginalUint8Array = globalThis.Uint8Array;
+var retained = [];
+var arrayBufferCalls = 0;
+var uint8ArrayCalls = 0;
+globalThis.ArrayBuffer = function RetainingArrayBuffer(size) {
+  arrayBufferCalls++;
+  var buffer = new OriginalArrayBuffer(size);
+  retained.push(buffer);
+  return buffer;
+};
+globalThis.Uint8Array = function RetainingUint8Array(buffer, offset, length) {
+  uint8ArrayCalls++;
+  var view = new OriginalUint8Array(buffer, offset, length);
+  retained.push(view);
+  return view;
+};
+var hello;
+try {
+  hello = __exactTlsEngineReadTls(id, 65536);
+} finally {
+  globalThis.ArrayBuffer = OriginalArrayBuffer;
+  globalThis.Uint8Array = OriginalUint8Array;
+  __exactTlsEngineClose(id);
+}
+console.log(JSON.stringify({
+  bytes: hello && hello.byteLength || 0,
+  arrayBufferCalls: arrayBufferCalls,
+  uint8ArrayCalls: uint8ArrayCalls,
+  retained: retained.length
+}));
+"#;
+    let v = run_script(script, 5).await;
+    assert!(
+        v["bytes"].as_u64().unwrap_or(0) > 0,
+        "engine should emit its initial ClientHello: {v}"
+    );
+    assert_eq!(v["arrayBufferCalls"], 0, "{v}");
+    assert_eq!(v["uint8ArrayCalls"], 0, "{v}");
+    assert_eq!(v["retained"], 0, "{v}");
 }
 
 #[tokio::test]
@@ -289,8 +376,9 @@ async fn node_tls_reject_unauthorized_false_still_reports_verification_result() 
     // authorized=true and clear authorizationError. Node v25.9.0 oracle for a
     // self-signed in-process server: secureConnect fires, but
     // authorized=false with authorizationError='DEPTH_ZERO_SELF_SIGNED_CERT'.
-    // The strict default (rejectUnauthorized unset => true) must still abort
-    // with the same code.
+    // The strict default must fail loudly: loopback compatibility mode does
+    // not exchange encrypted records or prove possession of the server key,
+    // so it cannot honestly report certificate authentication success.
     let script = r#"
 var tls = require('tls');
 var out = {};
@@ -342,7 +430,10 @@ server.listen(0, '127.0.0.1', function () {
         v["lax"]["authorizationError"], "DEPTH_ZERO_SELF_SIGNED_CERT",
         "{v}"
     );
-    assert_eq!(v["strict"]["error"], "DEPTH_ZERO_SELF_SIGNED_CERT", "{v}");
+    assert_eq!(
+        v["strict"]["error"], "ERR_TLS_LOOPBACK_AUTH_UNSUPPORTED",
+        "{v}"
+    );
 }
 
 #[tokio::test]
@@ -417,23 +508,46 @@ plain.listen(0, '127.0.0.1', function () {
 // ============================================================
 
 mod tls_bridge_support {
+    use rustls::server::WebPkiClientVerifier;
+    use rustls::RootCertStore;
+    use rustls_pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::Arc;
 
     fn server_config() -> Arc<rustls::ServerConfig> {
-        let certs: Vec<_> = rustls_pemfile::certs(&mut super::TEST_CERT.as_bytes())
+        let certs: Vec<_> = CertificateDer::pem_slice_iter(super::TEST_CERT.as_bytes())
             .collect::<Result<_, _>>()
             .expect("fixture cert parses");
-        let key = rustls_pemfile::private_key(&mut super::TEST_KEY.as_bytes())
-            .expect("fixture key parses")
-            .expect("fixture key present");
+        let key =
+            PrivateKeyDer::from_pem_slice(super::TEST_KEY.as_bytes()).expect("fixture key parses");
         let mut config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
             .expect("server config builds");
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Arc::new(config)
+    }
+
+    fn mutual_tls_server_config() -> Arc<rustls::ServerConfig> {
+        let certs: Vec<_> = CertificateDer::pem_slice_iter(super::TEST_CERT.as_bytes())
+            .collect::<Result<_, _>>()
+            .expect("fixture cert parses");
+        let key =
+            PrivateKeyDer::from_pem_slice(super::TEST_KEY.as_bytes()).expect("fixture key parses");
+        let mut client_roots = RootCertStore::empty();
+        client_roots
+            .add(certs[0].clone())
+            .expect("fixture client trust anchor");
+        let client_verifier = WebPkiClientVerifier::builder(Arc::new(client_roots))
+            .build()
+            .expect("client verifier builds");
+        Arc::new(
+            rustls::ServerConfig::builder()
+                .with_client_cert_verifier(client_verifier)
+                .with_single_cert(certs, key)
+                .expect("mTLS server config builds"),
+        )
     }
 
     /// Spawn a real TLS server on 127.0.0.1: reads until a blank line (or
@@ -484,6 +598,473 @@ mod tls_bridge_support {
         });
         port
     }
+
+    /// A real TLS server that requires a client certificate chaining to the
+    /// fixture certificate. The fixture is self-signed, so it serves as both
+    /// the test root and the client/server identity.
+    pub fn spawn_mutual_tls_http_server() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mTLS loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = mutual_tls_server_config();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let config = config.clone();
+                std::thread::spawn(move || {
+                    // The full test binary starts many audited ibex children
+                    // concurrently. Keep this fixture bounded, but do not let
+                    // scheduler contention close an otherwise healthy mTLS
+                    // handshake before the script's own watchdog can fire.
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
+                        .ok();
+                    let Ok(mut conn) = rustls::ServerConnection::new(config) else {
+                        return;
+                    };
+                    let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+                    let mut request = Vec::new();
+                    let mut buf = [0u8; 1024];
+                    // The mTLS test clients call TLSSocket.end(request), so
+                    // their close_notify can follow the request in a later
+                    // record. Drain that authenticated EOF before dropping
+                    // TcpStream; closing with unread ciphertext may emit a
+                    // TCP reset and race away our close_notify under load.
+                    let mut request_complete = false;
+                    loop {
+                        match tls.read(&mut buf) {
+                            Ok(0) if request_complete => break,
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => {
+                                request.extend_from_slice(&buf[..n]);
+                                if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                                    request_complete = true;
+                                }
+                            }
+                        }
+                    }
+                    let body = b"mutual-tls-ok";
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = tls.write_all(response.as_bytes());
+                    let _ = tls.write_all(body);
+                    tls.conn.send_close_notify();
+                    let _ = tls.flush();
+                });
+            }
+        });
+        port
+    }
+
+    /// Echo the plaintext HTTP request back in the response body so the JS
+    /// client test can assert header/auth option propagation through a custom
+    /// Agent/createConnection path.
+    pub fn spawn_tls_request_echo_server(connections: usize) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind TLS echo loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = server_config();
+        std::thread::spawn(move || {
+            for _ in 0..connections {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                let Ok(mut conn) = rustls::ServerConnection::new(config.clone()) else {
+                    return;
+                };
+                let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+                let mut request = Vec::new();
+                let mut buf = [0u8; 2048];
+                loop {
+                    match tls.read(&mut buf) {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => {
+                            request.extend_from_slice(&buf[..n]);
+                            if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                                break;
+                            }
+                        }
+                    }
+                }
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    request.len()
+                );
+                let _ = tls.write_all(response.as_bytes());
+                let _ = tls.write_all(&request);
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+            }
+        });
+        port
+    }
+
+    pub fn spawn_stalled_tcp_server(connections: usize) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stalled loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        std::thread::spawn(move || {
+            let mut streams = Vec::new();
+            for _ in 0..connections {
+                let Ok((stream, _)) = listener.accept() else {
+                    return;
+                };
+                streams.push(stream);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            drop(streams);
+        });
+        port
+    }
+
+    /// Accept one bridged TLS client, deliberately stop consuming application
+    /// data after the handshake, then acknowledge only after `expected` bytes
+    /// arrive. This forces both rustls' plaintext buffer and the raw socket's
+    /// writable queue through their backpressure paths.
+    fn spawn_delayed_tls_sink_inner(expected: usize, await_peer_close: bool) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = server_config();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(15)))
+                .ok();
+            let mut conn = rustls::ServerConnection::new(config).expect("server connection");
+            while conn.is_handshaking() {
+                if conn.complete_io(&mut stream).is_err() {
+                    return;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+            let mut received = 0usize;
+            let mut buf = [0u8; 16 * 1024];
+            while received < expected {
+                match tls.read(&mut buf) {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => received += n,
+                }
+            }
+            if await_peer_close {
+                // `TLSSocket.end()` sends close_notify immediately after the
+                // final application record. Drain that alert before closing
+                // this TcpStream: dropping a socket with unread inbound bytes
+                // can send RST and truncate our own close_notify after the ack.
+                loop {
+                    match tls.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => received += n,
+                        Err(_) => return,
+                    }
+                }
+            }
+            let response = format!("ack:{received}");
+            let _ = tls.write_all(response.as_bytes());
+            tls.conn.send_close_notify();
+            let _ = tls.flush();
+        });
+        port
+    }
+
+    pub fn spawn_delayed_tls_sink(expected: usize) -> u16 {
+        spawn_delayed_tls_sink_inner(expected, false)
+    }
+
+    pub fn spawn_delayed_tls_closing_sink(expected: usize) -> u16 {
+        spawn_delayed_tls_sink_inner(expected, true)
+    }
+
+    /// Push a large response immediately after the handshake. The client test
+    /// pauses before consuming it, exercising bounded ciphertext/plaintext
+    /// retention and resume without involving the public network.
+    pub fn spawn_tls_push_server(payload: Vec<u8>) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = server_config();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut conn = rustls::ServerConnection::new(config).expect("server connection");
+            while conn.is_handshaking() {
+                if conn.complete_io(&mut stream).is_err() {
+                    return;
+                }
+            }
+            let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+            let _ = tls.write_all(&payload);
+            tls.conn.send_close_notify();
+            let _ = tls.flush();
+        });
+        port
+    }
+
+    /// Send a complete large HTTP response over real TLS. The client can delay
+    /// attaching a body consumer so TcpIncomingMessage fills its readable HWM,
+    /// pauses the TLSSocket, and must later resume the underlying raw input.
+    pub fn spawn_tls_http_body_server(payload: Vec<u8>) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = server_config();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut conn = rustls::ServerConnection::new(config).expect("server connection");
+            let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+            let mut request = Vec::new();
+            let mut buf = [0u8; 2048];
+            loop {
+                match tls.read(&mut buf) {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => {
+                        request.extend_from_slice(&buf[..n]);
+                        if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                }
+            }
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len()
+            );
+            let _ = tls.write_all(head.as_bytes());
+            let _ = tls.write_all(&payload);
+            tls.conn.send_close_notify();
+            let _ = tls.flush();
+        });
+        port
+    }
+}
+
+#[tokio::test]
+async fn node_tls_bridge_write_reports_and_recovers_from_transport_backpressure() {
+    let payload_len = 8 * 1024 * 1024;
+    let port = tls_bridge_support::spawn_delayed_tls_sink(payload_len);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ drain: false, callback: false, bytes: {payload_len} }};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 15000);
+var sock = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT]
+}}, function () {{
+  sock.on('drain', function () {{ out.drain = true; }});
+  var returned = sock.write(Buffer.alloc({payload_len}, 0x61), function () {{
+    out.callback = true;
+  }});
+  out.returned = returned;
+}});
+var body = '';
+sock.on('data', function (chunk) {{ body += chunk.toString(); }});
+sock.on('end', function () {{
+  out.body = body;
+  setTimeout(function () {{
+    clearTimeout(watchdog);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }}, 50);
+}});
+sock.on('error', function (e) {{
+  out.error = (e.code || '') + ':' + e.message;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(
+        v["returned"], false,
+        "write() must include raw TLS transport pressure discovered while draining: {v}"
+    );
+    assert_eq!(v["drain"], true, "drain must follow recovery: {v}");
+    assert_eq!(v["callback"], true, "write callback must complete: {v}");
+    assert_eq!(v["body"], format!("ack:{payload_len}"), "{v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_large_prehandshake_write_does_not_stall_at_zero_progress() {
+    let payload_len = 2 * 1024 * 1024;
+    let port = tls_bridge_support::spawn_delayed_tls_sink(payload_len);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ callback: false }};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 15000);
+var sock = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT]
+}});
+out.returned = sock.write(Buffer.alloc({payload_len}, 0x62), function () {{ out.callback = true; }});
+var body = '';
+sock.on('data', function (chunk) {{ body += chunk.toString(); }});
+sock.on('end', function () {{
+  out.body = body;
+  setTimeout(function () {{
+    clearTimeout(watchdog);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }}, 50);
+}});
+sock.on('error', function (e) {{
+  out.error = (e.code || '') + ':' + e.message;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(v["returned"], false, "pre-handshake HWM must apply: {v}");
+    assert_eq!(
+        v["callback"], true,
+        "held write callback must complete: {v}"
+    );
+    assert_eq!(v["body"], format!("ack:{payload_len}"), "{v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_paused_reader_keeps_ciphertext_bounded_and_resumes_losslessly() {
+    let payload_len = 1024 * 1024;
+    let port = tls_bridge_support::spawn_tls_push_server(vec![b'x'; payload_len]);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ bytes: 0 }};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 15000);
+var sock = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT]
+}}, function () {{
+  sock.pause();
+  setTimeout(function () {{
+    var stats = sock[Symbol.for('ibex.tls.flowControlStats')]();
+    out.retained = stats.retainedCiphertextBytes;
+    out.cap = stats.ciphertextHighWaterMark;
+    out.bounded = out.retained <= out.cap;
+    sock.on('data', function (chunk) {{ out.bytes += chunk.length; }});
+    sock.resume();
+  }}, 250);
+}});
+sock.on('end', function () {{
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}});
+sock.on('error', function (e) {{
+  out.error = (e.code || '') + ':' + e.message;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(v["bounded"], true, "ciphertext retention exceeded HWM: {v}");
+    assert_eq!(v["bytes"], payload_len, "resume lost decrypted bytes: {v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_pipe_before_connect_never_exposes_ciphertext() {
+    let payload = b"decrypted-pipe-only".repeat(4096);
+    let expected_len = payload.len();
+    let port = tls_bridge_support::spawn_tls_push_server(payload);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var EventEmitter = require('events');
+var out = {{ bytes: 0, prefix: '', ended: false }};
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true, out: out }})); process.exit(1); }}, 10000);
+var dest = new EventEmitter();
+dest.write = function (chunk) {{
+  var bytes = Buffer.from(chunk);
+  if (!out.prefix) out.prefix = bytes.slice(0, 24).toString();
+  out.bytes += bytes.length;
+  return true;
+}};
+dest.end = function () {{
+  out.ended = true;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}};
+var socket = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT] }});
+// This is intentionally before TCP connect / secureConnect. Delegating to the
+// raw socket here would pipe ClientHello and encrypted records to `dest`.
+socket.pipe(dest);
+socket.on('error', function (error) {{ out.error = error.code || error.message; clearTimeout(watchdog); console.log(JSON.stringify(out)); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v["bytes"], expected_len, "pipe leaked or lost bytes: {v}");
+    assert_eq!(v["prefix"], "decrypted-pipe-onlydecry", "{v}");
+    assert_eq!(v["ended"], true, "pipe destination did not end: {v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_set_encoding_preserves_utf8_split_across_tls_chunks() {
+    let mut payload = vec![b'a'; 16 * 1024 - 1];
+    payload.extend_from_slice("€z".as_bytes());
+    let expected_len = payload.len();
+    let port = tls_bridge_support::spawn_tls_push_server(payload);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ text: '' }};
+var sock = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT] }});
+sock.setEncoding('utf8');
+sock.on('data', function (chunk) {{ out.text += chunk; }});
+sock.on('end', function () {{
+  out.length = Buffer.from(out.text).length;
+  out.suffix = out.text.slice(-2);
+  out.replacements = (out.text.match(/�/g) || []).length;
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}});
+sock.on('error', function (e) {{ console.log(JSON.stringify({{ error: e.code || e.message }})); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v["length"], expected_len, "{v}");
+    assert_eq!(v["suffix"], "€z", "{v}");
+    assert_eq!(v["replacements"], 0, "{v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_readable_mode_delivers_decoder_tail_before_end() {
+    let port = tls_bridge_support::spawn_tls_push_server(vec![0xe2, 0x82]);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var events = [];
+var sock = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT] }});
+sock.setEncoding('utf8');
+sock.on('readable', function () {{
+  var chunk;
+  while ((chunk = sock.read()) !== null) {{
+    if (chunk) events.push('tail:' + chunk);
+  }}
+}});
+sock.on('end', function () {{ events.push('end'); console.log(JSON.stringify(events)); process.exit(0); }});
+sock.on('error', function (e) {{ console.log(JSON.stringify(['error:' + (e.code || e.message)])); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v, serde_json::json!(["tail:�", "end"]), "{v}");
 }
 
 #[tokio::test]
@@ -558,6 +1139,53 @@ sock.on('error', function (e) {{
     assert_eq!(v["hasRawDer"], true, "{v}");
     assert_eq!(v["status"], "HTTP/1.1 200 OK", "{v}");
     assert_eq!(v["gotBody"], true, "application data over real TLS: {v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_applies_cipher_and_protocol_bounds_and_rejects_sessions_loudly() {
+    let port = tls_bridge_support::spawn_tls_http_server();
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{}};
+try {{
+  tls.connect({{ host: '127.0.0.1', port: {port}, session: Buffer.from([1, 2, 3]) }});
+  out.session = 'accepted';
+}} catch (error) {{
+  out.session = error.code;
+}}
+try {{
+  tls.connect({{ host: '127.0.0.1', port: {port}, maxVersion: 'TLSv1.1' }});
+  out.lowMax = 'accepted';
+}} catch (error) {{
+  out.lowMax = error.code;
+}}
+var socket = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  minVersion: 'TLSv1.2', maxVersion: 'TLSv1.2',
+  ciphers: 'ECDHE-RSA-AES128-GCM-SHA256'
+}}, function () {{
+  out.protocol = socket.getProtocol();
+  out.cipher = socket.getCipher().name;
+  out.getSession = socket.getSession();
+  out.reused = socket.isSessionReused();
+  socket.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+}});
+socket.on('data', function () {{}});
+socket.on('end', function () {{ console.log(JSON.stringify(out)); process.exit(0); }});
+socket.on('error', function (error) {{ out.error = error.code || error.message; console.log(JSON.stringify(out)); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v["session"], "ERR_TLS_SESSION_UNSUPPORTED", "{v}");
+    assert_eq!(v["lowMax"], "ERR_TLS_INVALID_PROTOCOL_VERSION", "{v}");
+    assert_eq!(v["protocol"], "TLSv1.2", "version bounds were ignored: {v}");
+    assert_eq!(
+        v["cipher"], "ECDHE-RSA-AES128-GCM-SHA256",
+        "cipher option was ignored: {v}"
+    );
+    assert_eq!(v["getSession"], Value::Null, "reduced session profile: {v}");
+    assert_eq!(v["reused"], false, "reduced session profile: {v}");
 }
 
 #[tokio::test]
@@ -712,6 +1340,372 @@ https.get('https://localhost:{port}/', {{ ca: [CERT] }}, function (res) {{
     let v = run_script(&with_fixture_pems(&script), 30).await;
     assert_eq!(v["status"], 200, "{v}");
     assert_eq!(v["body"], "ok-over-real-tls", "{v}");
+}
+
+#[tokio::test]
+async fn node_https_large_paused_response_resumes_without_loss() {
+    let payload_len = 1024 * 1024;
+    let port = tls_bridge_support::spawn_tls_http_body_server(vec![b'h'; payload_len]);
+    let script = format!(
+        r#"
+var https = require('https');
+var out = {{ bytes: 0 }};
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true, out: out }})); process.exit(1); }}, 12000);
+https.get('https://localhost:{port}/', {{ ca: [CERT] }}, function (response) {{
+  // Leave the response unread long enough to fill its readable HWM. The HTTP
+  // layer pauses the TLSSocket; attaching the consumer must resume raw input.
+  setTimeout(function () {{
+    response.on('data', function (chunk) {{ out.bytes += chunk.length; }});
+    response.on('end', function () {{
+      clearTimeout(watchdog);
+      console.log(JSON.stringify(out));
+      process.exit(0);
+    }});
+    response.resume();
+  }}, 200);
+}}).on('error', function (error) {{ out.error = error.code || error.message; clearTimeout(watchdog); console.log(JSON.stringify(out)); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(
+        v["bytes"], payload_len,
+        "HTTPS resume lost or stranded body: {v}"
+    );
+}
+
+#[tokio::test]
+async fn node_tls_bridge_mutual_tls_requires_a_matching_cert_and_key() {
+    let port = tls_bridge_support::spawn_mutual_tls_http_server();
+    let wrong_key = serde_json::to_string(WRONG_CLIENT_KEY).unwrap();
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{}};
+var pending = 3;
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 12000);
+function done() {{
+  pending--;
+  if (pending !== 0) return;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}}
+
+var ok = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost',
+  ca: [CERT], cert: CERT, key: KEY
+}}, function () {{
+  var response = '';
+  ok.on('data', function (chunk) {{ response += chunk.toString(); }});
+  ok.on('end', function () {{ out.success = response.indexOf('mutual-tls-ok') !== -1; done(); }});
+  ok.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+}});
+ok.on('error', function (e) {{ out.successError = e.message; done(); }});
+
+var missing = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT], cert: CERT
+}});
+missing.on('error', function (e) {{ out.missing = String(e.message); done(); }});
+
+var wrong = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost',
+  ca: [CERT], cert: CERT, key: {wrong_key}
+}});
+wrong.on('error', function (e) {{ out.wrong = String(e.message); done(); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(v["success"], true, "valid client identity must work: {v}");
+    assert!(
+        v["missing"]
+            .as_str()
+            .is_some_and(|message| message.contains("both cert and key are required")),
+        "one-sided client identity must be rejected: {v}"
+    );
+    assert!(
+        v["wrong"]
+            .as_str()
+            .is_some_and(|message| message.contains("mismatch")),
+        "mismatched client certificate/key must be rejected before handshake: {v}"
+    );
+}
+
+#[cfg(not(target_os = "ios"))]
+#[tokio::test]
+async fn node_tls_bridge_mutual_tls_accepts_password_protected_pfx() {
+    use base64::Engine as _;
+    use openssl::pkcs12::Pkcs12;
+    use openssl::pkey::PKey;
+    use openssl::symm::Cipher;
+    use openssl::x509::X509;
+
+    let key = PKey::private_key_from_pem(TEST_KEY.as_bytes()).expect("fixture key parses");
+    let cert = X509::from_pem(TEST_CERT.as_bytes()).expect("fixture certificate parses");
+    let mut builder = Pkcs12::builder();
+    builder.name("ibex-mtls").pkey(&key).cert(&cert);
+    let archive = builder
+        .build2("correct horse battery staple")
+        .expect("build password-protected PKCS#12 fixture")
+        .to_der()
+        .expect("encode PKCS#12 fixture");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(archive);
+    let encrypted_key = String::from_utf8(
+        key.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"encrypted key passphrase")
+            .expect("encrypt PKCS#8 client key"),
+    )
+    .expect("encrypted key PEM is UTF-8");
+    let encrypted_key = serde_json::to_string(&encrypted_key).unwrap();
+    let port = tls_bridge_support::spawn_mutual_tls_http_server();
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{}};
+var pending = 5;
+var pfx = Buffer.from({encoded:?}, 'base64');
+var originalToString = pfx.toString;
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 12000);
+function done() {{
+  pending--;
+  if (pending !== 0) return;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}}
+
+var ok = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  pfx: pfx, passphrase: 'correct horse battery staple'
+}}, function () {{
+  var response = '';
+  ok.on('data', function (chunk) {{ response += chunk.toString(); }});
+  ok.on('end', function () {{ out.success = response.indexOf('mutual-tls-ok') !== -1; done(); }});
+  ok.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+}});
+ok.on('error', function (e) {{ out.successError = e.message; done(); }});
+
+var wrong = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  pfx: pfx, passphrase: 'wrong passphrase'
+}});
+wrong.on('error', function (e) {{ out.wrong = String(e.message); done(); }});
+
+var trailing = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  pfx: Buffer.concat([pfx, Buffer.from([0])]), passphrase: 'correct horse battery staple'
+}});
+trailing.on('error', function (e) {{ out.trailing = String(e.message); done(); }});
+
+var oversizedPfx = Buffer.alloc(16 * 1024 * 1024 + 1);
+oversizedPfx.toString = function () {{ out.oversizedEncoded = true; return originalToString.apply(this, arguments); }};
+var oversized = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  pfx: oversizedPfx, passphrase: 'irrelevant'
+}});
+oversized.on('error', function (e) {{ out.oversized = (e.code || '') + ':' + e.message; done(); }});
+
+var encrypted = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  cert: CERT, key: {encrypted_key}, passphrase: 'encrypted key passphrase'
+}}, function () {{
+  var response = '';
+  encrypted.on('data', function (chunk) {{ response += chunk.toString(); }});
+  encrypted.on('end', function () {{
+    out.encryptedKey = response.indexOf('mutual-tls-ok') !== -1;
+    done();
+  }});
+  encrypted.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+}});
+encrypted.on('error', function (e) {{ out.encryptedKeyError = e.message; done(); }});
+
+try {{
+  __exactTlsEngineNew(JSON.stringify({{ host: 'localhost', pfx: '/x==', passphrase: '' }}));
+  out.noncanonicalBase64 = 'accepted';
+}} catch (e) {{
+  out.noncanonicalBase64 = String(e.message);
+}}
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(
+        v["success"], true,
+        "valid pfx client identity must work: {v}"
+    );
+    assert_eq!(
+        v["encryptedKey"], true,
+        "encrypted PEM client identity must work: {v}"
+    );
+    assert!(
+        v["wrong"]
+            .as_str()
+            .is_some_and(|message| message.contains("passphrase")),
+        "wrong pfx passphrase must fail before handshake: {v}"
+    );
+    assert!(
+        v["trailing"]
+            .as_str()
+            .is_some_and(|message| message.contains("trailing or noncanonical DER")),
+        "PFX trailing data must fail closed: {v}"
+    );
+    assert!(
+        v["oversized"]
+            .as_str()
+            .is_some_and(|message| message.contains("ERR_TLS_PFX_TOO_LARGE")),
+        "oversized PFX must fail before native decoding: {v}"
+    );
+    assert!(
+        v.get("oversizedEncoded").is_none(),
+        "oversized PFX was base64-expanded before rejection: {v}"
+    );
+    assert!(
+        v["noncanonicalBase64"]
+            .as_str()
+            .is_some_and(|message| message.contains("canonical base64")),
+        "native PFX base64 boundary must be canonical: {v}"
+    );
+}
+
+#[tokio::test]
+async fn node_tls_bridge_end_with_data_during_handshake_flushes_before_close_notify() {
+    let payload = "end-during-handshake";
+    let port = tls_bridge_support::spawn_delayed_tls_closing_sink(payload.len());
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ callback: false, secure: false, body: '' }};
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true }})); process.exit(1); }}, 10000);
+var socket = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT] }});
+socket.on('secureConnect', function () {{ out.secure = true; }});
+socket.on('data', function (chunk) {{ out.body += chunk.toString(); }});
+socket.on('end', function () {{
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}});
+socket.on('error', function (e) {{ out.error = (e.code || '') + ':' + e.message; clearTimeout(watchdog); console.log(JSON.stringify(out)); process.exit(1); }});
+socket.end({payload:?}, function () {{ out.callback = true; }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(
+        v["secure"], true,
+        "handshake must complete before ending: {v}"
+    );
+    assert_eq!(v["callback"], true, "end callback must run: {v}");
+    assert_eq!(v["body"], format!("ack:{}", payload.len()), "{v}");
+}
+
+#[tokio::test]
+async fn node_https_honors_custom_agent_create_connection_auth_and_array_headers() {
+    let port = tls_bridge_support::spawn_tls_request_echo_server(2);
+    let script = format!(
+        r#"
+var https = require('https');
+var tls = require('tls');
+var out = {{}};
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true, out: out }})); process.exit(1); }}, 12000);
+function collect(name, request, next) {{
+  request.on('response', function (response) {{
+    var body = '';
+    response.on('data', function (chunk) {{ body += chunk.toString(); }});
+    response.on('end', function () {{ out[name] = body; next(); }});
+  }});
+  request.on('error', function (error) {{ out[name + 'Error'] = error.code || error.message; next(); }});
+  request.end();
+}}
+
+var agent = new https.Agent({{ ca: [CERT] }});
+var inheritedCreate = agent.createConnection;
+agent.createConnection = function (options, callback) {{
+  out.customAgent = true;
+  return inheritedCreate.call(this, options, callback);
+}};
+var first = https.request({{
+  host: '127.0.0.1', port: {port}, servername: 'localhost', agent: agent,
+  auth: 'alice:secret',
+  headers: [['X-First', 'one'], ['X-Second', 'two']]
+}});
+collect('agentRequest', first, function () {{
+  var second = https.request({{
+    host: '127.0.0.1', port: {port}, servername: 'localhost', ca: [CERT],
+    createConnection: function (options, callback) {{
+      out.customCreateConnection = true;
+      return tls.connect(options, callback);
+    }},
+    headers: [['X-Third', 'three']]
+  }});
+  collect('connectionRequest', second, function () {{
+    clearTimeout(watchdog);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }});
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(v["customAgent"], true, "custom Agent was bypassed: {v}");
+    assert_eq!(
+        v["customCreateConnection"], true,
+        "request createConnection was bypassed: {v}"
+    );
+    let agent_request = v["agentRequest"].as_str().unwrap_or_default();
+    assert!(
+        agent_request
+            .to_ascii_lowercase()
+            .contains("authorization: basic ywxpy2u6c2vjcmv0"),
+        "auth option did not become Basic authorization: {v}"
+    );
+    let agent_request_lower = agent_request.to_ascii_lowercase();
+    assert!(
+        agent_request_lower.contains("x-first: one"),
+        "array header lost: {v}"
+    );
+    assert!(
+        agent_request_lower.contains("x-second: two"),
+        "array header lost: {v}"
+    );
+    assert!(
+        v["connectionRequest"]
+            .as_str()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .contains("x-third: three"),
+        "array header lost on custom createConnection path: {v}"
+    );
+}
+
+#[tokio::test]
+async fn node_https_timeout_and_abort_signal_reach_socket_transport() {
+    let port = tls_bridge_support::spawn_stalled_tcp_server(2);
+    let script = format!(
+        r#"
+var https = require('https');
+var out = {{}};
+var pending = 2;
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true, out: out }})); process.exit(1); }}, 8000);
+function done() {{ if (--pending) return; clearTimeout(watchdog); console.log(JSON.stringify(out)); process.exit(0); }}
+var timed = https.get({{ host: '127.0.0.1', port: {port}, servername: 'localhost', rejectUnauthorized: false, timeout: 75 }});
+timed.on('timeout', function () {{ out.timeout = true; timed.destroy(); }});
+timed.on('close', function () {{ done(); }});
+timed.on('error', function (e) {{ out.timeoutError = e.code || e.message; }});
+
+var controller = new AbortController();
+var aborted = https.get({{ host: '127.0.0.1', port: {port}, servername: 'localhost', rejectUnauthorized: false, signal: controller.signal }});
+aborted.on('error', function (e) {{ out.abortCode = e.code || e.name; }});
+aborted.on('close', function () {{ done(); }});
+setTimeout(function () {{ controller.abort(); }}, 25);
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v["timeout"], true, "HTTPS timeout option was dropped: {v}");
+    assert_eq!(v["abortCode"], "ABORT_ERR", "HTTPS signal was dropped: {v}");
 }
 
 #[tokio::test]

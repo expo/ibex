@@ -20,8 +20,51 @@ const SPECIAL_SCHEMES = new Set(["ftp", "file", "http", "https", "ws", "wss"]);
 const OBJECT_URL_PREFIX = "blob:exact:";
 const objectURLRegistry = new Map<string, unknown>();
 let objectURLCounter = 0;
+const hostURLConstructorValidity = new Map<Function, boolean>();
+const IS_IBEX_LOADER_RUNTIME =
+  typeof (globalThis as { __exactRequire?: unknown }).__exactRequire === "function";
+
+function isStableHostURLConstructor(
+  candidate: typeof globalThis.URL | undefined,
+): candidate is typeof globalThis.URL {
+  if (typeof candidate !== "function") {
+    return false;
+  }
+  const cached = hostURLConstructorValidity.get(candidate);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  let valid = false;
+  try {
+    // Some bootstrap shims appear structurally valid for one construction but
+    // reuse mutable parser state on the next, returning object-valued URL
+    // fields. Such a constructor corrupts concurrent fetch targets into
+    // "[object Object]". Require two independent exact results before treating
+    // an ambient implementation as parsing authority.
+    const first = new candidate("https://example.invalid/a");
+    const second = new candidate("https://example.invalid/b");
+    valid =
+      first !== second &&
+      first.href === "https://example.invalid/a" &&
+      second.href === "https://example.invalid/b" &&
+      first.hostname === "example.invalid" &&
+      second.hostname === "example.invalid";
+  } catch {
+    valid = false;
+  }
+  hostURLConstructorValidity.set(candidate, valid);
+  return valid;
+}
+
+const INITIAL_HOST_URL_CONSTRUCTOR: typeof globalThis.URL | undefined =
+  !IS_IBEX_LOADER_RUNTIME && typeof globalThis.URL === "function"
+    ? globalThis.URL
+    : undefined;
 const HOST_URL_CONSTRUCTOR: typeof globalThis.URL | undefined =
-  typeof globalThis.URL === "function" ? globalThis.URL : undefined;
+  isStableHostURLConstructor(INITIAL_HOST_URL_CONSTRUCTOR)
+    ? INITIAL_HOST_URL_CONSTRUCTOR
+    : undefined;
 
 function makeMissingArgsError(argumentName: string): TypeError {
   const error = new TypeError(`The "${argumentName}" argument must be specified`);
@@ -45,15 +88,22 @@ function makeInvalidBlobError(object: unknown): TypeError {
 }
 
 function resolveHostURLConstructor(): typeof globalThis.URL | undefined {
-  if (
-    typeof HOST_URL_CONSTRUCTOR === "function" &&
-    HOST_URL_CONSTRUCTOR !== (URL as any)
-  ) {
+  // Ibex's bootstrap `URL` is a loader shim, not independent parsing
+  // authority: installing the full runtime globals mutates what that shim
+  // delegates to and can make later constructions return object-valued
+  // fields. Use this module's closed parser inside Ibex instead of retaining
+  // the mutable bootstrap constructor across the handoff.
+  // @ref LLP 0021#typed-resources-and-initial-vocabulary — endpoint normalization must be deterministic and fail closed
+  if (IS_IBEX_LOADER_RUNTIME) {
+    return undefined;
+  }
+
+  if (isStableHostURLConstructor(HOST_URL_CONSTRUCTOR)) {
     return HOST_URL_CONSTRUCTOR;
   }
 
   const globalURL = globalThis.URL;
-  if (typeof globalURL === "function" && globalURL !== (URL as any)) {
+  if (globalURL !== (URL as any) && isStableHostURLConstructor(globalURL)) {
     return globalURL;
   }
 
@@ -67,7 +117,7 @@ function resolveHostURLConstructor(): typeof globalThis.URL | undefined {
     try {
       const urlModule = loader("url");
       const moduleURL = urlModule?.URL;
-      if (typeof moduleURL === "function" && moduleURL !== (URL as any)) {
+      if (moduleURL !== (URL as any) && isStableHostURLConstructor(moduleURL)) {
         return moduleURL;
       }
     } catch {
@@ -86,7 +136,7 @@ function canonicalizeSpecialHost(value: string): string {
     return value.toLowerCase();
   }
   const parsed = new hostURL(`https://${value}`);
-  return parsed.hostname;
+  return parsed.hostname || value.toLowerCase();
 }
 
 function toHex(code: number): string {
@@ -609,23 +659,51 @@ export class URL {
     if (typeof hostURL === "function") {
       try {
         const parsed = base ? new hostURL(input, base.href) : new hostURL(input);
-        this._protocol = parsed.protocol;
-        this._username = parsed.username;
-        this._password = parsed.password;
-        this._hostname = parsed.hostname;
-        this._port = parsed.port;
-        this._pathname = parsed.pathname;
-        this._search = parsed.search;
-        this._hash = parsed.hash;
-        // Host implementations expose hostname "" both for empty hosts
-        // (file:///x) and absent hosts (mailto:x); the serialized href is the
-        // only reliable signal. A null-host URL never serializes "//" right
-        // after the scheme (paths starting "//" get a "/." guard).
-        this._hasHost = parsed.href.startsWith(`${parsed.protocol}//`);
-        return;
+        const requiredStringFields = [
+          "protocol",
+          "username",
+          "password",
+          "hostname",
+          "port",
+          "pathname",
+          "search",
+          "hash",
+          "href",
+        ];
+        const parsedRecord = parsed as unknown as Record<string, unknown>;
+        const malformedHostResult = requiredStringFields.some(
+          (field) => typeof parsedRecord[field] !== "string",
+        );
+        const parsedProtocol = malformedHostResult ? "" : parsed.protocol;
+        const parsedHostname = malformedHostResult ? "" : parsed.hostname;
+        const parsedHref = malformedHostResult ? "" : parsed.href;
+        const discardedRequiredAuthority =
+          SPECIAL_SCHEMES.has(parsedProtocol.slice(0, -1)) &&
+          parsedProtocol !== "file:" &&
+          (parsedHostname === "" || !parsedHref.startsWith(`${parsedProtocol}//`));
+        if (!malformedHostResult && !discardedRequiredAuthority) {
+          this._protocol = parsed.protocol;
+          this._username = parsed.username;
+          this._password = parsed.password;
+          this._hostname = parsed.hostname;
+          this._port = parsed.port;
+          this._pathname = parsed.pathname;
+          this._search = parsed.search;
+          this._hash = parsed.hash;
+          // Host implementations expose hostname "" both for empty hosts
+          // (file:///x) and absent hosts (mailto:x); the serialized href is the
+          // only reliable signal. A null-host URL never serializes "//" right
+          // after the scheme (paths starting "//" get a "/." guard).
+          this._hasHost = parsedHref.startsWith(`${parsed.protocol}//`);
+          return;
+        }
       } catch {
         throw _makeURLError(input, baseStr);
       }
+      // The bootstrap URL shim can return malformed fields or recognize a
+      // scheme while silently dropping its authority. Re-run that structurally
+      // impossible result through the runtime's closed parser; never pass the
+      // truncated endpoint onward.
     }
 
     const parsed = parseBasicUrl(input, base);
@@ -955,7 +1033,7 @@ export class URL {
   }
 
   get search(): string {
-    return this._search;
+    return this._search === "?" ? "" : this._search;
   }
 
   set search(value: string) {
@@ -983,7 +1061,7 @@ export class URL {
   }
 
   get hash(): string {
-    return this._hash;
+    return this._hash === "#" ? "" : this._hash;
   }
 
   set hash(value: string) {

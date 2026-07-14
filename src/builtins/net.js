@@ -13,6 +13,16 @@ var StringDecoder = null;
 var _rejectionSymbol = typeof Symbol === 'function' && typeof Symbol.for === 'function'
   ? Symbol.for('nodejs.rejection')
   : null;
+var _kRunOwnedTlsServer = typeof Symbol === 'function' && typeof Symbol.for === 'function'
+  ? Symbol.for('ibex.tls.runOwnedServer')
+  : '__ibexTlsRunOwnedServer';
+var _kCloseOwnedTlsServer = typeof Symbol === 'function' && typeof Symbol.for === 'function'
+  ? Symbol.for('ibex.tls.closeOwnedServer')
+  : '__ibexTlsCloseOwnedServer';
+var _kRegisterServerOwnerGuard = typeof Symbol === 'function' && typeof Symbol.for === 'function'
+  ? Symbol.for('ibex.net.registerServerOwnerGuard')
+  : '__ibexNetRegisterServerOwnerGuard';
+var _netServerStates = typeof WeakMap === 'function' ? new WeakMap() : null;
 var _assertListenerArgument = null;
 try { EventEmitter = require('events'); } catch(e) {
   EventEmitter = function() { this._events = {}; };
@@ -69,6 +79,28 @@ if (!_assertListenerArgument) {
     }
   };
 }
+
+// Capture the EventEmitter entry points before application code can replace
+// the shared prototype. Socket instances expose owner-checked, non-replaceable
+// projections of these functions below. More importantly, saved base
+// prototype calls still have to cross the private `_events` accessor, so
+// possession of a retained socket is not enough to subscribe to its traffic.
+// @ref LLP 0004#retained-native-wrapper-invariant — listener registration and
+// inbound disclosure remain bound to the socket's creating principal.
+var _eventEmitterOwned = Object.create(null);
+[
+  'emit', 'on', 'addListener', 'once', 'prependListener',
+  'prependOnceListener', 'removeListener', 'off', 'removeAllListeners',
+  'listeners', 'rawListeners', 'listenerCount', 'eventNames',
+  'getMaxListeners', 'setMaxListeners'
+].forEach(function(name) {
+  if (EventEmitter.prototype && typeof EventEmitter.prototype[name] === 'function') {
+    _eventEmitterOwned[name] = EventEmitter.prototype[name];
+  }
+});
+var _netSocketOnOwned = null;
+var _netSocketAddListenerOwned = null;
+var _netSocketPrependListenerOwned = null;
 
 try {
   StringDecoder = require('node:string_decoder').StringDecoder;
@@ -184,6 +216,10 @@ var _hasTcp = typeof __exactTcpConnect === 'function';
 // when these host functions are unavailable (older/embedded frameworks).
 var _hasAsyncTcpConnect = typeof __exactTcpConnectStart === 'function' &&
   typeof __exactTcpConnectPoll === 'function';
+// Capture the native owner boundary before application code can replace the
+// writable global binding. The host returns an opaque runtime/principal stamp;
+// `assert` optionally checks an adopted native handle under the same owner.
+var _netOwnerHost = typeof __exactNetOwner === 'function' ? __exactNetOwner : null;
 // How often (ms) the event loop re-checks a pending non-blocking connect.
 var _CONNECT_POLL_INTERVAL_MS = 1;
 // Check for native Unix socket support
@@ -239,6 +275,313 @@ function _getFastLocalhostConnectCandidates(family, autoSelectFamily) {
 var _defaultAutoSelectFamilyAttemptTimeout = _resolveDefaultAutoSelectFamilyAttemptTimeout();
 var _defaultAutoSelectFamily = false;
 var _boundTcpServers = [];
+var _netSocketHandleObjects = typeof WeakMap === 'function' ? new WeakMap() : null;
+var _fallbackSocketHandleStates = typeof WeakMap === 'function' ? new WeakMap() : null;
+
+function _assertNetSocketStateOwner(state) {
+  if (!state) {
+    var receiverErr = new TypeError('net.Socket method called on an incompatible receiver');
+    receiverErr.code = 'ERR_INVALID_THIS';
+    throw receiverErr;
+  }
+  if (state.ownerStamp != null && _netOwnerHost) {
+    _netOwnerHost('assert', state.ownerStamp);
+    return state;
+  }
+  // A successfully destroyed socket has no authority-bearing native selector
+  // or queued bytes left. Keep read-only post-close inspection compatible,
+  // but never treat a missing owner stamp on a live production socket as ambient.
+  if (state.destroyed === true) return state;
+  if (_hasTcp || _hasUnix) {
+    throw new Error('net.Socket owner stamp is unavailable');
+  }
+  return state;
+}
+
+function _assertNetSocketOwner(socket, nativeHandle) {
+  var state = _netSocketHandleObjects && _netSocketHandleObjects.get(socket);
+  state = _assertNetSocketStateOwner(state);
+  if (nativeHandle != null && typeof nativeHandle === 'number') {
+    if (!_netOwnerHost || state.ownerStamp == null) {
+      throw new Error('net.Socket native handle owner check is unavailable');
+    }
+    _netOwnerHost('assert', state.ownerStamp, nativeHandle);
+  }
+  return state;
+}
+
+function _netSocketPrivateDescriptor(state, stateName, enumerable) {
+  return {
+    enumerable: enumerable === true,
+    configurable: false,
+    get: function() {
+      _assertNetSocketStateOwner(state);
+      return state[stateName];
+    },
+    set: function(value) {
+      _assertNetSocketStateOwner(state);
+      if (state.destroyed === true) {
+        throw new Error('net.Socket is closed');
+      }
+      state[stateName] = value;
+    }
+  };
+}
+
+// These fields either influence a later native operation, retain inbound or
+// outbound bytes, or control an owner-scheduled continuation. Keeping the
+// values in the socket's WeakMap state means a retained wrapper cannot poison
+// them with a direct assignment. The properties remain observable to the
+// creating principal for Node compatibility, but are only projections of the
+// module-private values.
+function _netSocketStateProjectionDescriptor(state, name, enumerable) {
+  return {
+    enumerable: enumerable !== false,
+    configurable: false,
+    get: function() {
+      _assertNetSocketStateOwner(state);
+      return state.protectedValues[name];
+    },
+    set: function(value) {
+      _assertNetSocketStateOwner(state);
+      state.protectedValues[name] = value;
+    }
+  };
+}
+
+function _ownedNetSocketEventMethod(name) {
+  if (name === 'on' && _netSocketOnOwned) return _netSocketOnOwned;
+  if (name === 'addListener' && _netSocketAddListenerOwned) return _netSocketAddListenerOwned;
+  if (name === 'prependListener' && _netSocketPrependListenerOwned) return _netSocketPrependListenerOwned;
+  return _eventEmitterOwned[name];
+}
+
+function _netSocketEventMethodDescriptor(state, name) {
+  return {
+    enumerable: false,
+    configurable: false,
+    get: function() {
+      _assertNetSocketStateOwner(state);
+      return _ownedNetSocketEventMethod(name);
+    },
+    set: function() {
+      _assertNetSocketStateOwner(state);
+      throw new Error('net.Socket event methods are private');
+    }
+  };
+}
+
+function _installNetSocketEventMethodProjections(socket, state) {
+  // Keep every installed public name literal so the CapSec surface inventory
+  // can prove the exported Socket shape without trusting a runtime name table.
+  // Event methods are non-replaceable: otherwise a foreign holder can replace
+  // `emit` and wait for the owner's read poll to hand it plaintext.
+  Object.defineProperties(socket, {
+    emit: _netSocketEventMethodDescriptor(state, 'emit'),
+    on: _netSocketEventMethodDescriptor(state, 'on'),
+    addListener: _netSocketEventMethodDescriptor(state, 'addListener'),
+    once: _netSocketEventMethodDescriptor(state, 'once'),
+    prependListener: _netSocketEventMethodDescriptor(state, 'prependListener'),
+    prependOnceListener: _netSocketEventMethodDescriptor(state, 'prependOnceListener'),
+    removeListener: _netSocketEventMethodDescriptor(state, 'removeListener'),
+    off: _netSocketEventMethodDescriptor(state, 'off'),
+    removeAllListeners: _netSocketEventMethodDescriptor(state, 'removeAllListeners'),
+    listeners: _netSocketEventMethodDescriptor(state, 'listeners'),
+    rawListeners: _netSocketEventMethodDescriptor(state, 'rawListeners'),
+    listenerCount: _netSocketEventMethodDescriptor(state, 'listenerCount'),
+    eventNames: _netSocketEventMethodDescriptor(state, 'eventNames'),
+    getMaxListeners: _netSocketEventMethodDescriptor(state, 'getMaxListeners'),
+    setMaxListeners: _netSocketEventMethodDescriptor(state, 'setMaxListeners')
+  });
+}
+
+function _installNetSocketHandleProperty(socket, initialHandle) {
+  if (!_netSocketHandleObjects || typeof Object.defineProperty !== 'function') {
+    socket._handle = initialHandle;
+    return;
+  }
+  var ownerStamp = _netOwnerHost ? _netOwnerHost('new') : null;
+  var state = {
+    handle: initialHandle,
+    pendingConnectHandle: null,
+    destroyed: false,
+    ownerStamp: ownerStamp,
+    ownerMarker: {},
+    protectedValues: Object.create(null),
+    connectGeneration: 0,
+    connectTarget: null,
+    writeQueue: [],
+    bufferedBytes: 0,
+    isWriting: false,
+    closeAfterEnd: false,
+    ended: false,
+    corked: 0
+  };
+  _netSocketHandleObjects.set(socket, state);
+  state.timeoutHandle = null;
+  Object.defineProperty(socket, kTimeout, {
+    enumerable: false,
+    configurable: false,
+    get: function() {
+      _assertNetSocketStateOwner(state);
+      return state.timeoutHandle;
+    },
+    set: function(value) {
+      _assertNetSocketStateOwner(state);
+      state.timeoutHandle = value;
+    }
+  });
+  Object.defineProperties(socket, {
+    _events: _netSocketStateProjectionDescriptor(state, '_events'),
+    _eventsCount: _netSocketStateProjectionDescriptor(state, '_eventsCount'),
+    _maxListeners: _netSocketStateProjectionDescriptor(state, '_maxListeners'),
+    readable: _netSocketStateProjectionDescriptor(state, 'readable'),
+    writable: _netSocketStateProjectionDescriptor(state, 'writable'),
+    connecting: _netSocketStateProjectionDescriptor(state, 'connecting'),
+    _connected: _netSocketStateProjectionDescriptor(state, '_connected'),
+    pending: _netSocketStateProjectionDescriptor(state, 'pending'),
+    readyState: _netSocketStateProjectionDescriptor(state, 'readyState'),
+    remoteAddress: _netSocketStateProjectionDescriptor(state, 'remoteAddress'),
+    remotePort: _netSocketStateProjectionDescriptor(state, 'remotePort'),
+    remoteFamily: _netSocketStateProjectionDescriptor(state, 'remoteFamily'),
+    localAddress: _netSocketStateProjectionDescriptor(state, 'localAddress'),
+    localPort: _netSocketStateProjectionDescriptor(state, 'localPort'),
+    localFamily: _netSocketStateProjectionDescriptor(state, 'localFamily'),
+    _requestedAddress: _netSocketStateProjectionDescriptor(state, '_requestedAddress'),
+    _requestedPort: _netSocketStateProjectionDescriptor(state, '_requestedPort'),
+    _socketPath: _netSocketStateProjectionDescriptor(state, '_socketPath'),
+    _family: _netSocketStateProjectionDescriptor(state, '_family'),
+    _isUnix: _netSocketStateProjectionDescriptor(state, '_isUnix'),
+    autoSelectFamilyAttemptedAddresses: _netSocketStateProjectionDescriptor(state, 'autoSelectFamilyAttemptedAddresses'),
+    bytesRead: _netSocketStateProjectionDescriptor(state, 'bytesRead'),
+    _bytesWritten: _netSocketStateProjectionDescriptor(state, '_bytesWritten'),
+    timeout: _netSocketStateProjectionDescriptor(state, 'timeout'),
+    _timeoutMs: _netSocketStateProjectionDescriptor(state, '_timeoutMs'),
+    _timeoutTimer: _netSocketStateProjectionDescriptor(state, '_timeoutTimer'),
+    _lastActivity: _netSocketStateProjectionDescriptor(state, '_lastActivity'),
+    _timeoutEmitted: _netSocketStateProjectionDescriptor(state, '_timeoutEmitted'),
+    _pollTimer: _netSocketStateProjectionDescriptor(state, '_pollTimer'),
+    _connectPollTimer: _netSocketStateProjectionDescriptor(state, '_connectPollTimer'),
+    _drainTimer: _netSocketStateProjectionDescriptor(state, '_drainTimer'),
+    _drainEventTimer: _netSocketStateProjectionDescriptor(state, '_drainEventTimer'),
+    _drainImmediateQueued: _netSocketStateProjectionDescriptor(state, '_drainImmediateQueued'),
+    _writeBufferCache: _netSocketStateProjectionDescriptor(state, '_writeBufferCache'),
+    _autoEndedFromPeer: _netSocketStateProjectionDescriptor(state, '_autoEndedFromPeer'),
+    _autoEnding: _netSocketStateProjectionDescriptor(state, '_autoEnding'),
+    _readEnded: _netSocketStateProjectionDescriptor(state, '_readEnded'),
+    _needDrain: _netSocketStateProjectionDescriptor(state, '_needDrain'),
+    _finishEmitted: _netSocketStateProjectionDescriptor(state, '_finishEmitted'),
+    _writableHighWaterMark: _netSocketStateProjectionDescriptor(state, '_writableHighWaterMark'),
+    _readableHighWaterMark: _netSocketStateProjectionDescriptor(state, '_readableHighWaterMark'),
+    _paused: _netSocketStateProjectionDescriptor(state, '_paused'),
+    _readBackpressured: _netSocketStateProjectionDescriptor(state, '_readBackpressured'),
+    _encoding: _netSocketStateProjectionDescriptor(state, '_encoding'),
+    _decoder: _netSocketStateProjectionDescriptor(state, '_decoder'),
+    _readBuffer: _netSocketStateProjectionDescriptor(state, '_readBuffer'),
+    _readBufferLength: _netSocketStateProjectionDescriptor(state, '_readBufferLength'),
+    _onread: _netSocketStateProjectionDescriptor(state, '_onread'),
+    _onreadEOF: _netSocketStateProjectionDescriptor(state, '_onreadEOF'),
+    _server: _netSocketStateProjectionDescriptor(state, '_server'),
+    server: _netSocketStateProjectionDescriptor(state, 'server'),
+    allowHalfOpen: _netSocketStateProjectionDescriptor(state, 'allowHalfOpen'),
+    _unrefed: _netSocketStateProjectionDescriptor(state, '_unrefed'),
+    _abortSignal: _netSocketStateProjectionDescriptor(state, '_abortSignal'),
+    _abortListener: _netSocketStateProjectionDescriptor(state, '_abortListener'),
+    _abortPending: _netSocketStateProjectionDescriptor(state, '_abortPending'),
+    _customHandle: _netSocketStateProjectionDescriptor(state, '_customHandle'),
+    _customReadStarted: _netSocketStateProjectionDescriptor(state, '_customReadStarted'),
+    _deferReadableStart: _netSocketStateProjectionDescriptor(state, '_deferReadableStart'),
+    _noDelay: _netSocketStateProjectionDescriptor(state, '_noDelay'),
+    _keepAlive: _netSocketStateProjectionDescriptor(state, '_keepAlive'),
+    _keepAliveInitialDelay: _netSocketStateProjectionDescriptor(state, '_keepAliveInitialDelay'),
+    _allowResetAsEof: _netSocketStateProjectionDescriptor(state, '_allowResetAsEof'),
+    _suppressCloseBeforeConnectError: _netSocketStateProjectionDescriptor(state, '_suppressCloseBeforeConnectError'),
+    _handle: {
+      enumerable: true,
+      configurable: false,
+      get: function() {
+        _assertNetSocketStateOwner(state);
+        return state.handle;
+      },
+      set: function() { throw new Error('net.Socket handle state is private'); }
+    },
+    _pendingConnectHandle: {
+      enumerable: false,
+      configurable: false,
+      get: function() {
+        _assertNetSocketStateOwner(state);
+        return state.pendingConnectHandle;
+      },
+      set: function() { throw new Error('net.Socket pending handle state is private'); }
+    },
+    destroyed: {
+      enumerable: true,
+      configurable: false,
+      get: function() { return state.destroyed; },
+      set: function() { throw new Error('net.Socket lifecycle state is private'); }
+    },
+    _writeQueue: _netSocketPrivateDescriptor(state, 'writeQueue', false),
+    _bufferedBytes: _netSocketPrivateDescriptor(state, 'bufferedBytes', false),
+    _isWriting: _netSocketPrivateDescriptor(state, 'isWriting', false),
+    _closeAfterEnd: _netSocketPrivateDescriptor(state, 'closeAfterEnd', false),
+    _ended: _netSocketPrivateDescriptor(state, 'ended', false),
+    _corked: _netSocketPrivateDescriptor(state, 'corked', false)
+  });
+  _installNetSocketEventMethodProjections(socket, state);
+}
+
+function _assignNetSocketDestroyed(socket, destroyed) {
+  var state = _netSocketHandleObjects && _netSocketHandleObjects.get(socket);
+  if (state) {
+    state.destroyed = destroyed === true;
+  } else {
+    socket.destroyed = destroyed === true;
+  }
+}
+
+function _assignPendingConnectHandle(socket, handle) {
+  var state = _netSocketHandleObjects && _netSocketHandleObjects.get(socket);
+  if (state) {
+    if (typeof handle === 'number') _assertNetSocketOwner(socket, handle);
+    state.pendingConnectHandle = handle;
+  } else {
+    socket._pendingConnectHandle = handle;
+  }
+}
+
+function _assignNetSocketHandle(socket, handle) {
+  var state = _netSocketHandleObjects && _netSocketHandleObjects.get(socket);
+  if (state) {
+    var nativeHandle = _unwrapHandle(handle);
+    if (typeof nativeHandle === 'number') {
+      _assertNetSocketOwner(socket, nativeHandle);
+    }
+    state.handle = handle;
+  } else {
+    socket._handle = handle;
+  }
+}
+
+function _invalidateNetSocketConnect(state) {
+  if (!state) return;
+  state.connectGeneration += 1;
+  state.connectTarget = null;
+}
+
+function _beginNetSocketConnect(state, target) {
+  state.connectGeneration += 1;
+  target.generation = state.connectGeneration;
+  if (typeof Object.freeze === 'function') Object.freeze(target);
+  state.connectTarget = target;
+  return target;
+}
+
+function _isCurrentNetSocketConnect(socket, target) {
+  var state = _assertNetSocketOwner(socket);
+  return state.connectTarget === target &&
+    target != null && state.connectGeneration === target.generation &&
+    state.destroyed !== true;
+}
 
 function _getExactNativeWrapState() {
   return (typeof globalThis === 'object' && globalThis.__exactNativeWrapState) || null;
@@ -298,21 +641,21 @@ function _makeSocketHandle(handle, kind, fd, path) {
       return wrap;
     }
   }
+  var exactHandle = handle == null ? null : handle;
   var socketHandle = {
-    _exactHandle: handle == null ? null : handle,
     _exactKind: wrapKind,
     _refed: true,
     fd: typeof fd === 'number' ? fd : (typeof handle === 'number' ? handle : -1),
     setNoDelay: function(noDelay) {
       if (!_hasTcp) return;
-      if (socketHandle._exactHandle == null) return;
+      if (exactHandle == null) return;
       try {
-        __exactTcpSetNoDelay(socketHandle._exactHandle, noDelay ? 1 : 0);
+        __exactTcpSetNoDelay(exactHandle, noDelay ? 1 : 0);
       } catch (e) { /* ignored: best-effort TCP_NODELAY on a possibly-closed native handle */ }
     },
     setKeepAlive: function(enable, delay) {
       if (!_hasTcp) return;
-      if (socketHandle._exactHandle == null) return;
+      if (exactHandle == null) return;
       // Node's initialDelay is milliseconds; the native side takes whole
       // seconds (TCP_KEEPIDLE/TCP_KEEPALIVE granularity, like libuv). A
       // positive sub-second delay rounds up to 1s rather than down to the
@@ -323,14 +666,14 @@ function _makeSocketHandle(handle, kind, fd, path) {
         idleSeconds = Math.max(1, Math.floor(delay / 1000));
       }
       try {
-        __exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0, idleSeconds);
+        __exactTcpSetKeepAlive(exactHandle, enable !== false ? 1 : 0, idleSeconds);
       } catch (e) { /* ignored: best-effort SO_KEEPALIVE on a possibly-closed native handle */ }
     },
     close: function() {
       if (!_hasTcp) return;
-      if (socketHandle._exactHandle == null) return;
-      try { __exactTcpClose(socketHandle._exactHandle); } catch (e) { /* ignored: best-effort close; native handle may already be released */ }
-      socketHandle._exactHandle = null;
+      if (exactHandle == null) return;
+      __exactTcpClose(exactHandle);
+      exactHandle = null;
       socketHandle._refed = false;
     },
     ref: function() {
@@ -346,6 +689,18 @@ function _makeSocketHandle(handle, kind, fd, path) {
     },
     onconnection: null
   };
+  if (_fallbackSocketHandleStates) {
+    _fallbackSocketHandleStates.set(socketHandle, {
+      get: function() { return exactHandle; },
+      set: function(value) { exactHandle = value; }
+    });
+  }
+  Object.defineProperty(socketHandle, '_exactHandle', {
+    enumerable: true,
+    configurable: false,
+    get: function() { return exactHandle; },
+    set: function() { throw new Error('native socket selector is private'); }
+  });
   return socketHandle;
 }
 
@@ -359,6 +714,13 @@ function _makeServerHandle(nativeHandle, kind, path) {
 
 function _setHandleExactValue(handle, nativeHandle, fd, kind, path) {
   if (!handle) return;
+  var fallbackState = _fallbackSocketHandleStates && _fallbackSocketHandleStates.get(handle);
+  if (fallbackState) {
+    fallbackState.set(nativeHandle);
+    if (kind) handle._exactKind = kind;
+    if (typeof fd === 'number') handle.fd = fd;
+    return;
+  }
   if (typeof handle._setExactHandle === 'function') {
     handle._setExactHandle(nativeHandle, fd, kind, path || null);
     return;
@@ -368,35 +730,39 @@ function _setHandleExactValue(handle, nativeHandle, fd, kind, path) {
   if (typeof fd === 'number') handle.fd = fd;
 }
 
-function _setSocketHandle(target, nativeHandle) {
+function _setSocketHandle(target, nativeHandle, capturedPath) {
   if (!target) return;
-  var handle = target && target._handle ? target._handle : target;
+  var socketState = _netSocketHandleObjects && _netSocketHandleObjects.get(target);
+  if (socketState) _assertNetSocketOwner(target, nativeHandle);
+  var handle = socketState ? socketState.handle : target;
   var wrapKind = target && target._isUnix ? 'pipe' : ((handle && handle._exactKind) || 'tcp');
+  var socketPath = capturedPath !== undefined
+    ? capturedPath
+    : (target && target._socketPath || null);
   var fd = handle && typeof handle.fd === 'number' && handle.fd >= 0
     ? handle.fd
     : undefined;
   if (handle && (handle._exactHandle !== undefined || typeof handle._setExactHandle === 'function')) {
-    _setHandleExactValue(handle, nativeHandle, fd, wrapKind, target._socketPath || null);
+    _setHandleExactValue(handle, nativeHandle, fd, wrapKind, socketPath);
     return handle;
   }
   var newHandle = {
     _exactHandle: null
   };
-  _setHandleExactValue(newHandle, nativeHandle, fd, wrapKind, target._socketPath || null);
-  if (target && target._handle !== undefined) {
-    target._handle = newHandle;
+  _setHandleExactValue(newHandle, nativeHandle, fd, wrapKind, socketPath);
+  if (socketState) {
+    _assignNetSocketHandle(target, newHandle);
   }
   return newHandle;
 }
 
 function _shutdownSocketWrite(socket) {
   if (!_hasTcp || !socket) return;
-  var nativeHandle = _unwrapHandle(socket._handle);
+  var ownerState = _assertNetSocketOwner(socket);
+  var nativeHandle = _unwrapHandle(ownerState.handle);
   if (nativeHandle == null) return;
   if (typeof __exactTcpShutdown !== 'function') return;
-  try {
-    __exactTcpShutdown(nativeHandle, 1);
-  } catch (e) { _swallowDebug('tcp shutdown(write) failed', e); }
+  __exactTcpShutdown(nativeHandle, 1);
 }
 
 function _hasMatchingIPv6OnlyServer(host, port) {
@@ -404,8 +770,9 @@ function _hasMatchingIPv6OnlyServer(host, port) {
   if (isIP(host) !== 4) return false;
   for (var i = 0; i < _boundTcpServers.length; i++) {
     var server = _boundTcpServers[i];
-    if (Number(server.port) !== Number(port)) continue;
-    if (server && server.ipv6Only && isIP(server.host) === 6) {
+    var state = server && _netServerState(server);
+    if (!state || Number(state._port) !== Number(port)) continue;
+    if (state.ipv6Only && isIP(state.host) === 6) {
       return true;
     }
   }
@@ -434,7 +801,12 @@ function _registerTcpServer(server) {
 function _unregisterTcpServer(server) {
   for (var i = 0; i < _boundTcpServers.length; i++) {
     var entry = _boundTcpServers[i];
-    if (entry === server || (entry && server && entry.port === server.port && entry.host === server.host && entry.ipv6Only === server.ipv6Only)) {
+    var entryState = entry && _netServerState(entry);
+    var serverState = server && _netServerState(server);
+    if (entry === server || (entryState && serverState &&
+        entryState._port === serverState._port &&
+        entryState.host === serverState.host &&
+        entryState.ipv6Only === serverState.ipv6Only)) {
       _boundTcpServers.splice(i, 1);
       return;
     }
@@ -610,8 +982,9 @@ function _hasConflictingLocalBind(localAddress, localPort) {
   if (!localPort) return false;
   for (var i = 0; i < _boundTcpServers.length; i++) {
     var server = _boundTcpServers[i];
-    if (!server || Number(server._port) !== Number(localPort)) continue;
-    var serverHost = server._host || server.host;
+    var serverState = server && _netServerState(server);
+    if (!serverState || Number(serverState._port) !== Number(localPort)) continue;
+    var serverHost = serverState._host || serverState.host;
     if (!serverHost && typeof server.address === 'function') {
       var address = server.address();
       if (address && typeof address === 'object') {
@@ -707,8 +1080,19 @@ function _setHandleRefState(handle, refed) {
 }
 
 function _scheduleTimer(callback, delay, owner) {
-  var timer = setTimeout(callback, delay);
-  if (owner && owner._unrefed) {
+  var scheduled = callback;
+  if (owner && typeof owner[_kRunOwnedTlsServer] === 'function') {
+    scheduled = function() {
+      return owner[_kRunOwnedTlsServer](
+        callback,
+        Array.prototype.slice.call(arguments)
+      );
+    };
+  }
+  var timer = setTimeout(scheduled, delay);
+  var ownerState = owner && _netServerStates && _netServerStates.get(owner);
+  var ownerUnrefed = ownerState ? ownerState.values._unrefed : owner && owner._unrefed;
+  if (ownerUnrefed) {
     _setTimerRefState(timer, false);
   }
   return timer;
@@ -802,15 +1186,15 @@ function _emitAsyncSocketError(socket, err, callback) {
 // teardown. Safe to call at any time. (ENG-22994)
 function _cancelPendingConnect(socket) {
   if (!socket) return;
+  if (socket._pendingConnectHandle != null && _hasTcp) {
+    __exactTcpClose(socket._pendingConnectHandle);
+  }
   if (socket._connectPollTimer != null) {
     clearTimeout(socket._connectPollTimer);
     socket._connectPollTimer = null;
   }
   if (socket._pendingConnectHandle != null) {
-    if (_hasTcp) {
-      try { __exactTcpClose(socket._pendingConnectHandle); } catch (e) { /* ignored: best-effort close of an aborted pending connect handle */ }
-    }
-    socket._pendingConnectHandle = null;
+    _assignPendingConnectHandle(socket, null);
   }
 }
 
@@ -857,7 +1241,7 @@ function _finishTcpConnectSuccess(selfRef, nativeHandle, address, family) {
   _clearSocketTimeoutTimer(selfRef);
   selfRef.remoteAddress = address;
   if (family) selfRef.remoteFamily = _addressFamilyToName(family);
-  _setSocketHandle(selfRef._handle, nativeHandle);
+  _setSocketHandle(selfRef, nativeHandle);
   _setHandleRefState(selfRef._handle, !selfRef._unrefed);
   selfRef.connecting = false;
   selfRef._connected = true;
@@ -869,7 +1253,7 @@ function _finishTcpConnectSuccess(selfRef, nativeHandle, address, family) {
     selfRef.setKeepAlive(true, _toIntDelay(selfRef._keepAliveInitialDelay, 0));
   }
   selfRef._startPolling();
-  selfRef._drainWriteQueue();
+  _drainWriteQueueOwned.call(selfRef);
   // _drainWriteQueue() can destroy() synchronously (an immediately-failed
   // queued write, e.g. a peer RST). Don't emit 'connect'/'ready' after a
   // fatal connect-time error -- Node never does. (ENG-23034)
@@ -885,7 +1269,7 @@ function _finishTcpConnectSuccess(selfRef, nativeHandle, address, family) {
 // a slow/blackholed host is pending. Invokes onConnected() on success, or
 // onFailed(err) when the handshake fails (the fd is closed first).
 function _pollTcpConnect(socket, nativeHandle, onConnected, onFailed) {
-  socket._pendingConnectHandle = nativeHandle;
+  _assignPendingConnectHandle(socket, nativeHandle);
   function pollConnect() {
     socket._connectPollTimer = null;
     if (socket.destroyed || socket._abortPending ||
@@ -894,7 +1278,7 @@ function _pollTcpConnect(socket, nativeHandle, onConnected, onFailed) {
       // here if this handle is still the pending one (e.g. a bare abort).
       if (socket._pendingConnectHandle === nativeHandle) {
         try { __exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close; connect already failed */ }
-        socket._pendingConnectHandle = null;
+        _assignPendingConnectHandle(socket, null);
       }
       return;
     }
@@ -904,12 +1288,12 @@ function _pollTcpConnect(socket, nativeHandle, onConnected, onFailed) {
       status = __exactTcpConnectPoll(nativeHandle);
     } catch (pollErr) {
       try { __exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close after a connect-poll error */ }
-      socket._pendingConnectHandle = null;
+      _assignPendingConnectHandle(socket, null);
       onFailed(pollErr);
       return;
     }
     if (status === 1) {
-      socket._pendingConnectHandle = null;
+      _assignPendingConnectHandle(socket, null);
       onConnected();
       return;
     }
@@ -990,10 +1374,11 @@ function _attachSocketAbortSignal(socket, signal) {
 }
 
 function _describeAcceptedSocket(nativeHandle, server) {
+  var serverState = server && _netServerState(server);
   var info = {
-    localAddress: server && server._host ? server._host : '0.0.0.0',
-    localPort: server && server._port ? server._port : 0,
-    localFamily: (server && server.ipv6Only) ? 'IPv6' : 'IPv4',
+    localAddress: serverState && serverState._host ? serverState._host : '0.0.0.0',
+    localPort: serverState && serverState._port ? serverState._port : 0,
+    localFamily: (serverState && serverState.ipv6Only) ? 'IPv6' : 'IPv4',
     remoteAddress: null,
     remotePort: null,
     remoteFamily: null
@@ -1129,12 +1514,14 @@ function _handleSocketEOF(socket) {
 
 function _resetSocketForConnect(socket) {
   if (!socket) return;
+  var ownerState = _assertNetSocketOwner(socket);
   if (socket._pollTimer != null) {
     clearTimeout(socket._pollTimer);
     socket._pollTimer = null;
   }
   // Abandon any in-flight non-blocking connect from a prior attempt. (ENG-22994)
   _cancelPendingConnect(socket);
+  _invalidateNetSocketConnect(ownerState);
   _clearSocketTimeoutTimer(socket);
   if (socket._drainTimer != null) {
     clearTimeout(socket._drainTimer);
@@ -1145,7 +1532,7 @@ function _resetSocketForConnect(socket) {
     clearTimeout(socket._drainEventTimer);
     socket._drainEventTimer = null;
   }
-  socket.destroyed = false;
+  _assignNetSocketDestroyed(socket, false);
   socket.readable = true;
   socket.writable = true;
   socket.connecting = false;
@@ -1160,12 +1547,12 @@ function _resetSocketForConnect(socket) {
   socket.localFamily = null;
   socket.bytesRead = 0;
   socket._bytesWritten = 0;
-  socket._handle = _makeSocketHandle(null);
-  socket._writeQueue = [];
-  socket._bufferedBytes = 0;
-  socket._isWriting = false;
-  socket._closeAfterEnd = false;
-  socket._ended = false;
+  _assignNetSocketHandle(socket, _makeSocketHandle(null));
+  ownerState.writeQueue = [];
+  ownerState.bufferedBytes = 0;
+  ownerState.isWriting = false;
+  ownerState.closeAfterEnd = false;
+  ownerState.ended = false;
   socket._autoEndedFromPeer = false;
   socket._readEnded = false;
   socket._needDrain = false;
@@ -1217,9 +1604,29 @@ function Socket(options) {
     }
   }
 
+  // These configurable seeds make the public instance shape statically
+  // inventory-auditable. `_installNetSocketHandleProperty` immediately
+  // replaces them with owner-checked accessors backed by the private WeakMap;
+  // no native selector or lifecycle authority is ever stored here.
+  Object.defineProperty(this, '_handle', {
+    configurable: true,
+    writable: true,
+    value: null
+  });
+  Object.defineProperty(this, '_pendingConnectHandle', {
+    configurable: true,
+    writable: true,
+    value: null
+  });
+  Object.defineProperty(this, 'destroyed', {
+    configurable: true,
+    writable: true,
+    value: false
+  });
+  _installNetSocketHandleProperty(this, _makeSocketHandle(null));
   this.readable = true;
   this.writable = true;
-  this.destroyed = false;
+  _assignNetSocketDestroyed(this, false);
   this.connecting = false;
   this._connected = false;
   this.remoteAddress = null;
@@ -1238,12 +1645,11 @@ function Socket(options) {
   this._lastActivity = 0;
   this._timeoutEmitted = false;
   this[kTimeout] = null;
-  this._handle = _makeSocketHandle(null);
   this._pollTimer = null;
   // Async connect bookkeeping (ENG-22994): the in-flight non-blocking connect
   // handle (not yet attached to _handle) and the timer polling its completion.
   this._connectPollTimer = null;
-  this._pendingConnectHandle = null;
+  _assignPendingConnectHandle(this, null);
   this._drainTimer = null;
   this._drainEventTimer = null;
   this._drainImmediateQueued = false;
@@ -1311,7 +1717,7 @@ function Socket(options) {
     this._socketPath = options._socketPath || null;
   }
   if (options.handle != null) {
-    this._handle = options.handle;
+    _assignNetSocketHandle(this, options.handle);
     this._customHandle = !(this._handle && this._handle._exactHandle !== undefined);
     this._connected = true;
     this.connecting = false;
@@ -1326,7 +1732,7 @@ function Socket(options) {
   } else
   // If options._handle is provided, create from existing handle (for accepted connections)
   if (options._handle != null) {
-    this._handle = _makeSocketHandle(options._handle);
+    _assignNetSocketHandle(this, _makeSocketHandle(options._handle));
     this._connected = true;
     this.connecting = false;
     this.pending = false;
@@ -1355,7 +1761,7 @@ function Socket(options) {
     } else {
       fdHandle = _makeSocketHandle(null, 'tcp', options.fd, null);
     }
-    this._handle = fdHandle;
+    _assignNetSocketHandle(this, fdHandle);
     this._connected = true;
     this.connecting = false;
     this.pending = false;
@@ -1510,10 +1916,11 @@ function _nextDeferredStringChunkEnd(str, start, encoding) {
   return end > start ? end : start + 1;
 }
 
-function _createWriteQueueItem(data, encoding, callback) {
+function _createWriteQueueItem(data, encoding, callback, ownerMarker) {
   if (_canQueueDeferredString(data, encoding)) {
     return {
       callback: callback,
+      ownerMarker: ownerMarker,
       deferredString: data,
       deferredEncoding: _normalizeWriteEncoding(encoding),
       deferredIndex: 0,
@@ -1534,7 +1941,15 @@ function _createWriteQueueItem(data, encoding, callback) {
     data: queuedData,
     offset: 0,
     callback: callback,
+    ownerMarker: ownerMarker,
   };
+}
+
+function _assertQueuedWriteOwner(state, item) {
+  _assertNetSocketStateOwner(state);
+  if (!item || item.ownerMarker !== state.ownerMarker) {
+    throw new Error('net.Socket write queue owner mismatch');
+  }
 }
 
 function _queuedWriteItemLength(item) {
@@ -1678,31 +2093,42 @@ Socket.prototype._consumeReadBuffer = function(size) {
 };
 
 Socket.prototype._drainWriteQueue = function() {
+  var ownerState = _assertNetSocketOwner(this);
   if (this._drainTimer != null) {
     clearTimeout(this._drainTimer);
     this._drainTimer = null;
   }
 
-  var nativeHandle = _unwrapHandle(this._handle);
-  if (this._isWriting || nativeHandle == null || this.destroyed) {
+  var nativeHandle = _unwrapHandle(ownerState.handle);
+  if (ownerState.isWriting || nativeHandle == null || this.destroyed) {
     return;
   }
 
   // If corked, don't drain yet
-  if (this._corked) return;
+  if (ownerState.corked) return;
 
-  this._isWriting = true;
+  ownerState.isWriting = true;
   var wroteBudget = 0;
   var shouldYieldSoon = false;
-  while (this._writeQueue.length > 0 && !this.destroyed && nativeHandle != null) {
-    var item = this._writeQueue[0];
+  while (ownerState.writeQueue.length > 0 && !this.destroyed && nativeHandle != null) {
+    var item = ownerState.writeQueue[0];
+    // Every entry is stamped only after the synchronous Socket owner check in
+    // write(). Recheck both the native owner stamp and private marker immediately
+    // before conversion/syscall so no deferred continuation can launder a
+    // foreign caller's bytes or a forged public queue entry.
+    try {
+      _assertQueuedWriteOwner(ownerState, item);
+    } catch (ownerErr) {
+      ownerState.isWriting = false;
+      throw ownerErr;
+    }
     if (_isQueuedWriteItemComplete(item)) {
       var completeLength = _queuedWriteItemLength(item);
       if (completeLength > 0) {
-        this._bufferedBytes -= completeLength;
-        if (this._bufferedBytes < 0) this._bufferedBytes = 0;
+        ownerState.bufferedBytes -= completeLength;
+        if (ownerState.bufferedBytes < 0) ownerState.bufferedBytes = 0;
       }
-      this._writeQueue.shift();
+      ownerState.writeQueue.shift();
       if (item.callback) {
         _scheduleCallback(item.callback);
       }
@@ -1717,10 +2143,10 @@ Socket.prototype._drainWriteQueue = function() {
       if (!_advanceDeferredWriteChunk(item)) {
         var pendingLength = _queuedWriteItemLength(item);
         if (pendingLength > 0) {
-          this._bufferedBytes -= pendingLength;
-          if (this._bufferedBytes < 0) this._bufferedBytes = 0;
+          ownerState.bufferedBytes -= pendingLength;
+          if (ownerState.bufferedBytes < 0) ownerState.bufferedBytes = 0;
         }
-        this._writeQueue.shift();
+        ownerState.writeQueue.shift();
         if (item.callback) {
           _scheduleCallback(item.callback);
         }
@@ -1728,8 +2154,8 @@ Socket.prototype._drainWriteQueue = function() {
       }
       var pendingLengthAfterAdvance = _queuedWriteItemLength(item);
       if (pendingLengthAfterAdvance !== pendingLengthBeforeAdvance) {
-        this._bufferedBytes += pendingLengthAfterAdvance - pendingLengthBeforeAdvance;
-        if (this._bufferedBytes < 0) this._bufferedBytes = 0;
+        ownerState.bufferedBytes += pendingLengthAfterAdvance - pendingLengthBeforeAdvance;
+        if (ownerState.bufferedBytes < 0) ownerState.bufferedBytes = 0;
       }
       remaining = typeof item.deferredChunk.subarray === 'function'
         ? item.deferredChunk.subarray(item.deferredOffset)
@@ -1741,12 +2167,11 @@ Socket.prototype._drainWriteQueue = function() {
     } catch (err) {
       var writeErr = err instanceof Error ? err : new Error(String(err));
       writeErr.code = 'EPIPE';
-      this._isWriting = false;
-      this._writeQueue = [];
-      this._bufferedBytes = 0;
-      if (item.callback) {
-        _scheduleCallback(item.callback, writeErr);
-      }
+      ownerState.isWriting = false;
+      // Let destroy authenticate and release the native handle before it
+      // clears callbacks/bytes. If the selector belongs to another principal,
+      // destroy throws at that boundary and the owner's entire retryable queue
+      // remains intact instead of being poisoned by this failed drain.
       this.destroy(writeErr);
       return;
     }
@@ -1756,8 +2181,8 @@ Socket.prototype._drainWriteQueue = function() {
     }
 
     wroteBudget += written;
-    this._bufferedBytes -= written;
-    if (this._bufferedBytes < 0) this._bufferedBytes = 0;
+    ownerState.bufferedBytes -= written;
+    if (ownerState.bufferedBytes < 0) ownerState.bufferedBytes = 0;
     if (item.data) {
       item.offset += written;
     } else {
@@ -1767,7 +2192,7 @@ Socket.prototype._drainWriteQueue = function() {
     this._timeoutEmitted = false;
 
     if (_isQueuedWriteItemComplete(item)) {
-      this._writeQueue.shift();
+      ownerState.writeQueue.shift();
       if (item.callback) {
         _scheduleCallback(item.callback);
       }
@@ -1779,15 +2204,17 @@ Socket.prototype._drainWriteQueue = function() {
     }
   }
 
-  this._isWriting = false;
-  if (this._writeQueue.length === 0) {
-    if (this._closeAfterEnd) {
-      this._closeAfterEnd = false;
+  ownerState.isWriting = false;
+  if (ownerState.writeQueue.length === 0) {
+    if (ownerState.closeAfterEnd) {
+      // Native shutdown is the commit boundary for end(). Keep all lifecycle
+      // flags and finish emission retryable until ownership has been accepted.
+      _shutdownSocketWrite(this);
+      ownerState.closeAfterEnd = false;
       if (!this._finishEmitted) {
         this._finishEmitted = true;
         this.emit('finish');
       }
-      _shutdownSocketWrite(this);
       this.writable = false;
       this._needDrain = false;
       if (this._drainEventTimer != null) {
@@ -1808,7 +2235,8 @@ Socket.prototype._drainWriteQueue = function() {
       var self = this;
       this._drainEventTimer = _scheduleTimer(function() {
         self._drainEventTimer = null;
-        if (!self.destroyed && self.writable && !self._ended) {
+        var drainState = _assertNetSocketOwner(self);
+        if (!self.destroyed && self.writable && !drainState.ended) {
           self.emit('drain');
         }
       }, 0, this);
@@ -1819,26 +2247,34 @@ Socket.prototype._drainWriteQueue = function() {
   var self = this;
   self._drainTimer = _scheduleTimer(function() {
     self._drainTimer = null;
-    self._drainWriteQueue();
+    _drainWriteQueueOwned.call(self);
   }, shouldYieldSoon ? 0 : 1, self);
 };
 
+// Internal continuations call the captured implementation, not the writable
+// public prototype slot. Replacing `_drainWriteQueue` on an instance or shared
+// prototype therefore cannot interpose on owner-scheduled native writes.
+var _drainWriteQueueOwned = Socket.prototype._drainWriteQueue;
+
 function _scheduleWriteQueueDrain(socket, delay) {
-  if (!socket || socket.destroyed || socket._isWriting || socket._corked) return;
+  if (!socket) return;
+  var ownerState = _assertNetSocketOwner(socket);
+  if (socket.destroyed || ownerState.isWriting || ownerState.corked) return;
   if ((delay == null || delay <= 0) && typeof process !== 'undefined' && typeof process.nextTick === 'function') {
     if (socket._drainImmediateQueued) return;
     socket._drainImmediateQueued = true;
     process.nextTick(function() {
       socket._drainImmediateQueued = false;
-      if (socket.destroyed || socket._isWriting || socket._corked) return;
-      socket._drainWriteQueue();
+      var scheduledState = _assertNetSocketOwner(socket);
+      if (socket.destroyed || scheduledState.isWriting || scheduledState.corked) return;
+      _drainWriteQueueOwned.call(socket);
     });
     return;
   }
   if (socket._drainTimer != null) return;
   socket._drainTimer = _scheduleTimer(function() {
     socket._drainTimer = null;
-    socket._drainWriteQueue();
+    _drainWriteQueueOwned.call(socket);
   }, delay == null ? 0 : delay, socket);
 }
 
@@ -2082,6 +2518,10 @@ Socket.prototype._startPolling = function() {
 };
 
 Socket.prototype.connect = function(options, connectListener) {
+  // The Socket object is only a JS wrapper; possession must not launder the
+  // creating package's native network authority. Authenticate before reading
+  // caller-controlled options or changing reconnect/lifecycle state.
+  var ownerState = _assertNetSocketOwner(this);
   if (typeof options === 'number') {
     var port = options;
     var host = arguments[1] || 'localhost';
@@ -2213,6 +2653,33 @@ Socket.prototype.connect = function(options, connectListener) {
   _validateLocalAddressOption(options.localAddress);
   _validateLocalPortOption(options.localPort);
 
+  // Snapshot every value that a timer, resolver callback, or connect poll may
+  // consume. Neither later mutation of the caller's options object nor writes
+  // to Node-compatible projection fields can retarget an already-authorized
+  // connection. The generation also makes callbacks from an abandoned
+  // attempt inert after destroy/reconnect.
+  // @ref LLP 0004#retained-native-wrapper-invariant — deferred work retains
+  // immutable owner/generation identity instead of consulting wrapper fields.
+  var connectTarget = _beginNetSocketConnect(ownerState, {
+    path: options.path || null,
+    port: options.path ? null : options.port,
+    address: options.path ? null : (options.host || options.hostname || 'localhost'),
+    localAddress: options.localAddress === undefined ? null : options.localAddress,
+    localPort: options.localPort === undefined ? null : options.localPort,
+    family: options.family,
+    lookup: options.lookup,
+    hints: options.hints,
+    verbatim: options.verbatim,
+    all: options.all,
+    autoSelectFamily: options.autoSelectFamily,
+    blockList: options.blockList,
+    customHandle: hasCustomConnectHandle ? this._handle : null,
+    customConnect: hasCustomConnectHandle ? this._handle.connect : null,
+    customReadStart: hasCustomConnectHandle && typeof this._handle.readStart === 'function'
+      ? this._handle.readStart
+      : null
+  });
+
   this.connecting = true;
   this.pending = true;
   this.readyState = 'opening';
@@ -2238,14 +2705,15 @@ Socket.prototype.connect = function(options, connectListener) {
   }
 
   // Unix domain socket connection
-  if (options.path) {
+  if (connectTarget.path) {
     this._isUnix = true;
-    this._socketPath = options.path;
+    this._socketPath = connectTarget.path;
     this.remoteFamily = 'Unix';
 
     if (!_hasUnix) {
       var self = this;
       setTimeout(function() {
+        if (!_isCurrentNetSocketConnect(self, connectTarget)) return;
         var err = new Error('Unix sockets not supported: native __exactUnixConnect not available');
         err.code = 'ECONNREFUSED';
         // Node destroys the socket on a failed connect, so 'error' is followed
@@ -2257,10 +2725,16 @@ Socket.prototype.connect = function(options, connectListener) {
 
     var self = this;
     setTimeout(function() {
-      if (self.destroyed) return;
+      if (!_isCurrentNetSocketConnect(self, connectTarget)) return;
       try {
-        var unixHandle = __exactUnixConnect(self._socketPath);
-        _setSocketHandle(self._handle, unixHandle);
+        var unixHandle = __exactUnixConnect(connectTarget.path);
+        if (!_isCurrentNetSocketConnect(self, connectTarget)) {
+          try {
+            if (typeof __exactTcpClose === 'function') __exactTcpClose(unixHandle);
+          } catch (_staleUnixCloseErr) {}
+          return;
+        }
+        _setSocketHandle(self, unixHandle, connectTarget.path);
         _setHandleRefState(self._handle, !self._unrefed);
         self.connecting = false;
         self._connected = true;
@@ -2272,7 +2746,8 @@ Socket.prototype.connect = function(options, connectListener) {
         self.emit('connect');
         self.emit('ready');
       } catch(e) {
-        var err = _createUnixConnectError(e, self._socketPath);
+        if (!_isCurrentNetSocketConnect(self, connectTarget)) return;
+        var err = _createUnixConnectError(e, connectTarget.path);
         self.destroy(err);
       }
     }, 0);
@@ -2281,23 +2756,28 @@ Socket.prototype.connect = function(options, connectListener) {
   }
 
   // TCP connection
-  this._requestedPort = options.port;
-  this._requestedAddress = options.host || options.hostname || 'localhost';
+  this._requestedPort = connectTarget.port;
+  this._requestedAddress = connectTarget.address;
   this.remotePort = undefined;
   this.remoteAddress = undefined;
   // Store optional connection params
-  if (options.localAddress) this.localAddress = options.localAddress;
-  if (options.localPort) this.localPort = options.localPort;
-  if (options.family) this._family = options.family;
+  if (connectTarget.localAddress) this.localAddress = connectTarget.localAddress;
+  if (connectTarget.localPort) this.localPort = connectTarget.localPort;
+  if (connectTarget.family) this._family = connectTarget.family;
   this.remoteFamily = undefined;
 
   if (hasCustomConnectHandle) {
     var self = this;
     setTimeout(function() {
-      if (self.destroyed) return;
+      if (!_isCurrentNetSocketConnect(self, connectTarget)) return;
       var connectResult;
       try {
-        connectResult = self._handle.connect({}, self._requestedAddress, self._requestedPort);
+        connectResult = connectTarget.customConnect.call(
+          connectTarget.customHandle,
+          {},
+          connectTarget.address,
+          connectTarget.port
+        );
       } catch (err) {
         self.destroy(err);
         return;
@@ -2305,7 +2785,7 @@ Socket.prototype.connect = function(options, connectListener) {
 
       if (typeof connectResult === 'number' && connectResult !== 0) {
         var errno = _uvConnectCodeToErrno(connectResult);
-        var connectErr = _createConnectError(errno, self._requestedAddress, self._requestedPort, 'connect');
+        var connectErr = _createConnectError(errno, connectTarget.address, connectTarget.port, 'connect');
         self.destroy(connectErr);
         return;
       }
@@ -2314,8 +2794,10 @@ Socket.prototype.connect = function(options, connectListener) {
       self._connected = true;
       self.pending = false;
       self.readyState = 'open';
-      if (typeof self._handle.readStart === 'function') {
-        try { self._handle.readStart(); } catch (_customReadStartErr) { _swallowDebug('custom handle readStart failed', _customReadStartErr); }
+      if (connectTarget.customReadStart) {
+        try {
+          connectTarget.customReadStart.call(connectTarget.customHandle);
+        } catch (_customReadStartErr) { _swallowDebug('custom handle readStart failed', _customReadStartErr); }
       }
       _updateSocketTimeoutHandleState(self);
       self.emit('connect');
@@ -2328,6 +2810,7 @@ Socket.prototype.connect = function(options, connectListener) {
     // Fallback: no native TCP support
     var self = this;
     setTimeout(function() {
+      if (!_isCurrentNetSocketConnect(self, connectTarget)) return;
       var err = new Error('TCP sockets not supported: native __exactTcpConnect not available');
       err.code = 'ECONNREFUSED';
       self.destroy(err);
@@ -2336,10 +2819,10 @@ Socket.prototype.connect = function(options, connectListener) {
   }
 
   var self = this;
-  var lookup = options.lookup;
+  var lookup = connectTarget.lookup;
   var customLookup = typeof lookup === 'function';
   var resolver = lookup;
-  if (!customLookup && isIP(self._requestedAddress) === 0) {
+  if (!customLookup && isIP(connectTarget.address) === 0) {
     try {
       var dns = require('dns');
       if (dns && typeof dns.lookup === 'function') {
@@ -2347,20 +2830,21 @@ Socket.prototype.connect = function(options, connectListener) {
       }
     } catch (e) { /* ignored: optional dns module; keep the caller-provided lookup */ }
   }
-  if (_hasConflictingLocalBind(options.localAddress, options.localPort)) {
+  if (_hasConflictingLocalBind(connectTarget.localAddress, connectTarget.localPort)) {
     _scheduleTimer(function() {
-      var bindErr = _createConnectError('EADDRINUSE', self._requestedAddress, self._requestedPort, 'connect');
+      if (!_isCurrentNetSocketConnect(self, connectTarget)) return;
+      var bindErr = _createConnectError('EADDRINUSE', connectTarget.address, connectTarget.port, 'connect');
       self.destroy(bindErr);
     }, 0, self);
     return this;
   }
-  var autoSelectFamily = options.autoSelectFamily;
+  var autoSelectFamily = connectTarget.autoSelectFamily;
   if (autoSelectFamily === undefined) {
     autoSelectFamily = _defaultAutoSelectFamily;
     if (
       autoSelectFamily === false &&
-      !options.family &&
-      self._requestedAddress === 'localhost'
+      !connectTarget.family &&
+      connectTarget.address === 'localhost'
     ) {
       autoSelectFamily = true;
     }
@@ -2368,8 +2852,8 @@ Socket.prototype.connect = function(options, connectListener) {
   if (autoSelectFamily === undefined) autoSelectFamily = false;
   if (autoSelectFamily) self.autoSelectFamilyAttemptedAddresses = [];
 
-  var lookupFamily = _parseLookupFamily(options.family);
-  var attempts = [{ address: self._requestedAddress, family: lookupFamily }];
+  var lookupFamily = _parseLookupFamily(connectTarget.family);
+  var attempts = [{ address: connectTarget.address, family: lookupFamily }];
 
   function _normalizeCandidate(raw, fallbackFamily) {
     if (!raw) return null;
@@ -2385,6 +2869,7 @@ Socket.prototype.connect = function(options, connectListener) {
     var idx = 0;
     var connected = false;
     function nextAttempt() {
+      if (!_isCurrentNetSocketConnect(selfRef, connectTarget)) return;
       if (connected) {
         return;
       }
@@ -2432,7 +2917,7 @@ Socket.prototype.connect = function(options, connectListener) {
       var address = target.address;
       var family = target.family;
       if (selfRef.autoSelectFamilyAttemptedAddresses) {
-        selfRef.autoSelectFamilyAttemptedAddresses.push(address + ':' + selfRef._requestedPort);
+        selfRef.autoSelectFamilyAttemptedAddresses.push(address + ':' + connectTarget.port);
       }
 
       // Compat: mocked autoSelectFamily lookups often include unroutable public
@@ -2441,15 +2926,15 @@ Socket.prototype.connect = function(options, connectListener) {
       // connect path (ENG-22994) that would still stall these tests for ~75s, so
       // fast-fail them and continue.
       if (shouldAutoSelect && customLookup && !_isLocalTestAddress(address)) {
-        attemptErrors.push(_createConnectError('ECONNREFUSED', address, selfRef._requestedPort, 'connect'));
+        attemptErrors.push(_createConnectError('ECONNREFUSED', address, connectTarget.port, 'connect'));
         nextAttempt();
         return;
       }
 
       // Check blockList
-      if (options.blockList && typeof options.blockList.check === 'function') {
+      if (connectTarget.blockList && typeof connectTarget.blockList.check === 'function') {
         var ipType = isIPv6(address) ? 'ipv6' : 'ipv4';
-        if (options.blockList.check(address, ipType)) {
+        if (connectTarget.blockList.check(address, ipType)) {
           var blockErr = new Error('IP blocked: ' + address);
           blockErr.code = 'ERR_IP_BLOCKED';
           selfRef.destroy(blockErr);
@@ -2457,14 +2942,14 @@ Socket.prototype.connect = function(options, connectListener) {
         }
       }
 
-      if (isIP(address) === 4 && _hasMatchingIPv6OnlyServer(address, selfRef._requestedPort)) {
-        attemptErrors.push(_createConnectError('ECONNREFUSED', address, selfRef._requestedPort, 'connect'));
+      if (isIP(address) === 4 && _hasMatchingIPv6OnlyServer(address, connectTarget.port)) {
+        attemptErrors.push(_createConnectError('ECONNREFUSED', address, connectTarget.port, 'connect'));
         nextAttempt();
         return;
       }
 
-      var localAddressArg = options.localAddress === undefined ? null : options.localAddress;
-      var localPortArg = options.localPort === undefined ? null : options.localPort;
+      var localAddressArg = connectTarget.localAddress;
+      var localPortArg = connectTarget.localPort;
 
       if (_hasAsyncTcpConnect) {
         // Async connect (ENG-22994): start a non-blocking connect and resolve it
@@ -2475,12 +2960,12 @@ Socket.prototype.connect = function(options, connectListener) {
         var startHandle;
         try {
           startHandle = __exactTcpConnectStart(
-            address, selfRef._requestedPort, localAddressArg, localPortArg);
+            address, connectTarget.port, localAddressArg, localPortArg);
         } catch (startErr) {
           if (selfRef.destroyed || selfRef._abortPending) {
             return;
           }
-          attemptErrors.push(_createConnectErrorFromRaw(startErr, address, selfRef._requestedPort));
+          attemptErrors.push(_createConnectErrorFromRaw(startErr, address, connectTarget.port));
           nextAttempt();
           return;
         }
@@ -2492,7 +2977,7 @@ Socket.prototype.connect = function(options, connectListener) {
           selfRef,
           startHandle,
           function onConnectPollDone() {
-            if (selfRef.destroyed || selfRef._abortPending) {
+            if (!_isCurrentNetSocketConnect(selfRef, connectTarget) || selfRef._abortPending) {
               try { __exactTcpClose(startHandle); } catch (e) { /* ignored: best-effort close; socket destroyed while connect was in flight */ }
               return;
             }
@@ -2500,10 +2985,10 @@ Socket.prototype.connect = function(options, connectListener) {
             _finishTcpConnectSuccess(selfRef, startHandle, address, family);
           },
           function onConnectPollFailed(pollErr) {
-            if (selfRef.destroyed || selfRef._abortPending) {
+            if (!_isCurrentNetSocketConnect(selfRef, connectTarget) || selfRef._abortPending) {
               return;
             }
-            attemptErrors.push(_createConnectErrorFromRaw(pollErr, address, selfRef._requestedPort));
+            attemptErrors.push(_createConnectErrorFromRaw(pollErr, address, connectTarget.port));
             nextAttempt();
           });
         return;
@@ -2512,11 +2997,11 @@ Socket.prototype.connect = function(options, connectListener) {
       try {
         var nativeHandle = __exactTcpConnect(
           address,
-          selfRef._requestedPort,
+          connectTarget.port,
           localAddressArg,
           localPortArg
         );
-        if (selfRef.destroyed) {
+        if (!_isCurrentNetSocketConnect(selfRef, connectTarget)) {
           try { __exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close; socket destroyed before handle adoption */ }
           return;
         }
@@ -2527,7 +3012,7 @@ Socket.prototype.connect = function(options, connectListener) {
         if (selfRef.destroyed || selfRef._abortPending) {
           return;
         }
-        var connErr = _createConnectErrorFromRaw(err, address, selfRef._requestedPort);
+        var connErr = _createConnectErrorFromRaw(err, address, connectTarget.port);
         attemptErrors.push(connErr);
         nextAttempt();
         return;
@@ -2537,15 +3022,15 @@ Socket.prototype.connect = function(options, connectListener) {
   }
 
   setTimeout(function() {
-    if (self.destroyed) return;
+    if (!_isCurrentNetSocketConnect(self, connectTarget)) return;
 
-    if (!customLookup && self._requestedAddress === 'localhost') {
+    if (!customLookup && connectTarget.address === 'localhost') {
       var localhostCandidates = _getFastLocalhostConnectCandidates(lookupFamily, autoSelectFamily);
       if (localhostCandidates.length > 0) {
         var firstLocalhostCandidate = localhostCandidates[0];
         self.emit('lookup', null, firstLocalhostCandidate.address,
           firstLocalhostCandidate.family || lookupFamily || isIP(firstLocalhostCandidate.address),
-          self._requestedAddress);
+          connectTarget.address);
         _startTcpConnect(self, localhostCandidates, autoSelectFamily);
         return;
       }
@@ -2553,15 +3038,16 @@ Socket.prototype.connect = function(options, connectListener) {
 
     if (typeof resolver === 'function') {
       var lookupOptions = { family: lookupFamily };
-      if (options.hints !== undefined) lookupOptions.hints = options.hints;
-      if (options.verbatim !== undefined) lookupOptions.verbatim = options.verbatim;
+      if (connectTarget.hints !== undefined) lookupOptions.hints = connectTarget.hints;
+      if (connectTarget.verbatim !== undefined) lookupOptions.verbatim = connectTarget.verbatim;
       if (autoSelectFamily) lookupOptions.all = true;
-      if (options.all !== undefined) lookupOptions.all = options.all;
+      if (connectTarget.all !== undefined) lookupOptions.all = connectTarget.all;
 
       try {
-        resolver(self._requestedAddress, lookupOptions, function(err, lookupResult, candidateFamily) {
+        resolver(connectTarget.address, lookupOptions, function(err, lookupResult, candidateFamily) {
+          if (!_isCurrentNetSocketConnect(self, connectTarget)) return;
           if (err) {
-            self.emit('lookup', err, undefined, undefined, self._requestedAddress);
+            self.emit('lookup', err, undefined, undefined, connectTarget.address);
             self.destroy(err);
             return;
           }
@@ -2578,7 +3064,7 @@ Socket.prototype.connect = function(options, connectListener) {
           for (var ni = 0; ni < normalized.length; ni++) {
             var normalizedFamily = normalized[ni].family;
             if (normalizedFamily != null && normalizedFamily !== 0 && normalizedFamily !== 4 && normalizedFamily !== 6) {
-              self.destroy(_createInvalidAddressFamilyError(normalizedFamily, self._requestedAddress, self._requestedPort));
+              self.destroy(_createInvalidAddressFamilyError(normalizedFamily, connectTarget.address, connectTarget.port));
               return;
             }
           }
@@ -2612,21 +3098,21 @@ Socket.prototype.connect = function(options, connectListener) {
           }
 
           if (normalized.length === 0) {
-            self.destroy(_createInvalidIPAddressError(self._requestedAddress));
+            self.destroy(_createInvalidIPAddressError(connectTarget.address));
             return;
           }
 
           var first = normalized[0];
           if (first) {
-            self.emit('lookup', null, first.address, first.family || lookupFamily || isIP(first.address), self._requestedAddress);
+            self.emit('lookup', null, first.address, first.family || lookupFamily || isIP(first.address), connectTarget.address);
           }
 
           // Check blockList on resolved addresses
-          if (options.blockList && typeof options.blockList.check === 'function') {
+          if (connectTarget.blockList && typeof connectTarget.blockList.check === 'function') {
             for (var bi = 0; bi < normalized.length; bi++) {
               var addr = normalized[bi].address;
               var blType = isIPv6(addr) ? 'ipv6' : 'ipv4';
-              if (options.blockList.check(addr, blType)) {
+              if (connectTarget.blockList.check(addr, blType)) {
                 var blockErr = new Error('IP blocked: ' + addr);
                 blockErr.code = 'ERR_IP_BLOCKED';
                 self.destroy(blockErr);
@@ -2638,7 +3124,7 @@ Socket.prototype.connect = function(options, connectListener) {
           _startTcpConnect(self, normalized, autoSelectFamily);
         });
       } catch (err) {
-        self.destroy(err);
+        if (_isCurrentNetSocketConnect(self, connectTarget)) self.destroy(err);
       }
       return;
     }
@@ -2650,6 +3136,7 @@ Socket.prototype.connect = function(options, connectListener) {
 };
 
 Socket.prototype.write = function(data, encoding, callback) {
+  var ownerState = _assertNetSocketOwner(this);
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
 
   // Validate write arguments
@@ -2676,9 +3163,9 @@ Socket.prototype.write = function(data, encoding, callback) {
   }
   if (_unwrapHandle(this._handle) == null) {
     if (this.connecting) {
-      var queuedItem = _createWriteQueueItem(data, encoding, callback);
-      this._writeQueue.push(queuedItem);
-      this._bufferedBytes += _queuedWriteItemLength(queuedItem);
+      var queuedItem = _createWriteQueueItem(data, encoding, callback, ownerState.ownerMarker);
+      ownerState.writeQueue.push(queuedItem);
+      ownerState.bufferedBytes += _queuedWriteItemLength(queuedItem);
       this._bytesWritten += _queuedWriteItemLength(queuedItem);
       var pendingBufferedLength = this.bufferSize;
       if (pendingBufferedLength >= this._writableHighWaterMark) {
@@ -2698,9 +3185,9 @@ Socket.prototype.write = function(data, encoding, callback) {
     return false;
   }
 
-  var writeItem = _createWriteQueueItem(data, encoding, callback);
-  this._writeQueue.push(writeItem);
-  this._bufferedBytes += _queuedWriteItemLength(writeItem);
+  var writeItem = _createWriteQueueItem(data, encoding, callback, ownerState.ownerMarker);
+  ownerState.writeQueue.push(writeItem);
+  ownerState.bufferedBytes += _queuedWriteItemLength(writeItem);
   this._bytesWritten += _queuedWriteItemLength(writeItem);
   var bufferedLength = this.bufferSize;
   var shouldReturnFalse = bufferedLength >= this._writableHighWaterMark;
@@ -2708,11 +3195,13 @@ Socket.prototype.write = function(data, encoding, callback) {
     this._needDrain = true;
   }
 
-  if (!this._isWriting && !this._corked) {
+  if (!ownerState.isWriting && !ownerState.corked) {
     _scheduleWriteQueueDrain(this, 0);
   }
   return !shouldReturnFalse;
 };
+
+var _socketWriteOwned = Socket.prototype.write;
 
 function _invalidArgTypeHelper(input) {
   if (input == null) return ' Received ' + input;
@@ -2725,10 +3214,11 @@ function _invalidArgTypeHelper(input) {
 }
 
 Socket.prototype.end = function(data, encoding, callback) {
+  var ownerState = _assertNetSocketOwner(this);
   if (typeof data === 'function') { callback = data; data = undefined; }
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
   if (this._finishEmitted) {
-    if (data != null) this.write(data, encoding);
+    if (data != null) _socketWriteOwned.call(this, data, encoding);
     if (callback) {
       var alreadyFinishedErr = new Error('stream already finished');
       alreadyFinishedErr.code = 'ERR_STREAM_ALREADY_FINISHED';
@@ -2736,11 +3226,11 @@ Socket.prototype.end = function(data, encoding, callback) {
     }
     return this;
   }
-  if (data != null) this.write(data, encoding);
+  if (data != null) _socketWriteOwned.call(this, data, encoding);
   if (!this._autoEnding) {
     this._autoEndedFromPeer = false;
   }
-  this._ended = true;
+  ownerState.ended = true;
   this._needDrain = false;
   if (this._drainEventTimer != null) {
     clearTimeout(this._drainEventTimer);
@@ -2753,8 +3243,8 @@ Socket.prototype.end = function(data, encoding, callback) {
     this.readyState = this.readable ? 'readOnly' : 'closed';
   }
   if (callback) this.once('finish', callback);
-  if (this.connecting || _unwrapHandle(this._handle) != null || this._writeQueue.length > 0) {
-    this._closeAfterEnd = true;
+  if (this.connecting || _unwrapHandle(ownerState.handle) != null || ownerState.writeQueue.length > 0) {
+    ownerState.closeAfterEnd = true;
     _scheduleWriteQueueDrain(this, 0);
   } else if (!this._finishEmitted) {
     var self = this;
@@ -2769,11 +3259,29 @@ Socket.prototype.end = function(data, encoding, callback) {
 };
 
 Socket.prototype.destroy = function(err) {
-  if (this.destroyed) return this;
+  var ownerState = _netSocketHandleObjects && _netSocketHandleObjects.get(this);
+  if (ownerState && ownerState.destroyed) return this;
+  ownerState = _assertNetSocketStateOwner(ownerState);
+  // Native close is the ownership boundary. Perform it before mutating any JS
+  // lifecycle state so a wrong-principal close leaves the selector and the
+  // owner's retry path intact. Pending-connect handles are likewise private
+  // native resources even though they have not reached `_handle` yet.
+  var nativeHandle = _unwrapHandle(ownerState.handle);
+  var pendingConnectHandle = ownerState.pendingConnectHandle;
+  if (_hasTcp) {
+    if (typeof pendingConnectHandle === 'number') {
+      __exactTcpClose(pendingConnectHandle);
+    }
+    if (typeof nativeHandle === 'number' && nativeHandle !== pendingConnectHandle) {
+      __exactTcpClose(nativeHandle);
+    }
+  }
+  _invalidateNetSocketConnect(ownerState);
+  _assignPendingConnectHandle(this, null);
   var wasConnecting = this.connecting;
   _detachSocketAbortListener(this);
   this._abortPending = false;
-  this.destroyed = true;
+  _assignNetSocketDestroyed(this, true);
   this.readable = false;
   this.writable = false;
   this.connecting = false;
@@ -2793,7 +3301,7 @@ Socket.prototype.destroy = function(err) {
   }
   _clearSocketTimeoutTimer(this);
   this[kTimeout] = null;
-  if (this._writeQueue.length) {
+  if (ownerState.writeQueue.length) {
     var endErr;
     if (err instanceof Error) {
       endErr = err;
@@ -2807,28 +3315,24 @@ Socket.prototype.destroy = function(err) {
     } else {
       endErr = new Error(err ? String(err) : 'Socket destroyed');
     }
-    for (var i = 0; i < this._writeQueue.length; i++) {
-      var queued = this._writeQueue[i];
+    for (var i = 0; i < ownerState.writeQueue.length; i++) {
+      var queued = ownerState.writeQueue[i];
       if (queued.callback) {
         setTimeout(function(cb, error) {
           cb(error);
         }, 0, queued.callback, endErr);
       }
     }
-    this._writeQueue = [];
-    this._bufferedBytes = 0;
-    this._isWriting = false;
+    ownerState.writeQueue = [];
+    ownerState.bufferedBytes = 0;
+    ownerState.isWriting = false;
   }
   this._suppressCloseBeforeConnectError = false;
   // Release an in-flight non-blocking connect fd that was never attached to the
   // socket handle (so the block below can't reach it). (ENG-22994)
   _cancelPendingConnect(this);
-  var nativeHandle = _unwrapHandle(this._handle);
-  if (nativeHandle != null && _hasTcp) {
-    try { __exactTcpClose(nativeHandle); } catch (e) { /* ignored: best-effort close during destroy */ }
-  }
   // Set _handle to null after destroy (Node.js compat: test-net-after-close checks c._handle === null)
-  this._handle = null;
+  _assignNetSocketHandle(this, null);
   if (err) {
     _scheduleCallback(function() {
       this.emit('error', err);
@@ -2845,6 +3349,7 @@ Socket.prototype.destroy = function(err) {
 Socket.prototype.close = Socket.prototype.destroy;
 
 Socket.prototype.resetAndDestroy = function() {
+  _assertNetSocketOwner(this);
   // Send RST instead of FIN
   if (this._handle != null && _hasTcp) {
     var nativeHandle = _unwrapHandle(this._handle);
@@ -2895,6 +3400,7 @@ Socket.prototype.setTimeout = function(timeout, callback) {
 };
 
 Socket.prototype.read = function(size) {
+  _assertNetSocketOwner(this);
   var result = this._consumeReadBuffer(typeof size === 'number' ? size : undefined);
   // If the read loop backed off because _readBuffer was over
   // _readableHighWaterMark, and draining this read brought it back under,
@@ -2915,25 +3421,34 @@ Socket.prototype.read = function(size) {
 };
 
 Socket.prototype.on = function(eventName, listener) {
-  var result = EventEmitter.prototype.on.call(this, eventName, listener);
+  _assertNetSocketOwner(this);
+  var result = _eventEmitterOwned.on.call(this, eventName, listener);
   _maybeActivateDeferredReadableSocket(this, eventName);
   _scheduleFlushBufferedReadData(this, eventName);
   return result;
 };
 
 Socket.prototype.addListener = function(eventName, listener) {
-  var result = EventEmitter.prototype.addListener.call(this, eventName, listener);
+  _assertNetSocketOwner(this);
+  var result = (_eventEmitterOwned.addListener || _eventEmitterOwned.on).call(this, eventName, listener);
   _maybeActivateDeferredReadableSocket(this, eventName);
   _scheduleFlushBufferedReadData(this, eventName);
   return result;
 };
 
 Socket.prototype.prependListener = function(eventName, listener) {
-  var result = EventEmitter.prototype.prependListener.call(this, eventName, listener);
+  _assertNetSocketOwner(this);
+  var result = (_eventEmitterOwned.prependListener || _eventEmitterOwned.on).call(this, eventName, listener);
   _maybeActivateDeferredReadableSocket(this, eventName);
   _scheduleFlushBufferedReadData(this, eventName);
   return result;
 };
+
+// Instance event-method accessors installed by the constructor return these
+// captured implementations rather than consulting writable prototype slots.
+_netSocketOnOwned = Socket.prototype.on;
+_netSocketAddListenerOwned = Socket.prototype.addListener;
+_netSocketPrependListenerOwned = Socket.prototype.prependListener;
 
 Socket.prototype.push = function(chunk, encoding) {
   if (chunk === null) {
@@ -3116,19 +3631,98 @@ Socket.prototype.setEncoding = function(enc) {
 };
 
 Socket.prototype.cork = function() {
-  this._corked += 1;
+  var ownerState = _assertNetSocketOwner(this);
+  ownerState.corked += 1;
 };
 
 Socket.prototype.uncork = function() {
-  if (this._corked > 0) {
-    this._corked -= 1;
+  var ownerState = _assertNetSocketOwner(this);
+  if (ownerState.corked > 0) {
+    ownerState.corked -= 1;
   }
-  if (this._corked === 0 && this._writeQueue.length > 0 && !this._isWriting) {
+  if (ownerState.corked === 0 && ownerState.writeQueue.length > 0 && !ownerState.isWriting) {
     _scheduleWriteQueueDrain(this, 0);
   }
 };
 
 // --- Server class ---
+// Server control state is module-private so a retained server cannot be
+// corrupted through writable underscore fields or prototype-call reentrancy.
+// TLS registers its runtime/principal owner assertion before the decorated
+// server is returned; ordinary net.Server instances retain Node-compatible
+// public access without an additional guard.
+// @ref LLP 0004#the-tls-builtin — owner-bound TLS server state stays private
+var _netServerPrivateFields = [
+  'listening', 'maxConnections', '_handle', '_acceptTimer', '_connections',
+  '_closing', '_workers', '_isUnix', '_socketPath', '_listenToken',
+  '_listeningPending', '_readableAll', '_writableAll', 'ipv6Only',
+  'allowHalfOpen', 'pauseOnConnect', 'noDelay', 'keepAlive',
+  'keepAliveInitialDelay', 'blockList', 'captureRejections', '_connectionKey',
+  '_unrefed', '_unref', '_reusePort', '_port', '_requestedPort', '_host',
+  'host'
+];
+var _netServerPublicMutableFields = {
+  maxConnections: true,
+  ipv6Only: true,
+  allowHalfOpen: true,
+  pauseOnConnect: true,
+  noDelay: true,
+  keepAlive: true,
+  keepAliveInitialDelay: true,
+  blockList: true,
+  captureRejections: true
+};
+
+function _installNetServerState(server) {
+  if (!_netServerStates || typeof Object.defineProperty !== 'function') return null;
+  var state = { values: Object.create(null), ownerGuard: null };
+  _netServerStates.set(server, state);
+  for (var i = 0; i < _netServerPrivateFields.length; i++) {
+    (function(name) {
+      Object.defineProperty(server, name, {
+        enumerable: true,
+        configurable: false,
+        get: function() {
+          if (state.ownerGuard) state.ownerGuard();
+          return state.values[name];
+        },
+        set: function(value) {
+          if (state.ownerGuard) state.ownerGuard();
+          if (!_netServerPublicMutableFields[name]) {
+            throw new Error('net.Server internal state is not publicly mutable');
+          }
+          state.values[name] = value;
+        }
+      });
+    })(_netServerPrivateFields[i]);
+  }
+  Object.defineProperty(server, _kRegisterServerOwnerGuard, {
+    enumerable: false,
+    configurable: false,
+    writable: false,
+    value: function(ownerGuard) {
+      if (state.ownerGuard !== null) {
+        throw new Error('net.Server owner guard is already registered');
+      }
+      if (typeof ownerGuard !== 'function') {
+        throw new TypeError('net.Server owner guard must be a function');
+      }
+      state.ownerGuard = ownerGuard;
+    }
+  });
+  return state;
+}
+
+function _netServerState(server) {
+  var state = _netServerStates && _netServerStates.get(server);
+  return state ? state.values : server;
+}
+
+function _assertNetServerOwner(server) {
+  var state = _netServerStates && _netServerStates.get(server);
+  if (state && state.ownerGuard) state.ownerGuard();
+}
+
 function Server(options, connectionListener) {
   if (!(this instanceof Server)) return new Server(options, connectionListener);
   if (typeof options === 'function') {
@@ -3142,31 +3736,33 @@ function Server(options, connectionListener) {
     throw typeErr;
   }
   options = options || {};
+  _installNetServerState(this);
+  var state = _netServerState(this);
   this._events = {};
-  this.listening = false;
-  this.maxConnections = null;
-  this._handle = null;
-  this._acceptTimer = null;
-  this._connections = 0;
-  this._closing = false;
-  this._workers = [];
-  this._isUnix = false;
-  this._socketPath = null;
-  this._listenToken = 0;
-  this._listeningPending = false;
-  this._readableAll = false;
-  this._writableAll = false;
-  this.ipv6Only = false;
-  this.allowHalfOpen = options.allowHalfOpen || false;
-  this.pauseOnConnect = options.pauseOnConnect || false;
-  this.noDelay = options.noDelay;
-  this.keepAlive = options.keepAlive;
-  this.keepAliveInitialDelay = options.keepAliveInitialDelay || 0;
-  this.blockList = options.blockList || null;
-  this.captureRejections = options.captureRejections === true;
-  this._connectionKey = null;
-  this._unrefed = false;
-  this._unref = false;
+  state.listening = false;
+  state.maxConnections = null;
+  state._handle = null;
+  state._acceptTimer = null;
+  state._connections = 0;
+  state._closing = false;
+  state._workers = [];
+  state._isUnix = false;
+  state._socketPath = null;
+  state._listenToken = 0;
+  state._listeningPending = false;
+  state._readableAll = false;
+  state._writableAll = false;
+  state.ipv6Only = false;
+  state.allowHalfOpen = options.allowHalfOpen || false;
+  state.pauseOnConnect = options.pauseOnConnect || false;
+  state.noDelay = options.noDelay;
+  state.keepAlive = options.keepAlive;
+  state.keepAliveInitialDelay = options.keepAliveInitialDelay || 0;
+  state.blockList = options.blockList || null;
+  state.captureRejections = options.captureRejections === true;
+  state._connectionKey = null;
+  state._unrefed = false;
+  state._unref = false;
   // Mixin EventEmitter
   if (typeof EventEmitter === 'function' && EventEmitter.prototype) {
     for (var k in EventEmitter.prototype) {
@@ -3177,7 +3773,9 @@ function Server(options, connectionListener) {
 }
 
 Server.prototype.listen = function(port, host, backlog, callback) {
-  if ((this.listening || this._listeningPending) && !this._closing) {
+  _assertNetServerOwner(this);
+  var serverState = _netServerState(this);
+  if ((serverState.listening || serverState._listeningPending) && !serverState._closing) {
     var alreadyListeningErr = new Error('Listen method has been called more than once without closing.');
     alreadyListeningErr.code = 'ERR_SERVER_ALREADY_LISTEN';
     throw alreadyListeningErr;
@@ -3271,11 +3869,11 @@ Server.prototype.listen = function(port, host, backlog, callback) {
         var selfRef = this;
         selfRef.on('listening', function() { selfRef.close(); });
         // Also handle case where listen hasn't completed
-        setTimeout(function() {
-          if (!selfRef.listening) {
+        _scheduleTimer(function() {
+          if (!serverState.listening) {
             selfRef.emit('close');
           }
-        }, 0);
+        }, 0, selfRef);
         return this;
       }
       // Listen for future abort
@@ -3285,10 +3883,10 @@ Server.prototype.listen = function(port, host, backlog, callback) {
       }, { once: true });
     }
     if (opts.ipv6Only !== undefined) {
-      this.ipv6Only = opts.ipv6Only === true;
+      serverState.ipv6Only = opts.ipv6Only === true;
     }
     if (opts.reusePort !== undefined) {
-      this._reusePort = opts.reusePort === true;
+      serverState._reusePort = opts.reusePort === true;
     }
     if (opts.handle && opts.handle._exactHandle !== undefined) {
       directHandle = opts.handle;
@@ -3315,13 +3913,13 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     unixPath = directHandle._exactPath || null;
   }
 
-  this._listeningPending = true;
-  var listenToken = ++this._listenToken;
+  serverState._listeningPending = true;
+  var listenToken = ++serverState._listenToken;
 
   if (invalidListenFd !== null) {
     _scheduleTimer(function() {
-      if (listenToken !== self._listenToken) return;
-      self._listeningPending = false;
+      if (listenToken !== serverState._listenToken) return;
+      serverState._listeningPending = false;
       var fdErr = new Error('listen EINVAL: invalid argument');
       fdErr.code = 'EINVAL';
       fdErr.syscall = 'listen';
@@ -3341,29 +3939,29 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   if (callback) this.once('listening', callback);
 
   if (directHandle && directHandle._exactHandle != null) {
-    this._handle = directHandle;
-    this._isUnix = directHandle._exactKind === 'pipe';
-    this._socketPath = this._isUnix ? (directHandle._exactPath || unixPath || null) : null;
-    this._host = host || '0.0.0.0';
-    this.host = this._host;
-    if (!this._isUnix) {
+    serverState._handle = directHandle;
+    serverState._isUnix = directHandle._exactKind === 'pipe';
+    serverState._socketPath = serverState._isUnix ? (directHandle._exactPath || unixPath || null) : null;
+    serverState._host = host || '0.0.0.0';
+    serverState.host = serverState._host;
+    if (!serverState._isUnix) {
       _registerTcpServer(self);
       try {
-        var directInfo = __exactTcpLocalAddr(_unwrapHandle(this._handle));
+        var directInfo = __exactTcpLocalAddr(_unwrapHandle(serverState._handle));
         if (directInfo) {
           var directAddr = JSON.parse(directInfo);
-          self._port = directAddr.port;
-          self._host = directAddr.address;
-          self.host = directAddr.address;
-          self._requestedPort = directAddr.port;
-          self._connectionKey = (directAddr.family || 'IPv4').slice(-1) + ':' + directAddr.address + ':' + directAddr.port;
+          serverState._port = directAddr.port;
+          serverState._host = directAddr.address;
+          serverState.host = directAddr.address;
+          serverState._requestedPort = directAddr.port;
+          serverState._connectionKey = (directAddr.family || 'IPv4').slice(-1) + ':' + directAddr.address + ':' + directAddr.port;
         }
       } catch (_directInfoErr) { /* ignored: advisory listen-address bookkeeping */ }
     }
     _scheduleTimer(function() {
-      if (listenToken !== self._listenToken) return;
-      self._listeningPending = false;
-      self.listening = true;
+      if (listenToken !== serverState._listenToken) return;
+      serverState._listeningPending = false;
+      serverState.listening = true;
       self.emit('listening');
       self._startAccepting();
     }, 0, self);
@@ -3372,33 +3970,33 @@ Server.prototype.listen = function(port, host, backlog, callback) {
 
   // Unix domain socket server
   if (unixPath) {
-    this._isUnix = true;
-    this._socketPath = unixPath;
-    this._readableAll = readableAll;
-    this._writableAll = writableAll;
+    serverState._isUnix = true;
+    serverState._socketPath = unixPath;
+    serverState._readableAll = readableAll;
+    serverState._writableAll = writableAll;
 
     if (!_hasUnix) {
-      this.listening = true;
-      setTimeout(function() { self.emit('listening'); }, 0);
+      serverState.listening = true;
+      _scheduleTimer(function() { self.emit('listening'); }, 0, self);
       return this;
     }
 
     try {
-      self._handle = _makeServerHandle(__exactUnixListen(self._socketPath, backlog || 128), 'pipe', self._socketPath);
-      _applyUnixListenMode(self._socketPath, self._readableAll, self._writableAll);
+      serverState._handle = _makeServerHandle(__exactUnixListen(serverState._socketPath, backlog || 128), 'pipe', serverState._socketPath);
+      _applyUnixListenMode(serverState._socketPath, serverState._readableAll, serverState._writableAll);
     } catch(e) {
       _scheduleTimer(function() {
-        if (listenToken !== self._listenToken) return;
-        self._listeningPending = false;
-        var err = _createListenError(e, null, null, self._socketPath);
+        if (listenToken !== serverState._listenToken) return;
+        serverState._listeningPending = false;
+        var err = _createListenError(e, null, null, serverState._socketPath);
         self.emit('error', err);
       }, 0, self);
       return this;
     }
     _scheduleTimer(function() {
-      if (listenToken !== self._listenToken) return;
-      self._listeningPending = false;
-      self.listening = true;
+      if (listenToken !== serverState._listenToken) return;
+      serverState._listeningPending = false;
+      serverState.listening = true;
       self.emit('listening');
       self._startAccepting();
     }, 0, self);
@@ -3406,8 +4004,8 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   }
 
   // TCP server
-  this._port = port || 0;
-  this._requestedPort = this._port; // Save original requested port for _connectionKey
+  serverState._port = port || 0;
+  serverState._requestedPort = serverState._port; // Save original requested port for _connectionKey
   var listenHosts;
   if (host === undefined || host === null || host === '') {
     // Match Node's default dual-stack preference: bind IPv6-any first, then
@@ -3416,12 +4014,12 @@ Server.prototype.listen = function(port, host, backlog, callback) {
   } else {
     listenHosts = [host];
   }
-  this._host = listenHosts[0];
-  this.host = this._host;
+  serverState._host = listenHosts[0];
+  serverState.host = serverState._host;
 
   if (!_hasTcp) {
-    this.listening = true;
-    setTimeout(function() { self.emit('listening'); }, 0);
+    serverState.listening = true;
+    _scheduleTimer(function() { self.emit('listening'); }, 0, self);
     return this;
   }
 
@@ -3430,26 +4028,26 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     for (var hostIndex = 0; hostIndex < listenHosts.length; hostIndex++) {
       var candidateHost = listenHosts[hostIndex];
       try {
-        self._handle = _makeServerHandle(__exactTcpListen(candidateHost, self._port, backlog || 128, self.ipv6Only ? 1 : 0, self._reusePort ? 1 : 0));
-        self._host = candidateHost;
-        self.host = candidateHost;
+        serverState._handle = _makeServerHandle(__exactTcpListen(candidateHost, serverState._port, backlog || 128, serverState.ipv6Only ? 1 : 0, serverState._reusePort ? 1 : 0));
+        serverState._host = candidateHost;
+        serverState.host = candidateHost;
         _registerTcpServer(self);
         try {
-          var info = __exactTcpLocalAddr(_unwrapHandle(self._handle));
+          var info = __exactTcpLocalAddr(_unwrapHandle(serverState._handle));
           if (info) {
             var addr = JSON.parse(info);
-            self._port = addr.port;
-            self._host = addr.address;
-            self.host = addr.address;
+            serverState._port = addr.port;
+            serverState._host = addr.address;
+            serverState.host = addr.address;
             var familySuffix = (addr.family || 'IPv4').slice(-1);
-            self._connectionKey = familySuffix + ':' + addr.address + ':' + self._requestedPort;
+            serverState._connectionKey = familySuffix + ':' + addr.address + ':' + serverState._requestedPort;
           }
         } catch (e) { /* ignored: advisory listen-address bookkeeping */ }
         listenError = null;
         break;
       } catch (candidateError) {
         listenError = candidateError;
-        self._handle = null;
+        serverState._handle = null;
       }
     }
     if (listenError) {
@@ -3457,18 +4055,18 @@ Server.prototype.listen = function(port, host, backlog, callback) {
     }
   } catch(e) {
     _scheduleTimer(function() {
-      if (listenToken !== self._listenToken) return;
-      self._listeningPending = false;
-      var err = _createListenError(e, self._host, self._port, null);
+      if (listenToken !== serverState._listenToken) return;
+      serverState._listeningPending = false;
+      var err = _createListenError(e, serverState._host, serverState._port, null);
       self.emit('error', err);
     }, 0, self);
     return this;
   }
 
   _scheduleTimer(function() {
-    if (listenToken !== self._listenToken) return;
-    self._listeningPending = false;
-    self.listening = true;
+    if (listenToken !== serverState._listenToken) return;
+    serverState._listeningPending = false;
+    serverState.listening = true;
     self.emit('listening');
     self._startAccepting();
   }, 0, self);
@@ -3476,49 +4074,51 @@ Server.prototype.listen = function(port, host, backlog, callback) {
 };
 
 Server.prototype._startAccepting = function() {
-  if (this._acceptTimer != null) return;
+  _assertNetServerOwner(this);
+  var serverState = _netServerState(this);
+  if (serverState._acceptTimer != null) return;
   var self = this;
-  var acceptFn = self._isUnix ? __exactUnixAccept : __exactTcpAccept;
+  var acceptFn = serverState._isUnix ? __exactUnixAccept : __exactTcpAccept;
   function handleAcceptedClient(clientHandle, acceptedInfo) {
-    var shouldDrop = self.maxConnections === 0 ||
-      (typeof self.maxConnections === 'number' &&
-       self.maxConnections > 0 &&
-       self._connections >= self.maxConnections);
+    var shouldDrop = serverState.maxConnections === 0 ||
+      (typeof serverState.maxConnections === 'number' &&
+       serverState.maxConnections > 0 &&
+       serverState._connections >= serverState.maxConnections);
     if (shouldDrop) {
       var dropInfo = acceptedInfo || _describeAcceptedSocket(clientHandle, self);
       try { __exactTcpClose(clientHandle); } catch (e) { /* ignored: best-effort close of a dropped (maxConnections) client handle */ }
       self.emit('drop', dropInfo);
       return true;
     }
-    self._connections++;
+    serverState._connections++;
     var socketOpts = {
       _handle: clientHandle,
-      allowHalfOpen: self.allowHalfOpen || false
+      allowHalfOpen: serverState.allowHalfOpen || false
     };
-    if (self._isUnix) {
+    if (serverState._isUnix) {
       socketOpts._isUnix = true;
-      socketOpts._socketPath = self._socketPath;
+      socketOpts._socketPath = serverState._socketPath;
     }
     var socket = new Socket(socketOpts);
     socket.server = self;
     socket._server = self;
     // Apply server-level socket options
-    if (self.noDelay !== undefined) {
-      socket.setNoDelay(self.noDelay);
+    if (serverState.noDelay !== undefined) {
+      socket.setNoDelay(serverState.noDelay);
     }
-    if (self.keepAlive !== undefined) {
-      socket.setKeepAlive(self.keepAlive, self.keepAliveInitialDelay);
+    if (serverState.keepAlive !== undefined) {
+      socket.setKeepAlive(serverState.keepAlive, serverState.keepAliveInitialDelay);
     }
-    if (self.pauseOnConnect) {
+    if (serverState.pauseOnConnect) {
       socket.pause();
     }
     socket.once('close', function() {
       // If socket was sent to a child via IPC, _server is cleared.
       // In that case, the SocketList protocol handles _connections decrement.
       if (socket._server !== self) return;
-      self._connections--;
-      if (self._connections < 0) self._connections = 0;
-      if (self._closing && self._connections === 0) {
+      serverState._connections--;
+      if (serverState._connections < 0) serverState._connections = 0;
+      if (serverState._closing && serverState._connections === 0) {
         self.emit('close');
       }
     });
@@ -3526,8 +4126,8 @@ Server.prototype._startAccepting = function() {
     return true;
   }
   function acceptLoop() {
-    if (!self.listening || self._handle == null) return;
-    var nativeH = _unwrapHandle(self._handle);
+    if (!serverState.listening || serverState._handle == null) return;
+    var nativeH = _unwrapHandle(serverState._handle);
     if (nativeH == null) return;
     try {
       var acceptedAny = false;
@@ -3538,11 +4138,11 @@ Server.prototype._startAccepting = function() {
         }
         acceptedAny = true;
         var acceptedInfo = null;
-        if (self.blockList && typeof self.blockList.check === 'function') {
+        if (serverState.blockList && typeof serverState.blockList.check === 'function') {
           acceptedInfo = _describeAcceptedSocket(clientHandle, self);
           if (acceptedInfo.remoteAddress) {
             var blockedType = isIPv6(acceptedInfo.remoteAddress) ? 'ipv6' : 'ipv4';
-            if (self.blockList.check(acceptedInfo.remoteAddress, blockedType)) {
+            if (serverState.blockList.check(acceptedInfo.remoteAddress, blockedType)) {
               try { __exactTcpClose(clientHandle); } catch (_blockCloseErr) { /* ignored: best-effort close of a blocklisted client handle */ }
               continue;
             }
@@ -3551,60 +4151,70 @@ Server.prototype._startAccepting = function() {
         handleAcceptedClient(clientHandle, acceptedInfo);
       }
     } catch(e) {
-      if (self.listening) {
+      if (serverState.listening) {
         self.emit('error', e);
       }
       return;
     }
-    self._acceptTimer = _scheduleTimer(acceptLoop, acceptedAny ? 0 : 10, self);
+    serverState._acceptTimer = _scheduleTimer(acceptLoop, acceptedAny ? 0 : 10, self);
   }
-  self._acceptTimer = _scheduleTimer(acceptLoop, 0, self);
+  serverState._acceptTimer = _scheduleTimer(acceptLoop, 0, self);
 };
 
 Server.prototype.close = function(callback) {
+  _assertNetServerOwner(this);
+  var serverState = _netServerState(this);
+  var ownedTlsClose = typeof this[_kCloseOwnedTlsServer] === 'function'
+    ? this[_kCloseOwnedTlsServer]
+    : null;
+  if (ownedTlsClose) ownedTlsClose('begin');
+  var nativeServerHandle = _unwrapHandle(serverState._handle);
+  if (_hasTcp && typeof nativeServerHandle === 'number') {
+    // Authenticate and release before callback registration or lifecycle
+    // mutation. A retained server closed by the wrong principal remains fully
+    // usable by its owner, including the private handle selector.
+    __exactTcpClose(nativeServerHandle);
+  }
   if (typeof callback === 'function') {
-    if (!this.listening) {
+    if (!serverState.listening) {
       // If not listening, emit error on next tick
       var self = this;
-      setTimeout(function() {
+      _scheduleTimer(function() {
         var err = new Error('Server is not running.');
         err.code = 'ERR_SERVER_NOT_RUNNING';
         callback(err);
-      }, 0);
+      }, 0, self);
+      if (ownedTlsClose) ownedTlsClose('retire');
       return this;
     }
     this.once('close', callback);
   }
-  this._listenToken++;
-  this.listening = false;
-  this._listeningPending = false;
-  if (this._acceptTimer != null) {
-    clearTimeout(this._acceptTimer);
-    this._acceptTimer = null;
+  serverState._listenToken++;
+  serverState.listening = false;
+  serverState._listeningPending = false;
+  if (serverState._acceptTimer != null) {
+    clearTimeout(serverState._acceptTimer);
+    serverState._acceptTimer = null;
   }
-  if (this._handle != null) {
-    // Close the fd (works for both TCP and Unix handles since they share the native socket table)
-    if (_hasTcp) {
-      try { __exactTcpClose(_unwrapHandle(this._handle)); } catch (e) { /* ignored: best-effort close during server shutdown */ }
-    }
+  if (serverState._handle != null) {
     _unregisterTcpServer(this);
-    this._handle = null;
+    serverState._handle = null;
   }
   // Unlink Unix socket file on close
-  if (this._isUnix && this._socketPath) {
+  if (serverState._isUnix && serverState._socketPath) {
     try {
       var fs = require('fs');
-      fs.unlinkSync(this._socketPath);
+      fs.unlinkSync(serverState._socketPath);
     } catch (e) { _swallowDebug('failed to unlink unix socket file', e); }
-    this._socketPath = null;
+    serverState._socketPath = null;
   }
   // Only emit 'close' immediately if there are no active connections.
   // Otherwise, set _closing flag and wait for connections to close.
   var self = this;
-  if (this._connections > 0) {
-    this._closing = true;
+  if (serverState._connections > 0) {
+    serverState._closing = true;
   } else {
-    setTimeout(function() { self.emit('close'); }, 0);
+    _scheduleTimer(function() { self.emit('close'); }, 0, self);
   }
   return this;
 };
@@ -3635,42 +4245,50 @@ if (typeof Symbol === 'function' && Symbol.asyncDispose) {
 }
 
 Server.prototype.address = function() {
+  _assertNetServerOwner(this);
+  var serverState = _netServerState(this);
   // Unix socket servers return the path as the address (Node.js convention)
-  if (this._isUnix) {
-    return this._socketPath;
+  if (serverState._isUnix) {
+    return serverState._socketPath;
   }
-  if (this._handle != null && _hasTcp) {
+  if (serverState._handle != null && _hasTcp) {
     try {
-      var info = __exactTcpLocalAddr(_unwrapHandle(this._handle));
+      var info = __exactTcpLocalAddr(_unwrapHandle(serverState._handle));
       if (info) return JSON.parse(info);
     } catch (e) { /* ignored: fall through to the default address result */ }
   }
-  return { address: this._host || '0.0.0.0', port: this._port || 0, family: 'IPv4' };
+  return { address: serverState._host || '0.0.0.0', port: serverState._port || 0, family: 'IPv4' };
 };
 
 Server.prototype.ref = function() {
-  this._unrefed = false;
-  this._unref = false;
-  _setHandleRefState(this._handle, true);
-  _setTimerRefState(this._acceptTimer, true);
-  if (this.listening && this._handle != null && this._acceptTimer == null) {
+  _assertNetServerOwner(this);
+  var serverState = _netServerState(this);
+  serverState._unrefed = false;
+  serverState._unref = false;
+  _setHandleRefState(serverState._handle, true);
+  _setTimerRefState(serverState._acceptTimer, true);
+  if (serverState.listening && serverState._handle != null && serverState._acceptTimer == null) {
     this._startAccepting();
   }
   return this;
 };
 Server.prototype.unref = function() {
-  this._unrefed = true;
-  this._unref = true;
-  _setHandleRefState(this._handle, false);
-  _setTimerRefState(this._acceptTimer, false);
+  _assertNetServerOwner(this);
+  var serverState = _netServerState(this);
+  serverState._unrefed = true;
+  serverState._unref = true;
+  _setHandleRefState(serverState._handle, false);
+  _setTimerRefState(serverState._acceptTimer, false);
   return this;
 };
 Server.prototype.getConnections = function(cb) {
+  _assertNetServerOwner(this);
   var self = this;
+  var serverState = _netServerState(this);
   if (cb) {
-    setTimeout(function() {
-      cb(null, self._connections || 0);
-    }, 0);
+    _scheduleTimer(function() {
+      cb(null, serverState._connections || 0);
+    }, 0, self);
   }
   return this;
 };

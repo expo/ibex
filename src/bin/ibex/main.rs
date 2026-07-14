@@ -317,13 +317,6 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<()> {
-    // @ref LLP 0013#mechanism-1 — the boot lockdown is read by the engine from
-    // the environment (std::getenv). Setting it here, before any runtime is
-    // created, lets `--lockdown` reach the in-process Hermes runtime.
-    if cli.lockdown {
-        std::env::set_var("IBEX_LOCKDOWN", "1");
-    }
-
     if cli.version {
         println!("v{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
@@ -331,6 +324,25 @@ async fn run(cli: Cli) -> Result<()> {
     if cli.completion_bash {
         print_completions(clap_complete::Shell::Bash);
         return Ok(());
+    }
+
+    // Validate production controls before dispatch can inspect a prospective
+    // project path, read arming artifacts, allocate Hermes, or evaluate input.
+    // Runtime construction checks again, while diagnostic/tooling subcommands
+    // retain their explicitly separate workflows.
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+    if cli.eval_code.is_some()
+        || cli.print_eval.is_some()
+        || matches!(
+            cli.command.as_ref(),
+            None | Some(Commands::Run { .. })
+                | Some(Commands::Eval { .. })
+                | Some(Commands::Repl)
+                | Some(Commands::Build { .. })
+                | Some(Commands::Debug { .. })
+        )
+    {
+        runtime::validate_production_inputs(&cli)?;
     }
 
     if let Some(code) = &cli.eval_code {
@@ -392,6 +404,9 @@ async fn run(cli: Cli) -> Result<()> {
             DebugCommands::Modules => run_debug_modules(),
         },
         Some(Commands::Policy { command }) => runtime::run_policy_command(command).await,
+        Some(Commands::Capsec { command }) => match command {
+            cli::CapsecCommands::Audit { file, args } => run_capsec_audit(&cli, file, args).await,
+        },
         Some(Commands::SelfTest) => runtime_tests::run_all(&cli).await,
         Some(Commands::Compat {
             section,
@@ -461,6 +476,23 @@ async fn run(cli: Cli) -> Result<()> {
             }
         }
     }
+}
+
+async fn run_capsec_audit(cli: &Cli, file: &str, args: &[String]) -> Result<()> {
+    let runtime = runtime::Runtime::from_audit_cli(cli)?;
+    suppress_runtime_banner(&runtime).await?;
+    runtime.load_runtime().await?;
+    runtime.run_file_with_args(file, args).await?;
+    let exit_code = read_process_exit_code(&runtime).await;
+    if let Some(report) = crate::host::abi::current_audit_report() {
+        if !report.is_empty() {
+            eprintln!("{report}");
+        }
+    }
+    if let Some(code) = exit_code {
+        std::process::exit(code);
+    }
+    Ok(())
 }
 
 fn should_run_package_script(file: &str) -> bool {
@@ -668,6 +700,20 @@ struct RunFileOptions<'a> {
     inspect_host: Option<&'a str>,
 }
 
+fn effective_run_cli(cli: &Cli, options: RunFileOptions<'_>) -> Cli {
+    let mut effective = cli.clone();
+    effective.inspect |= options.inspect;
+    effective.inspect_wait |= options.inspect_wait;
+    effective.inspect_open |= options.inspect_open;
+    effective.inspect_pause |= options.inspect_pause;
+    effective.inspect_port = options.inspect_port.or(effective.inspect_port);
+    effective.inspect_host = options
+        .inspect_host
+        .map(str::to_owned)
+        .or(effective.inspect_host);
+    effective
+}
+
 /// Run a JavaScript/TypeScript file
 async fn run_file(
     cli: &Cli,
@@ -676,7 +722,12 @@ async fn run_file(
     options: RunFileOptions<'_>,
 ) -> Result<()> {
     let t0 = std::time::Instant::now();
-    let runtime = runtime::Runtime::from_cli(cli)?;
+    // `run` owns a second set of inspector flags for Node-compatible argument
+    // placement. Fold those into the configuration authenticated by armed
+    // startup so subcommand spelling cannot bypass the closed inspector route.
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+    let effective_cli = effective_run_cli(cli, options);
+    let runtime = runtime::Runtime::from_cli(&effective_cli)?;
     if trace_startup() {
         eprintln!(
             "[startup] {:<30} {:>6} us ({:>5.1} ms)",
@@ -950,6 +1001,18 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
     }
     if let Some(policy) = &cli.policy {
         flags.extend(["--policy".into(), policy.to_string_lossy().into_owned()]);
+    }
+    if let Some(snapshot) = &cli.capsec_armed_snapshot {
+        flags.extend([
+            "--capsec-armed-snapshot".into(),
+            snapshot.to_string_lossy().into_owned(),
+        ]);
+    }
+    if let Some(identity) = &cli.capsec_arming_identity {
+        flags.extend([
+            "--capsec-arming-identity".into(),
+            identity.to_string_lossy().into_owned(),
+        ]);
     }
     for allow in &cli.allow {
         flags.extend(["--allow".into(), allow.clone()]);
@@ -1283,7 +1346,7 @@ async fn eval_code(cli: &Cli, code: &str, print_result: bool) -> Result<()> {
 
 /// Start the interactive REPL
 async fn start_repl(cli: &Cli) -> Result<()> {
-    // REPL respects --capsec mode (defaults to permissive)
+    // REPL uses the same enforced, armed runtime posture as ordinary execution.
     // User can override with --capsec capability or --capsec strict for security testing
     let runtime = runtime::Runtime::from_cli(cli)?;
     suppress_runtime_banner(&runtime).await?;
@@ -1340,7 +1403,8 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
     } else {
         cli.bundle_format
     };
-    let bundled = runtime::prepare_entry_with_format(file, format).await?;
+    let bundled = runtime::prepare_entry_for_bytecode_build(file, format).await?;
+    let _bundle_lease = runtime::acquire_bundle_execution_lease(&bundled).await?;
     let bundled_str = bundled.to_string_lossy().to_string();
 
     engine::hermes::compile_to_bytecode(&bundled_str, &output_path, Some(&map_path)).await?;
@@ -1351,16 +1415,14 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
     // artifact's own directory (`__exactChunkDir`), so ship them alongside the
     // `.hbc` — otherwise the built artifact silently loses per-package
     // attribution (a flat single-Domain run). @ref LLP 0013#mechanism-3 — (ENG-22760)
-    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
-        if let Some(dest_dir) = output_path.parent() {
-            let copied = runtime::ship_chunk_siblings(&bundled, dest_dir)?;
-            if copied > 0 {
-                println!(
-                    "Shipped {} per-package chunk file(s) alongside {}",
-                    copied,
-                    output_path.display()
-                );
-            }
+    if let Some(dest_dir) = output_path.parent() {
+        let copied = runtime::ship_chunk_siblings(&bundled, dest_dir)?;
+        if copied > 0 {
+            println!(
+                "Shipped {} per-package chunk file(s) alongside {}",
+                copied,
+                output_path.display()
+            );
         }
     }
 
@@ -1468,10 +1530,49 @@ fn open_devtools_for_port(port: u16) {
 #[cfg(test)]
 mod tests {
     use super::{
-        cli, exit_code_for_error, watch_child_args, watch_shutdown_timeout_from_env,
-        DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS, EXACT_PROJECT_COMMANDS, RESERVED_RUNTIME_COMMANDS,
+        cli, effective_run_cli, exit_code_for_error, watch_child_args,
+        watch_shutdown_timeout_from_env, RunFileOptions, DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS,
+        EXACT_PROJECT_COMMANDS, RESERVED_RUNTIME_COMMANDS,
     };
     use clap::Parser;
+
+    #[test]
+    fn run_subcommand_inspector_configuration_reaches_armed_validation() {
+        let cli = cli::Cli::parse_from([
+            "ibex",
+            "--capsec-armed-snapshot",
+            "missing-snapshot.json",
+            "--capsec-arming-identity",
+            "missing-identity.json",
+            "run",
+            "app.ts",
+        ]);
+        let effective = effective_run_cli(
+            &cli,
+            RunFileOptions {
+                inspect: true,
+                inspect_wait: false,
+                inspect_open: false,
+                inspect_pause: false,
+                keep_alive: false,
+                inspect_port: Some(9230),
+                inspect_host: Some("127.0.0.1"),
+            },
+        );
+        assert!(effective.inspect);
+        assert_eq!(effective.inspect_port, Some(9230));
+        assert_eq!(effective.inspect_host.as_deref(), Some("127.0.0.1"));
+        let error = super::runtime::Runtime::from_cli(&effective)
+            .err()
+            .expect("run-subcommand inspector must be rejected before artifact I/O")
+            .to_string();
+        assert!(
+            error.contains("closes compatibility, inspector")
+                && error.contains("runtime-fidelity overrides"),
+            "{error}"
+        );
+        assert!(!error.contains("failed to read"), "{error}");
+    }
 
     /// The pre-clap dispatcher tables must agree with the runtime surface
     /// manifest (`runtime-surface.json`, LLP 0010#runtime-command-surface):
@@ -1576,6 +1677,26 @@ mod tests {
         let cli = cli::Cli::parse_from(["ibex", "--watch", "--compat", "bun", "app.ts"]);
         let joined = watch_child_args(&cli).join(" ");
         assert!(joined.contains("--compat bun"), "flags: {joined}");
+    }
+
+    #[test]
+    fn watch_child_preserves_armed_snapshot_pair() {
+        let cli = cli::Cli::parse_from([
+            "ibex",
+            "--watch",
+            "--capsec-armed-snapshot",
+            "armed.json",
+            "--capsec-arming-identity",
+            "identity.json",
+            "app.ts",
+        ]);
+        let flags = watch_child_args(&cli);
+        assert!(flags
+            .windows(2)
+            .any(|pair| pair == ["--capsec-armed-snapshot", "armed.json"]));
+        assert!(flags
+            .windows(2)
+            .any(|pair| pair == ["--capsec-arming-identity", "identity.json"]));
     }
 
     #[test]

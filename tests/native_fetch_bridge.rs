@@ -23,8 +23,11 @@ use tokio::time::timeout;
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 async fn run_script(script: &str, secs: u64) -> Value {
+    let dir = tempfile::tempdir().expect("create script tempdir");
+    let entry = dir.path().join("app.js");
+    std::fs::write(&entry, script).expect("write script fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(script);
+    cmd.arg("capsec").arg("audit").arg(&entry);
 
     let output = timeout(Duration::from_secs(secs), cmd.output())
         .await
@@ -188,6 +191,10 @@ async fn native_fetch_many_concurrent_requests_complete() {
     // rather than being dropped, deadlocking, or spawning 40 native threads.
     let script = r#"
 var http = require('http');
+var urlProbe = [
+  new URL('http://127.0.0.1/repeat-a').href,
+  new URL('http://127.0.0.1/repeat-b').href
+];
 var server = http.createServer(function(req, res) {
   res.end('id:' + req.url.slice(1));
 });
@@ -196,8 +203,9 @@ server.listen(0, '127.0.0.1', function() {
   var jobs = [];
   for (var i = 0; i < 40; i++) {
     (function(id) {
+      var target = 'http://127.0.0.1:' + port + '/' + id;
       jobs.push(
-        fetch('http://127.0.0.1:' + port + '/' + id)
+        fetch(target)
           .then(function(res) { return res.text(); })
           .then(function(text) { return text === 'id:' + id; })
       );
@@ -206,10 +214,10 @@ server.listen(0, '127.0.0.1', function() {
   Promise.all(jobs).then(function(results) {
     var ok = 0;
     for (var j = 0; j < results.length; j++) { if (results[j]) ok++; }
-    console.log(JSON.stringify({ ok: ok, total: results.length }));
+    console.log(JSON.stringify({ ok: ok, total: results.length, urlProbe: urlProbe }));
     process.exit(0);
   }).catch(function(e) {
-    console.log(JSON.stringify({ error: String(e) }));
+    console.log(JSON.stringify({ error: String(e && e.stack || e) }));
     process.exit(0);
   });
 });
@@ -231,4 +239,9 @@ setTimeout(function() {
         "all 40 bodies should match: {parsed}"
     );
     assert_eq!(parsed["total"], Value::Number(40.into()));
+    assert_eq!(
+        parsed["urlProbe"],
+        serde_json::json!(["http://127.0.0.1/repeat-a", "http://127.0.0.1/repeat-b"]),
+        "ambient URL parsing must remain independent across constructions: {parsed}"
+    );
 }

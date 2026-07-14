@@ -8,17 +8,24 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <iphlpapi.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <condition_variable>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -26,6 +33,7 @@
 #include <vector>
 
 extern "C" void ex_host_free_string(char* value);
+extern "C" uint64_t ex_hermes_current_runtime_nonce();
 
 namespace {
 
@@ -102,7 +110,7 @@ std::string winsockErrorString(const char* prefix, int error = WSAGetLastError()
 }
 
 std::string networkEndpointCapability(const char* base, const std::string& host, int port) {
-  return std::string(base) + ":" + host + ":" + std::to_string(port);
+  return std::string(base) + ":" + formatNetworkEndpoint(host, port);
 }
 
 void requireNetworkCapability(
@@ -123,6 +131,7 @@ bool setSocketNonBlocking(SOCKET socket) {
 
 struct WindowsSocketEntry {
   SOCKET socket;
+  uint64_t runtimeNonce;
   uint64_t owner;
   std::string capability;
 };
@@ -131,20 +140,95 @@ std::unordered_map<int, WindowsSocketEntry> g_windows_sockets;
 int g_windows_next_socket_handle = 1;
 std::mutex g_windows_sockets_mutex;
 
+struct WindowsNetOwnerStampEntry {
+  uint64_t runtimeNonce = 0;
+  uint64_t owner = 0;
+};
+
+std::unordered_map<uint64_t, WindowsNetOwnerStampEntry> g_windows_net_owner_stamps;
+std::mutex g_windows_net_owner_stamp_mutex;
+
+uint64_t windowsNetOwnerStampForCurrentPrincipal() {
+  const uint64_t runtimeNonce = exactCurrentRuntimeNonce();
+  const uint64_t owner = currentPrincipalId();
+  if (runtimeNonce == 0) return 0;
+  std::lock_guard<std::mutex> lock(g_windows_net_owner_stamp_mutex);
+  for (const auto& item : g_windows_net_owner_stamps) {
+    if (item.second.runtimeNonce == runtimeNonce && item.second.owner == owner) {
+      return item.first;
+    }
+  }
+  static std::random_device randomDevice;
+  constexpr uint64_t kJsSafeMask = (uint64_t{1} << 53) - 1;
+  for (size_t attempt = 0; attempt < 128; ++attempt) {
+    uint64_t stamp =
+        ((static_cast<uint64_t>(randomDevice()) << 32) ^
+         static_cast<uint64_t>(randomDevice())) &
+        kJsSafeMask;
+    if (stamp == 0 || g_windows_net_owner_stamps.count(stamp) != 0) continue;
+    g_windows_net_owner_stamps.emplace(
+        stamp, WindowsNetOwnerStampEntry{runtimeNonce, owner});
+    return stamp;
+  }
+  return 0;
+}
+
+void requireWindowsNetOwnerStamp(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  constexpr double kMaxSafeInteger = 9007199254740991.0;
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(runtime, "__exactNetOwner: numeric stamp required");
+  }
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || number < 1.0 || number > kMaxSafeInteger ||
+      std::floor(number) != number) {
+    throw facebook::jsi::JSError(runtime, "__exactNetOwner: invalid stamp");
+  }
+  const uint64_t stamp = static_cast<uint64_t>(number);
+  std::lock_guard<std::mutex> lock(g_windows_net_owner_stamp_mutex);
+  auto item = g_windows_net_owner_stamps.find(stamp);
+  if (item == g_windows_net_owner_stamps.end() ||
+      item->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+      item->second.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(
+        runtime, "__exactNetOwner: stamp belongs to another runtime or principal");
+  }
+}
+
+int requireWindowsNetOwnerSocketHandle(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  constexpr double kMaxSafeInteger = 9007199254740991.0;
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(
+        runtime, "__exactNetOwner: numeric handle required");
+  }
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || number < 1.0 ||
+      number > kMaxSafeInteger || std::floor(number) != number ||
+      number > static_cast<double>(std::numeric_limits<int>::max())) {
+    throw facebook::jsi::JSError(runtime, "__exactNetOwner: invalid handle");
+  }
+  return static_cast<int>(number);
+}
+
 int registerWindowsSocket(
     SOCKET socket,
     const std::string& capability,
     uint64_t owner = currentPrincipalId()) {
   std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
   int handle = g_windows_next_socket_handle++;
-  g_windows_sockets[handle] = WindowsSocketEntry{socket, owner, capability};
+  g_windows_sockets[handle] = WindowsSocketEntry{
+      socket, exactCurrentRuntimeNonce(), owner, capability};
   return handle;
 }
 
 WindowsSocketEntry requireWindowsSocket(
     facebook::jsi::Runtime& runtime,
     int handle,
-    const char* operation) {
+    const char* operation,
+    bool requireLiveAuthority = true) {
   WindowsSocketEntry entry{};
   {
     std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
@@ -155,12 +239,18 @@ WindowsSocketEntry requireWindowsSocket(
     }
     entry = it->second;
   }
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": handle belongs to a different runtime");
+  }
+  // Permissive capability policy does not make numeric handles ambient.
+  if (entry.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": handle belongs to a different principal");
+  }
   if (!isAllowAll()) {
-    if (entry.owner != currentPrincipalId()) {
-      throw facebook::jsi::JSError(
-          runtime, std::string(operation) + ": handle belongs to a different principal");
-    }
-    if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+    if (requireLiveAuthority && !entry.capability.empty() &&
+        !checkCapability(entry.capability)) {
       throw facebook::jsi::JSError(
           runtime, "Permission denied: network capability required");
     }
@@ -172,9 +262,10 @@ bool tryWindowsSocket(
     facebook::jsi::Runtime& runtime,
     int handle,
     const char* operation,
-    WindowsSocketEntry& entry) {
+    WindowsSocketEntry& entry,
+    bool requireLiveAuthority = true) {
   try {
-    entry = requireWindowsSocket(runtime, handle, operation);
+    entry = requireWindowsSocket(runtime, handle, operation, requireLiveAuthority);
     return true;
   } catch (const facebook::jsi::JSError&) {
     return false;
@@ -182,10 +273,19 @@ bool tryWindowsSocket(
 }
 
 SOCKET removeWindowsSocket(facebook::jsi::Runtime& runtime, int handle, const char* operation) {
-  (void)requireWindowsSocket(runtime, handle, operation);
+  // @ref LLP 0021#handles-dynamic-authority-and-generations — release checks
+  // ownership and runtime identity, never a positive grant that may already
+  // have been revoked.
+  auto expected = requireWindowsSocket(runtime, handle, operation, false);
   std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
   auto it = g_windows_sockets.find(handle);
   if (it == g_windows_sockets.end()) return INVALID_SOCKET;
+  if (it->second.runtimeNonce != expected.runtimeNonce ||
+      it->second.owner != expected.owner ||
+      it->second.socket != expected.socket) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": handle identity changed during release");
+  }
   SOCKET socket = it->second.socket;
   g_windows_sockets.erase(it);
   return socket;
@@ -210,24 +310,57 @@ std::vector<uint8_t> jsiValueToBytes(
   return std::vector<uint8_t>(data.begin(), data.end());
 }
 
-std::string socketAddressJson(const sockaddr_storage& addr) {
+bool isIpv4MappedAddress(const IN6_ADDR& address) {
+  return IN6_IS_ADDR_V4MAPPED(&address) != 0;
+}
+
+bool isIpv4MappedLiteral(const std::string& host) {
+  IN6_ADDR address{};
+  return InetPtonA(AF_INET6, host.c_str(), &address) == 1 &&
+      isIpv4MappedAddress(address);
+}
+
+std::string socketAddressText(const sockaddr_storage& addr) {
   char ip[INET6_ADDRSTRLEN] = {};
+  if (addr.ss_family == AF_INET) {
+    auto* sa = reinterpret_cast<const sockaddr_in*>(&addr);
+    if (!InetNtopA(AF_INET, const_cast<IN_ADDR*>(&sa->sin_addr), ip, sizeof(ip))) {
+      return std::string();
+    }
+  } else if (addr.ss_family == AF_INET6) {
+    auto* sa = reinterpret_cast<const sockaddr_in6*>(&addr);
+    if (isIpv4MappedAddress(sa->sin6_addr)) {
+      IN_ADDR embedded{};
+      std::memcpy(&embedded, &sa->sin6_addr.u.Byte[12], sizeof(embedded));
+      if (!InetNtopA(AF_INET, &embedded, ip, sizeof(ip))) return std::string();
+    } else if (!InetNtopA(
+                   AF_INET6,
+                   const_cast<IN6_ADDR*>(&sa->sin6_addr),
+                   ip,
+                   sizeof(ip))) {
+      return std::string();
+    }
+  } else {
+    return std::string();
+  }
+  return std::string(ip);
+}
+
+std::string socketAddressJson(const sockaddr_storage& addr) {
+  std::string ip = socketAddressText(addr);
+  if (ip.empty()) return std::string();
   int port = 0;
   std::string family;
   if (addr.ss_family == AF_INET) {
     auto* sa = reinterpret_cast<const sockaddr_in*>(&addr);
-    InetNtopA(AF_INET, const_cast<IN_ADDR*>(&sa->sin_addr), ip, sizeof(ip));
     port = ntohs(sa->sin_port);
     family = "IPv4";
   } else if (addr.ss_family == AF_INET6) {
     auto* sa = reinterpret_cast<const sockaddr_in6*>(&addr);
-    InetNtopA(AF_INET6, const_cast<IN6_ADDR*>(&sa->sin6_addr), ip, sizeof(ip));
     port = ntohs(sa->sin6_port);
-    family = "IPv6";
-  } else {
-    return std::string();
+    family = isIpv4MappedAddress(sa->sin6_addr) ? "IPv4" : "IPv6";
   }
-  return "{\"address\":\"" + std::string(ip) + "\",\"port\":" + std::to_string(port) +
+  return "{\"address\":\"" + ip + "\",\"port\":" + std::to_string(port) +
       ",\"family\":\"" + family + "\"}";
 }
 
@@ -339,6 +472,53 @@ std::string parseJsonString(const std::string& value, size_t& pos) {
         case 'n': out.push_back('\n'); break;
         case 'r': out.push_back('\r'); break;
         case 't': out.push_back('\t'); break;
+        case 'u': {
+          auto hex = [](char c) -> int {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
+          };
+          auto readUnit = [&](size_t& at, uint32_t& unit) -> bool {
+            if (at + 4 > value.size()) return false;
+            unit = 0;
+            for (int i = 0; i < 4; ++i) {
+              int n = hex(value[at++]);
+              if (n < 0) return false;
+              unit = (unit << 4) | static_cast<uint32_t>(n);
+            }
+            return true;
+          };
+          auto append = [&](uint32_t cp) {
+            if (cp <= 0x7f) out.push_back(static_cast<char>(cp));
+            else if (cp <= 0x7ff) {
+              out.push_back(static_cast<char>(0xc0 | (cp >> 6)));
+              out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+            } else if (cp <= 0xffff) {
+              out.push_back(static_cast<char>(0xe0 | (cp >> 12)));
+              out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3f)));
+              out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+            } else {
+              out.push_back(static_cast<char>(0xf0 | (cp >> 18)));
+              out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3f)));
+              out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3f)));
+              out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+            }
+          };
+          uint32_t code = 0;
+          if (!readUnit(pos, code)) append(0xfffd);
+          else if (code >= 0xd800 && code <= 0xdbff &&
+                   pos + 6 <= value.size() && value[pos] == '\\' && value[pos + 1] == 'u') {
+            size_t lowPos = pos + 2;
+            uint32_t low = 0;
+            if (readUnit(lowPos, low) && low >= 0xdc00 && low <= 0xdfff) {
+              pos = lowPos;
+              append(0x10000 + ((code - 0xd800) << 10) + low - 0xdc00);
+            } else append(0xfffd);
+          } else if (code >= 0xd800 && code <= 0xdfff) append(0xfffd);
+          else append(code);
+          break;
+        }
         default: out.push_back(escaped); break;
       }
     } else {
@@ -355,23 +535,69 @@ void skipJsonWhitespace(const std::string& value, size_t& pos) {
   }
 }
 
-bool parseJsonStringProperty(const std::string& json, const char* key, std::string& out) {
-  std::string pattern = std::string("\"") + key + "\":";
-  size_t pos = json.find(pattern);
-  if (pos == std::string::npos) return false;
-  pos += pattern.size();
+bool skipJsonValue(const std::string& value, size_t& pos) {
+  skipJsonWhitespace(value, pos);
+  if (pos >= value.size()) return false;
+  if (value[pos] == '"') {
+    parseJsonString(value, pos);
+    return true;
+  }
+  if (value[pos] == '{' || value[pos] == '[') {
+    int depth = 0;
+    while (pos < value.size()) {
+      if (value[pos] == '"') {
+        parseJsonString(value, pos);
+        continue;
+      }
+      if (value[pos] == '{' || value[pos] == '[') ++depth;
+      else if (value[pos] == '}' || value[pos] == ']') {
+        --depth;
+        ++pos;
+        if (depth == 0) return true;
+        continue;
+      }
+      ++pos;
+    }
+    return false;
+  }
+  while (pos < value.size() && value[pos] != ',' && value[pos] != '}' && value[pos] != ']') ++pos;
+  return true;
+}
+
+bool findTopLevelJsonValue(const std::string& json, const char* key, size_t& valuePos) {
+  size_t pos = 0;
   skipJsonWhitespace(json, pos);
+  if (pos >= json.size() || json[pos++] != '{') return false;
+  while (pos < json.size()) {
+    skipJsonWhitespace(json, pos);
+    if (pos >= json.size() || json[pos] == '}') return false;
+    if (json[pos] != '"') return false;
+    std::string parsedKey = parseJsonString(json, pos);
+    skipJsonWhitespace(json, pos);
+    if (pos >= json.size() || json[pos++] != ':') return false;
+    skipJsonWhitespace(json, pos);
+    if (parsedKey == key) {
+      valuePos = pos;
+      return true;
+    }
+    if (!skipJsonValue(json, pos)) return false;
+    skipJsonWhitespace(json, pos);
+    if (pos < json.size() && json[pos] == ',') ++pos;
+  }
+  return false;
+}
+
+bool parseJsonStringProperty(const std::string& json, const char* key, std::string& out) {
+  size_t pos = 0;
+  if (!findTopLevelJsonValue(json, key, pos)) return false;
   if (pos >= json.size() || json[pos] != '"') return false;
   out = parseJsonString(json, pos);
   return true;
 }
 
 uint32_t parseJsonUintProperty(const std::string& json, const char* key, uint32_t fallback) {
-  std::string pattern = std::string("\"") + key + "\":";
-  size_t pos = json.find(pattern);
-  if (pos == std::string::npos) return fallback;
-  pos += pattern.size();
-  skipJsonWhitespace(json, pos);
+  size_t pos = 0;
+  if (!findTopLevelJsonValue(json, key, pos)) return fallback;
   try {
     return static_cast<uint32_t>(std::stoul(json.substr(pos)));
   } catch (...) {
@@ -379,11 +605,20 @@ uint32_t parseJsonUintProperty(const std::string& json, const char* key, uint32_
   }
 }
 
-std::vector<std::string> parseEnvFromOptionsJson(const std::string& optsJson) {
-  std::vector<std::string> env;
-  size_t pos = optsJson.find("\"env\":{");
-  if (pos == std::string::npos) return env;
-  pos += 7;
+struct WindowsEnvironmentOptions {
+  bool present = false;
+  std::vector<std::string> entries;
+};
+
+WindowsEnvironmentOptions parseEnvFromOptionsJson(
+    const std::string& optsJson) {
+  WindowsEnvironmentOptions env;
+  size_t pos = 0;
+  env.present = findTopLevelJsonValue(optsJson, "env", pos);
+  if (!env.present || pos >= optsJson.size() || optsJson[pos] != '{') {
+    return env;
+  }
+  ++pos;
   while (pos < optsJson.size()) {
     skipJsonWhitespace(optsJson, pos);
     if (pos < optsJson.size() && optsJson[pos] == ',') {
@@ -399,12 +634,25 @@ std::vector<std::string> parseEnvFromOptionsJson(const std::string& optsJson) {
     skipJsonWhitespace(optsJson, pos);
     if (pos < optsJson.size() && optsJson[pos] == '"') {
       std::string val = parseJsonString(optsJson, pos);
-      env.push_back(key + "=" + val);
+      env.entries.push_back(key + "=" + val);
     } else {
       while (pos < optsJson.size() && optsJson[pos] != ',' && optsJson[pos] != '}') ++pos;
     }
   }
   return env;
+}
+
+std::optional<std::string> windowsEnvironmentValue(
+    const std::vector<std::string>& entries,
+    const char* key) {
+  for (const auto& entry : entries) {
+    const size_t equals = entry.find('=');
+    if (equals != std::string::npos &&
+        _stricmp(entry.substr(0, equals).c_str(), key) == 0) {
+      return entry.substr(equals + 1);
+    }
+  }
+  return std::nullopt;
 }
 
 std::vector<std::string> parseArgsJson(const std::string& argsJson) {
@@ -484,8 +732,10 @@ std::wstring buildCommandLine(
   return commandLine;
 }
 
-std::wstring buildEnvironmentBlock(std::vector<std::string> envEntries) {
-  if (envEntries.empty()) return std::wstring();
+std::wstring buildEnvironmentBlock(
+    std::vector<std::string> envEntries,
+    bool envPresent) {
+  if (!envPresent) return std::wstring();
   bool hasQuiet = false;
   for (const auto& entry : envEntries) {
     if (_strnicmp(entry.c_str(), "EXACT_QUIET=", 12) == 0) {
@@ -506,6 +756,83 @@ std::wstring buildEnvironmentBlock(std::vector<std::string> envEntries) {
   }
   block.push_back(L'\0');
   return block;
+}
+
+bool windowsRegularFileExists(const std::wstring& path) {
+  DWORD attributes = GetFileAttributesW(path.c_str());
+  return attributes != INVALID_FILE_ATTRIBUTES &&
+      (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+std::wstring windowsJoinPath(
+    const std::wstring& directory,
+    const std::wstring& leaf) {
+  if (directory.empty()) return leaf;
+  std::wstring joined = directory;
+  if (joined.back() != L'\\' && joined.back() != L'/') joined.push_back(L'\\');
+  joined += leaf;
+  return joined;
+}
+
+std::wstring windowsChildCwd(const std::string& cwd) {
+  if (!cwd.empty()) return utf8ToWide(cwd);
+  DWORD required = GetCurrentDirectoryW(0, nullptr);
+  if (required == 0) return std::wstring();
+  std::vector<wchar_t> buffer(required);
+  DWORD written = GetCurrentDirectoryW(required, buffer.data());
+  if (written == 0 || written >= required) return std::wstring();
+  return std::wstring(buffer.data(), written);
+}
+
+std::wstring resolveWindowsExecutableForEnvironment(
+    const std::string& file,
+    const std::string& cwd,
+    const WindowsEnvironmentOptions& environment) {
+  if (!environment.present) return std::wstring();
+
+  const std::wstring wideFile = utf8ToWide(file);
+  const std::wstring childCwd = windowsChildCwd(cwd);
+  const bool hasDirectory = file.find('/') != std::string::npos ||
+      file.find('\\') != std::string::npos || file.find(':') != std::string::npos;
+  if (hasDirectory) {
+    if (wideFile.size() >= 2 && wideFile[1] == L':') return wideFile;
+    if (!wideFile.empty() && (wideFile[0] == L'\\' || wideFile[0] == L'/')) {
+      return wideFile;
+    }
+    return windowsJoinPath(childCwd, wideFile);
+  }
+
+  // Node resolves through the supplied environment's PATH when present. A
+  // missing PATH falls back to the parent search path; an explicitly empty
+  // PATH searches only the child cwd. Keeping those states distinct prevents
+  // `env: { PATH: '' }` from accidentally executing a parent-installed tool.
+  auto configuredPath = windowsEnvironmentValue(environment.entries, "PATH");
+  std::string search = configuredPath.value_or(getenvString("PATH"));
+  std::vector<std::wstring> directories;
+  directories.push_back(childCwd);
+  size_t start = 0;
+  while (start <= search.size()) {
+    size_t end = search.find(';', start);
+    if (end == std::string::npos) end = search.size();
+    std::string component = search.substr(start, end - start);
+    if (!component.empty()) directories.push_back(utf8ToWide(component));
+    start = end + 1;
+  }
+
+  std::vector<std::wstring> names = {wideFile};
+  if (file.find('.') == std::string::npos) {
+    names.push_back(wideFile + L".com");
+    names.push_back(wideFile + L".exe");
+  }
+  for (const auto& directory : directories) {
+    for (const auto& name : names) {
+      std::wstring candidate = windowsJoinPath(directory, name);
+      if (windowsRegularFileExists(candidate)) return candidate;
+    }
+  }
+  // Supplying a concrete, not-found application path makes CreateProcessW
+  // fail instead of silently repeating its parent-environment search.
+  return windowsJoinPath(childCwd, wideFile);
 }
 
 std::string windowsErrorMessage(DWORD error) {
@@ -595,6 +922,8 @@ std::string base64Decode(const std::string& in) {
   return out;
 }
 
+std::vector<std::string> parseWindowsStdioModes(const std::string& optsJson);
+
 void readPipeToString(HANDLE readHandle, std::string* out, uint32_t maxBuffer) {
   char buffer[4096];
   DWORD bytesRead = 0;
@@ -620,28 +949,33 @@ std::string spawnSyncWindowsJson(
   std::string cwd;
   std::string input;
   std::string argv0;
-  std::string stdioMode = "pipe";
   parseJsonStringProperty(optsJson, "cwd", cwd);
   parseJsonStringProperty(optsJson, "input", input);
   parseJsonStringProperty(optsJson, "argv0", argv0);
-  parseJsonStringProperty(optsJson, "stdio", stdioMode);
   // ENG-23115 — the JS builtin base64-encodes stdin and sets
   // "inputEncoding":"base64" (ENG-23009). Decode it back to raw bytes before
   // WriteFile, mirroring the POSIX native; without this the child received the
   // literal base64 text ("aGVsbG8=" instead of "hello").
-  if (optsJson.find("\"inputEncoding\":\"base64\"") != std::string::npos) {
+  std::string inputEncoding;
+  if (parseJsonStringProperty(optsJson, "inputEncoding", inputEncoding) &&
+      inputEncoding == "base64") {
     input = base64Decode(input);
   }
   uint32_t timeoutMs = parseJsonUintProperty(optsJson, "timeout", 0);
   uint32_t maxBuffer = parseJsonUintProperty(optsJson, "maxBuffer", 1024 * 1024);
-  auto envEntries = parseEnvFromOptionsJson(optsJson);
+  auto environment = parseEnvFromOptionsJson(optsJson);
+  auto stdioModes = parseWindowsStdioModes(optsJson);
 
   SECURITY_ATTRIBUTES sa{};
   sa.nLength = sizeof(sa);
   sa.bInheritHandle = TRUE;
 
-  const bool usePipe = stdioMode == "pipe";
-  const bool useIgnore = stdioMode == "ignore";
+  const bool pipeStdin = stdioModes[0] == "pipe";
+  const bool pipeStdout = stdioModes[1] == "pipe";
+  const bool pipeStderr = stdioModes[2] == "pipe";
+  const bool ignoreStdin = stdioModes[0] == "ignore";
+  const bool ignoreStdout = stdioModes[1] == "ignore";
+  const bool ignoreStderr = stdioModes[2] == "ignore";
 
   HANDLE childStdIn = nullptr;
   HANDLE childStdOut = nullptr;
@@ -667,7 +1001,30 @@ std::string spawnSyncWindowsJson(
         jsonEscape(message) + "\"}";
   };
 
-  if (usePipe) {
+  // This backend implements neither IPC nor descriptor duplication. Treating
+  // either mode as the generic fallback below silently inherited the parent's
+  // console for slots 0-2 or ignored later slots. Reject every occurrence
+  // before creating or selecting any handles, matching the async Windows
+  // backend's fail-closed behavior.
+  for (const auto& mode : stdioModes) {
+    if (mode == "ipc") {
+      return failJson(
+          "child_process IPC is not supported by the Windows sync spawn backend");
+    }
+    if (mode.size() > 3 && mode.substr(0, 3) == "fd:") {
+      return failJson(
+          "child_process fd:N stdio is not supported by the Windows sync spawn backend");
+    }
+  }
+
+  for (size_t i = 3; i < stdioModes.size(); ++i) {
+    if (stdioModes[i] != "ignore") {
+      return failJson(
+          "child_process extra stdio is not supported by the Windows sync spawn backend");
+    }
+  }
+
+  if (pipeStdin) {
     HANDLE stdinRead = nullptr;
     HANDLE stdinWrite = nullptr;
     if (!CreatePipe(&stdinRead, &stdinWrite, &sa, 0)) {
@@ -676,7 +1033,15 @@ std::string spawnSyncWindowsJson(
     SetHandleInformation(stdinWrite, HANDLE_FLAG_INHERIT, 0);
     childStdIn = stdinRead;
     parentStdInWrite = stdinWrite;
+  } else if (ignoreStdin) {
+    nullRead = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (nullRead == INVALID_HANDLE_VALUE) return failJson("Failed to open NUL for ignored stdin");
+    childStdIn = nullRead;
+  } else {
+    childStdIn = GetStdHandle(STD_INPUT_HANDLE);
+  }
 
+  if (pipeStdout) {
     HANDLE stdoutRead = nullptr;
     HANDLE stdoutWrite = nullptr;
     if (!CreatePipe(&stdoutRead, &stdoutWrite, &sa, 0)) {
@@ -685,7 +1050,15 @@ std::string spawnSyncWindowsJson(
     SetHandleInformation(stdoutRead, HANDLE_FLAG_INHERIT, 0);
     parentStdOutRead = stdoutRead;
     childStdOut = stdoutWrite;
+  } else if (ignoreStdout) {
+    nullWriteOut = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (nullWriteOut == INVALID_HANDLE_VALUE) return failJson("Failed to open NUL for ignored stdout");
+    childStdOut = nullWriteOut;
+  } else {
+    childStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+  }
 
+  if (pipeStderr) {
     HANDLE stderrRead = nullptr;
     HANDLE stderrWrite = nullptr;
     if (!CreatePipe(&stderrRead, &stderrWrite, &sa, 0)) {
@@ -694,19 +1067,11 @@ std::string spawnSyncWindowsJson(
     SetHandleInformation(stderrRead, HANDLE_FLAG_INHERIT, 0);
     parentStdErrRead = stderrRead;
     childStdErr = stderrWrite;
-  } else if (useIgnore) {
-    nullRead = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    nullWriteOut = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  } else if (ignoreStderr) {
     nullWriteErr = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (nullRead == INVALID_HANDLE_VALUE || nullWriteOut == INVALID_HANDLE_VALUE || nullWriteErr == INVALID_HANDLE_VALUE) {
-      return failJson("Failed to open NUL for ignored stdio");
-    }
-    childStdIn = nullRead;
-    childStdOut = nullWriteOut;
+    if (nullWriteErr == INVALID_HANDLE_VALUE) return failJson("Failed to open NUL for ignored stderr");
     childStdErr = nullWriteErr;
   } else {
-    childStdIn = GetStdHandle(STD_INPUT_HANDLE);
-    childStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
     childStdErr = GetStdHandle(STD_ERROR_HANDLE);
   }
 
@@ -722,18 +1087,21 @@ std::string spawnSyncWindowsJson(
   std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
   mutableCommandLine.push_back(L'\0');
   std::wstring wideCwd = cwd.empty() ? std::wstring() : utf8ToWide(cwd);
-  std::wstring envBlock = buildEnvironmentBlock(envEntries);
+  std::wstring envBlock =
+      buildEnvironmentBlock(environment.entries, environment.present);
+  std::wstring applicationName =
+      resolveWindowsExecutableForEnvironment(file, cwd, environment);
 
   DWORD flags = CREATE_NO_WINDOW;
-  if (!envBlock.empty()) flags |= CREATE_UNICODE_ENVIRONMENT;
+  if (environment.present) flags |= CREATE_UNICODE_ENVIRONMENT;
   BOOL created = CreateProcessW(
-      nullptr,
+      environment.present ? applicationName.c_str() : nullptr,
       mutableCommandLine.data(),
       nullptr,
       nullptr,
       TRUE,
       flags,
-      envBlock.empty() ? nullptr : const_cast<wchar_t*>(envBlock.data()),
+      environment.present ? const_cast<wchar_t*>(envBlock.data()) : nullptr,
       wideCwd.empty() ? nullptr : wideCwd.c_str(),
       &startup,
       &processInfo);
@@ -825,21 +1193,129 @@ struct WindowsSpawnPipeBuffer {
   bool closed = false;
 };
 
+bool isValidHandle(HANDLE handle);
+void closeHandleIfValid(HANDLE& handle);
+
 struct WindowsSpawnedProcess {
+  uint64_t runtimeNonce = 0;
   uint64_t owner = 0;
   std::string capability;
   HANDLE process = nullptr;
   HANDLE stdinWrite = nullptr;
+  HANDLE stdinWriterThread = nullptr;
+  std::mutex stdinMutex;
+  std::condition_variable stdinCv;
+  std::deque<std::vector<uint8_t>> stdinQueue;
+  size_t stdinQueuedBytes = 0;
+  bool stdinCloseRequested = false;
+  bool stdinWriterStopped = false;
   DWORD pid = 0;
   std::shared_ptr<WindowsSpawnPipeBuffer> stdoutBuffer;
   std::shared_ptr<WindowsSpawnPipeBuffer> stderrBuffer;
   bool exited = false;
+  // @ref LLP 0008#sockets-dns-and-process — explicit ChildProcess.unref()
+  // transfers lifetime out of the owning Hermes runtime. Closing our HANDLE at
+  // teardown must not terminate that child.
+  bool referenced = true;
   int exitCode = -1;
+  int killedSignal = 0;
 };
 
+constexpr size_t kWindowsSpawnStdinQueueBytes = 256 * 1024;
+
+void runWindowsStdinWriter(const std::shared_ptr<WindowsSpawnedProcess>& proc) {
+  HANDLE writerThread = nullptr;
+  BOOL duplicated = DuplicateHandle(
+      GetCurrentProcess(),
+      GetCurrentThread(),
+      GetCurrentProcess(),
+      &writerThread,
+      0,
+      FALSE,
+      DUPLICATE_SAME_ACCESS);
+  {
+    std::lock_guard<std::mutex> lock(proc->stdinMutex);
+    if (!duplicated || !isValidHandle(writerThread)) {
+      proc->stdinCloseRequested = true;
+      proc->stdinQueue.clear();
+      proc->stdinQueuedBytes = 0;
+      closeHandleIfValid(proc->stdinWrite);
+      proc->stdinWriterStopped = true;
+    } else {
+      proc->stdinWriterThread = writerThread;
+    }
+  }
+  proc->stdinCv.notify_all();
+  if (!duplicated || !isValidHandle(writerThread)) return;
+
+  for (;;) {
+    std::vector<uint8_t> chunk;
+    HANDLE handle = nullptr;
+    {
+      std::unique_lock<std::mutex> lock(proc->stdinMutex);
+      proc->stdinCv.wait(lock, [&] {
+        return proc->stdinCloseRequested || !proc->stdinQueue.empty();
+      });
+      if (proc->stdinQueue.empty()) {
+        if (proc->stdinCloseRequested) {
+          closeHandleIfValid(proc->stdinWrite);
+          closeHandleIfValid(proc->stdinWriterThread);
+          proc->stdinWriterStopped = true;
+          lock.unlock();
+          proc->stdinCv.notify_all();
+          return;
+        }
+        continue;
+      }
+      chunk = std::move(proc->stdinQueue.front());
+      proc->stdinQueue.pop_front();
+      handle = proc->stdinWrite;
+    }
+
+    size_t offset = 0;
+    bool failed = !isValidHandle(handle);
+    while (!failed && offset < chunk.size()) {
+      DWORD written = 0;
+      DWORD request = static_cast<DWORD>(std::min<size_t>(
+          chunk.size() - offset, std::numeric_limits<DWORD>::max()));
+      if (!WriteFile(handle, chunk.data() + offset, request, &written, nullptr) || written == 0) {
+        failed = true;
+        break;
+      }
+      offset += written;
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(proc->stdinMutex);
+      proc->stdinQueuedBytes = proc->stdinQueuedBytes > chunk.size()
+          ? proc->stdinQueuedBytes - chunk.size()
+          : 0;
+      if (failed) {
+        proc->stdinCloseRequested = true;
+        proc->stdinQueue.clear();
+        proc->stdinQueuedBytes = 0;
+        closeHandleIfValid(proc->stdinWrite);
+        closeHandleIfValid(proc->stdinWriterThread);
+        proc->stdinWriterStopped = true;
+      }
+    }
+    proc->stdinCv.notify_all();
+    if (failed) return;
+  }
+}
+
 std::unordered_map<int, std::shared_ptr<WindowsSpawnedProcess>> g_windows_spawned_processes;
-int g_windows_next_spawn_handle = 1;
+uint64_t g_windows_next_spawn_handle = 1;
 std::mutex g_windows_spawn_mutex;
+
+bool allocateWindowsSpawnHandleLocked(int& handle) {
+  if (g_windows_next_spawn_handle == 0 ||
+      g_windows_next_spawn_handle > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
+    return false;
+  }
+  handle = static_cast<int>(g_windows_next_spawn_handle++);
+  return true;
+}
 
 bool isValidHandle(HANDLE handle) {
   return handle != nullptr && handle != INVALID_HANDLE_VALUE;
@@ -850,6 +1326,52 @@ void closeHandleIfValid(HANDLE& handle) {
     CloseHandle(handle);
   }
   handle = nullptr;
+}
+
+// Graceful stdin close drains bytes already accepted into stdinQueue. Dispose
+// and kill use `discard=true`: cancel a synchronous WriteFile by its writer
+// thread handle, discard queued bytes, and optionally wait for deterministic
+// writer teardown. stdinWrite is only closed while stdinMutex is held (by the
+// writer or the not-yet-started fallback), so it cannot race an in-flight copy
+// of that handle.
+void requestWindowsStdinClose(
+    const std::shared_ptr<WindowsSpawnedProcess>& proc,
+    bool discard,
+    bool waitForWriter) {
+  if (!proc) return;
+  std::unique_lock<std::mutex> lock(proc->stdinMutex);
+  proc->stdinCloseRequested = true;
+  if (discard) {
+    proc->stdinQueue.clear();
+    proc->stdinQueuedBytes = 0;
+  }
+  if (waitForWriter && !isValidHandle(proc->stdinWriterThread) && !proc->stdinWriterStopped) {
+    // Dispose can win the race immediately after spawn. Wait for the detached
+    // thread either to publish its cancelable handle or to report that handle
+    // duplication failed and close the pipe itself.
+    proc->stdinCv.wait_for(lock, std::chrono::seconds(1), [&] {
+      return isValidHandle(proc->stdinWriterThread) || proc->stdinWriterStopped;
+    });
+  }
+  if (!isValidHandle(proc->stdinWriterThread) && proc->stdinWriterStopped) {
+    closeHandleIfValid(proc->stdinWrite);
+  }
+  proc->stdinCv.notify_all();
+  if (waitForWriter && !proc->stdinWriterStopped) {
+    // Cancel repeatedly across the pop->WriteFile race: a cancellation issued
+    // just before the syscall reports no pending I/O and would otherwise let
+    // the writer enter an uncancelled blocking write immediately afterwards.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!proc->stdinWriterStopped && std::chrono::steady_clock::now() < deadline) {
+      if (discard && isValidHandle(proc->stdinWriterThread)) {
+        CancelSynchronousIo(proc->stdinWriterThread);
+      }
+      proc->stdinCv.notify_all();
+      proc->stdinCv.wait_for(lock, std::chrono::milliseconds(10));
+    }
+  } else if (discard && isValidHandle(proc->stdinWriterThread)) {
+    CancelSynchronousIo(proc->stdinWriterThread);
+  }
 }
 
 std::string normalizeWindowsStdioMode(const std::string& value) {
@@ -863,18 +1385,15 @@ std::string normalizeWindowsStdioMode(const std::string& value) {
 }
 
 std::vector<std::string> parseWindowsStdioModes(const std::string& optsJson) {
-  std::vector<std::string> modes = {"pipe", "pipe", "pipe", "pipe"};
-  size_t stdioPos = optsJson.find("\"stdio\":");
-  if (stdioPos == std::string::npos) return modes;
-  size_t pos = stdioPos + 8;
-  skipJsonWhitespace(optsJson, pos);
+  std::vector<std::string> modes = {"pipe", "pipe", "pipe"};
+  size_t pos = 0;
+  if (!findTopLevelJsonValue(optsJson, "stdio", pos)) return modes;
   if (pos >= optsJson.size()) return modes;
   if (optsJson[pos] == '"') {
     std::string mode = normalizeWindowsStdioMode(parseJsonString(optsJson, pos));
     modes[0] = mode;
     modes[1] = mode;
     modes[2] = mode;
-    modes[3] = mode;
     return modes;
   }
   if (optsJson[pos] != '[') return modes;
@@ -900,11 +1419,8 @@ std::vector<std::string> parseWindowsStdioModes(const std::string& optsJson) {
 }
 
 bool parseJsonBoolProperty(const std::string& json, const char* key, bool fallback) {
-  std::string pattern = std::string("\"") + key + "\":";
-  size_t pos = json.find(pattern);
-  if (pos == std::string::npos) return fallback;
-  pos += pattern.size();
-  skipJsonWhitespace(json, pos);
+  size_t pos = 0;
+  if (!findTopLevelJsonValue(json, key, pos)) return fallback;
   if (json.compare(pos, 4, "true") == 0) return true;
   if (json.compare(pos, 5, "false") == 0) return false;
   return fallback;
@@ -953,7 +1469,7 @@ std::vector<uint8_t> drainWindowsPipeBuffer(
   return out;
 }
 
-std::shared_ptr<WindowsSpawnedProcess> requireWindowsSpawnProcess(
+std::shared_ptr<WindowsSpawnedProcess> requireWindowsSpawnProcessOwnership(
     facebook::jsi::Runtime& runtime,
     int handle,
     const char* operation) {
@@ -966,13 +1482,27 @@ std::shared_ptr<WindowsSpawnedProcess> requireWindowsSpawnProcess(
     }
     proc = it->second;
   }
-  if (!isAllowAll()) {
-    if (proc->owner != currentPrincipalId()) {
-      throw facebook::jsi::JSError(runtime, std::string(operation) + ": handle belongs to a different principal");
-    }
-    if (!proc->capability.empty() && !checkCapability(proc->capability)) {
-      throw facebook::jsi::JSError(runtime, "Permission denied: process:spawn capability required");
-    }
+  if (proc->runtimeNonce != ex_hermes_current_runtime_nonce()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": handle belongs to a different runtime");
+  }
+  // Permissive capability policy never turns a forgeable numeric handle into
+  // ambient object authority.
+  if (proc->owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": handle belongs to a different principal");
+  }
+  return proc;
+}
+
+std::shared_ptr<WindowsSpawnedProcess> requireWindowsSpawnProcess(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* operation) {
+  auto proc = requireWindowsSpawnProcessOwnership(runtime, handle, operation);
+  if (!proc->capability.empty() && !checkCapability(proc->capability)) {
+    throw facebook::jsi::JSError(
+        runtime, "Permission denied: process:spawn capability required");
   }
   return proc;
 }
@@ -991,7 +1521,8 @@ std::shared_ptr<WindowsSpawnedProcess> tryWindowsSpawnProcess(
 std::string buildWindowsSpawnCommandLine(
     const std::string& file,
     const std::vector<std::string>& spawnArgs,
-    const std::string& optsJson) {
+    const std::string& optsJson,
+    const std::string& launchFile) {
   std::string argv0;
   parseJsonStringProperty(optsJson, "argv0", argv0);
 
@@ -1004,18 +1535,40 @@ std::string buildWindowsSpawnCommandLine(
     return wideToUtf8(buildCommandLine(file, spawnArgs, argv0));
   }
 
-  std::string shell = shellPath;
-  if (shell.empty()) {
-    shell = getenvString("ComSpec");
-  }
-  if (shell.empty()) {
-    shell = "cmd.exe";
-  }
+  std::string shell = launchFile;
   std::wstring childCommand = buildCommandLine(file, spawnArgs, argv0);
   std::wstring commandLine = quoteWindowsArg(utf8ToWide(shell));
-  commandLine += L" /d /s /c ";
+  std::string lowerShell = shell;
+  std::transform(lowerShell.begin(), lowerShell.end(), lowerShell.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  auto hasSuffix = [&](const char* suffix) {
+    size_t length = std::strlen(suffix);
+    return lowerShell.size() >= length &&
+        lowerShell.compare(lowerShell.size() - length, length, suffix) == 0;
+  };
+  bool isCmd = hasSuffix("cmd") || hasSuffix("cmd.exe");
+  commandLine += isCmd ? L" /d /s /c " : L" -c ";
   commandLine += quoteWindowsArg(childCommand);
   return wideToUtf8(commandLine);
+}
+
+std::string windowsSpawnLaunchFile(
+    const std::string& file,
+    const std::string& optsJson,
+    const WindowsEnvironmentOptions& environment) {
+  bool useShell = parseJsonBoolProperty(optsJson, "shell", false);
+  std::string shell;
+  if (parseJsonStringProperty(optsJson, "shell", shell)) useShell = true;
+  if (!useShell) return file;
+  if (!shell.empty()) return shell;
+  auto configured = windowsEnvironmentValue(environment.entries, "ComSpec");
+  if (configured && !configured->empty()) return *configured;
+  if (!configured) {
+    shell = getenvString("ComSpec");
+    if (!shell.empty()) return shell;
+  }
+  return "cmd.exe";
 }
 
 std::string spawnAsyncWindowsJson(
@@ -1024,20 +1577,28 @@ std::string spawnAsyncWindowsJson(
     const std::string& optsJson) {
   std::string cwd;
   parseJsonStringProperty(optsJson, "cwd", cwd);
-  auto envEntries = parseEnvFromOptionsJson(optsJson);
+  auto environment = parseEnvFromOptionsJson(optsJson);
   auto stdioModes = parseWindowsStdioModes(optsJson);
-  if (stdioModes.size() > 3 && stdioModes[3] == "ipc") {
-    return spawnErrorJson(
-        "ENOTSUP",
-        -1,
-        "child_process IPC is not supported by the Windows async spawn backend");
-  }
-  for (size_t i = 0; i < stdioModes.size(); ++i) {
-    if (stdioModes[i].size() > 3 && stdioModes[i].substr(0, 3) == "fd:") {
+  for (const auto& mode : stdioModes) {
+    if (mode == "ipc") {
+      return spawnErrorJson(
+          "ENOTSUP",
+          -1,
+          "child_process IPC is not supported by the Windows async spawn backend");
+    }
+    if (mode.size() > 3 && mode.substr(0, 3) == "fd:") {
       return spawnErrorJson(
           "ENOTSUP",
           -1,
           "child_process fd:N stdio is not supported by the Windows async spawn backend");
+    }
+  }
+  for (size_t i = 3; i < stdioModes.size(); ++i) {
+    if (stdioModes[i] != "ignore") {
+      return spawnErrorJson(
+          "ENOTSUP",
+          -1,
+          "child_process extra stdio is not supported by the Windows async spawn backend");
     }
   }
 
@@ -1159,26 +1720,31 @@ std::string spawnAsyncWindowsJson(
   startup.hStdError = childStdErr;
 
   PROCESS_INFORMATION processInfo{};
-  std::string commandLineUtf8 = buildWindowsSpawnCommandLine(file, spawnArgs, optsJson);
+  std::string launchFile = windowsSpawnLaunchFile(file, optsJson, environment);
+  std::string commandLineUtf8 =
+      buildWindowsSpawnCommandLine(file, spawnArgs, optsJson, launchFile);
   std::wstring commandLine = utf8ToWide(commandLineUtf8);
   std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
   mutableCommandLine.push_back(L'\0');
   std::wstring wideCwd = cwd.empty() ? std::wstring() : utf8ToWide(cwd);
-  std::wstring envBlock = buildEnvironmentBlock(envEntries);
+  std::wstring envBlock =
+      buildEnvironmentBlock(environment.entries, environment.present);
+  std::wstring applicationName =
+      resolveWindowsExecutableForEnvironment(launchFile, cwd, environment);
 
   DWORD flags = CREATE_NO_WINDOW;
   if (parseJsonBoolProperty(optsJson, "detached", false)) {
     flags |= CREATE_NEW_PROCESS_GROUP;
   }
-  if (!envBlock.empty()) flags |= CREATE_UNICODE_ENVIRONMENT;
+  if (environment.present) flags |= CREATE_UNICODE_ENVIRONMENT;
   BOOL created = CreateProcessW(
-      nullptr,
+      environment.present ? applicationName.c_str() : nullptr,
       mutableCommandLine.data(),
       nullptr,
       nullptr,
       TRUE,
       flags,
-      envBlock.empty() ? nullptr : const_cast<wchar_t*>(envBlock.data()),
+      environment.present ? const_cast<wchar_t*>(envBlock.data()) : nullptr,
       wideCwd.empty() ? nullptr : wideCwd.c_str(),
       &startup,
       &processInfo);
@@ -1200,12 +1766,16 @@ std::string spawnAsyncWindowsJson(
   CloseHandle(processInfo.hThread);
 
   auto proc = std::make_shared<WindowsSpawnedProcess>();
+  proc->runtimeNonce = ex_hermes_current_runtime_nonce();
   proc->owner = currentPrincipalId();
   proc->capability = "process:spawn";
   proc->process = processInfo.hProcess;
   proc->stdinWrite = parentStdInWrite;
   proc->pid = processInfo.dwProcessId;
   parentStdInWrite = nullptr;
+  if (isValidHandle(proc->stdinWrite)) {
+    std::thread(runWindowsStdinWriter, proc).detach();
+  }
 
   if (parentStdOutRead) {
     proc->stdoutBuffer = std::make_shared<WindowsSpawnPipeBuffer>();
@@ -1219,10 +1789,20 @@ std::string spawnAsyncWindowsJson(
   }
 
   int handle = 0;
+  bool registered = false;
   {
     std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
-    handle = g_windows_next_spawn_handle++;
-    g_windows_spawned_processes[handle] = proc;
+    if (allocateWindowsSpawnHandleLocked(handle)) {
+      registered = g_windows_spawned_processes.emplace(handle, proc).second;
+    }
+  }
+  if (!registered) {
+    TerminateProcess(proc->process, 1);
+    WaitForSingleObject(proc->process, INFINITE);
+    requestWindowsStdinClose(proc, true, true);
+    closeHandleIfValid(proc->process);
+    return spawnErrorJson(
+        "ERR_OUT_OF_RANGE", -1, "spawn handle space exhausted");
   }
 
   return "{\"handle\":" + std::to_string(handle)
@@ -1232,8 +1812,113 @@ std::string spawnAsyncWindowsJson(
 
 } // namespace
 
+void exactCleanupRuntimeSockets(uint64_t runtimeNonce) {
+  {
+    std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
+    for (auto it = g_windows_sockets.begin(); it != g_windows_sockets.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        closesocket(it->second.socket);
+        it = g_windows_sockets.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(g_windows_net_owner_stamp_mutex);
+    for (auto it = g_windows_net_owner_stamps.begin();
+         it != g_windows_net_owner_stamps.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        it = g_windows_net_owner_stamps.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+}
+
+extern "C" void exactCleanupRuntimeSpawnedProcesses(uint64_t runtimeNonce) {
+  if (runtimeNonce == 0) return;
+
+  std::vector<std::shared_ptr<WindowsSpawnedProcess>> owned;
+  {
+    std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
+    for (auto it = g_windows_spawned_processes.begin();
+         it != g_windows_spawned_processes.end();) {
+      if (it->second && it->second->runtimeNonce == runtimeNonce) {
+        owned.push_back(it->second);
+        it = g_windows_spawned_processes.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  for (const auto& proc : owned) {
+    if (isValidHandle(proc->process)) {
+      DWORD exitCode = 0;
+      if (proc->referenced &&
+          GetExitCodeProcess(proc->process, &exitCode) &&
+          exitCode == STILL_ACTIVE) {
+        TerminateProcess(proc->process, 1);
+      }
+      if (proc->referenced) {
+        WaitForSingleObject(proc->process, INFINITE);
+      }
+    }
+    requestWindowsStdinClose(proc, true, true);
+    // Closing a process HANDLE does not terminate the process. In particular,
+    // unref'ed detached children continue independently after runtime teardown.
+    closeHandleIfValid(proc->process);
+  }
+}
+
 void installOsInfoGlobals(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
+
+  auto authorizeSystemInfoFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAuthorizeSystemInfo"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactAuthorizeSystemInfo: information kind required");
+        }
+        double raw = args[0].asNumber();
+        if (!std::isfinite(raw) || raw < 0 || raw > 15 || std::floor(raw) != raw) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactAuthorizeSystemInfo: invalid information kind");
+        }
+        auto name =
+            static_cast<ExactSystemInfoName>(static_cast<uint32_t>(raw));
+        exactRequireTypedSystemInfo(
+            runtime,
+            ExactSystemInfoSurface::CachedValue,
+            name);
+        // @ref LLP 0021#typed-resources-and-initial-vocabulary — return host
+        // storage paths only after the sys:read decision instead of re-entering
+        // the separately gated process.env compatibility facade.
+        if (name == ExactSystemInfoName::StoragePaths) {
+          auto home = getenvString("HOME");
+          if (home.empty()) home = getenvString("USERPROFILE");
+          if (home.empty()) home = "/";
+          auto temporary = getenvString("TMPDIR");
+          if (temporary.empty()) temporary = getenvString("TMP");
+          if (temporary.empty()) temporary = getenvString("TEMP");
+          if (temporary.empty()) temporary = "/tmp";
+          facebook::jsi::Object paths(runtime);
+          paths.setProperty(runtime, "home", home);
+          paths.setProperty(runtime, "temporary", temporary);
+          return paths;
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactAuthorizeSystemInfo", std::move(authorizeSystemInfoFn));
 
   auto hostnameFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1243,6 +1928,8 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::Hostname, ExactSystemInfoName::Hostname);
         char name[MAX_COMPUTERNAME_LENGTH + 1] = {};
         DWORD len = sizeof(name);
         if (!GetComputerNameA(name, &len)) {
@@ -1256,10 +1943,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetCpuCount"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::CpuCount, ExactSystemInfoName::Cpus);
         SYSTEM_INFO info;
         GetSystemInfo(&info);
         return facebook::jsi::Value(static_cast<double>(info.dwNumberOfProcessors));
@@ -1270,10 +1959,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetTotalMem"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::TotalMemory, ExactSystemInfoName::Memory);
         MEMORYSTATUSEX status;
         status.dwLength = sizeof(status);
         if (!GlobalMemoryStatusEx(&status)) return facebook::jsi::Value(0.0);
@@ -1285,10 +1976,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetFreeMem"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::FreeMemory, ExactSystemInfoName::Memory);
         MEMORYSTATUSEX status;
         status.dwLength = sizeof(status);
         if (!GlobalMemoryStatusEx(&status)) return facebook::jsi::Value(0.0);
@@ -1300,10 +1993,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetUptime"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::Uptime, ExactSystemInfoName::Uptime);
         return facebook::jsi::Value(static_cast<double>(GetTickCount64()) / 1000.0);
       });
   rt.global().setProperty(rt, "__exactGetUptime", std::move(uptimeFn));
@@ -1316,6 +2011,8 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::UserInfo, ExactSystemInfoName::User);
         facebook::jsi::Object info(runtime);
         auto username = getenvString("USERNAME");
         auto homedir = getenvString("USERPROFILE");
@@ -1336,6 +2033,8 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::LoadAverage, ExactSystemInfoName::LoadAverage);
         facebook::jsi::Array result(runtime, 3);
         result.setValueAtIndex(runtime, 0, facebook::jsi::Value(0.0));
         result.setValueAtIndex(runtime, 1, facebook::jsi::Value(0.0));
@@ -1352,6 +2051,10 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime,
+            ExactSystemInfoSurface::NetworkInterfaces,
+            ExactSystemInfoName::NetworkInterfaces);
         return facebook::jsi::Object(runtime);
       });
   rt.global().setProperty(rt, "__exactGetNetworkInterfaces", std::move(networkInterfacesFn));
@@ -1384,7 +2087,8 @@ void installProcessSetup(ExactHermesRuntime* handle) {
           callback_args.emplace_back(runtime, args[i]);
         }
         handle->next_tick.push_back(
-            NextTickEntry{currentPrincipalId(), std::move(callback), std::move(callback_args)});
+            NextTickEntry{currentPrincipalId(), exactCollectTypedPrincipalStack(),
+                          std::move(callback), std::move(callback_args)});
         return facebook::jsi::Value::undefined();
       });
   process.setProperty(rt, "nextTick", std::move(nextTickFn));
@@ -1405,6 +2109,41 @@ void installProcessSetup(ExactHermesRuntime* handle) {
 
 void installDnsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
+  auto dnsGetServersFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactDnsGetServers"),
+      0,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        ULONG size = 0;
+        if (GetNetworkParams(nullptr, &size) != ERROR_BUFFER_OVERFLOW || size == 0) {
+          return facebook::jsi::String::createFromUtf8(runtime, "[]");
+        }
+        std::vector<uint8_t> storage(size);
+        auto* info = reinterpret_cast<FIXED_INFO*>(storage.data());
+        if (GetNetworkParams(info, &size) != NO_ERROR) {
+          return facebook::jsi::String::createFromUtf8(runtime, "[]");
+        }
+        std::ostringstream json;
+        json << '[';
+        bool first = true;
+        for (IP_ADDR_STRING* server = &info->DnsServerList;
+             server != nullptr;
+             server = server->Next) {
+          const char* address = server->IpAddress.String;
+          IN_ADDR parsed{};
+          if (!address || InetPtonA(AF_INET, address, &parsed) != 1) continue;
+          if (!first) json << ',';
+          first = false;
+          json << '"' << address << '"';
+        }
+        json << ']';
+        return facebook::jsi::String::createFromUtf8(runtime, json.str());
+      });
+  rt.global().setProperty(rt, "__exactDnsGetServers", std::move(dnsGetServersFn));
+
   auto dnsLookupFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactDnsLookup"),
@@ -1493,18 +2232,13 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
           sockaddr_storage storage{};
           if (item->ai_addrlen > sizeof(storage)) continue;
           std::memcpy(&storage, item->ai_addr, item->ai_addrlen);
-          char ip[INET6_ADDRSTRLEN] = {};
-          bool ok = false;
-          if (storage.ss_family == AF_INET) {
-            auto* sa = reinterpret_cast<sockaddr_in*>(&storage);
-            ok = InetNtopA(AF_INET, &sa->sin_addr, ip, sizeof(ip)) != nullptr;
-          } else if (storage.ss_family == AF_INET6) {
-            auto* sa = reinterpret_cast<sockaddr_in6*>(&storage);
-            ok = InetNtopA(AF_INET6, &sa->sin6_addr, ip, sizeof(ip)) != nullptr;
-          }
-          if (!ok) continue;
+          std::string ip = socketAddressText(storage);
+          if (ip.empty()) continue;
           std::string escaped;
-          appendEscapedJsonText(escaped, reinterpret_cast<const uint8_t*>(ip), std::strlen(ip));
+          appendEscapedJsonText(
+              escaped,
+              reinterpret_cast<const uint8_t*>(ip.data()),
+              ip.size());
           if (!first) json << ',';
           first = false;
           json << escaped;
@@ -1640,25 +2374,24 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(0);
         }
 
-        HANDLE stdinWrite = nullptr;
+        size_t accepted = 0;
         {
-          std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
-          stdinWrite = proc->stdinWrite;
+          std::lock_guard<std::mutex> lock(proc->stdinMutex);
+          if (proc->stdinCloseRequested || !isValidHandle(proc->stdinWrite)) {
+            return facebook::jsi::Value(-1);
+          }
+          size_t available = kWindowsSpawnStdinQueueBytes > proc->stdinQueuedBytes
+              ? kWindowsSpawnStdinQueueBytes - proc->stdinQueuedBytes
+              : 0;
+          accepted = std::min(available, bytes.size());
+          if (accepted > 0) {
+            proc->stdinQueue.emplace_back(bytes.begin(), bytes.begin() + accepted);
+            proc->stdinQueuedBytes += accepted;
+          }
         }
-        if (!isValidHandle(stdinWrite)) {
-          return facebook::jsi::Value(-1);
-        }
-        DWORD written = 0;
-        BOOL ok = WriteFile(
-            stdinWrite,
-            bytes.data(),
-            static_cast<DWORD>(bytes.size()),
-            &written,
-            nullptr);
-        if (!ok) {
-          return facebook::jsi::Value(-1);
-        }
-        return facebook::jsi::Value(static_cast<int>(written));
+        if (accepted > 0) proc->stdinCv.notify_one();
+        // Zero is the same retry/backpressure contract as POSIX EAGAIN.
+        return facebook::jsi::Value(static_cast<double>(accepted));
       });
   rt.global().setProperty(rt, "__exactSpawnWrite", std::move(spawnWriteFn));
 
@@ -1691,14 +2424,16 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               proc->exitCode = -1;
             }
             proc->exited = true;
+            requestWindowsStdinClose(proc, true, false);
           }
         }
         if (!proc->exited) {
           return facebook::jsi::String::createFromUtf8(
               runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}");
         }
-        std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc->exitCode)
-            + ",\"signal\":0}";
+        int reportedExit = proc->killedSignal ? -1 : proc->exitCode;
+        std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(reportedExit)
+            + ",\"signal\":" + std::to_string(proc->killedSignal) + "}";
         return facebook::jsi::String::createFromUtf8(runtime, json);
       });
   rt.global().setProperty(rt, "__exactSpawnPoll", std::move(spawnPollFn));
@@ -1728,9 +2463,43 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(true);
         }
         BOOL ok = TerminateProcess(proc->process, 1);
+        if (ok) {
+          proc->killedSignal = sig;
+          requestWindowsStdinClose(proc, true, false);
+        }
         return facebook::jsi::Value(ok != FALSE);
       });
   rt.global().setProperty(rt, "__exactSpawnKill", std::move(spawnKillFn));
+
+  auto spawnSetReferencedFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSetReferenced"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isBool()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactSpawnSetReferenced: numeric handle and boolean state required");
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto proc = requireWindowsSpawnProcessOwnership(
+            runtime, handle, "__exactSpawnSetReferenced");
+        bool updated = false;
+        {
+          std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
+          auto it = g_windows_spawned_processes.find(handle);
+          if (it != g_windows_spawned_processes.end() && it->second == proc) {
+            proc->referenced = args[1].getBool();
+            updated = true;
+          }
+        }
+        return facebook::jsi::Value(updated);
+      });
+  rt.global().setProperty(
+      rt, "__exactSpawnSetReferenced", std::move(spawnSetReferencedFn));
 
   auto spawnCloseStdinFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1753,8 +2522,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           streamName = args[1].toString(runtime).utf8(runtime);
         }
         if (streamName == "stdin") {
-          std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
-          closeHandleIfValid(proc->stdinWrite);
+          requestWindowsStdinClose(proc, false, false);
         }
         return facebook::jsi::Value::undefined();
       });
@@ -1776,7 +2544,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnDispose"),
       1,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -1784,22 +2552,61 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         int handle = static_cast<int>(args[0].asNumber());
-        std::shared_ptr<WindowsSpawnedProcess> proc;
+        auto proc = tryWindowsSpawnProcess(runtime, handle, "__exactSpawnDispose");
+        if (!proc) {
+          return facebook::jsi::Value::undefined();
+        }
         {
           std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
           auto it = g_windows_spawned_processes.find(handle);
-          if (it != g_windows_spawned_processes.end()) {
-            proc = it->second;
+          if (it != g_windows_spawned_processes.end() && it->second == proc) {
             g_windows_spawned_processes.erase(it);
+          } else {
+            return facebook::jsi::Value::undefined();
           }
         }
-        if (proc) {
-          closeHandleIfValid(proc->stdinWrite);
-          closeHandleIfValid(proc->process);
-        }
+        requestWindowsStdinClose(proc, true, true);
+        closeHandleIfValid(proc->process);
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactSpawnDispose", std::move(spawnDisposeFn));
+}
+
+void installNetOwnerHostFunction(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto netOwnerFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactNetOwner"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactNetOwner: action required");
+        }
+        const std::string action = args[0].asString(runtime).utf8(runtime);
+        if (action == "new") {
+          const uint64_t stamp = windowsNetOwnerStampForCurrentPrincipal();
+          if (stamp == 0) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactNetOwner: stamp allocation failed");
+          }
+          return facebook::jsi::Value(static_cast<double>(stamp));
+        }
+        if (action != "assert" || count < 2) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactNetOwner: unsupported action");
+        }
+        requireWindowsNetOwnerStamp(runtime, args[1]);
+        if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
+          requireWindowsSocket(
+              runtime, requireWindowsNetOwnerSocketHandle(runtime, args[2]),
+              "__exactNetOwner", false);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactNetOwner", std::move(netOwnerFn));
 }
 
 void installNetHostFunctions(ExactHermesRuntime* handle) {
@@ -1836,6 +2643,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         ensureWinsock();
         std::string host = args[0].toString(runtime).utf8(runtime);
         int port = static_cast<int>(args[1].asNumber());
+        if (isIpv4MappedLiteral(host)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactTcpConnect: IPv4-mapped IPv6 literals are not canonical; use IPv4");
+        }
         std::string connectCapability = networkEndpointCapability("network:connect", host, port);
         requireNetworkCapability(runtime, connectCapability, "network:connect");
         addrinfo hints{};
@@ -1971,7 +2783,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         }
         WindowsSocketEntry entry{};
         if (!tryWindowsSocket(
-                runtime, static_cast<int>(args[0].asNumber()), "__exactTcpShutdown", entry)) {
+                runtime,
+                static_cast<int>(args[0].asNumber()),
+                "__exactTcpShutdown",
+                entry,
+                false)) {
           return facebook::jsi::Value(0);
         }
         SOCKET socket = entry.socket;
@@ -1999,7 +2815,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         }
         WindowsSocketEntry entry{};
         if (!tryWindowsSocket(
-                runtime, static_cast<int>(args[0].asNumber()), "__exactTcpReset", entry)) {
+                runtime,
+                static_cast<int>(args[0].asNumber()),
+                "__exactTcpReset",
+                entry,
+                false)) {
           return facebook::jsi::Value(0);
         }
         SOCKET socket = entry.socket;
@@ -2072,6 +2892,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         int port = count > 1 && args[1].isNumber() ? static_cast<int>(args[1].asNumber()) : 0;
         int backlog = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : 128;
         int ipv6Only = count > 3 && args[3].isNumber() ? static_cast<int>(args[3].asNumber()) : 0;
+        if (isIpv4MappedLiteral(host)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactTcpListen: IPv4-mapped IPv6 literals are not canonical; use IPv4");
+        }
         std::string listenCapability = networkEndpointCapability("network:listen", host, port);
         requireNetworkCapability(runtime, listenCapability, "network:listen");
 
@@ -2098,9 +2923,19 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           BOOL reuse = TRUE;
           setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
-          if (item->ai_family == AF_INET6 && ipv6Only) {
-            DWORD only = 1;
-            setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char*>(&only), sizeof(only));
+          if (item->ai_family == AF_INET6) {
+            DWORD only = ipv6Only ? 1 : 0;
+            if (setsockopt(
+                    socket,
+                    IPPROTO_IPV6,
+                    IPV6_V6ONLY,
+                    reinterpret_cast<const char*>(&only),
+                    sizeof(only)) != 0) {
+              lastError = WSAGetLastError();
+              closesocket(socket);
+              socket = INVALID_SOCKET;
+              continue;
+            }
           }
           if (bind(socket, item->ai_addr, static_cast<int>(item->ai_addrlen)) == 0 &&
               listen(socket, backlog) == 0) {

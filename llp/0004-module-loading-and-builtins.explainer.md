@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation)
+**Revised:** 2026-07-13 (retained native-wrapper owner isolation and retry-safe release across filesystem, network, HTTP, WebSocket, SQLite, zlib, and TLS; TLS transport identity, bounded state, honest loopback authentication, strict client-identity verification, exact-size native reads, and fail-loud host errors); 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -38,14 +38,29 @@ specifier in this order `[observed]`:
 4. **On-disk resolution** via oxc_resolver (`resolve_with_oxc`,
    `src/module_loader/mod.rs:143`).
 
-`resolve_module` on `Host` additionally enforces an `fs:read:<path>` capability
-before loading a resolved file path (`src/host/mod.rs:161-174`) `[observed]`.
-`Host::resolve_module_meta` runs the same resolution + `fs:read:<path>` gate but
-stops before `load_source`, returning only the metadata (path + package fields,
-no `source`); `resolve_module` is now `resolve_module_meta` + `load_source`. This
-backs `require.resolve`, which needs only the path and previously paid a full
-read + transpile + JSON-escape of the whole body just to discard it (ENG-23007)
-`[observed]`.
+In an armed runtime the C ABI carries the numeric requester module ID into both
+full and metadata-only resolution. The Host resolves first, derives the target
+principal from the most-specific authenticated root binding, and requires the
+exact graph edge including locator and integrity. Package-relative imports must
+remain inside that package's authenticated root; package-to-project-root and
+absolute escapes are refused rather than reclassified as principal 0. The
+resolver returns exact package name, locator, root, and whole-tree integrity,
+and module registration accepts the mapping only when all fields match the
+armed graph. Installed content is recomputed before project code, so replacing
+a package body without changing its self-reported manifest cannot inherit its
+reviewed authority.
+
+`Host::resolve_module_meta` applies the same requester, import-edge, logical
+`fs:list`/`fs:read`, root-object, and integrity checks but stops before
+`load_source`, returning only path and authenticated package metadata.
+Full module resolution shares its requester/graph/root authentication and then
+uses the executable source-loading path. The metadata-only path backs every
+`require.resolve` route without turning lookup into an import or
+filesystem-disclosure bypass: it authorizes `fs:list` at
+requested before resolver probing, then binds the canonical final and parent
+objects at discovery and authorizes `fs:read` at commit and repeat before
+returning the path. Cache-hot lookups repeat all four stages, and a symlink is
+classified by its canonical target binding rather than its lexical spelling.
 
 ### The oxc_resolver configuration
 
@@ -103,6 +118,28 @@ of embedded sources `[observed]` (`modules.ts:693-699, 728-729`).
 `[inferred: the single-source-many-aliases design lets Ibex present a Node- and
 Bun-compatible import surface without maintaining separate implementations.]`
 
+Not every registry entry is an advertised alias. Groups authored with both
+`moduleBuiltin: false` and `bundleExternal: false` appear in neither
+`module.builtinModules` nor the bundler's external set. Those flags do not,
+however, remove an exact name from the generated registry or authenticated
+import gate: a package whose policy lists the name can still resolve it. The
+source inventory therefore retains such registry-only names as package-facing
+probe entry points. `internal/fs/utils` is the stricter exception: it is also
+named in `bootstrapInternalModules`, and the JS loader's `loadInternal()`
+returns the bootstrap-owned object before consulting the generated manifest.
+Consequently the inline `internal_fs_utils` manifest source cannot be evidenced
+by importing that same-named specifier
+`[observed]` (`modules.ts`; `src/engine/bootstrap/module-loader.js`;
+`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`).
+
+The LLP 0021 capability inventory uses the same source-key boundary: it records
+each specifier alias, then statically inventories exported APIs once per source
+key rather than treating `fs`, `node:fs`, and `bun:fs` as three independent
+implementations. Export and prototype-member additions are source-derived and
+participate in `check:capsec-registry`, so a new builtin API cannot silently
+bypass classification `[observed]`
+(`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`).
+
 `exact:http` and `exact:sqlite` are not generated builtin files: their source
 keys point at repo files under `packages/ibex-runtime-js`, and the generated
 manifest includes those files directly from `CARGO_MANIFEST_DIR` `[observed]`
@@ -114,6 +151,45 @@ The transformed builtin JS files are committed under
 `[observed]` (`vendored-generated/README.md:11-27`). Two specifiers (`sqlite`,
 `sea`) are reserved Node-only `[observed]` (`modules.ts:19-21`).
 
+### Retained native-wrapper invariant
+
+Builtin objects may be retained and invoked after control crosses a package
+principal boundary. A forgeable numeric descriptor or a caller-writable
+underscore field is therefore not authority. Filesystem `FileHandle`, net and
+dgram sockets/listeners, native HTTP responses/listeners, WebSockets, SQLite
+databases/statements, zlib streams, and TLS engines keep their authoritative
+selector and terminal lifecycle in module-private `WeakMap` or closure state;
+native registries independently bind the selector to its runtime nonce and
+creating principal `[observed]`.
+
+Every public operation that can enqueue work authenticates synchronously before
+mutating a queue, and deferred work retains an owner/generation stamp rather
+than inheriting the principal of a later timer, poll, or drain callback. Release
+is ordered native-first: `close`, `destroy`, `abort`, `finalize`, and EOF commit
+JS terminal state or forget the selector only after native ownership validation
+and release succeed. A rejected foreign call consequently leaves the wrapper
+and selector retryable by the real owner. Listener poll loops likewise capture
+the exact selector generation so a callback from a closed listener cannot be
+reattributed to a subsequently reopened listener `[observed]`.
+
+WebSocket wrappers also mint a runtime/principal owner stamp whose lifetime is
+independent of transport teardown. Public metadata and `on*` attributes,
+EventTarget listener maps, generic-stream request records, and their saved
+base-prototype entry points authenticate that stamp before exposing, retaining,
+or converting caller data. Authority-bearing readable/writable lifecycle,
+controller, queue, and reader/writer compatibility fields are authenticated
+projections; their deferred queues contain only opaque one-shot identities,
+while inbound and outbound payloads remain module-private until an admitted
+read or write consumes them. Native callbacks dispatch through captured
+methods, so shadowing `dispatchEvent`, a reader method, or a sink algorithm
+cannot intercept owner traffic or recover an admitted payload `[observed]`.
+
+Compatibility properties that remain observable (for example `FileHandle.fd`)
+are projections, not selector storage; writes are rejected or inert. The CapSec
+surface census continues to classify these accessors explicitly even when
+their implementation moves from direct fields to dynamically installed private
+state `[observed]`.
+
 ### The zlib builtin
 
 The `zlib` builtin (`src/builtins/zlib.js`) has two native codec layers
@@ -123,7 +199,7 @@ The `zlib` builtin (`src/builtins/zlib.js`) has two native codec layers
   `gzipSync`, `deflateSync`, `gunzipSync`, `inflateSync`, raw variants, and
   JS-only harness fallback behavior.
 - **Stateful stream hooks** (`__exactZlibCreate` / `__exactZlibWrite` /
-  `__exactZlibParams` / `__exactZlibClose`) back `createGzip`,
+  `__exactZlibParams` / `__exactZlibCheckOwner` / `__exactZlibClose`) back `createGzip`,
   `createDeflate`, `createGunzip`, `createInflate`, and raw/unzip stream
   variants when the native bridge is present.
 
@@ -141,7 +217,32 @@ without the stateful native host functions `[observed]`.
 The native state lives in `src/engine/hermes_runtime_zlib_streams.h`, registered
 from both the non-Windows and Windows crypto host-function roots so zlib stream
 parity follows the same platform availability as the existing zlib sync hooks
-`[observed]`.
+`[observed]`. Stream IDs are kept in module-private JS storage and bound
+natively to both the runtime nonce and creating package principal; every
+write, parameter change, and close validates those identities regardless of
+capability posture. Runtime destruction removes streams that JS did not
+explicitly close. The incremental inflater also retains a partial gzip magic
+byte across writes so concatenated members remain valid at every input-chunk
+boundary `[observed]`.
+
+Decompression is allocation-bounded at the native choke point: the JS wrapper
+passes the decoder's remaining `maxOutputLength`, and one-shot zlib/Brotli plus
+incremental zlib loops check that budget before growing their output vector.
+Every host call also has a fixed 64 MiB ceiling when no smaller budget is
+configured, so a compressed bomb cannot allocate until exhaustion before JS
+gets a chance to validate the result. A future zstd bridge must accept the same
+budget; the current runtime exposes no native zstd decoder. Gzip accepts
+concatenated members and zero padding, but rejects any other trailing bytes,
+including garbage arriving in a later stream write. The stream core retains the zlib owner guard in a
+private `WeakMap` and runs it from inherited readable, writable, listener, and
+lifecycle paths, so calling a saved `EventEmitter`, `Readable`, `Writable`,
+`Transform`, or `Stream` prototype method cannot enqueue work or observe owner
+output under another principal. Guarded transforms project their listener maps,
+queues, and callback/dispatch slots through non-configurable owner-checked
+properties, preventing a foreign holder from planting `_transform`, `emit`, or
+`push` code for a later owner-context call. Zlib wrappers retain a separate
+runtime/principal identity stamp after the native codec selector closes, so
+those projections do not reopen during terminal cleanup or reset `[observed]`.
 
 ### The tls builtin
 
@@ -156,30 +257,66 @@ remains out of scope — `tls.createServer` is loopback-emulation only.
 
 What it emulates (ENG-23448):
 
-- `tls.createServer` wraps a plain `net` server; listening servers register in
-  an in-process registry keyed by their listening **port**
-  (`_tlsServersByPort`).
-- `tls.connect` opens a plain TCP connection. On connect it decides whether the
-  peer is an **in-process** `tls.Server`: the destination host must be a
-  loopback address (`localhost`, `127.0.0.0/8`, `::1`, the unspecified
-  address; `_isLoopbackHost`) *and* a registered server must be listening on
-  the destination port. Only then does it run the emulated handshake: cipher
-  suites are negotiated from both sides' options, certificate material is
-  parsed from the configured PEMs (or synthesized), and Node-shaped
-  authorization/identity validation runs against it. Application data then
-  flows as **plaintext TCP**, loopback-only.
+- `tls.createServer` wraps a plain `net` server. The in-process registry is
+  port-indexed for lookup, but every entry records the listener's normalized
+  address and family. Selection prefers an exact address, then a same-family
+  wildcard; the IPv6-wildcard dual-stack fallback is allowed only when no IPv4
+  listener can collide. This prevents same-port IPv4/IPv6 listeners from
+  cross-pairing (`_registerTlsServer`, `_lookupTlsServer`) `[observed]`.
+- `tls.connect` opens a plain TCP connection. Before forwarding its `connect`
+  event to user code, `tls.js` freezes the actual connected transport's local
+  and remote address/family/port tuple in a module-private `WeakMap`. Loopback
+  eligibility uses that snapshot rather than caller-writable socket metadata:
+  the remote endpoint must be loopback and match the registered listener, and
+  the client and accepted server socket must then match on the complete
+  normalized local-to-remote endpoint tuple (`_captureTlsTransportIdentity`,
+  `_tlsClientConnectionKey`, `_tlsServerConnectionKey`) `[observed]`.
+- Caller-supplied `options.socket` transports are deliberately ineligible for
+  loopback emulation. Their public metadata cannot authenticate which accepted
+  transport they correspond to; they therefore take the real native-bridge (or
+  fail-loud reduced-profile) path even when their apparent endpoint names a
+  local registered server `[observed]`.
+- Once paired, the emulation negotiates protocol/cipher metadata and parses
+  configured certificate material, but application data flows as **plaintext
+  TCP** and no TLS record exchange, signature, or proof of key possession
+  occurs. The strict client default therefore fails with
+  `ERR_TLS_LOOPBACK_AUTH_UNSUPPORTED`; `rejectUnauthorized:false` may use the
+  compatibility transport but is always published as `authorized:false` with
+  that authorization error. Likewise, a requested synthetic client identity
+  is never reported as authenticated: a strict mTLS server rejects it, while a
+  permissive server may publish it only with `authorized:false` `[observed]`.
 - The Node-facing contract of the emulated socket (`authorized` /
   `authorizationError` under `rejectUnauthorized:false`, the
   `TLSSocket`-extends-`net.Socket` prototype chain, `renegotiate()` semantics
   including the TLSv1.3 failure mode) is pinned against real Node v25.9.0 in
   `tests/node_tls_builtins.rs`.
+- **Private, same-principal state.** Server state, transport snapshots, native
+  selectors/tokens, and all authority-bearing `TLSSocket` control fields live
+  in module-private `WeakMap`s. Forged public `_tls*` / `_bridge*` lookalikes
+  cannot influence them; control-plane accessors reject external reads or
+  writes, while event storage and Node-visible state remain owner-checked.
+  Native owner tokens bind each server
+  and socket to its runtime nonce and creating package principal. Registry
+  lookup and every stateful callback/handoff require that owner, so a server
+  registered by another principal is not an emulation candidate `[observed]`.
+- **Server-owned bounded handoff.** A client may only deposit a handshake
+  message; it never calls server-owned socket methods or emits server events.
+  A short-interval pump running as the server owner applies the message and
+  emits `secureConnection` / `tlsClientError`. Both unmatched accepted sockets
+  and unmatched handshake messages are capped at 1,024 per server and expire
+  after 30 seconds; overflow fails with `ERR_TLS_HANDSHAKE_QUEUE_FULL`, and
+  expiry fails with `ERR_TLS_HANDSHAKE_TIMEOUT` `[observed]`.
+- The PEM/DER certificate parser shared by emulation and the native peer-chain
+  adapter returns clones and keeps only a bounded LRU: at most 256 entries and
+  approximately 4 MiB, with entries larger than 1 MiB bypassing the cache
+  (`_certificateParseCache`, `_cacheParsedCertificate`) `[observed]`.
 
-Known limits of the detection, accepted deliberately: the registry is
-port-keyed, so an in-process server reached via a non-loopback address of
-this machine (e.g. its LAN IP) is treated as out-of-process and gets a real
-TLS handshake its emulated server cannot answer; TLS-over-IPC (`path:`
-options) never participated in the registry and likewise takes the
-bridge/fail-loud path.
+Known limits of the detection, accepted deliberately: an in-process server
+reached via a non-loopback address of this machine (for example its LAN IP), a
+TLS-over-IPC `path:`, or a caller-supplied transport is treated as a real
+out-of-process TLS peer and takes the bridge/fail-loud path. The emulation is a
+narrow same-principal compatibility mechanism, not a claim that local plaintext
+is cryptographically secure.
 
 #### The native TLS bridge for out-of-process endpoints (ENG-23492)
 
@@ -198,21 +335,39 @@ native engine:
   the `TLSSocket` wrapper — the existing async-connect/DNS/timeout machinery
   is reused and the bridge spawns **zero threads**, so the by-value-static
   pool exit() deadlock class (ENG-23471/ENG-23498) cannot occur here.
-- **Hermetic dependency profile.** rustls uses the `ring` provider
-  (cc-compiled; no cmake, no system OpenSSL) and `webpki-roots` bundles the
-  Mozilla CA store, mirroring Node's bundled-roots philosophy and LLP 0005's
-  hermetic-default pipeline. Node's `ca` option **replaces** the root store,
-  as in Node.
-- **Trust-evaluation split.** Chain trust (signatures, validity window,
-  issuer path) is evaluated **natively**: the JS `_validatePeerAuthorization`
-  is a fingerprint-list comparator and cannot verify signatures. A recording
-  verifier wraps rustls's WebPKI verifier, always completes the handshake,
-  and reports the verdict to JS — so `rejectUnauthorized:false` still gets
-  `secureConnect` with `authorized:false` plus the real error code, and the
-  strict default destroys the socket with that code. Hostname/identity
-  checking stays in JS (`checkServerIdentity`, user-overridable per Node),
-  fed the REAL peer DER chain parsed by the existing PEM/DER machinery,
-  producing Node's exact `ERR_TLS_CERT_ALTNAME_INVALID` shape.
+- **Pending-length native reads.** Before allocating a JSI `ArrayBuffer`, the
+  C++ shims query Rust for the exact pending ciphertext count or the next
+  contiguous plaintext chunk length. Empty polls, EOF, and errors allocate no
+  payload buffer; successful reads allocate only `min(pending, maxBytes)` and
+  let rustls fill that buffer directly. The ciphertext count uses a
+  non-consuming writer probe, so avoiding the former speculative 64 KiB
+  allocation does not drain or reorder records (`ibex_tls_tls_bytes_pending`,
+  `ibex_tls_plaintext_bytes_pending`) `[observed]`.
+- **Hermetic dependency profile.** rustls uses the `ring` provider for every
+  wire operation and `webpki-roots` bundles the Mozilla CA store, mirroring
+  Node's bundled-roots philosophy. Desktop builds use vendored OpenSSL only as
+  a bounded decoder for the PKCS#12 and encrypted-PKCS#8 client-identity
+  containers required by Node's `pfx` / `passphrase` options; no system TLS
+  implementation or trust behavior enters the wire path. PFX input is capped
+  at 16 MiB before JS base64/JSON expansion and independently at the native
+  decoder; its base64 and DER envelopes must be canonical. Node's `ca` option
+  **replaces** the root store, as in Node. The iOS reduced profile rejects
+  those two container formats explicitly until a hermetic iOS decoder lands.
+- **Trust-evaluation split with pre-disclosure mTLS abort.** Chain trust
+  (signatures, validity window, issuer path) is evaluated **natively**: the JS
+  `_validatePeerAuthorization` is a fingerprint-list comparator and cannot
+  verify signatures. Ordinarily the recording WebPKI verifier reports its
+  verdict to JS while allowing the wire handshake to finish: this lets
+  `rejectUnauthorized:false` publish `authorized:false` plus the real error,
+  while a strict client without an identity destroys the socket with that
+  result. A strict client configured with `cert`/`key` or `pfx` is different:
+  any WebPKI rejection aborts natively before rustls can answer a server
+  `CertificateRequest` with the client's certificate and proof. Because a
+  user-defined `checkServerIdentity` cannot run before that disclosure point,
+  strict client identities reject that combination explicitly. Outside that
+  pre-disclosure profile, hostname/identity checking remains in JS, fed the
+  REAL peer DER chain and producing Node's
+  `ERR_TLS_CERT_ALTNAME_INVALID` shape `[observed]`.
 - **Oracle-pinned against Node v25.9.0** (measured, not remembered):
   `CERT_HAS_EXPIRED`, `DEPTH_ZERO_SELF_SIGNED_CERT`,
   `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, `ERR_TLS_CERT_ALTNAME_INVALID` (with
@@ -231,33 +386,58 @@ native engine:
   releases them into the raw socket (emulation) or the post-handshake
   encrypted queue (bridge); without the hold the request would leak as
   plaintext ahead of the ClientHello.
+- **Guarded, ordered receive handoff.** An already-connected or custom raw
+  socket can deliver bytes, EOF, or close before the deferred path decision,
+  including reentrantly while native output is written. `tls.js` retains a
+  bounded ordered event queue and keeps the raw input paused until every older
+  event has entered the selected path. Bridge events become ciphertext/EOF;
+  any pre-selection event on the plaintext loopback-emulation path fails
+  closed rather than exposing unauthenticated application data `[observed]`.
+- **Private, owner-bound engine handles.** Numeric native engine selectors
+  live only in a module-private `WeakMap`; the Rust registry binds every
+  selector to both runtime nonce and creating principal. Release reports a
+  wrong-owner attempt distinctly, and JS forgets its selector only after
+  native close succeeds, so the real owner can retry cleanup `[observed]`.
+- **Fail-loud native lifecycle.** Status parsing, plaintext/ciphertext host
+  calls, peer-certificate extraction, and transport EOF propagate native
+  errors into one terminal TLS failure rather than converting them to an empty
+  poll. EOF is marked applied only after the engine accepts it, and engine
+  release precedes JS failure-state mutation so an owner rejection remains
+  retryable `[observed]`.
 
 Rejected alternatives `[inferred: judgment call recorded at decision time]`:
 platform TLS C APIs (Security.framework / system OpenSSL — non-hermetic on
 Linux, deprecated SecureTransport on macOS, per-platform trust-evaluation
-semantics, two implementations to keep Node-shaped); the optional vendored
-`openssl-crypto` feature (off by default, so tls would work in only some
-builds, violating the hermetic-default invariant); a native-owned TCP+TLS
-thread pool like native fetch (duplicates net.js's async-connect machinery
-and reintroduces the exit-deadlock class).
+semantics, two implementations to keep Node-shaped); using the optional
+`openssl-crypto` feature as the TLS engine (off by default and behaviorally
+different from rustls); a native-owned TCP+TLS thread pool like native fetch
+(duplicates net.js's async-connect machinery and reintroduces the
+exit-deadlock class). The narrowly scoped vendored identity decoder above does
+not negotiate records or evaluate peer trust.
 
 Known divergences, accepted deliberately: `getPeerCertificate(true)`'s
 `issuerCertificate` chain reflects the chain **as presented on the wire**
 (rustls `peer_certificates()`), while Node/OpenSSL completes it from the
-local trust store; session resumption is not implemented
-(`isSessionReused()` always false); TLS < 1.2 is not supported (rustls), so
-requested minimums below 1.2 clamp to 1.2.
+local trust store; session resumption is an explicit fail-loud reduced profile
+(`getSession()` returns null, `isSessionReused()` is false, and a non-null
+`session` option throws `ERR_TLS_SESSION_UNSUPPORTED`). rustls does not expose
+a supported serialization/import API for its sensitive client-session values,
+and Node's input is an incompatible OpenSSL `SSL_SESSION` blob; silently
+accepting it or inventing a process-local lookalike would misreport security
+state and weaken runtime/principal isolation. TLS < 1.2 is not supported
+(rustls), so requested minimums below 1.2 clamp to 1.2.
 
 **Windows:** ENG-23526 enables the same native bridge through the Winsock TCP
 host functions in `src/engine/hermes_runtime_platform_windows.cc`. The shared
 Rust `tls_bridge` module, rustls dependencies, and `hermes_runtime_tls.cc` JSI
 shims now compile on Windows, and `installNetHostFunctions` installs the
-`__exactTlsEngine*` host functions after the Windows TCP globals. The full
-timer-driven `tls.connect` oracle tests still run on non-Windows, while Windows
-has a synchronous `tests/node_tls_builtins.rs` smoke that proves the TLS engine
-host surface installs, constructs a rustls engine, and emits initial ClientHello
-bytes. End-to-end Windows `tls.connect` oracle coverage depends on closing the
-separate Windows CLI timer keepalive gap (ENG-23639).
+`__exactTlsEngine*` host functions after the Windows TCP globals. Windows has a
+synchronous `tests/node_tls_builtins.rs` smoke that proves the TLS engine host
+surface installs, constructs a rustls engine, and emits initial ClientHello
+bytes. After the Windows CLI timer/output fixes (ENG-23639/ENG-23705), the full
+timer-driven `tls.connect` oracle suite runs on Windows too; ENG-23716 also
+routes option-carrying HTTPS requests through the socket/TLS path, so the HTTPS
+roundtrip oracle is no longer platform-gated.
 
 #### Fail-loud boundary without the bridge
 

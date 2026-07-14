@@ -51,9 +51,501 @@ function upgradeTcpIncomingMessagePrototype() {
 // Shared symbol for timeout tracking (matches internal/timers)
 var kTimeout = Symbol.for('kTimeout');
 var kOutHeaders = Symbol.for('nodejs.http.outHeadersKey');
+var kTlsSetHttpResetAsEof = Symbol.for('ibex.tls.setHttpResetAsEof');
 var captureRejectionSymbol = typeof Symbol === 'function' && typeof Symbol.for === 'function'
   ? Symbol.for('nodejs.rejection')
   : null;
+// Capture the owner-authentication boundary before user code can replace the
+// global. Payload-bearing HTTP hosts retain their own native owner checks; this
+// closure is the JS wrapper's non-mutating preflight.
+var _httpOwnerHost = typeof __exactHttpOwner === 'function' ? __exactHttpOwner : null;
+// HTTP servers do not receive their native server id until listen succeeds.
+// Capture the eager, identity-only network owner stamp as well so their event
+// surface is already principal-bound while still unbound.
+var _httpNetOwnerHost = typeof __exactNetOwner === 'function' ? __exactNetOwner : null;
+var _httpDefineOwnedProperty = Object.defineProperty;
+// @ref LLP 0021#handles-dynamic-authority-and-generations — retained HTTP
+// selectors stay private, owner-bound, and retryable until native release.
+var _httpServerResponseNativeStates = typeof WeakMap === 'function' ? new WeakMap() : null;
+var _httpServerNativeStates = typeof WeakMap === 'function' ? new WeakMap() : null;
+var _httpHandleNativeRequestOwned = null;
+var _httpInternalResponseConstructionKey = {};
+// Capture EventEmitter entry points before application code can replace the
+// shared prototype. Retained native HTTP wrappers expose owner-checked,
+// non-replaceable projections below; saved base-prototype calls still cross
+// the authenticated `_events` accessors.
+// @ref LLP 0004#retained-native-wrapper-invariant — listener registration,
+// removal, inspection, and dispatch remain bound to the creating principal.
+var _httpEventEmitterOwned = Object.create(null);
+[
+  'emit', 'on', 'addListener', 'once', 'prependListener',
+  'prependOnceListener', 'removeListener', 'off', 'removeAllListeners',
+  'listeners', 'rawListeners', 'listenerCount', 'eventNames',
+  'getMaxListeners', 'setMaxListeners'
+].forEach(function(name) {
+  if (EventEmitter.prototype && typeof EventEmitter.prototype[name] === 'function') {
+    _httpEventEmitterOwned[name] = EventEmitter.prototype[name];
+  }
+});
+
+function _httpEventMethodDescriptor(target, assertOwner, kind, name) {
+  return {
+    enumerable: false,
+    configurable: false,
+    get: function() {
+      assertOwner(target);
+      return _httpEventEmitterOwned[name];
+    },
+    set: function() {
+      assertOwner(target);
+      throw new Error(kind + ' event methods are private');
+    }
+  };
+}
+
+function _installHttpEventMethodProjections(target, assertOwner, kind) {
+  // Keep every installed public name literal so the CapSec surface inventory
+  // can prove the exported shapes without trusting a runtime name table.
+  Object.defineProperties(target, {
+    emit: _httpEventMethodDescriptor(target, assertOwner, kind, 'emit'),
+    on: _httpEventMethodDescriptor(target, assertOwner, kind, 'on'),
+    addListener: _httpEventMethodDescriptor(target, assertOwner, kind, 'addListener'),
+    once: _httpEventMethodDescriptor(target, assertOwner, kind, 'once'),
+    prependListener: _httpEventMethodDescriptor(target, assertOwner, kind, 'prependListener'),
+    prependOnceListener: _httpEventMethodDescriptor(target, assertOwner, kind, 'prependOnceListener'),
+    removeListener: _httpEventMethodDescriptor(target, assertOwner, kind, 'removeListener'),
+    off: _httpEventMethodDescriptor(target, assertOwner, kind, 'off'),
+    removeAllListeners: _httpEventMethodDescriptor(target, assertOwner, kind, 'removeAllListeners'),
+    listeners: _httpEventMethodDescriptor(target, assertOwner, kind, 'listeners'),
+    rawListeners: _httpEventMethodDescriptor(target, assertOwner, kind, 'rawListeners'),
+    listenerCount: _httpEventMethodDescriptor(target, assertOwner, kind, 'listenerCount'),
+    eventNames: _httpEventMethodDescriptor(target, assertOwner, kind, 'eventNames'),
+    getMaxListeners: _httpEventMethodDescriptor(target, assertOwner, kind, 'getMaxListeners'),
+    setMaxListeners: _httpEventMethodDescriptor(target, assertOwner, kind, 'setMaxListeners')
+  });
+}
+
+function _httpOwnKeys(target) {
+  var keys = Object.getOwnPropertyNames(target);
+  if (typeof Object.getOwnPropertySymbols === 'function') {
+    keys = keys.concat(Object.getOwnPropertySymbols(target));
+  }
+  return keys;
+}
+
+function _copyHttpPropertyDescriptor(descriptor) {
+  var copy = {
+    enumerable: descriptor.enumerable === true,
+    configurable: descriptor.configurable === true
+  };
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+    copy.value = descriptor.value;
+    copy.writable = descriptor.writable === true;
+  } else {
+    copy.get = descriptor.get;
+    copy.set = descriptor.set;
+  }
+  return copy;
+}
+
+function _httpOwnedPropertyDescriptor(target, record, assertOwner, kind, name) {
+  return {
+    enumerable: record.descriptor.enumerable === true,
+    configurable: false,
+    get: function() {
+      assertOwner(target);
+      var current = record.descriptor;
+      if (Object.prototype.hasOwnProperty.call(current, 'value')) {
+        return current.value;
+      }
+      return typeof current.get === 'function' ? current.get.call(target) : undefined;
+    },
+    set: function(value) {
+      assertOwner(target);
+      var current = record.descriptor;
+      if (Object.prototype.hasOwnProperty.call(current, 'value')) {
+        if (current.writable !== true) {
+          throw new TypeError(kind + ' property ' + String(name) + ' is read only');
+        }
+        current.value = value;
+        return;
+      }
+      if (typeof current.set !== 'function') {
+        throw new TypeError(kind + ' property ' + String(name) + ' has no setter');
+      }
+      current.set.call(target, value);
+    }
+  };
+}
+
+// Move an ordinary compatibility property behind an owner-authenticated,
+// non-configurable projection. The record remains replaceable by the owner so
+// custom ServerResponse prototype members retain their Node-compatible shape.
+function _installHttpOwnedProperty(target, state, assertOwner, kind, name, descriptor) {
+  var existing = state.ownedProperties[name];
+  if (existing) {
+    assertOwner(target);
+    existing.descriptor = _copyHttpPropertyDescriptor(descriptor);
+    return true;
+  }
+  var ownDescriptor = Object.getOwnPropertyDescriptor(target, name);
+  if (ownDescriptor && ownDescriptor.configurable === false) return false;
+  var record = { descriptor: _copyHttpPropertyDescriptor(descriptor) };
+  state.ownedProperties[name] = record;
+  try {
+    _httpDefineOwnedProperty(
+      target,
+      name,
+      _httpOwnedPropertyDescriptor(target, record, assertOwner, kind, name)
+    );
+  } catch (error) {
+    delete state.ownedProperties[name];
+    throw error;
+  }
+  return true;
+}
+
+function _sealHttpOwnedOwnProperties(target, state, assertOwner, kind) {
+  var keys = _httpOwnKeys(target);
+  for (var i = 0; i < keys.length; i++) {
+    var name = keys[i];
+    if (state.ownedProperties[name]) continue;
+    var descriptor = Object.getOwnPropertyDescriptor(target, name);
+    if (!descriptor || descriptor.configurable === false) continue;
+    _installHttpOwnedProperty(target, state, assertOwner, kind, name, descriptor);
+  }
+}
+
+function _sealHttpInheritedProperties(target, state, assertOwner, kind) {
+  var proto = Object.getPrototypeOf(target);
+  while (proto && proto !== Object.prototype) {
+    var keys = _httpOwnKeys(proto);
+    for (var i = 0; i < keys.length; i++) {
+      var name = keys[i];
+      if (name === 'constructor' || Object.prototype.hasOwnProperty.call(target, name)) {
+        continue;
+      }
+      var descriptor = Object.getOwnPropertyDescriptor(proto, name);
+      if (!descriptor) continue;
+      _installHttpOwnedProperty(target, state, assertOwner, kind, name, descriptor);
+    }
+    proto = Object.getPrototypeOf(proto);
+  }
+}
+
+function _installServerResponseCopiedProperty(target, name, descriptor) {
+  var state = _httpServerResponseNativeStates && _httpServerResponseNativeStates.get(target);
+  if (!state) return false;
+  return _installHttpOwnedProperty(
+    target,
+    state,
+    _assertServerResponseOwner,
+    'ServerResponse',
+    name,
+    descriptor
+  );
+}
+
+function _httpPrivateSelectorDescriptor(kind) {
+  return {
+    enumerable: false,
+    configurable: false,
+    get: function() { throw new Error(kind + ' native selector is private'); },
+    set: function() { throw new Error(kind + ' native selector is private'); }
+  };
+}
+
+function _installServerResponseNativeState(
+  response,
+  serverId,
+  requestId,
+  inheritedOwnerStamp,
+  constructionKey
+) {
+  if (!_httpServerResponseNativeStates || typeof Object.defineProperty !== 'function') {
+    throw new Error('ServerResponse requires WeakMap-backed private native state');
+  }
+  var state = {
+    serverId: serverId || 0,
+    requestId: requestId || 0,
+    nativeMode: !!serverId,
+    ownerStamp: constructionKey === _httpInternalResponseConstructionKey
+      ? inheritedOwnerStamp
+      : (_httpNetOwnerHost ? _httpNetOwnerHost('new') : null),
+    constructing: true,
+    ownerSocket: null,
+    ownerFields: Object.create(null),
+    ownedProperties: Object.create(null)
+  };
+  _httpServerResponseNativeStates.set(response, state);
+  Object.defineProperties(response, {
+    _serverId: _httpPrivateSelectorDescriptor('ServerResponse'),
+    _requestId: _httpPrivateSelectorDescriptor('ServerResponse'),
+    _nativeMode: _httpPrivateSelectorDescriptor('ServerResponse')
+  });
+  Object.defineProperty(response, 'socket', {
+    enumerable: true,
+    configurable: false,
+    get: function() {
+      _assertServerResponseOwner(response);
+      return state.ownerSocket;
+    },
+    set: function(value) {
+      if (value === state.ownerSocket) return;
+      _assertServerResponseOwner(response);
+      _assertServerResponseSocketOwner(value);
+      state.ownerSocket = value || null;
+    }
+  });
+  return state;
+}
+
+function _serverResponseOwnerFieldDescriptor(response, state, name, authenticateRead) {
+  var descriptor = Object.getOwnPropertyDescriptor(response, name);
+  state.ownerFields[name] = descriptor ? descriptor.value : undefined;
+  return {
+    enumerable: descriptor ? descriptor.enumerable : false,
+    configurable: false,
+    get: function() {
+      // Mutable objects and arrays must not be handed to a foreign principal:
+      // mutation through the returned reference would bypass the property
+      // setter and could be flushed later by an owner continuation.
+      if (authenticateRead) _assertServerResponseOwner(response);
+      return state.ownerFields[name];
+    },
+    set: function(value) {
+      _assertServerResponseOwner(response);
+      state.ownerFields[name] = value;
+    }
+  };
+}
+
+function _sealServerResponseOwnerState(response) {
+  // Keep the installed names literal. Besides making the security review
+  // legible, this lets the CapSec source inventory prove the complete exported
+  // ServerResponse shape instead of trusting a runtime-computed name table.
+  var state = _serverResponseNativeState(response);
+  Object.defineProperties(response, {
+    _events: _serverResponseOwnerFieldDescriptor(response, state, '_events', true),
+    _eventsCount: _serverResponseOwnerFieldDescriptor(response, state, '_eventsCount', true),
+    _maxListeners: _serverResponseOwnerFieldDescriptor(response, state, '_maxListeners', true),
+    _headers: _serverResponseOwnerFieldDescriptor(response, state, '_headers', true),
+    _headerNames: _serverResponseOwnerFieldDescriptor(response, state, '_headerNames', true),
+    _removedHeaderNames: _serverResponseOwnerFieldDescriptor(response, state, '_removedHeaderNames', true),
+    outputData: _serverResponseOwnerFieldDescriptor(response, state, 'outputData', true),
+    _bodyParts: _serverResponseOwnerFieldDescriptor(response, state, '_bodyParts', true),
+    _nativeWriteQueue: _serverResponseOwnerFieldDescriptor(response, state, '_nativeWriteQueue', true),
+    _trailers: _serverResponseOwnerFieldDescriptor(response, state, '_trailers', true),
+    _trailerNames: _serverResponseOwnerFieldDescriptor(response, state, '_trailerNames', true),
+    trailers: _serverResponseOwnerFieldDescriptor(response, state, 'trailers', true),
+    statusCode: _serverResponseOwnerFieldDescriptor(response, state, 'statusCode', false),
+    statusMessage: _serverResponseOwnerFieldDescriptor(response, state, 'statusMessage', false),
+    _header: _serverResponseOwnerFieldDescriptor(response, state, '_header', false),
+    _headerStatusCode: _serverResponseOwnerFieldDescriptor(response, state, '_headerStatusCode', false),
+    _headerStatusMessage: _serverResponseOwnerFieldDescriptor(response, state, '_headerStatusMessage', false),
+    _headersSent: _serverResponseOwnerFieldDescriptor(response, state, '_headersSent', false),
+    _finished: _serverResponseOwnerFieldDescriptor(response, state, '_finished', false),
+    finished: _serverResponseOwnerFieldDescriptor(response, state, 'finished', false),
+    _streaming: _serverResponseOwnerFieldDescriptor(response, state, '_streaming', false),
+    _nativeWriteInFlight: _serverResponseOwnerFieldDescriptor(response, state, '_nativeWriteInFlight', false),
+    _nativeNeedDrain: _serverResponseOwnerFieldDescriptor(response, state, '_nativeNeedDrain', false),
+    _nativeEndPending: _serverResponseOwnerFieldDescriptor(response, state, '_nativeEndPending', false),
+    _nativeStreamFatalError: _serverResponseOwnerFieldDescriptor(response, state, '_nativeStreamFatalError', false),
+    writableEnded: _serverResponseOwnerFieldDescriptor(response, state, 'writableEnded', false),
+    writableFinished: _serverResponseOwnerFieldDescriptor(response, state, 'writableFinished', false),
+    destroyed: _serverResponseOwnerFieldDescriptor(response, state, 'destroyed', false),
+    _closed: _serverResponseOwnerFieldDescriptor(response, state, '_closed', false),
+    closed: _serverResponseOwnerFieldDescriptor(response, state, 'closed', false),
+    writableCorked: _serverResponseOwnerFieldDescriptor(response, state, 'writableCorked', false),
+    sendDate: _serverResponseOwnerFieldDescriptor(response, state, 'sendDate', false),
+    strictContentLength: _serverResponseOwnerFieldDescriptor(response, state, 'strictContentLength', false),
+    _contentLengthWritten: _serverResponseOwnerFieldDescriptor(response, state, '_contentLengthWritten', false),
+    outputSize: _serverResponseOwnerFieldDescriptor(response, state, 'outputSize', false)
+  });
+  Object.defineProperty(
+    response,
+    kOutHeaders,
+    _serverResponseOwnerFieldDescriptor(response, state, kOutHeaders, true)
+  );
+  _installHttpEventMethodProjections(
+    response,
+    _assertServerResponseOwner,
+    'ServerResponse'
+  );
+  _sealHttpOwnedOwnProperties(
+    response,
+    state,
+    _assertServerResponseOwner,
+    'ServerResponse'
+  );
+  _sealHttpInheritedProperties(
+    response,
+    state,
+    _assertServerResponseOwner,
+    'ServerResponse'
+  );
+}
+
+function _serverResponseNativeState(response) {
+  var state = _httpServerResponseNativeStates && _httpServerResponseNativeStates.get(response);
+  if (!state) throw new Error('Invalid ServerResponse receiver');
+  return state;
+}
+
+function _serverResponseUsesNative(response) {
+  return _serverResponseNativeState(response).nativeMode;
+}
+
+function _assertServerResponseSocketOwner(socket) {
+  if (!socket) return;
+  // Ibex net.Socket installs a non-configurable owner-authenticating getter
+  // for _handle. Reading it is deliberately non-mutating, and fails before an
+  // HTTP wrapper can buffer state that a later owner callback would flush.
+  // Custom userland sockets without that getter carry no Ibex native selector.
+  void socket._handle;
+}
+
+function _assertServerResponseOwner(response) {
+  var state = _serverResponseNativeState(response);
+  if (state.constructing === true) return state;
+  // The identity-only stamp outlives the native response selector. Deferred
+  // finish/close cleanup therefore remains available to the owner without
+  // becoming ambient EventEmitter mutation authority after release.
+  if (state.ownerStamp != null && _httpNetOwnerHost) {
+    _httpNetOwnerHost('assert', state.ownerStamp);
+  }
+  if (state.nativeMode) {
+    // Successful native release clears both selectors. No HTTP authority
+    // remains, but the construction identity above still protects scheduled
+    // terminal event delivery and public state.
+    if (!state.serverId || !state.requestId) return;
+    _assertNativeServerResponseOwner(response);
+    return;
+  }
+  _assertServerResponseSocketOwner(state.ownerSocket);
+}
+
+function _assertOutgoingMessageMutationOwner(message) {
+  if (_httpServerResponseNativeStates && _httpServerResponseNativeStates.has(message)) {
+    _assertServerResponseOwner(message);
+  }
+}
+
+function _releaseServerResponseNativeSelectors(response) {
+  var state = _serverResponseNativeState(response);
+  state.serverId = 0;
+  state.requestId = 0;
+}
+
+function _installHttpServerNativeState(server) {
+  if (!_httpServerNativeStates || typeof Object.defineProperty !== 'function') {
+    throw new Error('http.Server requires WeakMap-backed private native state');
+  }
+  var state = {
+    serverId: 0,
+    ownerStamp: _httpNetOwnerHost ? _httpNetOwnerHost('new') : null,
+    listenGeneration: 0,
+    internalEventAccess: false,
+    lifecycle: Object.create(null),
+    eventFields: Object.create(null),
+    ownedProperties: Object.create(null)
+  };
+  _httpServerNativeStates.set(server, state);
+  state.eventFields._events = server._events;
+  state.eventFields._eventsCount = server._eventsCount;
+  state.eventFields._maxListeners = server._maxListeners;
+  Object.defineProperties(server, {
+    _serverId: _httpPrivateSelectorDescriptor('http.Server'),
+    _events: _httpServerEventFieldDescriptor(state, '_events'),
+    _eventsCount: _httpServerEventFieldDescriptor(state, '_eventsCount'),
+    _maxListeners: _httpServerEventFieldDescriptor(state, '_maxListeners'),
+    _listening: _httpServerLifecycleDescriptor(state, '_listening'),
+    _closing: _httpServerLifecycleDescriptor(state, '_closing'),
+    _useNative: _httpServerLifecycleDescriptor(state, '_useNative')
+  });
+  _installHttpEventMethodProjections(server, _assertHttpServerOwner, 'http.Server');
+  return state;
+}
+
+function _sealHttpServerOwnerState(server) {
+  var state = _httpServerNativeState(server);
+  _sealHttpOwnedOwnProperties(server, state, _assertHttpServerOwner, 'http.Server');
+  _sealHttpInheritedProperties(server, state, _assertHttpServerOwner, 'http.Server');
+}
+
+function _assertHttpServerStateOwner(state) {
+  if (state.ownerStamp != null && _httpNetOwnerHost) {
+    _httpNetOwnerHost('assert', state.ownerStamp);
+  }
+  if (state.serverId) {
+    if (!_httpOwnerHost || _httpOwnerHost(state.serverId) !== true) {
+      throw new Error('HTTP server owner check failed');
+    }
+  }
+  return state;
+}
+
+function _assertHttpServerOwner(server) {
+  return _assertHttpServerStateOwner(_httpServerNativeState(server));
+}
+
+function _httpServerEventFieldDescriptor(state, name) {
+  return {
+    enumerable: true,
+    configurable: false,
+    get: function() {
+      if (state.internalEventAccess === true) {
+        state.internalEventAccess = false;
+        return state.eventFields[name];
+      }
+      _assertHttpServerStateOwner(state);
+      return state.eventFields[name];
+    },
+    set: function(value) {
+      _assertHttpServerStateOwner(state);
+      state.eventFields[name] = value;
+    }
+  };
+}
+
+function _httpServerInternalValue(server, name) {
+  var state = _httpServerNativeState(server);
+  var record = state.ownedProperties[name];
+  if (!record) return undefined;
+  var descriptor = record.descriptor;
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+    return descriptor.value;
+  }
+  return typeof descriptor.get === 'function' ? descriptor.get.call(server) : undefined;
+}
+
+function _emitHttpServerInternal(server, eventName, arg1, arg2) {
+  var state = _httpServerNativeState(server);
+  state.internalEventAccess = true;
+  try {
+    return _httpEventEmitterOwned.emit.call(server, eventName, arg1, arg2);
+  } finally {
+    state.internalEventAccess = false;
+  }
+}
+
+function _httpServerLifecycleDescriptor(state, name) {
+  return {
+    enumerable: true,
+    configurable: false,
+    get: function() { return state.lifecycle[name]; },
+    set: function(value) {
+      _assertHttpServerStateOwner(state);
+      state.lifecycle[name] = value;
+    }
+  };
+}
+
+function _httpServerNativeState(server) {
+  var state = _httpServerNativeStates && _httpServerNativeStates.get(server);
+  if (!state) throw new Error('Invalid http.Server receiver');
+  return state;
+}
 
 // Header name validation regex
 var HEADER_NAME_RE = /^[\^_`a-zA-Z\-0-9\!#$%&'*+.|~]+$/;
@@ -878,6 +1370,7 @@ OutgoingMessage.prototype._implicitHeader = function() {
 };
 
 OutgoingMessage.prototype.setHeader = function(name, value) {
+  _assertOutgoingMessageMutationOwner(this);
   if (this._header !== null || this._headersSent) {
     throw _createHeadersSentError('set');
   }
@@ -897,6 +1390,7 @@ OutgoingMessage.prototype.setHeader = function(name, value) {
 };
 
 OutgoingMessage.prototype.setHeaders = function(headers) {
+  _assertOutgoingMessageMutationOwner(this);
   if (this._header !== null || this._headersSent) {
     throw _createHeadersSentError('set');
   }
@@ -937,6 +1431,7 @@ OutgoingMessage.prototype.getHeader = function(name) {
 };
 
 OutgoingMessage.prototype.appendHeader = function(name, value) {
+  _assertOutgoingMessageMutationOwner(this);
   if (this._header !== null || this._headersSent) {
     throw _createHeadersSentError('append');
   }
@@ -959,6 +1454,7 @@ OutgoingMessage.prototype.appendHeader = function(name, value) {
 };
 
 OutgoingMessage.prototype.removeHeader = function(name) {
+  _assertOutgoingMessageMutationOwner(this);
   if (this._header !== null || this._headersSent) {
     throw _createHeadersSentError('remove');
   }
@@ -1025,6 +1521,7 @@ OutgoingMessage.prototype._renderHeaders = function() {
 };
 
 OutgoingMessage.prototype.addTrailers = function(headers) {
+  _assertOutgoingMessageMutationOwner(this);
   if (arguments.length === 0 || headers == null) {
     throw new TypeError('Cannot convert undefined or null to object');
   }
@@ -1045,6 +1542,7 @@ OutgoingMessage.prototype.write = function(chunk, encoding, callback) {
     callback = encoding;
     encoding = undefined;
   }
+  _assertOutgoingMessageMutationOwner(this);
 
   if (this.destroyed) {
     var destroyedErr = _createStreamDestroyedError();
@@ -1104,6 +1602,7 @@ OutgoingMessage.prototype.end = function(chunk, encoding, callback) {
     callback = encoding;
     encoding = undefined;
   }
+  _assertOutgoingMessageMutationOwner(this);
   if (this.finished) {
     if (typeof callback === 'function') {
       setTimeout(callback, 0);
@@ -1144,6 +1643,7 @@ OutgoingMessage.prototype.end = function(chunk, encoding, callback) {
 };
 
 OutgoingMessage.prototype.destroy = function(err) {
+  _assertOutgoingMessageMutationOwner(this);
   if (this.destroyed) return this;
   this.destroyed = true;
   this._closed = true;
@@ -1169,6 +1669,7 @@ if (captureRejectionSymbol) {
 }
 
 OutgoingMessage.prototype.setTimeout = function(msecs, callback) {
+  _assertOutgoingMessageMutationOwner(this);
   if (typeof callback === 'function') {
     this.once('timeout', callback);
   }
@@ -1185,12 +1686,14 @@ OutgoingMessage.prototype.setTimeout = function(msecs, callback) {
 };
 
 OutgoingMessage.prototype.flushHeaders = function() {
+  _assertOutgoingMessageMutationOwner(this);
   if (this._header === null) {
     this._implicitHeader();
   }
 };
 
 OutgoingMessage.prototype.cork = function() {
+  _assertOutgoingMessageMutationOwner(this);
   this.writableCorked += 1;
   if (this.socket && typeof this.socket.cork === 'function') {
     this.socket.cork();
@@ -1198,6 +1701,7 @@ OutgoingMessage.prototype.cork = function() {
 };
 
 OutgoingMessage.prototype.uncork = function() {
+  _assertOutgoingMessageMutationOwner(this);
   if (this.writableCorked > 0) {
     this.writableCorked -= 1;
     if (this.socket && typeof this.socket.uncork === 'function') {
@@ -2454,8 +2958,7 @@ function ClientRequest(options, callback) {
     _setClientRequestHeaderState(this, 'Host', _getClientRequestHostHeaderValue(this), false);
     this._implicitHostHeader = true;
   }
-  if (!this._headersIsArray &&
-      this.options &&
+  if (this.options &&
       this.options.auth &&
       !_clientRequestHasHeader(this, 'authorization')) {
     _setClientRequestHeaderState(
@@ -3533,8 +4036,8 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   var self = this;
   if (!socket) return;
   socket._allowResetAsEof = false;
-  if (socket._socket && typeof socket._socket === 'object') {
-    socket._socket._allowResetAsEof = false;
+  if (typeof socket[kTlsSetHttpResetAsEof] === 'function') {
+    socket[kTlsSetHttpResetAsEof](false);
   }
 
   var responseBuffer = '';
@@ -3610,8 +4113,8 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
   function setSocketResetAsEofFlag(enabled) {
     if (!socket) return;
     socket._allowResetAsEof = enabled === true;
-    if (socket._socket && typeof socket._socket === 'object') {
-      socket._socket._allowResetAsEof = enabled === true;
+    if (typeof socket[kTlsSetHttpResetAsEof] === 'function') {
+      socket[kTlsSetHttpResetAsEof](enabled === true);
     }
   }
 
@@ -4812,7 +5315,7 @@ TcpIncomingMessage.prototype._resumeSocketAfterDrain = function() {
   if (this._socketPausedForBackpressure !== true) return;
   this._socketPausedForBackpressure = false;
   var socket = this.socket;
-  if (socket && !socket.destroyed && socket._paused === true && typeof socket.resume === 'function') {
+  if (socket && !socket.destroyed && typeof socket.resume === 'function') {
     socket.resume();
   }
 };
@@ -6094,8 +6597,15 @@ HttpRequestParser.prototype.close = function() {
 // ---------------------------------------------------------------------------
 // ServerResponse
 // ---------------------------------------------------------------------------
-function ServerResponse(reqOrServerId, requestId) {
+function ServerResponse(reqOrServerId, requestId, inheritedOwnerStamp, constructionKey) {
   EventEmitter.call(this);
+  _installServerResponseNativeState(
+    this,
+    typeof reqOrServerId === 'number' ? reqOrServerId : 0,
+    typeof reqOrServerId === 'number' ? requestId : 0,
+    inheritedOwnerStamp,
+    constructionKey
+  );
   initOutgoingMessage(this);
   this.statusCode = 200;
   this.statusMessage = undefined;
@@ -6113,9 +6623,17 @@ function ServerResponse(reqOrServerId, requestId) {
   this._nativeWriteQueue = [];
   this._nativeWriteInFlight = false;
   this._nativeNeedDrain = false;
+  this._nativeEndPending = false;
   this._nativeStreamFatalError = null;
   this.socket = null;
   this._socketDrainListener = null;
+  this._socketErrorListener = null;
+  this._rejectNonStandardBodyWrites = false;
+  this._requestCount = 0;
+  this._autoTransferEncoding = false;
+  this._useChunkedEncoding = false;
+  this._drainFallbackScheduled = false;
+  this[kHighWaterMark] = _defaultHttpHighWaterMark;
   this.writableEnded = false;
   this.writableFinished = false;
   this.sendDate = true;
@@ -6123,17 +6641,15 @@ function ServerResponse(reqOrServerId, requestId) {
   this._contentLengthWritten = 0;
 
   if (typeof reqOrServerId === 'number') {
-    this._serverId = reqOrServerId;
-    this._requestId = requestId || 0;
-    this._nativeMode = true;
     this._req = null;
     this.req = null;
   } else {
-    this._serverId = 0;
-    this._requestId = 0;
-    this._nativeMode = false;
     this._req = reqOrServerId || null;
     this.req = this._req;
+  }
+  _sealServerResponseOwnerState(this);
+  if (constructionKey !== _httpInternalResponseConstructionKey) {
+    _serverResponseNativeState(this).constructing = false;
   }
 }
 ServerResponse.prototype = Object.create(EventEmitter.prototype);
@@ -6187,6 +6703,8 @@ ServerResponse.prototype.assignSocket = function(socket) {
     socketAssignedErr.code = 'ERR_HTTP_SOCKET_ASSIGNED';
     throw socketAssignedErr;
   }
+  _assertServerResponseSocketOwner(socket);
+  _serverResponseNativeState(this).ownerSocket = socket || null;
   this.socket = socket;
   if (!socket) return;
   socket._httpMessage = this;
@@ -6223,6 +6741,7 @@ ServerResponse.prototype.assignSocket = function(socket) {
 };
 
 ServerResponse.prototype.detachSocket = function(socket) {
+  _assertServerResponseOwner(this);
   if (socket && this._socketDrainListener && typeof socket.removeListener === 'function') {
     socket.removeListener('drain', this._socketDrainListener);
   }
@@ -6234,6 +6753,7 @@ ServerResponse.prototype.detachSocket = function(socket) {
 };
 
 ServerResponse.prototype.setHeader = function(name, value) {
+  _assertServerResponseOwner(this);
   if (this._header !== null || this._headersSent) {
     throw _createHeadersSentError('set');
   }
@@ -6255,6 +6775,7 @@ ServerResponse.prototype.getHeader = function(name) {
   return this._headers[resolveHeaderName(name)];
 };
 ServerResponse.prototype.removeHeader = function(name) {
+  _assertServerResponseOwner(this);
   if (this._header !== null || this._headersSent) {
     throw _createHeadersSentError('remove');
   }
@@ -6294,12 +6815,17 @@ ServerResponse.prototype.hasHeader = function(name) {
   return resolveHeaderName(name) in this._headers;
 };
 
+ServerResponse.prototype.appendHeader = function(name, value) {
+  return OutgoingMessage.prototype.appendHeader.call(this, name, value);
+};
+
 ServerResponse.prototype._implicitHeader = function() {
   if (this._header !== null) return;
   this.writeHead(this.statusCode);
 };
 
 ServerResponse.prototype.writeHead = function(statusCode, statusMessage, headers) {
+  _assertServerResponseOwner(this);
   if (this._header !== null || this._headersSent) {
     throw _createHeadersSentError('write');
   }
@@ -6367,6 +6893,7 @@ ServerResponse.prototype._renderHeaders = function() {
 };
 
 ServerResponse.prototype._writeRaw = function(data, callback) {
+  _assertServerResponseOwner(this);
   if (!this.socket) {
     if (typeof callback === 'function') {
       setTimeout(callback, 0);
@@ -6478,15 +7005,51 @@ function _concatServerResponseSocketBody(parts) {
 }
 
 // Native bridge streaming helpers
+function _assertNativeServerResponseOwner(response) {
+  var state = _serverResponseNativeState(response);
+  if (!state.serverId || !state.requestId) {
+    throw _createNativeResponseSendError('owner check');
+  }
+  if (!_httpOwnerHost) {
+    throw new Error('HTTP response owner check is unavailable');
+  }
+  // This owner-only operation intentionally ignores positive grant revocation:
+  // it authenticates retained wrappers without turning cleanup into a leak.
+  if (_httpOwnerHost(state.serverId) !== true) {
+    throw _createNativeResponseSendError('owner check');
+  }
+}
+
+function _abortNativeServerResponse(response) {
+  var state = _serverResponseNativeState(response);
+  if (!state.serverId || !state.requestId) return;
+  var result;
+  if (typeof __exactHttpRespondAbort === 'function') {
+    result = __exactHttpRespondAbort(state.serverId, state.requestId);
+  } else if (response._streaming && typeof __exactHttpRespondEnd === 'function') {
+    // Legacy host without the abort primitive: a clean end is the only way to
+    // release the response pipe (the truncation hazard is unavoidable).
+    result = __exactHttpRespondEnd(state.serverId, state.requestId);
+  } else {
+    throw new Error('HTTP response abort is unavailable');
+  }
+  if (result !== 0) {
+    throw _createNativeResponseSendError('abort');
+  }
+  _releaseServerResponseNativeSelectors(response);
+}
+
 ServerResponse.prototype._ensureStreaming = function() {
-  if (!this._nativeMode) return false;
+  _assertServerResponseOwner(this);
+  if (!_serverResponseUsesNative(this)) return false;
   if (this._streaming) return true;
   if (typeof __exactHttpRespondStream !== 'function') return false;
   this._ensureImplicitHeaders();
   var headersJson = JSON.stringify(this._headers);
+  var nativeState = _serverResponseNativeState(this);
   var result = __exactHttpRespondStream(
-    this._serverId,
-    this._requestId,
+    nativeState.serverId,
+    nativeState.requestId,
     _getServerResponseStatusCode(this),
     headersJson
   );
@@ -6520,6 +7083,12 @@ function _scheduleNativeStreamCallback(callback, err) {
 ServerResponse.prototype._failNativeStream = function(err) {
   if (this._nativeStreamFatalError) return;
   err = err || _createNativeResponseSendError('write');
+  // Abort is the owner-checked authority release. Do it before publishing any
+  // terminal JS state so a wrong-principal or failed abort leaves the real
+  // owner a clean, retryable wrapper.
+  if (_serverResponseUsesNative(this)) {
+    _abortNativeServerResponse(this);
+  }
   this._nativeStreamFatalError = err;
   this.errored = err;
   var pending = this._nativeWriteQueue.splice(0);
@@ -6533,13 +7102,16 @@ ServerResponse.prototype._failNativeStream = function(err) {
       self.emit('error', err);
     }, 0);
   }
-  if (this._nativeMode && typeof __exactHttpRespondAbort === 'function') {
-    try { __exactHttpRespondAbort(this._serverId, this._requestId); } catch (_abortErr) { /* ignored: best-effort abort after native stream send failure */ }
-  }
   this.destroy(err);
 };
 
 ServerResponse.prototype._finishNativeStream = function() {
+  _assertServerResponseOwner(this);
+  _releaseServerResponseNativeSelectors(this);
+  this._nativeEndPending = false;
+  this._finished = true;
+  this.finished = true;
+  this.writableEnded = true;
   _resetOutgoingBufferState(this);
   this.writableFinished = true;
   var self = this;
@@ -6554,38 +7126,35 @@ ServerResponse.prototype._finishNativeStream = function() {
 };
 
 ServerResponse.prototype._issueNativeStreamItem = function(item) {
+  var nativeState = _serverResponseNativeState(this);
   if (item.type === 'end') {
     if (_hasAsyncNativeHttpStream()) {
-      return __exactHttpRespondEndTry(this._serverId, this._requestId);
+      return __exactHttpRespondEndTry(nativeState.serverId, nativeState.requestId);
     }
     if (typeof __exactHttpRespondEnd === 'function') {
-      var endResult = __exactHttpRespondEnd(this._serverId, this._requestId);
+      var endResult = __exactHttpRespondEnd(nativeState.serverId, nativeState.requestId);
       return endResult === undefined ? 0 : endResult;
     }
     return -1;
   }
   if (_hasAsyncNativeHttpStream()) {
-    return __exactHttpRespondChunkTry(this._serverId, this._requestId, item.chunk);
+    return __exactHttpRespondChunkTry(nativeState.serverId, nativeState.requestId, item.chunk);
   }
   if (typeof __exactHttpRespondChunk === 'function') {
-    var chunkResult = __exactHttpRespondChunk(this._serverId, this._requestId, item.chunk);
+    var chunkResult = __exactHttpRespondChunk(nativeState.serverId, nativeState.requestId, item.chunk);
     return chunkResult === undefined ? 0 : chunkResult;
   }
   return -1;
 };
 
 ServerResponse.prototype._processNativeWriteQueue = function() {
+  _assertServerResponseOwner(this);
   if (this._nativeWriteInFlight || this.destroyed || this._nativeStreamFatalError) return;
   var self = this;
   while (this._nativeWriteQueue.length > 0) {
     var item = this._nativeWriteQueue[0];
     var code;
-    try {
-      code = this._issueNativeStreamItem(item);
-    } catch (err) {
-      this._failNativeStream(err);
-      return;
-    }
+    code = this._issueNativeStreamItem(item);
     if (code === 0 || code === undefined) {
       this._nativeWriteQueue.shift();
       _consumeOutgoingBytes(this, item.length || 0);
@@ -6598,7 +7167,8 @@ ServerResponse.prototype._processNativeWriteQueue = function() {
     }
     if (code === HTTP_RESPOND_WOULD_BLOCK && _hasAsyncNativeHttpStream()) {
       this._nativeWriteInFlight = true;
-      __exactHttpAwaitWritable(this._serverId, this._requestId, 0).then(function(ready) {
+      var nativeState = _serverResponseNativeState(this);
+      __exactHttpAwaitWritable(nativeState.serverId, nativeState.requestId, 0).then(function(ready) {
         self._nativeWriteInFlight = false;
         if (self.destroyed || self._nativeStreamFatalError) return;
         if (ready === 0) {
@@ -6626,11 +7196,23 @@ ServerResponse.prototype._processNativeWriteQueue = function() {
 };
 
 ServerResponse.prototype._enqueueNativeStreamItem = function(item) {
+  // Authenticate before appending work that this call or a previously
+  // scheduled owner continuation could later send.
+  _assertServerResponseOwner(this);
   if (item.length) {
     _recordOutgoingBytes(this, item.length);
   }
   this._nativeWriteQueue.push(item);
-  this._processNativeWriteQueue();
+  try {
+    this._processNativeWriteQueue();
+  } catch (err) {
+    var queuedIndex = this._nativeWriteQueue.indexOf(item);
+    if (queuedIndex !== -1) {
+      this._nativeWriteQueue.splice(queuedIndex, 1);
+      _consumeOutgoingBytes(this, item.length || 0);
+    }
+    throw err;
+  }
   if (this._nativeWriteQueue.length > 0 || this._nativeWriteInFlight) {
     this._nativeNeedDrain = true;
     return false;
@@ -6669,7 +7251,8 @@ ServerResponse.prototype._sendNativeStreamEnd = function() {
 
 ServerResponse.prototype.write = function(chunk, encoding, callback) {
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
-  if (this._finished) {
+  _assertServerResponseOwner(this);
+  if (this._finished || this._nativeEndPending) {
     var writeAfterEndErr = _createWriteAfterEndError();
     if (callback) {
       setTimeout(function() {
@@ -6696,7 +7279,7 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
     chunkLen = _getOutgoingChunkLength(chunk, encoding);
     if (chunkLen === 0) {
       // Still need to flush headers if not yet sent (Node.js compat)
-      if (!this._headersSent && this.socket && !this._nativeMode) {
+      if (!this._headersSent && this.socket && !_serverResponseUsesNative(this)) {
         this._send(undefined);
       }
       if (callback) setTimeout(callback, 0);
@@ -6706,24 +7289,24 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
       if (this._rejectNonStandardBodyWrites) {
         throw _createHttpBodyNotAllowedError();
       }
-      if (!this._headersSent && this.socket && !this._nativeMode) {
+      if (!this._headersSent && this.socket && !_serverResponseUsesNative(this)) {
         this._send(undefined);
       }
       if (callback) setTimeout(callback, 0);
       return true;
     }
     _checkStrictContentLength(this, chunkLen, false);
-    var data = this._nativeMode
+    var data = _serverResponseUsesNative(this)
       ? _toOutgoingBodyPart(chunk, encoding)
       : _coerceServerResponseSocketChunk(chunk, encoding);
-    if (this._nativeMode && this._ensureStreaming()) {
+    if (_serverResponseUsesNative(this) && this._ensureStreaming()) {
       writeOk = this._sendChunk(data, callback);
       callbackHandled = true;
-    } else if (this._nativeMode && this._nativeStreamFatalError) {
+    } else if (_serverResponseUsesNative(this) && this._nativeStreamFatalError) {
       _scheduleNativeStreamCallback(callback, this._nativeStreamFatalError);
       callbackHandled = true;
       writeOk = false;
-    } else if (this._streaming && this.socket && !this._nativeMode) {
+    } else if (this._streaming && this.socket && !_serverResponseUsesNative(this)) {
       // Already streaming: use chunked encoding to send data
       if (this._useChunkedEncoding) {
         try {
@@ -6738,7 +7321,7 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
           writeOk = false;
         }
       }
-    } else if (this.socket && !this._nativeMode) {
+    } else if (this.socket && !_serverResponseUsesNative(this)) {
       writeOk = this._send(data);
     } else {
       _recordOutgoingBytes(this, _getOutgoingBodyPartLength(data));
@@ -6749,7 +7332,7 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
   if (callback && !callbackHandled) setTimeout(callback, 0);
   var responseWriteOk = writeOk && this.writableLength < this.writableHighWaterMark;
   if (!responseWriteOk) {
-    if (this._nativeMode) {
+    if (_serverResponseUsesNative(this)) {
       this._nativeNeedDrain = true;
     } else {
       _scheduleOutgoingDrainFallback(this);
@@ -6759,6 +7342,7 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
 };
 
 ServerResponse.prototype._streamChunk = function(data, callback) {
+  _assertServerResponseOwner(this);
   if (!this._headersSent) {
     this._ensureImplicitHeaders();
     var statusCode = _getServerResponseStatusCode(this);
@@ -6788,11 +7372,12 @@ ServerResponse.prototype._streamChunk = function(data, callback) {
 ServerResponse.prototype.end = function(chunk, encoding, callback) {
   if (typeof chunk === 'function') { callback = chunk; chunk = undefined; encoding = undefined; }
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
+  _assertServerResponseOwner(this);
   if (this.destroyed || this._closed || this.closed) {
     if (callback) setTimeout(callback, 0);
     return this;
   }
-  if (this._finished) {
+  if (this._finished || this._nativeEndPending) {
     var hasChunk = chunk !== undefined && chunk !== null;
     var finishedErr = new Error(hasChunk ? 'write after end' : 'stream already finished');
     finishedErr.code = hasChunk ? 'ERR_STREAM_WRITE_AFTER_END' : 'ERR_STREAM_ALREADY_FINISHED';
@@ -6809,7 +7394,6 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
     }
     return this;
   }
-  if (callback) this.once('finish', callback);
   if (chunk !== undefined && chunk !== null) {
     if (!_isOutgoingChunk(chunk)) {
       throw _createInvalidChunkTypeError(chunk);
@@ -6821,7 +7405,7 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
       }
     } else {
     _checkStrictContentLength(this, endChunkLength, true);
-      if (!this._nativeMode && !this._headersSent && !this._streaming) {
+      if (!_serverResponseUsesNative(this) && !this._headersSent && !this._streaming) {
         var endData = _coerceServerResponseSocketChunk(chunk, encoding);
         this._bodyParts.push(endData);
         _recordOutgoingBytes(this, _getOutgoingBodyPartLength(endData));
@@ -6834,44 +7418,58 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
     _checkStrictContentLength(this, 0, true);
   }
   _flushOutgoingCork(this);
-  this._finished = true;
-  this.finished = true;
-  this.writableEnded = true;
 
-  if (this._nativeMode) {
+  if (_serverResponseUsesNative(this)) {
     if (this._streaming) {
-      this._sendNativeStreamEnd();
+      this._nativeEndPending = true;
+      try {
+        this._sendNativeStreamEnd();
+      } catch (nativeEndErr) {
+        this._nativeEndPending = false;
+        throw nativeEndErr;
+      }
     } else {
       this._sendNativeResponse();
+      this._finished = true;
+      this.finished = true;
+      this.writableEnded = true;
     }
   } else {
+    this._finished = true;
+    this.finished = true;
+    this.writableEnded = true;
     this._sendSocketResponse();
   }
+  if (callback) this.once('finish', callback);
   return this;
 };
 
 ServerResponse.prototype._sendNativeResponse = function() {
+  _assertServerResponseOwner(this);
   this._ensureImplicitHeaders();
   var headersJson = JSON.stringify(this._headers);
   var body = _concatOutgoingBodyParts(this._bodyParts);
   var statusCode = _getServerResponseStatusCode(this);
-  this._headersSent = true;
-  var result = 0;
+  var nativeState = _serverResponseNativeState(this);
+  var result;
   if (typeof __exactHttpRespond === 'function') {
-    result = __exactHttpRespond(this._serverId, this._requestId, statusCode, headersJson, body);
+    result = __exactHttpRespond(nativeState.serverId, nativeState.requestId, statusCode, headersJson, body);
   } else if (typeof __exactHttpRespondString === 'function') {
     result = __exactHttpRespondString(
-      this._serverId,
-      this._requestId,
+      nativeState.serverId,
+      nativeState.requestId,
       statusCode,
       headersJson,
       (typeof Buffer !== 'undefined' && Buffer.isBuffer(body)) ? body.toString('utf8') : body
     );
+  } else {
+    throw new Error('HTTP response primitive is unavailable');
   }
-  if (result === -1) {
-    this._failNativeStream(_createNativeResponseSendError('respond'));
-    return;
+  if (result !== 0) {
+    throw _createNativeResponseSendError('respond');
   }
+  this._headersSent = true;
+  _releaseServerResponseNativeSelectors(this);
   _resetOutgoingBufferState(this);
   this.writableFinished = true;
   var self = this;
@@ -6926,6 +7524,7 @@ function _finalizeServerResponseKeepAlive(response, socket, writeErr) {
 }
 
 ServerResponse.prototype._sendSocketResponse = function() {
+  _assertServerResponseOwner(this);
   var socket = this.socket;
   if (socket) {
     var req = this._req;
@@ -7201,6 +7800,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
 };
 
 ServerResponse.prototype.setTimeout = function(msecs, callback) {
+  _assertServerResponseOwner(this);
   if (typeof callback === 'function') this.once('timeout', callback);
   if (this.socket && typeof this.socket.setTimeout === 'function') {
     this.socket.setTimeout(msecs);
@@ -7210,13 +7810,14 @@ ServerResponse.prototype.setTimeout = function(msecs, callback) {
 
 // _send is an internal method that flushes buffered writes to the socket
 ServerResponse.prototype._send = function(data) {
+  _assertServerResponseOwner(this);
   var hasData = data !== undefined && data !== null;
   if (data && _getOutgoingBodyPartLength(data) > 0) {
     this._bodyParts.push(data);
   }
   var writeOk = true;
   // In socket mode, flush any pending body parts (or flush headers if not yet sent)
-  if (this.socket && !this._nativeMode &&
+  if (this.socket && !_serverResponseUsesNative(this) &&
       (this._bodyParts.length > 0 || !this._headersSent)) {
     var flushed = _concatServerResponseSocketBody(this._bodyParts);
     var flushedLength = _getOutgoingBodyPartLength(flushed);
@@ -7340,8 +7941,9 @@ ServerResponse.prototype._send = function(data) {
 };
 
 ServerResponse.prototype.flushHeaders = function() {
+  _assertServerResponseOwner(this);
   if (this._headersSent) return;
-  if (this._nativeMode) {
+  if (_serverResponseUsesNative(this)) {
     this._ensureImplicitHeaders();
     this._ensureStreaming();
     return;
@@ -7351,10 +7953,23 @@ ServerResponse.prototype.flushHeaders = function() {
 
 ServerResponse.prototype.destroy = function(err) {
   if (this.destroyed) return this;
+  // Native abort is itself an owner-only authority-reducing operation and
+  // must remain available to the owner after positive HTTP authority is
+  // revoked. Socket destroy has no separate response host boundary, so it
+  // needs the response preflight here.
+  if (!_serverResponseUsesNative(this)) {
+    _assertServerResponseOwner(this);
+  }
   if (this._finished || this.finished) {
     this.destroyed = true;
     if (err) this.errored = err;
     return this;
+  }
+  if (_serverResponseUsesNative(this)) {
+    // The native abort is the owner-checked commit point. Do not publish a
+    // terminal wrapper, clear its selectors, or discard buffered state until
+    // the host confirms that the response pipe was actually released.
+    _abortNativeServerResponse(this);
   }
   this._finished = true;
   this.finished = true;
@@ -7363,25 +7978,14 @@ ServerResponse.prototype.destroy = function(err) {
   this.closed = true;
   this.writableEnded = true;
   this.writableFinished = true;
+  this._nativeEndPending = false;
   _resetOutgoingBufferState(this);
-  if (this._nativeMode) {
-    // Destroyed before end() completed: abort the host response, never end it
-    // cleanly. A clean RespondEnd here makes hyper write a valid chunked
-    // terminator over a TRUNCATED body that validates as complete on the
-    // client; RespondAbort errors the pipe (mid-stream destroy -> broken
-    // transfer, matching Node's ECONNRESET) and drops a still-pending
-    // responder (pre-header destroy -> the hyper handler unblocks instead of
-    // parking until the request timeout). Mirrors abortStream() in
-    // packages/ibex-runtime-js/src/http-server/index.js.
-    // @ref https://linear.app/expo/issue/ENG-23114
-    if (typeof __exactHttpRespondAbort === 'function') {
-      __exactHttpRespondAbort(this._serverId, this._requestId);
-    } else if (this._streaming && typeof __exactHttpRespondEnd === 'function') {
-      // Legacy host without the abort primitive: a clean end is the only way
-      // to release the response pipe (the truncation hazard is unavoidable).
-      __exactHttpRespondEnd(this._serverId, this._requestId);
-    }
-  }
+  // Destroyed before end() completed: abort the host response, never end it
+  // cleanly. A clean RespondEnd here makes hyper write a valid chunked
+  // terminator over a TRUNCATED body that validates as complete on the
+  // client; RespondAbort errors the pipe (mid-stream destroy -> broken
+  // transfer, matching Node's ECONNRESET) and drops a still-pending responder.
+  // @ref https://linear.app/expo/issue/ENG-23114
   if (this.socket && !this.socket.destroyed) {
     try { this.socket.destroy(err); } catch (e) { /* ignored: best-effort destroy during client error handling */ }
   }
@@ -7443,9 +8047,6 @@ function ServerIncomingMessage(requestData, serverId) {
   this._manualPaused = false;
   this._dumped = false;
   this._encoding = null;
-  this._serverId = serverId || 0;
-  this._requestId = requestData.id || 0;
-
   if (requestData.headers) {
     if (Array.isArray(requestData.headers)) {
       for (var ki = 0; ki < requestData.headers.length; ki++) {
@@ -7798,6 +8399,9 @@ function _copyPrototypeMembers(target, ctor) {
     if (name === 'constructor') continue;
     var descriptor = Object.getOwnPropertyDescriptor(proto, name);
     if (!descriptor) continue;
+    if (_installServerResponseCopiedProperty(target, name, descriptor)) {
+      continue;
+    }
     try {
       Object.defineProperty(target, name, descriptor);
     } catch (_copyErr) { /* ignored: non-configurable target property; skip copying it */ }
@@ -7806,30 +8410,49 @@ function _copyPrototypeMembers(target, ctor) {
 
 function _createServerIncomingMessage(server, requestData, serverId, socket) {
   var req = new ServerIncomingMessage(requestData, serverId);
-  var highWaterMark = server && typeof server[kHighWaterMark] === 'number'
-    ? server[kHighWaterMark]
+  var configuredHighWaterMark = server
+    ? _httpServerInternalValue(server, kHighWaterMark)
+    : undefined;
+  var highWaterMark = typeof configuredHighWaterMark === 'number'
+    ? configuredHighWaterMark
     : _defaultHttpHighWaterMark;
   req._readableState = req._readableState || {};
   req._readableState.highWaterMark = highWaterMark;
   if (socket) req.socket = socket;
-  if (server && server._incomingMessageCtor && server._incomingMessageCtor !== ServerIncomingMessage) {
-    _copyPrototypeMembers(req, server._incomingMessageCtor);
+  var incomingMessageCtor = server
+    ? _httpServerInternalValue(server, '_incomingMessageCtor')
+    : null;
+  if (incomingMessageCtor && incomingMessageCtor !== ServerIncomingMessage) {
+    _copyPrototypeMembers(req, incomingMessageCtor);
   }
   return req;
 }
 
 function _createServerResponse(server, req, serverId, requestId) {
+  var serverState = server ? _httpServerNativeState(server) : null;
   var res = serverId
-    ? new ServerResponse(serverId, requestId || 0)
+    ? new ServerResponse(
+        serverId,
+        requestId || 0,
+        serverState ? serverState.ownerStamp : null,
+        _httpInternalResponseConstructionKey
+      )
     : new ServerResponse(req);
-  res[kHighWaterMark] = server && typeof server[kHighWaterMark] === 'number'
-    ? server[kHighWaterMark]
+  var configuredHighWaterMark = server
+    ? _httpServerInternalValue(server, kHighWaterMark)
+    : undefined;
+  res[kHighWaterMark] = typeof configuredHighWaterMark === 'number'
+    ? configuredHighWaterMark
     : _defaultHttpHighWaterMark;
-  res._rejectNonStandardBodyWrites = !!(server && server.rejectNonStandardBodyWrites);
-  if (server && server._serverResponseCtor && server._serverResponseCtor !== ServerResponse) {
-    _copyPrototypeMembers(res, server._serverResponseCtor);
+  res._rejectNonStandardBodyWrites = !!(server &&
+    _httpServerInternalValue(server, 'rejectNonStandardBodyWrites'));
+  var serverResponseCtor = server
+    ? _httpServerInternalValue(server, '_serverResponseCtor')
+    : null;
+  if (serverResponseCtor && serverResponseCtor !== ServerResponse) {
+    _copyPrototypeMembers(res, serverResponseCtor);
   }
-  res._uniqueHeaders = server && server._uniqueHeaders ? server._uniqueHeaders : null;
+  res._uniqueHeaders = server ? _httpServerInternalValue(server, '_uniqueHeaders') : null;
   return res;
 }
 
@@ -7900,16 +8523,17 @@ function Server(options, requestListener) {
   }
   options = options || {};
   EventEmitter.call(this);
+  _installHttpServerNativeState(this);
   this._listening = false;
   this._closing = false;
   this._port = 0;
   this._hostname = undefined;
   this._netServer = null;
   this._maxConnections = undefined;
-  this._serverId = 0;
   this._useNative = false;
   this._sockets = typeof Set === 'function' ? new Set() : null;
   this._socketTimeout = 0;
+  this._socketTimeoutApplier = null;
   this._serverTimeoutId = null;
   this[kConnectionsCheckingInterval] = null;
   this.timeout = 0;
@@ -7993,6 +8617,7 @@ function Server(options, requestListener) {
       self._onConnection(socket);
     });
   }
+  _sealHttpServerOwnerState(this);
 }
 
 function normalizeListenCallbackHost(hostname) {
@@ -8791,6 +9416,14 @@ Server.prototype.listen = function(port, hostname, callback) {
   }
   port = port || 0;
 
+  if (this._listening ||
+      _httpServerNativeState(this).serverId ||
+      (this._netServer && this._netServer.listening)) {
+    var alreadyListenErr = new Error('Listen method has been called more than once without closing.');
+    alreadyListenErr.code = 'ERR_SERVER_ALREADY_LISTEN';
+    throw alreadyListenErr;
+  }
+
   if (typeof callback === 'function') {
     this.once('listening', callback);
   }
@@ -8807,6 +9440,7 @@ Server.prototype.listen = function(port, hostname, callback) {
       self._port = self._netServer && self._netServer._port ? self._netServer._port : self._port;
       self._hostname = self._netServer && self._netServer._host ? self._netServer._host : self._hostname;
       self._listening = true;
+      self._closing = false;
       self.emit('listening', null, normalizeListenCallbackHost(self._hostname), self._port);
     };
     if (listenOptions !== null) {
@@ -8834,14 +9468,28 @@ Server.prototype.listen = function(port, hostname, callback) {
       return this;
     }
 
-    this._serverId = result.id;
+    var nativeState = _httpServerNativeState(this);
+    nativeState.serverId = result.id;
+    nativeState.listenGeneration += 1;
+    var nativeListenGeneration = nativeState.listenGeneration;
     this._port = result.port || port;
     this._hostname = nativeHost;
     this._listening = true;
+    this._closing = false;
 
     var self4 = this;
-    setTimeout(function() { self4.emit('listening', null, normalizeListenCallbackHost(self4._hostname), self4._port); }, 0);
-    this._pollLoop();
+    var listeningHost = this._hostname;
+    var listeningPort = this._port;
+    setTimeout(function() {
+      var currentState = _httpServerNativeState(self4);
+      if (currentState.serverId !== result.id ||
+          currentState.listenGeneration !== nativeListenGeneration ||
+          self4._closing || !self4._listening) {
+        return;
+      }
+      self4.emit('listening', null, normalizeListenCallbackHost(listeningHost), listeningPort);
+    }, 0);
+    this._pollLoop(result.id, nativeListenGeneration);
   } else {
     var self5 = this;
     setTimeout(function() { self5.emit('error', new Error('HTTP server not available')); }, 0);
@@ -8850,46 +9498,64 @@ Server.prototype.listen = function(port, hostname, callback) {
   return this;
 };
 
-Server.prototype._pollLoop = function() {
-  if (this._closing || !this._listening || !this._useNative) return;
+Server.prototype._pollLoop = function(serverId, listenGeneration) {
+  var initialState = _httpServerNativeState(this);
+  serverId = serverId || initialState.serverId;
+  if (listenGeneration === undefined) listenGeneration = initialState.listenGeneration;
+  if (this._closing || !this._listening ||
+      !serverId || initialState.serverId !== serverId ||
+      initialState.listenGeneration !== listenGeneration) {
+    return;
+  }
   var self = this;
   // Keep a periodic sync poll alive even while one native wait is pending.
   // If __exactHttpWait() wedges, request dequeue still makes forward progress.
   var waitInFlight = false;
   var pollScheduled = false;
 
+  function isCurrentListen() {
+    var currentState = _httpServerNativeState(self);
+    return !self._closing && self._listening &&
+      currentState.serverId === serverId &&
+      currentState.listenGeneration === listenGeneration;
+  }
+
   function schedulePoll(delay) {
-    if (self._closing || !self._listening || pollScheduled) return;
+    if (!isCurrentListen() || pollScheduled) return;
     pollScheduled = true;
     setTimeout(function() {
       pollScheduled = false;
+      if (!isCurrentListen()) return;
       poll();
     }, delay);
   }
 
   function poll() {
-    if (self._closing || !self._listening) return;
+    if (!isCurrentListen()) return;
     var handledRequest = false;
     if (typeof __exactHttpPoll === 'function') {
       while (true) {
-        var json = __exactHttpPoll(self._serverId);
+        if (!isCurrentListen()) return;
+        var json = __exactHttpPoll(serverId);
         if (!json) {
           break;
         }
         handledRequest = true;
-        self._handleNativeRequest(json);
+        _httpHandleNativeRequestOwned.call(self, json, serverId, listenGeneration);
       }
     }
     if (!waitInFlight && typeof __exactHttpWait === 'function') {
       waitInFlight = true;
-      __exactHttpWait(self._serverId, 1000).then(function(waitJson) {
+      __exactHttpWait(serverId, 1000).then(function(waitJson) {
         waitInFlight = false;
+        if (!isCurrentListen()) return;
         if (waitJson) {
-          self._handleNativeRequest(waitJson);
+          _httpHandleNativeRequestOwned.call(self, waitJson, serverId, listenGeneration);
           schedulePoll(0);
         }
       }).catch(function() {
         waitInFlight = false;
+        if (!isCurrentListen()) return;
         schedulePoll(50);
       });
     }
@@ -8898,12 +9564,26 @@ Server.prototype._pollLoop = function() {
   poll();
 };
 
-Server.prototype._handleNativeRequest = function(json) {
+Server.prototype._handleNativeRequest = function(json, serverId, listenGeneration) {
+  var nativeState = _httpServerNativeState(this);
+  if (!serverId) serverId = nativeState.serverId;
+  if (listenGeneration === undefined) listenGeneration = nativeState.listenGeneration;
+  if (!serverId || nativeState.serverId !== serverId ||
+      nativeState.listenGeneration !== listenGeneration ||
+      this._closing || !this._listening) {
+    return;
+  }
   var data;
   try { data = JSON.parse(json); } catch(e) { return; }
 
-  var req = _createServerIncomingMessage(this, data, this._serverId, null);
-  var res = _createServerResponse(this, null, this._serverId, data.id || 0);
+  nativeState = _httpServerNativeState(this);
+  if (nativeState.serverId !== serverId ||
+      nativeState.listenGeneration !== listenGeneration ||
+      this._closing || !this._listening) {
+    return;
+  }
+  var req = _createServerIncomingMessage(this, data, serverId, null);
+  var res = _createServerResponse(this, null, serverId, data.id || 0);
   req._res = res;
   res.req = req;
   res._req = req;
@@ -8914,13 +9594,22 @@ Server.prototype._handleNativeRequest = function(json) {
   if (req.listenerCount && req.listenerCount('data') > 0) {
     req.resume();
   }
-  this.emit('request', req, res);
+  // The native wait continuation is not attributed to the application
+  // principal. Keep the response private while wiring it up, then close the
+  // construction-only bypass before any application listener can observe it.
+  // @ref LLP 0004#retained-native-wrapper-invariant — native wrappers become
+  // owner-authenticating before crossing the user callback boundary.
+  _serverResponseNativeState(res).constructing = false;
+  _emitHttpServerInternal(this, 'request', req, res);
 };
+_httpHandleNativeRequestOwned = Server.prototype._handleNativeRequest;
 
 Server.prototype.close = function(callback) {
   var netListening = !!(this._netServer && this._netServer.listening);
+  var nativeState = _httpServerNativeState(this);
+  var nativeServerId = nativeState.serverId;
   if (typeof callback === 'function') {
-    if (!this._listening && !netListening && !this._useNative) {
+    if (!this._listening && !netListening && !nativeServerId) {
       setTimeout(function() {
         var err = new Error('Server is not running.');
         err.code = 'ERR_SERVER_NOT_RUNNING';
@@ -8928,6 +9617,28 @@ Server.prototype.close = function(callback) {
       }, 0);
       return this;
     }
+  }
+
+  var nativeClosed = false;
+  if (nativeServerId) {
+    if (typeof __exactHttpClose !== 'function') {
+      throw new Error('HTTP server close primitive is unavailable');
+    }
+    // Close is both the owner check and the native commit point. A retained
+    // wrapper invoked by a foreign principal must leave listening state,
+    // timers, callbacks, and the private selector untouched for owner retry.
+    var nativeCloseResult = __exactHttpClose(nativeServerId, 0);
+    if (nativeCloseResult !== 0) {
+      var nativeCloseErr = new Error('HTTP server close failed');
+      nativeCloseErr.code = 'EPIPE';
+      throw nativeCloseErr;
+    }
+    nativeState.serverId = 0;
+    nativeState.listenGeneration += 1;
+    nativeClosed = true;
+  }
+
+  if (typeof callback === 'function') {
     this.once('close', callback);
   }
   this._closing = true;
@@ -8957,10 +9668,8 @@ Server.prototype.close = function(callback) {
       self.closeIdleConnections();
       self.emit('close');
     });
-  } else if (this._useNative) {
-    if (typeof __exactHttpClose === 'function' && this._serverId) {
-      __exactHttpClose(this._serverId, 0);
-    }
+  } else if (nativeClosed) {
+    this._useNative = false;
     setTimeout(function() { self.emit('close'); }, 0);
   } else {
     setTimeout(function() { self.emit('close'); }, 0);
@@ -9051,9 +9760,10 @@ Server.prototype.address = function() {
   if (this._netServer && typeof this._netServer.address === 'function') {
     return this._netServer.address();
   }
-  if (this._useNative) {
+  var nativeServerId = _httpServerNativeState(this).serverId;
+  if (nativeServerId) {
     if (typeof __exactHttpAddress === 'function') {
-      var json = __exactHttpAddress(this._serverId);
+      var json = __exactHttpAddress(nativeServerId);
       if (json) {
         try { return JSON.parse(json); } catch (e) { /* ignored: unparsable native address info; fall through to cached fields */ }
       }
@@ -9104,16 +9814,18 @@ Server.prototype.setTimeout = function(msecs, callback) {
 Server.prototype.ref = function() {
   if (this._netServer && typeof this._netServer.ref === 'function') {
     this._netServer.ref();
-  } else if (this._useNative && typeof __exactHttpSetRef === 'function' && this._serverId) {
-    __exactHttpSetRef(this._serverId, 1);
+  } else if (typeof __exactHttpSetRef === 'function') {
+    var serverId = _httpServerNativeState(this).serverId;
+    if (serverId) __exactHttpSetRef(serverId, 1);
   }
   return this;
 };
 Server.prototype.unref = function() {
   if (this._netServer && typeof this._netServer.unref === 'function') {
     this._netServer.unref();
-  } else if (this._useNative && typeof __exactHttpSetRef === 'function' && this._serverId) {
-    __exactHttpSetRef(this._serverId, 0);
+  } else if (typeof __exactHttpSetRef === 'function') {
+    var serverId = _httpServerNativeState(this).serverId;
+    if (serverId) __exactHttpSetRef(serverId, 0);
   }
   return this;
 };

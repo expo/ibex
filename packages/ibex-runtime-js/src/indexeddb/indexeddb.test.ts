@@ -20,7 +20,7 @@ import { File as IbexFile } from '../blob/File';
 // Test harness: a file-backed SQLite provider (real persistence across opens).
 // ---------------------------------------------------------------------------
 
-const tmpDirs: string[] = [];
+const tmpRoot = mkdtempSync(join(tmpdir(), 'idb-eng22974-suite-'));
 
 function dbPath(dir: string, name: string): string {
   return join(dir, encodeURIComponent(name) + '.sqlite');
@@ -52,9 +52,10 @@ function makeProvider(dir: string, onSql?: (sql: string) => void) {
 }
 
 function makeDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'idb-eng22974-'));
-  tmpDirs.push(dir);
-  return dir;
+  // Keep each factory isolated while making suite cleanup a single recursive
+  // operation. Removing dozens of separate SQLite directories can exceed
+  // Bun's default hook timeout when the full test matrix is under disk load.
+  return mkdtempSync(join(tmpRoot, 'case-'));
 }
 
 function makeFactory(): IDBFactory {
@@ -62,12 +63,10 @@ function makeFactory(): IDBFactory {
 }
 
 afterAll(() => {
-  for (const dir of tmpDirs) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch (_) {}
-  }
-});
+  try {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  } catch (_) {}
+}, 30_000);
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -238,6 +237,92 @@ describe('finding 2: structured serialization & key comparison', () => {
     expect('missing' in out).toBe(true);
     expect(out.missing).toBeUndefined();
     expect(out.nested.d).toBeInstanceOf(Date);
+    db.close();
+  });
+
+  test('multi-megabyte binary values persist as compact SQLite BLOBs', async () => {
+    const dir = makeDir();
+    const name = 'f2-binary-blob';
+    const factory = new IDBFactory(makeProvider(dir) as any);
+    const db = await openDb(factory, name, 1, (d) => d.createObjectStore('s'));
+    const payload = new Uint8Array(2 * 1024 * 1024);
+    for (let i = 0; i < payload.length; i++) payload[i] = (i * 31) & 0xff;
+
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put({ payload }, 'large');
+    await txDone(wtx);
+    db.close();
+
+    const raw = new Database(dbPath(dir, name), { readonly: true });
+    const row = raw
+      .query(`SELECT typeof(value) AS storageType, length(value) AS storedLength FROM "idb_store_s" WHERE key = ?`)
+      .get(serializeKey('large')) as any;
+    raw.close();
+    expect(row.storageType).toBe('blob');
+    // The v2 envelope adds only a small metadata header. Base64 would require
+    // at least 4/3 of the payload and the old JSON number array roughly 3-4x.
+    expect(row.storedLength).toBeLessThan(payload.byteLength + 1024);
+
+    const reopened = await openDb(factory, name, undefined);
+    const value: any = await reqDone(
+      reopened.transaction('s', 'readonly').objectStore('s').get('large'),
+    );
+    expect(value.payload).toBeInstanceOf(Uint8Array);
+    expect(value.payload.byteLength).toBe(payload.byteLength);
+    expect(value.payload[0]).toBe(0);
+    expect(value.payload[1]).toBe(31);
+    expect(value.payload[payload.length - 1]).toBe(payload[payload.length - 1]);
+    reopened.close();
+  });
+
+  test('autoIncrement keyPath injection reuses the owned large-binary clone', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'f2-auto-large-clone', 1, (d) => {
+      d.createObjectStore('s', { keyPath: 'id', autoIncrement: true });
+    });
+    const payload = new Uint8Array(2 * 1024 * 1024);
+    payload[0] = 17;
+    payload[payload.length - 1] = 93;
+    const original: any = { payload };
+
+    const tx = db.transaction('s', 'readwrite');
+    const key = await reqDone(tx.objectStore('s').add(original));
+    await txDone(tx);
+    expect(key).toBe(1);
+    expect(original.id).toBeUndefined();
+
+    const out: any = await reqDone(db.transaction('s', 'readonly').objectStore('s').get(1));
+    expect(out.id).toBe(1);
+    expect(out.payload).toBeInstanceOf(Uint8Array);
+    expect(out.payload.byteLength).toBe(payload.byteLength);
+    expect(out.payload[0]).toBe(17);
+    expect(out.payload[payload.length - 1]).toBe(93);
+    db.close();
+  });
+
+  test('legacy tagged-JSON TEXT values remain readable', async () => {
+    const dir = makeDir();
+    const name = 'f2-legacy-text';
+    const raw = new Database(dbPath(dir, name));
+    raw.run(`CREATE TABLE _idb_meta (key TEXT PRIMARY KEY, value TEXT)`);
+    raw.run(`INSERT INTO _idb_meta(key, value) VALUES ('version', '1')`);
+    raw.run(`CREATE TABLE _idb_stores (store_name TEXT PRIMARY KEY, key_path TEXT, auto_increment INTEGER DEFAULT 0)`);
+    raw.run(`INSERT INTO _idb_stores(store_name, key_path, auto_increment) VALUES ('s', 'null', 0)`);
+    raw.run(`CREATE TABLE _idb_indexes (store_name TEXT, index_name TEXT, key_path TEXT, unique_flag INTEGER DEFAULT 0, multi_entry INTEGER DEFAULT 0, PRIMARY KEY (store_name, index_name))`);
+    raw.run(`CREATE TABLE "idb_store_s" (key TEXT PRIMARY KEY, value TEXT, keyenc TEXT)`);
+    raw.run(
+      `INSERT INTO "idb_store_s" (key, value, keyenc) VALUES (?, ?, ?)`,
+      serializeKey('legacy'),
+      JSON.stringify({ bytes: { __idb_tag__: 'ArrayBuffer', data: 'AQID' } }),
+      encodeOrderedKey('legacy'),
+    );
+    raw.close();
+
+    const db = await openDb(new IDBFactory(makeProvider(dir) as any), name, undefined);
+    const value: any = await reqDone(
+      db.transaction('s', 'readonly').objectStore('s').get('legacy'),
+    );
+    expect(Array.from(new Uint8Array(value.bytes))).toEqual([1, 2, 3]);
     db.close();
   });
 
@@ -1793,6 +1878,59 @@ describe('ENG-23134: collision-free store table names', () => {
 });
 
 describe('ENG-23134: structured-clone value fidelity', () => {
+  test('ENG-24277: put() and add() snapshot values synchronously at call time', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'vals-call-time-snapshot', 1, (d) =>
+      d.createObjectStore('s'));
+    const putValue = {
+      label: 'put-before',
+      nested: { count: 1 },
+      bytes: new Uint8Array([1, 2, 3]),
+    };
+    const addValue = {
+      label: 'add-before',
+      nested: { count: 2 },
+      bytes: new Uint8Array([4, 5, 6]),
+    };
+    const tx = db.transaction('s', 'readwrite');
+    const store = tx.objectStore('s');
+    const putRequest = store.put(putValue, 'put');
+    const addRequest = store.add(addValue, 'add');
+    const putDone = reqDone(putRequest);
+    const addDone = reqDone(addRequest);
+    const transactionDone = txDone(tx);
+
+    // Mutate both ordinary objects and their backing buffers before the
+    // transaction gets a chance to execute either queued request.
+    putValue.label = 'put-after';
+    putValue.nested.count = 10;
+    putValue.bytes.fill(9);
+    addValue.label = 'add-after';
+    addValue.nested.count = 20;
+    addValue.bytes.fill(8);
+
+    expect(await putDone).toBe('put');
+    expect(await addDone).toBe('add');
+    await transactionDone;
+
+    const read = db.transaction('s', 'readonly').objectStore('s');
+    const [storedPut, storedAdd]: any[] = await Promise.all([
+      reqDone(read.get('put')),
+      reqDone(read.get('add')),
+    ]);
+    expect(storedPut).toEqual({
+      label: 'put-before',
+      nested: { count: 1 },
+      bytes: new Uint8Array([1, 2, 3]),
+    });
+    expect(storedAdd).toEqual({
+      label: 'add-before',
+      nested: { count: 2 },
+      bytes: new Uint8Array([4, 5, 6]),
+    });
+    db.close();
+  });
+
   test('Blob and File round-trip through put/get', async () => {
     const factory = makeFactory();
     const db = await openDb(factory, 'vals1', 1, (d) => d.createObjectStore('s'));
@@ -1850,23 +1988,23 @@ describe('ENG-23134: structured-clone value fidelity', () => {
     db.close();
   });
 
-  test('non-cloneable values reject with DataCloneError instead of storing {}', async () => {
+  test('non-cloneable values throw DataCloneError synchronously instead of storing {}', async () => {
     const factory = makeFactory();
     const db = await openDb(factory, 'vals4', 1, (d) => d.createObjectStore('s'));
 
     // A function value.
     const t1 = db.transaction('s', 'readwrite');
-    const r1 = t1.objectStore('s').put({ fn: () => 1 }, 'k1');
-    r1.onerror = (e: any) => e.preventDefault();
+    expect(() => t1.objectStore('s').put({ fn: () => 1 }, 'k1')).toThrow(
+      expect.objectContaining({ name: 'DataCloneError' }),
+    );
     expect(await txSettled(t1)).toBe('complete');
-    expect(r1.error?.name).toBe('DataCloneError');
 
     // A host Blob with no synchronous byte access (bun's native Blob).
     const t2 = db.transaction('s', 'readwrite');
-    const r2 = t2.objectStore('s').put({ b: new (globalThis as any).Blob(['x']) }, 'k2');
-    r2.onerror = (e: any) => e.preventDefault();
+    expect(() =>
+      t2.objectStore('s').put({ b: new (globalThis as any).Blob(['x']) }, 'k2'),
+    ).toThrow(expect.objectContaining({ name: 'DataCloneError' }));
     expect(await txSettled(t2)).toBe('complete');
-    expect(r2.error?.name).toBe('DataCloneError');
 
     expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(0);
     db.close();

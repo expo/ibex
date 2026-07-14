@@ -15,13 +15,25 @@
 #![cfg(unix)]
 
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
+
+// Diagnostic `.js` entries authenticate and hash the complete bundler
+// toolchain before Hermes evaluates the fixture. A cold debug build can spend
+// nearly the old 15-second deadline there under full-matrix load, before the
+// child-process code under test has run at all. Add the same cold-start
+// headroom used by the 60-second diagnostic CLI suite to each case's outer
+// watchdog; the case-specific duration remains the child-runtime allowance.
+// This is one total wall-clock deadline (the harness cannot observe the exact
+// evaluation boundary), not a claim that the two phases are timed separately.
+const DIAGNOSTIC_STARTUP_HEADROOM: Duration = Duration::from_secs(45);
 
 struct AppRun {
     stdout: String,
@@ -46,16 +58,30 @@ fn write_text(path: &Path, contents: &str) {
     std::fs::write(path, contents).expect("write test file");
 }
 
-/// Run `ibex run app.js` (allow-all default) with `app` as the program body,
-/// enforcing a wall-clock timeout so a regressed deadlock fails the test instead
-/// of hanging the suite forever. Extra files can be pre-written into `dir`.
+/// Run `ibex capsec audit app.js` with `app` as the program body, enforcing a
+/// wall-clock timeout so a regressed deadlock fails the test instead of hanging
+/// the suite forever. Production execution intentionally refuses while this
+/// target has no verified advertisement; these bridge-parity tests use the
+/// explicit diagnostic entry point. Extra files can be pre-written into `dir`.
 fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
+    // Each case performs a cold diagnostic Ibex startup. Running all of those
+    // compiler/bundler pipelines concurrently can exhaust CI CPU and make the
+    // per-app deadlock watchdog measure harness contention instead of the
+    // child-process bridge. The Windows and option-parser suites use the same
+    // serialization discipline.
+    static APP_RUN_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = APP_RUN_LOCK.lock().expect("lock child_process app runner");
+
     write_text(&dir.join("app.js"), app);
     let mut child = Command::new(IBEX)
-        .arg("run")
+        .arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .env("IBEX_NO_BYTECODE", "1")
+        .env("BUN_INSTALL_CACHE_DIR", dir.join(".bun-cache"))
+        .env("IBEX_PARENT_ONLY_SECRET", "must-not-reach-explicit-env")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -77,7 +103,7 @@ fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
         s
     });
 
-    let deadline = Instant::now() + timeout;
+    let deadline = Instant::now() + DIAGNOSTIC_STARTUP_HEADROOM + timeout;
     let mut timed_out = false;
     loop {
         match child.try_wait() {
@@ -111,7 +137,7 @@ fn field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     line.split('|').find_map(|kv| kv.strip_prefix(key))
 }
 
-fn result_line<'a>(run: &'a AppRun) -> &'a str {
+fn result_line(run: &AppRun) -> &str {
     assert!(
         !run.timed_out,
         "app timed out (likely a deadlock regression)\nstdout:\n{}\nstderr:\n{}",
@@ -126,6 +152,98 @@ fn result_line<'a>(run: &'a AppRun) -> &'a str {
                 run.stdout, run.stderr
             )
         })
+}
+
+// ENG-24262 follow-up -------------------------------------------------------
+
+/// An explicitly supplied empty environment is not the same as an omitted
+/// environment. The native bridge used the parsed vector's emptiness as its
+/// inheritance sentinel, so `{ env: {} }` silently restored every parent
+/// variable. PATH had the same lossy representation: an explicit empty value
+/// fell back to the default binary search path instead of searching only cwd.
+#[test]
+fn spawn_sync_preserves_empty_environment_and_path_presence() {
+    let app = r#"
+const cp = require('child_process');
+const empty = cp.spawnSync('/usr/bin/env', [], { env: {}, encoding: 'utf8' });
+const missingPath = cp.spawnSync('sh', ['-c', 'printf "$IBEX_CHILD_ONLY"'], {
+  env: { IBEX_CHILD_ONLY: 'missing-path-used-default' }, encoding: 'utf8'
+});
+const emptyPath = cp.spawnSync('sh', ['-c', 'printf should-not-run'], {
+  env: { PATH: '' }, encoding: 'utf8'
+});
+const leaked = String(empty.stdout || '').indexOf('IBEX_PARENT_ONLY_SECRET=') !== -1;
+console.log('RESULT|leaked=' + leaked +
+  '|missing=' + String(missingPath.stdout || '') +
+  '|emptyPathFailed=' + Boolean(emptyPath.error));
+"#;
+    let run = run_app("explicit-empty-env-sync", app, Duration::from_secs(20));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "leaked="),
+        Some("false"),
+        "parent secret leaked: {line}"
+    );
+    assert_eq!(
+        field(line, "missing="),
+        Some("missing-path-used-default"),
+        "missing PATH did not use the deterministic default: {line}"
+    );
+    assert_eq!(
+        field(line, "emptyPathFailed="),
+        Some("true"),
+        "explicit empty PATH unexpectedly used the default search path: {line}"
+    );
+}
+
+#[test]
+fn async_spawn_preserves_empty_environment_and_path_presence() {
+    let app = r#"
+const cp = require('child_process');
+let envOutput = '';
+const empty = cp.spawn('/usr/bin/env', [], { env: {} });
+empty.stdout.on('data', function (chunk) { envOutput += chunk.toString(); });
+empty.on('error', function (error) {
+  console.log('RESULT|unexpected=' + (error.code || error.message));
+});
+empty.on('close', function () {
+  let missingOutput = '';
+  const missing = cp.spawn('sh', ['-c', 'printf "$IBEX_CHILD_ONLY"'], {
+    env: { IBEX_CHILD_ONLY: 'missing-path-used-default' }
+  });
+  missing.stdout.on('data', function (chunk) { missingOutput += chunk.toString(); });
+  missing.on('error', function (error) {
+    console.log('RESULT|unexpected=' + (error.code || error.message));
+  });
+  missing.on('close', function () {
+    let sawEmptyPathError = false;
+    const blocked = cp.spawn('sh', ['-c', 'printf should-not-run'], { env: { PATH: '' } });
+    blocked.on('error', function () { sawEmptyPathError = true; });
+    blocked.on('close', function () {
+      const leaked = envOutput.indexOf('IBEX_PARENT_ONLY_SECRET=') !== -1;
+      console.log('RESULT|leaked=' + leaked + '|missing=' + missingOutput +
+        '|emptyPathFailed=' + sawEmptyPathError);
+    });
+  });
+});
+"#;
+    let run = run_app("explicit-empty-env-async", app, Duration::from_secs(20));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "leaked="),
+        Some("false"),
+        "parent secret leaked: {line}"
+    );
+    assert_eq!(
+        field(line, "missing="),
+        Some("missing-path-used-default"),
+        "missing PATH did not use the deterministic default: {line}"
+    );
+    assert_eq!(
+        field(line, "emptyPathFailed="),
+        Some("true"),
+        "explicit empty PATH unexpectedly used the default search path: {line}"
+    );
 }
 
 // ENG-23023 -----------------------------------------------------------------
@@ -433,6 +551,52 @@ c.on('exit', function (code) { console.log('RESULT|exit=fired|code=' + code); })
     );
 }
 
+/// Runtime teardown owns still-referenced native children, but an explicit
+/// `child.unref()` transfers lifetime out of the runtime. The old cleanup path
+/// unconditionally SIGKILLed every registry entry, so the standard detached +
+/// unref daemon pattern appeared to work until the parent runtime was deleted.
+#[test]
+fn detached_unref_child_survives_runtime_teardown() {
+    let dir = unique_dir("detached_unref_teardown");
+    let worker = dir.join("worker.sh");
+    let sentinel = dir.join("survived.txt");
+    write_text(&worker, "#!/bin/sh\nsleep 0.35\nprintf survived > \"$1\"\n");
+    let app = format!(
+        r#"
+const cp = require('child_process');
+const child = cp.spawn('sh', [{worker}, {sentinel}], {{
+  detached: true,
+  stdio: 'ignore'
+}});
+child.unref();
+console.log('RESULT|pid=' + child.pid);
+"#,
+        worker = serde_json_string(&worker.to_string_lossy()),
+        sentinel = serde_json_string(&sentinel.to_string_lossy()),
+    );
+
+    let run = run_app_in(&dir, &app, Duration::from_secs(15));
+    let line = result_line(&run);
+    assert!(
+        field(line, "pid=")
+            .and_then(|pid| pid.parse::<u32>().ok())
+            .is_some(),
+        "detached child did not spawn: {line}"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !sentinel.exists() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(25));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&sentinel).ok().as_deref(),
+        Some("survived"),
+        "runtime teardown killed an explicitly unref'ed detached child\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
 /// The native spawn hardcoded `execl("/bin/sh", ...)` and ignored the `shell`
 /// string. With the fix a custom shell binary is exec'd. The helper shell script
 /// ignores its `-c` argument and prints a sentinel, so the sentinel appears only
@@ -720,6 +884,237 @@ setTimeout(function () {
         field(line, "replacements="),
         Some("0"),
         "U+FFFD replacement characters leaked into the delivered payload: {line}"
+    );
+}
+
+/// Child fd remapping must work even when the ibex parent begins with the
+/// conventional low descriptors closed. Pipe/socketpair allocation can then
+/// reuse fd 0/1/2/3, so a naive sequence of dup2 calls overwrites a source fd
+/// needed by a later mapping. Exercise IPC and an extra pipe together because
+/// they require two distinct source descriptors above the standard streams.
+/// The child is a plain POSIX shell so this remains a descriptor-remapping
+/// regression test; it does not invent ambient authority for a nested Ibex
+/// runtime to adopt an otherwise unowned numeric fd.
+#[test]
+fn fork_stdio_remap_survives_closed_low_parent_fds() {
+    let dir = unique_dir("closed-low-fds");
+    write_text(
+        &dir.join("app.js"),
+        r#"
+const cp = require('child_process');
+const fs = require('fs');
+const resultPath = __dirname + '/result.json';
+const packet = JSON.stringify({ __exactIpc: true, type: 'message', data: { ipc: 'ipc-ok' } });
+const script = "printf 'extra-fd-ok' >&4; printf '%s\\n' '" + packet + "' >&3";
+const child = cp.spawn('/bin/sh', ['-c', script], {
+  stdio: ['ignore', 'ignore', 'ignore', 'ipc', 'pipe']
+});
+let ipc = null;
+let extra = '';
+let extraClosed = false;
+let childClosed = false;
+let watchdog = null;
+function finish() {
+  if (!childClosed || !extraClosed) return;
+  if (watchdog !== null) { clearTimeout(watchdog); watchdog = null; }
+  fs.writeFileSync(resultPath, JSON.stringify({ ipc: ipc, extra: extra, code: child.exitCode }));
+}
+child.on('message', function (message) { ipc = message && message.ipc; });
+child.stdio[4].on('data', function (chunk) { extra += chunk.toString(); });
+child.stdio[4].on('end', function () { extraClosed = true; finish(); });
+child.on('close', function () { childClosed = true; finish(); });
+watchdog = setTimeout(function () {
+  if (!childClosed || !extraClosed) {
+    fs.writeFileSync(resultPath, JSON.stringify({ ipc: ipc, extra: extra, timeout: true }));
+    try { child.kill(); } catch (_) {}
+    process.exit(1);
+  }
+}, 10000);
+"#,
+    );
+
+    let mut command = Command::new(IBEX);
+    command
+        .arg("capsec")
+        .arg("audit")
+        .arg("app.js")
+        .current_dir(&dir)
+        .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // SAFETY: this callback runs in the single post-fork child immediately
+    // before exec and only invokes the async-signal-safe close(2) syscall.
+    unsafe {
+        command.pre_exec(|| {
+            for fd in 0..=3 {
+                libc::close(fd);
+            }
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().expect("spawn ibex with closed low fds");
+    let deadline = Instant::now() + Duration::from_secs(25);
+    loop {
+        if child.try_wait().expect("wait for ibex").is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("ibex with closed low fds timed out");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let raw = std::fs::read_to_string(dir.join("result.json"))
+        .expect("app must record child IPC/extra-fd result");
+    let result: serde_json::Value = serde_json::from_str(&raw).expect("valid result JSON");
+    assert_eq!(result["ipc"], "ipc-ok", "IPC fd was clobbered: {result}");
+    assert_eq!(
+        result["extra"], "extra-fd-ok",
+        "extra stdio fd was clobbered: {result}"
+    );
+    assert_eq!(
+        result["code"], 0,
+        "forked child did not exit cleanly: {result}"
+    );
+    assert_eq!(result.get("timeout"), None, "fd remap stalled: {result}");
+}
+
+#[test]
+fn extra_stdio_is_backpressure_aware_full_duplex_and_closes_after_eof() {
+    let dir = unique_dir("extra-duplex");
+    let app = r#"
+const cp = require('child_process');
+const script = "payload=$(cat <&4); printf 'reply:%s:' \"$payload\" >&4; dd if=/dev/zero bs=1024 count=256 >&4 2>/dev/null; exec 4>&-; sleep 1";
+const child = cp.spawn('/bin/sh', ['-c', script], {
+  stdio: ['ignore', 'ignore', 'ignore', 'ignore', 'pipe']
+});
+const extra = child.stdio[4];
+let bytes = 0;
+let prefix = '';
+let exited = false;
+let ended = false;
+let endBeforeExit = false;
+let watchdog = setTimeout(function () {
+  console.log('RESULT|timeout=true|bytes=' + bytes + '|prefix=' + prefix);
+  try { child.kill(); } catch (_) {}
+  process.exit(1);
+}, 15000);
+
+// Forgeable internal stream names must be parsed strictly. The historical
+// atoi-based decoder treated this as extra stream zero and closed fd4.
+globalThis.__exactSpawnCloseStdin(child._handle, 'extra:not-a-number', true);
+
+// `end` must half-close only the writable side. The child reads to EOF before
+// replying through the same socket, which would deadlock if the fd were kept
+// fully open or would lose the reply if it were fully closed.
+extra.end(Buffer.from('ping'));
+
+// Delay consumption long enough to fill the Readable high-water mark. The
+// native pump must pause instead of buffering the entire child output, then
+// resume when adding the data listener calls _read again.
+setTimeout(function () {
+  extra.on('data', function (chunk) {
+    bytes += chunk.length;
+    if (prefix.length < 11) prefix += chunk.toString('utf8', 0, Math.min(chunk.length, 11 - prefix.length));
+  });
+  extra.on('end', function () {
+    ended = true;
+    endBeforeExit = !exited;
+  });
+}, 150);
+
+child.on('exit', function () { exited = true; });
+child.on('close', function () {
+  clearTimeout(watchdog);
+  console.log(
+    'RESULT|timeout=false|bytes=' + bytes + '|prefix=' + prefix +
+    '|ended=' + ended + '|endBeforeExit=' + endBeforeExit +
+    '|closeAfterEnd=' + ended + '|code=' + child.exitCode
+  );
+});
+"#;
+    let run = run_app_in(&dir, app, Duration::from_secs(35));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "timeout="),
+        Some("false"),
+        "duplex stalled: {line}"
+    );
+    assert_eq!(
+        field(line, "prefix="),
+        Some("reply:ping:"),
+        "reply lost: {line}"
+    );
+    assert_eq!(
+        field(line, "bytes="),
+        Some("262155"),
+        "backpressured payload was truncated: {line}"
+    );
+    assert_eq!(
+        field(line, "ended="),
+        Some("true"),
+        "EOF not surfaced: {line}"
+    );
+    assert_eq!(
+        field(line, "endBeforeExit="),
+        Some("true"),
+        "early EOF was delayed until process exit: {line}"
+    );
+    assert_eq!(
+        field(line, "closeAfterEnd="),
+        Some("true"),
+        "child close raced readable EOF: {line}"
+    );
+    assert_eq!(field(line, "code="), Some("0"), "child failed: {line}");
+}
+
+/// ENG-24262: fork happens while native fs/DNS workers are active. Child setup
+/// must perform no allocator/libc mutation after fork, or a lock held by a
+/// vanished sibling thread can deadlock the child before exec.
+#[test]
+fn spawn_stress_while_native_worker_threads_are_busy() {
+    let app = r#"
+const cp = require('child_process');
+const fs = require('fs');
+const dns = require('dns');
+const N = 80;
+let asyncClosed = 0;
+let workerDone = 0;
+for (let i = 0; i < N; i++) {
+  fs.readFile(__filename, function () { workerDone++; });
+  dns.lookup('localhost', function () { workerDone++; });
+}
+for (let i = 0; i < N; i++) {
+  const sync = cp.spawnSync('true', [], { stdio: 'ignore' });
+  if (sync.status !== 0) throw new Error('spawnSync failed at ' + i);
+  const child = cp.spawn('true', [], { stdio: 'ignore' });
+  child.on('close', function (code) {
+    if (code !== 0) throw new Error('spawn failed: ' + code);
+    asyncClosed++;
+    if (asyncClosed === N) {
+      console.log('RESULT|closed=' + asyncClosed + '|workers=' + workerDone);
+    }
+  });
+}
+setTimeout(function () {
+  if (asyncClosed !== N) {
+    console.log('RESULT|closed=' + asyncClosed + '|workers=' + workerDone);
+    process.exit(1);
+  }
+}, 15000);
+"#;
+    // The app deliberately keeps a 15-second watchdog referenced after its
+    // 160 native worker callbacks and 160 child launches. Include cold source
+    // startup headroom while preserving a bounded deadlock failure.
+    let run = run_app("postforkstress", app, Duration::from_secs(45));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "closed="),
+        Some("80"),
+        "spawn stress failed: {line}"
     );
 }
 

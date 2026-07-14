@@ -14,6 +14,272 @@ pub mod sourcemap;
 pub mod tls_bridge;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::OnceLock;
+
+extern "C" {
+    fn ex_hermes_bytecode_version() -> u32;
+    fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
+    fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadedEngineBinaryIdentity {
+    pub engine_artifact_path: std::path::PathBuf,
+    pub kind: String,
+    pub binary_digest: String,
+    pub object: capsec_semantics::model::ObjectIdentity,
+    pub target_architecture: String,
+    pub structural_features: Vec<String>,
+}
+
+fn loaded_engine_identity() -> &'static std::result::Result<LoadedEngineBinaryIdentity, String> {
+    static IDENTITY: OnceLock<std::result::Result<LoadedEngineBinaryIdentity, String>> =
+        OnceLock::new();
+    IDENTITY.get_or_init(|| {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+        use sha2::{Digest as _, Sha256};
+        use std::io::Read as _;
+
+        let mut buffer = vec![0u8; 32 * 1024];
+        let length =
+            unsafe { ex_hermes_engine_binary_path(buffer.as_mut_ptr().cast(), buffer.len()) };
+        if length <= 0 {
+            return Err("failed to identify the loaded Hermes engine artifact".into());
+        }
+        buffer.truncate(length as usize);
+        let text = std::str::from_utf8(&buffer)
+            .map_err(|_| "loaded Hermes path is not UTF-8".to_owned())?;
+        let path = std::fs::canonicalize(text).map_err(|error| {
+            format!("failed to authenticate loaded Hermes artifact {text}: {error}")
+        })?;
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+        }
+        let mut file = options.open(&path).map_err(|error| {
+            format!(
+                "failed to pin loaded Hermes artifact {}: {error}",
+                path.display()
+            )
+        })?;
+        let metadata = file
+            .metadata()
+            .map_err(|error| format!("failed to inspect loaded Hermes artifact: {error}"))?;
+        if !metadata.is_file() {
+            return Err("loaded Hermes artifact is not a regular file".into());
+        }
+        verify_loaded_mapping_object(&metadata)?;
+        let object = engine_object_identity(&metadata)?;
+        let mut hash = Sha256::new();
+        let mut chunk = [0u8; 64 * 1024];
+        loop {
+            let read = file
+                .read(&mut chunk)
+                .map_err(|error| format!("failed to hash loaded Hermes artifact: {error}"))?;
+            if read == 0 {
+                break;
+            }
+            hash.update(&chunk[..read]);
+        }
+        let after = file
+            .metadata()
+            .map_err(|error| format!("failed to revalidate loaded Hermes artifact: {error}"))?;
+        if engine_object_identity(&after)? != object || after.len() != metadata.len() {
+            return Err("loaded Hermes artifact changed while it was authenticated".into());
+        }
+        let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
+        Ok(LoadedEngineBinaryIdentity {
+            engine_artifact_path: path,
+            kind: "hermes".into(),
+            binary_digest: digest,
+            object,
+            target_architecture: std::env::consts::ARCH.to_owned(),
+            structural_features: loaded_engine_structural_features(),
+        })
+    })
+}
+
+pub fn loaded_engine_structural_features() -> Vec<String> {
+    if cfg!(exact_frame_attribution) {
+        vec![
+            "hermes-frame-attribution".into(),
+            "native-compartments".into(),
+            "native-lockdown".into(),
+        ]
+    } else {
+        Vec::new()
+    }
+}
+
+fn engine_object_identity(
+    metadata: &std::fs::Metadata,
+) -> Result<capsec_semantics::model::ObjectIdentity, String> {
+    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(ObjectIdentity {
+            platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+                ObjectPlatform::Apple
+            } else if cfg!(target_os = "android") {
+                ObjectPlatform::Android
+            } else {
+                ObjectPlatform::Unix
+            },
+            volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))?,
+            file: NonEmptyString::new(format!("ino:{}", metadata.ino()))?,
+        })
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        Ok(ObjectIdentity {
+            platform: ObjectPlatform::Windows,
+            volume: NonEmptyString::new(format!(
+                "volume:{}",
+                metadata.volume_serial_number().unwrap_or(0)
+            ))?,
+            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))?,
+        })
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let address = ex_hermes_engine_binary_path as usize;
+    let maps = std::fs::read_to_string("/proc/self/maps")
+        .map_err(|error| format!("failed to inspect loaded Hermes mapping: {error}"))?;
+    for line in maps.lines() {
+        let mut fields = line.split_whitespace();
+        let Some(range) = fields.next() else { continue };
+        let _permissions = fields.next();
+        let _offset = fields.next();
+        let Some(device) = fields.next() else {
+            continue;
+        };
+        let Some(inode) = fields.next() else { continue };
+        let Some((start, end)) = range.split_once('-') else {
+            continue;
+        };
+        let (Ok(start), Ok(end)) = (
+            usize::from_str_radix(start, 16),
+            usize::from_str_radix(end, 16),
+        ) else {
+            continue;
+        };
+        if !(start..end).contains(&address) {
+            continue;
+        }
+        let mapped_inode = inode
+            .parse::<u64>()
+            .map_err(|_| "loaded Hermes mapping has an invalid inode".to_owned())?;
+        let Some((major, minor)) = device.split_once(':') else {
+            return Err("loaded Hermes mapping has an invalid device".into());
+        };
+        let major = u64::from_str_radix(major, 16)
+            .map_err(|_| "loaded Hermes mapping has an invalid device major".to_owned())?;
+        let minor = u64::from_str_radix(minor, 16)
+            .map_err(|_| "loaded Hermes mapping has an invalid device minor".to_owned())?;
+        let mapped_device = libc::makedev(major as _, minor as _) as u64;
+        if mapped_inode != metadata.ino() || mapped_device != metadata.dev() {
+            return Err(
+                "loaded Hermes path names a different object than the executable mapping".into(),
+            );
+        }
+        return Ok(());
+    }
+    Err("could not locate the loaded Hermes executable mapping".into())
+}
+
+#[cfg(target_os = "macos")]
+fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut device = 0u64;
+    let mut inode = 0u64;
+    if unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) } != 1 {
+        return Err("failed to identify the mapped Hermes vnode".into());
+    }
+    if device != metadata.dev() || inode != metadata.ino() {
+        return Err(
+            "loaded Hermes path names a different object than the mapped Mach-O image".into(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), String> {
+    Err(
+        "Windows cannot attest the loaded Hermes section's file identity on this build; refusing pathname-only identity"
+            .into(),
+    )
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    windows
+)))]
+fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), String> {
+    Err("this target cannot attest the loaded Hermes image object".into())
+}
+
+/// Identity of the artifact that supplied the linked Hermes runtime factory.
+/// The multi-megabyte digest is cached because the loaded artifact cannot
+/// change within the process execution it identifies.
+pub fn loaded_engine_binary_path() -> Result<std::path::PathBuf, String> {
+    loaded_engine_identity()
+        .as_ref()
+        .map(|identity| identity.engine_artifact_path.clone())
+        .map_err(Clone::clone)
+}
+
+pub fn loaded_engine_binary_digest() -> Result<String, String> {
+    loaded_engine_identity()
+        .as_ref()
+        .map(|identity| identity.binary_digest.clone())
+        .map_err(Clone::clone)
+}
+
+pub fn loaded_engine_binary_identity() -> Result<LoadedEngineBinaryIdentity, String> {
+    loaded_engine_identity()
+        .as_ref()
+        .cloned()
+        .map_err(Clone::clone)
+}
+
+/// HBC version accepted by the mapped Hermes engine. This deliberately does
+/// not consult a separately discovered CLI binary.
+pub fn loaded_engine_bytecode_version() -> Result<u32, String> {
+    let version = unsafe { ex_hermes_bytecode_version() };
+    (version != 0)
+        .then_some(version)
+        .ok_or_else(|| "loaded Hermes engine did not expose its bytecode version".into())
+}
+
+pub fn verify_loaded_engine_binary_identity(
+    expected: &LoadedEngineBinaryIdentity,
+) -> Result<LoadedEngineBinaryIdentity, String> {
+    let actual = loaded_engine_binary_identity()?;
+    if &actual != expected {
+        return Err("loaded Hermes identity differs from the expected artifact".into());
+    }
+    Ok(actual)
+}
 
 /// Flag set when a background callback is pushed.
 /// iOS polls this to know when to wake up the event loop.
@@ -32,8 +298,8 @@ static HOST_WAKE_HOOK_CTX: AtomicUsize = AtomicUsize::new(0);
 /// Register (or clear, with `None`) the host wake hook invoked whenever a
 /// background thread pushes a runtime callback. The hook runs on the
 /// pushing thread and must only do cheap, bounded work (enqueue + signal a
-/// condvar). Only the default (non-`cli-notify`) notify path invokes it —
-/// the CLI's tokio-based notify has its own wake mechanism.
+/// condvar). The one library-owned notify symbol always invokes this hook;
+/// CLI profiles register their tokio wake function through it at runtime.
 #[no_mangle]
 pub extern "C" fn ex_hermes_set_host_wake_hook(
     hook: Option<extern "C" fn(*mut std::ffi::c_void)>,
@@ -60,18 +326,11 @@ fn invoke_host_wake_hook() {
 /// This is called from C++ (hermes_runtime.cc) when async callbacks are pushed
 /// from background threads.
 ///
-/// The CLI provides its own implementation in hermes.rs that uses
-/// tokio::sync::Notify for more efficient wakeup. When building the CLI,
-/// enable the `cli-notify` feature to skip this default implementation.
-///
-/// The `test` arm keeps the symbol defined for this crate's own lib test:
-/// under `cargo test --workspace`, feature unification turns on `cli-notify`
-/// for every ibex-runtime target, but the CLI's replacement
-/// is not part of the lib-test link unit, which otherwise fails with an
-/// undefined `_ex_hermes_notify_callback`. `cfg(test)` is never set when
-/// other crates link this one, so the CLI build still gets exactly one
-/// definition.
-#[cfg(any(not(feature = "cli-notify"), test))]
+/// This symbol is deliberately owned by the library in every feature profile.
+/// A binary that needs a specialized wake mechanism registers it through
+/// `ex_hermes_set_host_wake_hook`; defining a replacement global symbol made
+/// `cli-notify` integration-test link units fail when the CLI object was absent
+/// (ENG-24265).
 #[no_mangle]
 pub extern "C" fn ex_hermes_notify_callback() {
     CALLBACK_PENDING.store(true, Ordering::Release);
@@ -88,6 +347,20 @@ pub fn take_callback_pending() -> bool {
 mod tests {
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
+
+    #[test]
+    fn loaded_engine_identity_attests_the_mapped_artifact() {
+        let identity = super::loaded_engine_binary_identity().unwrap();
+        assert_eq!(identity.kind, "hermes");
+        assert!(identity.engine_artifact_path.is_absolute());
+        assert!(identity.binary_digest.starts_with("sha256-"));
+        assert_eq!(identity.target_architecture, std::env::consts::ARCH);
+        assert!(super::loaded_engine_bytecode_version().unwrap() > 0);
+        assert_eq!(
+            super::verify_loaded_engine_binary_identity(&identity).unwrap(),
+            identity
+        );
+    }
 
     #[repr(C)]
     struct HermesRuntimeOpaque {
@@ -167,6 +440,7 @@ mod tests {
 
     extern "C" {
         fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
+        fn ex_hermes_create_diagnostic() -> *mut HermesRuntimeOpaque;
         fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
         fn ex_hermes_eval(
             runtime: *mut HermesRuntimeOpaque,
@@ -180,8 +454,22 @@ mod tests {
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+        fn ex_hermes_set_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque, enabled: i32);
         fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
         fn ex_hermes_now_ms() -> u64;
+        fn ex_hermes_callback_backlog(runtime: *mut HermesRuntimeOpaque) -> u32;
+        fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
+        fn ex_hermes_schedule_watchdog_heartbeat(
+            runtime: *mut HermesRuntimeOpaque,
+            callback: extern "C" fn(*mut std::ffi::c_void),
+            context: *mut std::ffi::c_void,
+        );
+        fn ex_hermes_schedule_watchdog_heartbeat_for_generation(
+            runtime: *mut HermesRuntimeOpaque,
+            runtime_nonce: u64,
+            callback: extern "C" fn(*mut std::ffi::c_void),
+            context: *mut std::ffi::c_void,
+        );
         fn ex_worklet_create() -> *mut HermesRuntimeOpaque;
         fn ex_worklet_destroy(runtime: *mut HermesRuntimeOpaque);
         fn ex_worklet_set_generation(runtime: *mut HermesRuntimeOpaque, generation: u64);
@@ -659,7 +947,7 @@ mod tests {
             assert_eq!(calls[0].source_sequence, 261);
             assert_eq!(calls[255].source_sequence, 516);
 
-            let app = ex_hermes_create();
+            let app = ex_hermes_create_diagnostic();
             assert!(!app.is_null());
             assert_eq!(
                 eval(
@@ -740,9 +1028,164 @@ mod tests {
     }
 
     #[test]
+    fn legacy_unarmed_constructor_is_non_executable() {
+        unsafe {
+            assert!(ex_hermes_create().is_null());
+        }
+    }
+
+    extern "C" fn count_watchdog_heartbeat(context: *mut std::ffi::c_void) {
+        let count = unsafe { &*(context.cast::<std::sync::atomic::AtomicUsize>()) };
+        count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// A watchdog executor retains its runtime identity across threads. If the
+    /// handle address is recycled, an old heartbeat must not be relabelled with
+    /// the new runtime's nonce and admitted into that runtime.
+    #[test]
+    fn watchdog_heartbeat_rejects_a_stale_generation_at_a_reused_address() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+
+        unsafe {
+            let stale_runtime = ex_hermes_create_diagnostic();
+            assert!(!stale_runtime.is_null());
+            let stale_nonce = ex_hermes_runtime_nonce(stale_runtime);
+            assert_ne!(stale_nonce, 0);
+            ex_hermes_destroy(stale_runtime);
+
+            let replacement = ex_hermes_create_diagnostic();
+            assert!(!replacement.is_null());
+
+            let replacement_nonce = ex_hermes_runtime_nonce(replacement);
+            assert_ne!(replacement_nonce, 0);
+            assert_ne!(replacement_nonce, stale_nonce);
+            let count = std::sync::atomic::AtomicUsize::new(0);
+            let context = (&count as *const std::sync::atomic::AtomicUsize)
+                .cast_mut()
+                .cast::<std::ffi::c_void>();
+
+            ex_hermes_schedule_watchdog_heartbeat(replacement, count_watchdog_heartbeat, context);
+            assert_eq!(ex_hermes_callback_backlog(replacement), 0);
+            assert_eq!(ex_hermes_poll(replacement, ex_hermes_now_ms()), 0);
+            assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+            // Force the exact identity pair seen after address reuse: the
+            // address now names B, while the producer still carries A's
+            // captured nonce. Physical allocator reuse is irrelevant to the
+            // registry operation and would make this test nondeterministic.
+            ex_hermes_schedule_watchdog_heartbeat_for_generation(
+                replacement,
+                stale_nonce,
+                count_watchdog_heartbeat,
+                context,
+            );
+            assert_eq!(ex_hermes_callback_backlog(replacement), 0);
+            assert_eq!(ex_hermes_poll(replacement, ex_hermes_now_ms()), 0);
+            assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+            ex_hermes_schedule_watchdog_heartbeat_for_generation(
+                replacement,
+                replacement_nonce,
+                count_watchdog_heartbeat,
+                context,
+            );
+            assert_eq!(ex_hermes_callback_backlog(replacement), 1);
+            assert_eq!(ex_hermes_poll(replacement, ex_hermes_now_ms()), 1);
+            assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 1);
+            ex_hermes_destroy(replacement);
+        }
+    }
+
+    /// Frame attribution must inspect the runtime being evaluated, not merely
+    /// the last runtime created on this thread. Snapback nests a mutation
+    /// runtime inside an action runtime; the stale thread-local used to make
+    /// the outer continuation look like it had no user principal and falsely
+    /// deny its explicitly granted fetch capability (ENG-24219).
+    #[test]
+    fn capability_attribution_tracks_the_eval_target_across_two_runtimes() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::strict();
+        host.capabilities().grant("*", "network:fetch", None);
+        crate::host::abi::install_host(host);
+
+        unsafe {
+            let outer = ex_hermes_create_diagnostic();
+            let nested = ex_hermes_create_diagnostic();
+            assert!(!outer.is_null());
+            assert!(!nested.is_null());
+
+            let (status, value) = eval(
+                outer,
+                "__exactCapabilityCheck('network:fetch:127.0.0.1') ? 'allowed' : 'denied'",
+            );
+            assert_eq!(status, 0, "outer eval failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("allowed"));
+
+            ex_hermes_destroy(nested);
+            ex_hermes_destroy(outer);
+        }
+    }
+
+    #[test]
+    fn native_owner_hosts_reject_non_integral_or_unsafe_numeric_selectors() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+
+        unsafe {
+            #[cfg(target_os = "windows")]
+            ex_host_install();
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+
+            let (status, value) = eval(
+                runtime,
+                r#"
+                (function() {
+                  var invalid = [
+                    NaN, Infinity, -Infinity, 0, -1, 1.5,
+                    9007199254740992, undefined, '1'
+                  ];
+                  var httpRejected = invalid.every(function(value) {
+                    return __exactHttpOwner(value) === false;
+                  });
+                  var stamp = __exactNetOwner('new');
+                  __exactNetOwner('assert', stamp);
+                  var stampsRejected = invalid.every(function(value) {
+                    try {
+                      __exactNetOwner('assert', value);
+                      return false;
+                    } catch (_) {
+                      return true;
+                    }
+                  });
+                  var invalidHandles = [
+                    NaN, Infinity, -Infinity, 0, -1, 1.5,
+                    9007199254740992, '1'
+                  ];
+                  var handlesRejected = invalidHandles.every(function(value) {
+                    try {
+                      __exactNetOwner('assert', stamp, value);
+                      return false;
+                    } catch (_) {
+                      return true;
+                    }
+                  });
+                  return String(httpRejected) + ':' +
+                    String(stampsRejected) + ':' + String(handlesRejected);
+                })()
+                "#,
+            );
+            assert_eq!(status, 0, "owner-host selector probe failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("true:true:true"));
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    #[test]
     fn schedule_on_app_runtime_json_dispatches_on_app_runtime() {
         unsafe {
-            let app = ex_hermes_create();
+            let app = ex_hermes_create_diagnostic();
             assert!(!app.is_null());
             assert_eq!(
                 eval(
@@ -768,7 +1211,7 @@ mod tests {
     #[test]
     fn motion_rated_publish_dispatches_fixed_sample_on_app_runtime() {
         unsafe {
-            let app = ex_hermes_create();
+            let app = ex_hermes_create_diagnostic();
             assert!(!app.is_null());
             assert_eq!(
                 eval(
@@ -801,6 +1244,116 @@ mod tests {
         }
     }
 
+    #[test]
+    fn host_policy_is_pinned_to_each_runtime_context() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let allow = crate::host::Host::strict();
+        allow.capabilities().grant("*", "network:fetch", None);
+        crate::host::abi::install_host(allow);
+        let first = unsafe { ex_hermes_create_diagnostic() };
+        assert!(!first.is_null());
+
+        let deny = crate::host::Host::strict();
+        deny.capabilities().deny("*", "network:fetch", None);
+        crate::host::abi::install_host(deny);
+        let second = unsafe { ex_hermes_create_diagnostic() };
+        assert!(!second.is_null());
+
+        let source = "__exactCapabilityCheck('network:fetch:example.com') ? 'allowed' : 'denied'";
+        let (first_status, first_value) = eval(first, source);
+        let (second_status, second_value) = eval(second, source);
+        assert_eq!((first_status, first_value.as_deref()), (0, Some("allowed")));
+        assert_eq!(
+            (second_status, second_value.as_deref()),
+            (0, Some("denied"))
+        );
+
+        unsafe {
+            ex_hermes_destroy(second);
+            ex_hermes_destroy(first);
+        }
+    }
+
+    /// Native TLS engine handles are process-global numbers at the JS ABI, but
+    /// authority must remain scoped to the creating runtime. Two runtimes can
+    /// use the same principal ids, so principal-only ownership lets one guess,
+    /// inspect, or close the other's TLS session. Runtime destruction must also
+    /// retire only that runtime's engines.
+    #[test]
+    fn tls_engine_handles_are_isolated_and_cleaned_per_runtime() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::strict();
+        crate::host::abi::install_host(host);
+
+        unsafe {
+            let first = ex_hermes_create_diagnostic();
+            let second = ex_hermes_create_diagnostic();
+            assert!(!first.is_null());
+            assert!(!second.is_null());
+
+            let (status, first_id_text) =
+                eval(first, "__exactTlsEngineNew('{\"host\":\"localhost\"}')");
+            assert_eq!(
+                status, 0,
+                "first TLS engine creation failed: {first_id_text:?}"
+            );
+            let first_id: u64 = first_id_text
+                .expect("first engine id")
+                .parse()
+                .expect("numeric first engine id");
+
+            let (status, second_id_text) =
+                eval(second, "__exactTlsEngineNew('{\"host\":\"localhost\"}')");
+            assert_eq!(
+                status, 0,
+                "second TLS engine creation failed: {second_id_text:?}"
+            );
+            let second_id: u64 = second_id_text
+                .expect("second engine id")
+                .parse()
+                .expect("numeric second engine id");
+
+            let (status, value) = eval(
+                second,
+                &format!(
+                    "try {{ __exactTlsEngineStatus({first_id}); 'leaked' }} \
+                     catch (error) {{ String(error).includes('belongs to another runtime or principal') ? 'isolated' : String(error) }}"
+                ),
+            );
+            assert_eq!(status, 0, "cross-runtime probe failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("isolated"));
+
+            ex_hermes_destroy(first);
+
+            let (status, value) = eval(
+                second,
+                &format!(
+                    "try {{ __exactTlsEngineStatus({first_id}); 'retained' }} \
+                     catch (error) {{ String(error).includes('unknown engine handle') ? 'cleaned' : String(error) }}"
+                ),
+            );
+            assert_eq!(
+                status, 0,
+                "destroyed-runtime cleanup probe failed: {value:?}"
+            );
+            assert_eq!(value.as_deref(), Some("cleaned"));
+
+            let (status, value) = eval(
+                second,
+                &format!(
+                    "JSON.parse(__exactTlsEngineStatus({second_id})).handshaking ? 'alive' : 'alive'"
+                ),
+            );
+            assert_eq!(
+                status, 0,
+                "surviving runtime lost its TLS engine: {value:?}"
+            );
+            assert_eq!(value.as_deref(), Some("alive"));
+
+            ex_hermes_destroy(second);
+        }
+    }
+
     /// A one-shot timer whose callback throws must be retired before the
     /// error propagates out of `ex_hermes_poll`; before the fix it stayed
     /// due and refired on every subsequent poll. @ref LLP 0006#degrade-diagnostics-never-the-caller
@@ -808,7 +1361,7 @@ mod tests {
     fn throwing_one_shot_timer_does_not_refire() {
         unsafe {
             std::env::set_var("IBEX_SUPPRESS_CONSOLE_MIRROR", "1");
-            let runtime = ex_hermes_create();
+            let runtime = ex_hermes_create_diagnostic();
             assert!(!runtime.is_null());
 
             let (status, value) = eval(
@@ -838,6 +1391,161 @@ mod tests {
         }
     }
 
+    /// Embedded hosts opt into report-and-continue behavior for errors escaping
+    /// async callbacks. A `nextTick` queued by a timer is drained from
+    /// `ex_hermes_poll`, not the arming eval, so this directly pins the
+    /// keep-alive policy at the poll-time nextTick drain. @ref LLP 0003#the-event-loop
+    #[test]
+    fn keep_alive_policy_continues_after_poll_time_next_tick_throw() {
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            ex_hermes_set_keep_alive_on_async_error(runtime, 1);
+
+            let (status, value) = eval(
+                runtime,
+                "globalThis.__r1TickOrder = [];\n\
+                 setTimeout(function () {\n\
+                   process.nextTick(function () {\n\
+                     globalThis.__r1TickOrder.push('threw');\n\
+                     throw new Error('keep-alive-next-tick');\n\
+                   });\n\
+                   process.nextTick(function () {\n\
+                     globalThis.__r1TickOrder.push('continued');\n\
+                   });\n\
+                 }, 0);\n\
+                 'armed';",
+            );
+            assert_eq!(status, 0, "arming eval failed: {value:?}");
+
+            let poll_status = ex_hermes_poll(runtime, u64::MAX / 2);
+            let (state_status, state) = eval(runtime, "globalThis.__r1TickOrder.join(',')");
+            ex_hermes_destroy(runtime);
+
+            assert_eq!(
+                poll_status, 1,
+                "keep-alive nextTick throw must not make the observing poll fatal"
+            );
+            assert_eq!(
+                state_status, 0,
+                "runtime must remain evaluable after the throw"
+            );
+            assert_eq!(
+                state.as_deref(),
+                Some("threw,continued"),
+                "the nextTick drain must continue after the throwing callback"
+            );
+        }
+    }
+
+    /// The native signal watcher delivers through `pushRuntimeCallback`, the
+    /// same cross-thread callback queue used by HTTP, WebSocket, DNS, and fs.
+    /// Replacing its JS dispatcher with a throwing function makes the throw
+    /// escape the queued callback itself, exercising `drainCallbackQueue`
+    /// without a network race or a test-only production hook. @ref LLP 0003#the-event-loop
+    #[cfg(unix)]
+    #[test]
+    fn keep_alive_policy_continues_after_cross_thread_callback_throw() {
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            ex_hermes_set_keep_alive_on_async_error(runtime, 1);
+
+            let signal = libc::SIGUSR2;
+            let (status, value) = eval(
+                runtime,
+                &format!(
+                    "globalThis.__r1CrossThreadRuns = 0;\n\
+                     globalThis.__exactDispatchPendingSignals = function () {{\n\
+                       globalThis.__r1CrossThreadRuns++;\n\
+                       throw new Error('keep-alive-cross-thread');\n\
+                     }};\n\
+                     __exactTrapSignal({signal});\n\
+                     'armed';"
+                ),
+            );
+            assert_eq!(status, 0, "signal callback setup failed: {value:?}");
+            assert_eq!(
+                libc::raise(signal),
+                0,
+                "failed to raise trapped test signal"
+            );
+
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            let mut backlog = ex_hermes_callback_backlog(runtime);
+            while backlog == 0 && std::time::Instant::now() < deadline {
+                std::thread::yield_now();
+                backlog = ex_hermes_callback_backlog(runtime);
+            }
+
+            let poll_status = if backlog == 0 {
+                None
+            } else {
+                Some(ex_hermes_poll(runtime, ex_hermes_now_ms()))
+            };
+            let (state_status, state) = eval(runtime, "String(globalThis.__r1CrossThreadRuns)");
+            // Restore the process-wide disposition before assertions can panic.
+            let _ = eval(runtime, &format!("__exactResetSignal({signal}); 'reset'"));
+            ex_hermes_destroy(runtime);
+
+            assert!(
+                backlog > 0,
+                "signal watcher did not enqueue its runtime callback"
+            );
+            assert_eq!(
+                poll_status,
+                Some(0),
+                "keep-alive cross-thread throw must not make the observing poll fatal"
+            );
+            assert_eq!(
+                state_status, 0,
+                "runtime must remain evaluable after the throw"
+            );
+            assert_eq!(state.as_deref(), Some("1"));
+        }
+    }
+
+    #[test]
+    fn self_clearing_interval_keeps_captured_principals_alive_through_callback() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", "network:fetch:self-clear.invalid", None);
+        assert_ne!(crate::host::abi::install_host(host), 0);
+
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let (status, value) = eval(
+                runtime,
+                "globalThis.__selfClearCount = 0;\n\
+                 globalThis.__selfClearAllowed = false;\n\
+                 var interval = setInterval(function () {\n\
+                   clearInterval(interval);\n\
+                   globalThis.__selfClearCount++;\n\
+                   globalThis.__selfClearAllowed =\n\
+                     __exactCapabilityCheck('network:fetch:self-clear.invalid');\n\
+                 }, 0);\n\
+                 'armed';",
+            );
+            assert_eq!(status, 0, "interval setup failed: {value:?}");
+
+            assert_eq!(
+                ex_hermes_poll(runtime, u64::MAX / 2),
+                1,
+                "self-clearing callback should complete after erasing its timer record"
+            );
+            assert_eq!(ex_hermes_poll(runtime, u64::MAX / 2 + 1), 0);
+            let (status, value) = eval(
+                runtime,
+                "String(globalThis.__selfClearCount) + ':' + \
+                 String(globalThis.__selfClearAllowed)",
+            );
+            assert_eq!((status, value.as_deref()), (0, Some("1:true")));
+            ex_hermes_destroy(runtime);
+        }
+    }
+
     /// setTimeout/setInterval store `due_ms = nowMs() + delay` on a MONOTONIC
     /// clock, and the Rust event loop reads that same clock via
     /// `ex_hermes_now_ms()` for the `now` it feeds to `ex_hermes_poll`. A large
@@ -848,7 +1556,7 @@ mod tests {
     fn timer_due_time_shares_monotonic_clock_domain() {
         unsafe {
             std::env::set_var("IBEX_SUPPRESS_CONSOLE_MIRROR", "1");
-            let runtime = ex_hermes_create();
+            let runtime = ex_hermes_create_diagnostic();
             assert!(!runtime.is_null());
 
             let t0 = ex_hermes_now_ms();
@@ -890,7 +1598,7 @@ mod tests {
     fn timer_delay_is_coerced_and_clamped() {
         unsafe {
             std::env::set_var("IBEX_SUPPRESS_CONSOLE_MIRROR", "1");
-            let runtime = ex_hermes_create();
+            let runtime = ex_hermes_create_diagnostic();
             assert!(!runtime.is_null());
 
             // (a) A string delay is coerced via ToNumber, so a '100000' timer is
@@ -959,6 +1667,166 @@ mod tests {
         }
     }
 
+    /// DNS and filesystem pool jobs retain JSI promise callbacks off-thread.
+    /// Destroy must enter Closing, wait for those producers to publish their
+    /// callbacks, and discard the captures on this owner thread before Hermes
+    /// is deleted. Recreating immediately exercises allocator address reuse.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn destroy_drains_delayed_dns_and_fs_producers_before_recreate() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let temp = std::env::temp_dir().join(format!(
+            "ibex-runtime-lifetime-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        std::fs::write(&temp, b"lifetime").expect("write async lifetime fixture");
+
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", &format!("fs:read:{}", temp.display()), None);
+        host.capabilities()
+            .grant("*", "network:resolve:localhost", None);
+        crate::host::abi::install_host(host);
+        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "100");
+
+        unsafe {
+            let first = ex_hermes_create_diagnostic();
+            assert!(!first.is_null());
+            let path = serde_json::to_string(&temp.to_string_lossy()).unwrap();
+            let (status, value) = eval(
+                first,
+                &format!("require('fs'); __exactFsReadFileAsync({path}); 'fs-queued'"),
+            );
+            assert_eq!((status, value.as_deref()), (0, Some("fs-queued")));
+            let started = std::time::Instant::now();
+            ex_hermes_destroy(first);
+            assert!(
+                started.elapsed() >= std::time::Duration::from_millis(60),
+                "destroy returned before the pinned filesystem worker drained"
+            );
+
+            let second = ex_hermes_create_diagnostic();
+            assert!(!second.is_null());
+            let (status, value) = eval(
+                second,
+                "require('dns'); __exactDnsLookupAsync('localhost', 4); 'dns-queued'",
+            );
+            assert_eq!((status, value.as_deref()), (0, Some("dns-queued")));
+            let started = std::time::Instant::now();
+            ex_hermes_destroy(second);
+            assert!(
+                started.elapsed() >= std::time::Duration::from_millis(60),
+                "destroy returned before the pinned DNS worker drained"
+            );
+
+            let third = ex_hermes_create_diagnostic();
+            assert!(!third.is_null());
+            assert_eq!(
+                eval(third, "'fresh-runtime'").1.as_deref(),
+                Some("fresh-runtime")
+            );
+            ex_hermes_destroy(third);
+        }
+
+        std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+        let _ = std::fs::remove_file(temp);
+    }
+
+    /// Fetch backends may complete after cancellation. The native callback
+    /// takes its nonce-bearing target before this injected delay; destroy and
+    /// immediate recreate must make the later pin fail instead of delivering
+    /// old-runtime JSI handles into a reused address.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn delayed_fetch_completion_cannot_enter_recreated_runtime() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind fetch lifetime server");
+        let port = listener.local_addr().unwrap().port();
+        let (responded_tx, responded_rx) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept fetch lifetime request");
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .expect("write fetch lifetime response");
+            let _ = stream.flush();
+            responded_tx.send(()).unwrap();
+        });
+
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", "network:fetch:127.0.0.1", None);
+        crate::host::abi::install_host(host);
+        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "150");
+
+        unsafe {
+            let first = ex_hermes_create_diagnostic();
+            assert!(!first.is_null());
+            let source = format!(
+                "__nativeFetch('http://127.0.0.1:{port}/', {{method:'GET'}}, null); 'fetch-queued'"
+            );
+            assert_eq!(eval(first, &source).1.as_deref(), Some("fetch-queued"));
+            responded_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("native fetch reached local server");
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            ex_hermes_destroy(first);
+
+            let second = ex_hermes_create_diagnostic();
+            assert!(!second.is_null());
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            assert_eq!(
+                eval(second, "'fresh-after-fetch'").1.as_deref(),
+                Some("fresh-after-fetch")
+            );
+            ex_hermes_destroy(second);
+        }
+
+        server.join().expect("fetch lifetime server thread");
+        std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+    }
+
+    #[cfg(all(feature = "host-http-server", feature = "capsec-conformance-observer"))]
+    #[test]
+    fn destroy_cancels_and_drains_delayed_http_wait_before_recreate() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", "network:listen:127.0.0.1:0", None);
+        crate::host::abi::install_host(host);
+        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "100");
+
+        unsafe {
+            let first = ex_hermes_create_diagnostic();
+            assert!(!first.is_null());
+            let (status, value) = eval(
+                first,
+                "require('http'); var __lifeServer = JSON.parse(__exactHttpServe(0, '127.0.0.1')); __exactHttpWait(__lifeServer.id, 5000); 'http-queued'",
+            );
+            assert_eq!((status, value.as_deref()), (0, Some("http-queued")));
+            let started = std::time::Instant::now();
+            ex_hermes_destroy(first);
+            assert!(
+                started.elapsed() >= std::time::Duration::from_millis(60),
+                "destroy returned before the pinned HTTP waiter drained"
+            );
+
+            let second = ex_hermes_create_diagnostic();
+            assert!(!second.is_null());
+            assert_eq!(
+                eval(second, "'fresh-after-http'").1.as_deref(),
+                Some("fresh-after-http")
+            );
+            ex_hermes_destroy(second);
+        }
+        std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+    }
+
     #[cfg(target_os = "windows")]
     mod windows_native_smoke {
         use super::*;
@@ -975,7 +1843,7 @@ mod tests {
             fn new() -> Self {
                 unsafe {
                     ex_host_install();
-                    let runtime = ex_hermes_create();
+                    let runtime = ex_hermes_create_diagnostic();
                     assert!(!runtime.is_null());
                     Self(runtime)
                 }

@@ -10,6 +10,7 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use super::Host;
+use base64::Engine as _;
 use getrandom::getrandom;
 use rusqlite::{
     hooks::{AuthAction, AuthContext, Authorization},
@@ -18,6 +19,7 @@ use rusqlite::{
     Connection, OpenFlags, ToSql,
 };
 use serde_json::json;
+use std::cell::Cell;
 use std::collections::HashMap;
 #[cfg(target_os = "android")]
 use std::ffi::c_int;
@@ -29,6 +31,69 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+thread_local! {
+    /// Normalized POSIX-style error code for the most recent host filesystem
+    /// failure on this thread. Windows `raw_os_error()` values are Win32
+    /// status codes, not errno values, so the C++ bridge must not interpret
+    /// them directly. The worker-pool caller consumes this immediately after
+    /// a failed ABI call on the same thread.
+    static LAST_FS_ERROR: Cell<i32> = const { Cell::new(0) };
+}
+
+fn normalized_io_error_code(err: &std::io::Error) -> i32 {
+    use std::io::ErrorKind;
+    #[cfg(windows)]
+    if let Some(code) = err.raw_os_error() {
+        // Preserve Win32 conditions that Node callers branch on. Mapping all
+        // unrecognized Windows errors to EIO made rename fallbacks and rimraf
+        // retries unreachable even though the C++ bridge understands these
+        // POSIX spellings.
+        match code {
+            4 => return libc::EMFILE,        // ERROR_TOO_MANY_OPEN_FILES
+            17 => return libc::EXDEV,        // ERROR_NOT_SAME_DEVICE
+            39 | 112 => return libc::ENOSPC, // ERROR_HANDLE_DISK_FULL / ERROR_DISK_FULL
+            145 => return libc::ENOTEMPTY,   // ERROR_DIR_NOT_EMPTY
+            267 => return libc::ENOTDIR,     // ERROR_DIRECTORY
+            _ => {}
+        }
+    }
+    match err.kind() {
+        ErrorKind::NotFound => libc::ENOENT,
+        ErrorKind::PermissionDenied => libc::EACCES,
+        ErrorKind::AlreadyExists => libc::EEXIST,
+        ErrorKind::NotADirectory => libc::ENOTDIR,
+        ErrorKind::IsADirectory => libc::EISDIR,
+        ErrorKind::DirectoryNotEmpty => libc::ENOTEMPTY,
+        ErrorKind::StorageFull | ErrorKind::QuotaExceeded => libc::ENOSPC,
+        ErrorKind::CrossesDevices => libc::EXDEV,
+        ErrorKind::InvalidInput | ErrorKind::InvalidData => libc::EINVAL,
+        ErrorKind::UnexpectedEof => libc::EIO,
+        ErrorKind::WriteZero => libc::ENOSPC,
+        ErrorKind::WouldBlock => libc::EAGAIN,
+        ErrorKind::TimedOut => libc::ETIMEDOUT,
+        ErrorKind::Interrupted => libc::EINTR,
+        _ => {
+            #[cfg(unix)]
+            {
+                err.raw_os_error().unwrap_or(libc::EIO)
+            }
+            #[cfg(not(unix))]
+            {
+                libc::EIO
+            }
+        }
+    }
+}
+
+fn record_fs_error(code: i32) {
+    LAST_FS_ERROR.with(|slot| slot.set(code));
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_fs_last_error() -> i32 {
+    LAST_FS_ERROR.with(Cell::get)
+}
+
 #[cfg(all(
     unix,
     not(target_os = "android"),
@@ -39,7 +104,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ))]
 #[inline]
 fn set_errno_from_io_error(err: &std::io::Error) {
-    let code = err.raw_os_error().unwrap_or(libc::EIO);
+    let code = normalized_io_error_code(err);
+    record_fs_error(code);
     unsafe {
         *libc::__errno_location() = code;
     }
@@ -48,7 +114,8 @@ fn set_errno_from_io_error(err: &std::io::Error) {
 #[cfg(target_os = "android")]
 #[inline]
 fn set_errno_from_io_error(err: &std::io::Error) {
-    let code = err.raw_os_error().unwrap_or(libc::EIO);
+    let code = normalized_io_error_code(err);
+    record_fs_error(code);
     unsafe {
         *libc::__errno() = code;
     }
@@ -62,7 +129,8 @@ fn set_errno_from_io_error(err: &std::io::Error) {
 ))]
 #[inline]
 fn set_errno_from_io_error(err: &std::io::Error) {
-    let code = err.raw_os_error().unwrap_or(libc::EIO);
+    let code = normalized_io_error_code(err);
+    record_fs_error(code);
     unsafe {
         *libc::__error() = code;
     }
@@ -70,7 +138,9 @@ fn set_errno_from_io_error(err: &std::io::Error) {
 
 #[cfg(not(unix))]
 #[inline]
-fn set_errno_from_io_error(_err: &std::io::Error) {}
+fn set_errno_from_io_error(err: &std::io::Error) {
+    record_fs_error(normalized_io_error_code(err));
+}
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 #[cfg(unix)]
@@ -79,6 +149,31 @@ use std::os::unix::fs::MetadataExt;
 pub const EXACT_HOST_ABI_VERSION: u32 = 1;
 
 static HOST: OnceLock<RwLock<Host>> = OnceLock::new();
+struct HostContextRecord {
+    host: Arc<Host>,
+    claimed: bool,
+}
+
+static HOST_CONTEXTS: OnceLock<RwLock<HashMap<u64, HostContextRecord>>> = OnceLock::new();
+
+struct PendingHostContext(Cell<u64>);
+
+impl Drop for PendingHostContext {
+    fn drop(&mut self) {
+        let context_id = self.0.replace(0);
+        if context_id != 0 {
+            release_unclaimed_host_context(context_id);
+        }
+    }
+}
+
+thread_local! {
+    static ACTIVE_HOST_CONTEXT: Cell<u64> = const { Cell::new(0) };
+    /// Exact install-to-create handoff. A runtime can claim only the Host that
+    /// its own creating thread most recently installed; equal snapshot digests
+    /// in concurrent creators are therefore not interchangeable credentials.
+    static PENDING_HOST_CONTEXT: PendingHostContext = const { PendingHostContext(Cell::new(0)) };
+}
 static SECURITY_LOG_ENABLED: OnceLock<bool> = OnceLock::new();
 static CONSOLE_MIRROR_ENABLED: OnceLock<bool> = OnceLock::new();
 
@@ -121,6 +216,24 @@ impl SqliteState {
             statements: HashMap::new(),
         }
     }
+
+    fn allocate_db_handle(&mut self) -> Option<u64> {
+        let handle = self.next_db_handle;
+        if handle == 0 || self.dbs.contains_key(&handle) {
+            return None;
+        }
+        self.next_db_handle = handle.checked_add(1)?;
+        Some(handle)
+    }
+
+    fn allocate_statement_handle(&mut self) -> Option<u64> {
+        let handle = self.next_statement_handle;
+        if handle == 0 || self.statements.contains_key(&handle) {
+            return None;
+        }
+        self.next_statement_handle = handle.checked_add(1)?;
+        Some(handle)
+    }
 }
 
 static SQLITE_STATE: OnceLock<Mutex<SqliteState>> = OnceLock::new();
@@ -162,7 +275,68 @@ fn lock_connection(connection: &Mutex<Connection>) -> MutexGuard<'_, Connection>
     }
 }
 
-pub fn install_host(host: Host) {
+fn insert_host_context(host: Arc<Host>, claimed: bool) -> u64 {
+    // Random, non-zero context tokens are capabilities, not enumerable IDs.
+    // Entropy failure or repeated collisions fail closed instead of falling
+    // back to a wrapping process-global counter.
+    for _ in 0..32 {
+        let mut bytes = [0u8; std::mem::size_of::<u64>()];
+        if getrandom(&mut bytes).is_err() {
+            return 0;
+        }
+        let context_id = u64::from_ne_bytes(bytes);
+        if context_id == 0 {
+            continue;
+        }
+        let contexts = HOST_CONTEXTS.get_or_init(|| RwLock::new(HashMap::new()));
+        let mut contexts = match contexts.write() {
+            Ok(contexts) => contexts,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if contexts.contains_key(&context_id) {
+            continue;
+        }
+        contexts.insert(
+            context_id,
+            HostContextRecord {
+                host: Arc::clone(&host),
+                claimed,
+            },
+        );
+        return context_id;
+    }
+    0
+}
+
+fn release_unclaimed_host_context(context_id: u64) {
+    let Some(contexts) = HOST_CONTEXTS.get() else {
+        return;
+    };
+    let mut contexts = match contexts.write() {
+        Ok(contexts) => contexts,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if contexts
+        .get(&context_id)
+        .is_some_and(|context| !context.claimed)
+    {
+        contexts.remove(&context_id);
+    }
+}
+
+/// Publish a Host and retain an exact, thread-bound creation token for the
+/// next Hermes constructor on this thread. Replacing an unclaimed install
+/// retires it immediately; thread teardown retires any remaining token.
+pub fn install_host(host: Host) -> u64 {
+    let previous = PENDING_HOST_CONTEXT.with(|pending| pending.0.replace(0));
+    if previous != 0 {
+        release_unclaimed_host_context(previous);
+    }
+
+    let context_id = insert_host_context(Arc::new(host.clone()), false);
+    if context_id != 0 {
+        PENDING_HOST_CONTEXT.with(|pending| pending.0.set(context_id));
+    }
     if let Some(slot) = HOST.get() {
         match slot.write() {
             Ok(mut current) => {
@@ -172,13 +346,56 @@ pub fn install_host(host: Host) {
                 *poisoned.into_inner() = host;
             }
         }
-        return;
+        return context_id;
     }
 
     let _ = HOST.set(RwLock::new(host));
+    context_id
+}
+
+/// Install an immutable armed host from caller-owned bytes. The bytes are
+/// copied and authenticated before publication; later caller mutation cannot
+/// affect the installed decision context.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), String> {
+    use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    super::reject_closed_startup_environment().map_err(|error| error.to_string())?;
+    let expected_text = std::str::from_utf8(expected_json)
+        .map_err(|error| format!("expected arming identity is not UTF-8: {error}"))?;
+    let expected_value = capsec_semantics::strict_json::parse_strict(expected_text)
+        .map_err(|error| error.to_string())?;
+    let expected: ExpectedArmingIdentity = serde_json::from_value(expected_value)
+        .map_err(|error| format!("invalid expected arming identity: {error}"))?;
+    let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
+    let host = Host::new_armed(
+        super::HostConfig {
+            mode: super::SecurityMode::Enforce,
+            ..Default::default()
+        },
+        Arc::new(armed),
+    )
+    .map_err(|error| error.to_string())?;
+    if install_host(host) == 0 {
+        return Err("failed to allocate an armed Host context token".into());
+    }
+    Ok(())
 }
 
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
+    let active = ACTIVE_HOST_CONTEXT.with(Cell::get);
+    if active != 0 {
+        let selected = HOST_CONTEXTS.get().and_then(|contexts| {
+            contexts
+                .read()
+                .ok()?
+                .get(&active)
+                .map(|row| row.host.clone())
+        });
+        if let Some(host) = selected {
+            return f(&host);
+        }
+        return default;
+    }
     let Some(host) = HOST.get() else {
         return default;
     };
@@ -187,6 +404,139 @@ fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
         Ok(current) => f(&current),
         Err(poisoned) => f(&poisoned.into_inner()),
     }
+}
+
+fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
+    let context_id = PENDING_HOST_CONTEXT.with(|pending| pending.0.get());
+    if context_id == 0 {
+        // Diagnostic construction is explicit and may be used without an
+        // embedder-installed Host. Its fallback is a fresh audit context;
+        // armed construction never has a fallback.
+        return if require_armed_digest.is_none() {
+            insert_host_context(
+                Arc::new(Host::new(super::HostConfig {
+                    mode: super::SecurityMode::Audit,
+                    ..Default::default()
+                })),
+                true,
+            )
+        } else {
+            0
+        };
+    }
+    let Some(contexts) = HOST_CONTEXTS.get() else {
+        return 0;
+    };
+    let mut contexts = match contexts.write() {
+        Ok(contexts) => contexts,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let Some(context) = contexts.get_mut(&context_id) else {
+        return 0;
+    };
+    if context.claimed {
+        return 0;
+    }
+    let kind_matches = match require_armed_digest {
+        Some(digest) => context
+            .host
+            .armed_snapshot()
+            .is_some_and(|snapshot| snapshot.digest().as_str() == digest),
+        None => context.host.armed_snapshot().is_none(),
+    };
+    if !kind_matches {
+        return 0;
+    }
+    context.claimed = true;
+    PENDING_HOST_CONTEXT.with(|pending| pending.0.set(0));
+    context_id
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_claim_armed_context(digest: *const c_char) -> u64 {
+    if digest.is_null() {
+        return 0;
+    }
+    let digest = unsafe { CStr::from_ptr(digest) }.to_string_lossy();
+    claim_pending_host_context(Some(&digest))
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_claim_diagnostic_context() -> u64 {
+    claim_pending_host_context(None)
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_enter_context(context_id: u64) -> u64 {
+    let exists = HOST_CONTEXTS
+        .get()
+        .and_then(|contexts| {
+            contexts
+                .read()
+                .ok()
+                .map(|rows| rows.get(&context_id).is_some_and(|row| row.claimed))
+        })
+        .unwrap_or(false);
+    if !exists {
+        return u64::MAX;
+    }
+    ACTIVE_HOST_CONTEXT.with(|active| active.replace(context_id))
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_restore_context(previous: u64) {
+    ACTIVE_HOST_CONTEXT.with(|active| active.set(previous));
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_release_context(context_id: u64) {
+    if let Some(contexts) = HOST_CONTEXTS.get() {
+        match contexts.write() {
+            Ok(mut contexts) => {
+                contexts.remove(&context_id);
+            }
+            Err(poisoned) => {
+                poisoned.into_inner().remove(&context_id);
+            }
+        }
+    }
+}
+
+#[doc(hidden)]
+pub fn installed_typed_decision_count() -> usize {
+    with_host(Host::typed_decision_count, 0)
+}
+
+#[doc(hidden)]
+pub fn installed_legacy_authorization_check_count() -> usize {
+    with_host(Host::legacy_authorization_check_count, 0)
+}
+
+#[cfg(feature = "capsec-conformance-observer")]
+pub fn begin_installed_conformance_observation(terminal_branch_id: &str) -> bool {
+    with_host(
+        |host| {
+            host.begin_conformance_observation(terminal_branch_id);
+            true
+        },
+        false,
+    )
+}
+
+#[cfg(feature = "capsec-conformance-observer")]
+pub fn take_installed_conformance_observations() -> (
+    Vec<super::capability::ObservedCapabilityDecision>,
+    Vec<super::ObservedTypedDecision>,
+) {
+    with_host(
+        |host| {
+            (
+                host.take_conformance_observations(),
+                host.take_typed_conformance_observations(),
+            )
+        },
+        (Vec::new(), Vec::new()),
+    )
 }
 
 /// Render the would-deny audit report for the installed host, but only when it
@@ -508,7 +858,42 @@ fn install_sqlite_authorizer(db: &Connection) {
     db.authorizer(Some(sqlite_authorizer));
 }
 
-fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
+fn stable_legacy_json_text(value: &serde_json::Value, output: &mut String) {
+    match value {
+        serde_json::Value::Array(values) => {
+            output.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                stable_legacy_json_text(value, output);
+            }
+            output.push(']');
+        }
+        serde_json::Value::Object(values) => {
+            let mut entries = values.iter().collect::<Vec<_>>();
+            entries.sort_by(|(left, _), (right, _)| left.as_bytes().cmp(right.as_bytes()));
+            output.push('{');
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output
+                    .push_str(&serde_json::to_string(key).expect("JSON object key must serialize"));
+                output.push(':');
+                stable_legacy_json_text(value, output);
+            }
+            output.push('}');
+        }
+        _ => output.push_str(&value.to_string()),
+    }
+}
+
+/// Convert an ordinary user binding using the legacy SQLite semantics. This
+/// function deliberately does not recognize the private transport envelope:
+/// envelope decoding happens exactly once at the binding boundary, otherwise
+/// a user value nested inside `{kind:"value"}` can smuggle a second envelope.
+fn plain_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
     match value {
         serde_json::Value::Null => rusqlite::types::Value::Null,
         serde_json::Value::Bool(value) => {
@@ -534,19 +919,58 @@ fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
                 .map(|value| value.as_u64().unwrap_or_default() as u8)
                 .collect(),
         ),
-        serde_json::Value::Object(value) => rusqlite::types::Value::Text(value.iter().fold(
-            String::new(),
-            |mut out, (key, value)| {
-                if !out.is_empty() {
-                    out.push(',');
-                }
-                out.push_str(key);
-                out.push('=');
-                out.push_str(&value.to_string());
-                out
-            },
-        )),
+        serde_json::Value::Object(value) => {
+            // serde_json's map representation is feature-unified across the
+            // workspace. Do not let an unrelated dependency enabling
+            // `preserve_order` silently change the legacy SQLite text value.
+            let mut entries = value.iter().collect::<Vec<_>>();
+            entries.sort_by(|(left, _), (right, _)| left.as_bytes().cmp(right.as_bytes()));
+            rusqlite::types::Value::Text(entries.into_iter().fold(
+                String::new(),
+                |mut out, (key, value)| {
+                    if !out.is_empty() {
+                        out.push(',');
+                    }
+                    out.push_str(key);
+                    out.push('=');
+                    stable_legacy_json_text(value, &mut out);
+                    out
+                },
+            ))
+        }
     }
+}
+
+fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
+    if let serde_json::Value::Object(object) = value {
+        if object.len() == 1 {
+            if let Some(envelope) = object
+                .get("$ibexSqliteBindingV1")
+                .and_then(serde_json::Value::as_object)
+            {
+                match envelope.get("kind").and_then(serde_json::Value::as_str) {
+                    Some("blob") if envelope.len() == 2 => {
+                        if let Some(encoded) =
+                            envelope.get("base64").and_then(serde_json::Value::as_str)
+                        {
+                            if let Ok(bytes) =
+                                base64::engine::general_purpose::STANDARD.decode(encoded)
+                            {
+                                return rusqlite::types::Value::Blob(bytes);
+                            }
+                        }
+                    }
+                    Some("value") if envelope.len() == 2 => {
+                        if let Some(inner) = envelope.get("value") {
+                            return plain_sql_value(inner);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    plain_sql_value(value)
 }
 
 enum SqlBindings {
@@ -618,7 +1042,10 @@ fn sqlite_value_to_json(value: ValueRef<'_>) -> serde_json::Value {
             .map(serde_json::Value::String)
             .unwrap_or(serde_json::Value::Null),
         ValueRef::Blob(value) => {
-            serde_json::Value::Array(value.iter().copied().map(serde_json::Value::from).collect())
+            serde_json::json!({
+                "$ibexSqliteBlobResultBase64":
+                    base64::engine::general_purpose::STANDARD.encode(value)
+            })
         }
     }
 }
@@ -662,6 +1089,10 @@ fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value
         std::fs::symlink_metadata(path).ok()?
     };
 
+    Some(make_stat_payload_from_metadata(meta))
+}
+
+fn make_stat_payload_from_metadata(meta: std::fs::Metadata) -> serde_json::Value {
     let mode = {
         #[cfg(unix)]
         {
@@ -742,7 +1173,7 @@ fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value
         }
     };
 
-    Some(json!({
+    json!({
         "size": meta.len(),
         "mode": mode,
         "dev": dev,
@@ -768,7 +1199,7 @@ fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value
         "mtime_ns": mtime_ns,
         "ctime_ns": ctime_ns,
         "birthtime_ns": birthtime_ns
-    }))
+    })
 }
 
 #[no_mangle]
@@ -779,12 +1210,1243 @@ pub extern "C" fn ex_host_version() -> u32 {
 #[no_mangle]
 pub extern "C" fn ex_host_init() {}
 
-/// Install the host singleton with default (permissive) configuration.
+/// Install a closed, unarmed host singleton for ABI compatibility.
 /// Called from iOS/Swift before creating a runtime.
-/// On the CLI, `install_host()` is called with a configured Host instead.
+/// Production embedders must replace it through `ex_host_install_armed`
+/// before calling the armed Hermes constructor.
 #[no_mangle]
 pub extern "C" fn ex_host_install() {
-    install_host(Host::default_legacy());
+    install_host(Host::closed_unarmed());
+}
+
+/// Explicit fail-closed embedder arming entry point. Returns 0 only after the
+/// immutable snapshot is authenticated and installed.
+///
+/// # Safety
+///
+/// Each pointer must reference its declared byte length for the duration of
+/// this call. The buffers are copied before return.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_install_armed(
+    snapshot: *const u8,
+    snapshot_len: usize,
+    expected_identity: *const u8,
+    expected_identity_len: usize,
+) -> i32 {
+    if snapshot.is_null() || expected_identity.is_null() {
+        return -1;
+    }
+    let snapshot = unsafe { std::slice::from_raw_parts(snapshot, snapshot_len) };
+    let expected = unsafe { std::slice::from_raw_parts(expected_identity, expected_identity_len) };
+    match install_armed_host(snapshot, expected) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("error: refusing host arming: {error}");
+            -1
+        }
+    }
+}
+
+/// Engine/host handshake: exact digest equality proves the runtime being
+/// created is attached to the decision context the caller authenticated.
+///
+/// # Safety
+///
+/// `digest` must be null or point to a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_matches_armed_snapshot_digest(digest: *const c_char) -> i32 {
+    if digest.is_null() {
+        return 0;
+    }
+    let Ok(digest) = unsafe { CStr::from_ptr(digest) }.to_str() else {
+        return 0;
+    };
+    with_host(
+        |host| {
+            i32::from(
+                host.armed_snapshot()
+                    .is_some_and(|snapshot| snapshot.digest().as_str() == digest),
+            )
+        },
+        0,
+    )
+}
+
+/// Evaluate a complete typed decision set against the installed immutable
+/// context. Returns a heap-owned JSON decision/evidence envelope; malformed
+/// input, missing arming, and semantic errors return an `error` envelope and
+/// must be treated as denial by the caller.
+/// @ref LLP 0021#decision-staging-and-principal-semantics
+///
+/// # Safety
+///
+/// Non-null pointers must reference their declared byte lengths for the
+/// duration of this call. The returned string is owned by the caller and must
+/// be released with `ex_host_free_string`.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_evaluate_typed_decision(
+    decision_set: *const u8,
+    decision_set_len: usize,
+    gates: *const u8,
+    gates_len: usize,
+) -> *mut c_char {
+    if decision_set.is_null() || gates.is_null() {
+        return as_json_cstring(&json!({"error": "null typed decision input"}));
+    }
+    let decision_set = unsafe { std::slice::from_raw_parts(decision_set, decision_set_len) };
+    let gates = unsafe { std::slice::from_raw_parts(gates, gates_len) };
+    let result = with_host(
+        |host| match host.evaluate_typed_decision_json_with_evidence(decision_set, gates) {
+            Ok(result) => as_json_cstring(&json!({
+                "decision": result.decision,
+                "evidence": result.evidence,
+            })),
+            Err(error) => as_json_cstring(&json!({"error": error.to_string()})),
+        },
+        std::ptr::null_mut(),
+    );
+    if result.is_null() {
+        as_json_cstring(&json!({"error": "host is not installed"}))
+    } else {
+        result
+    }
+}
+
+/// Authorize one stage of the native `fs.open` branch against authenticated
+/// logical roots, a retained parent directory, and the actual descriptor.
+/// Returns 1 allow, 0 deny, and -1 for malformed/unsupported adapter input.
+///
+/// # Safety
+/// `module_ids` must reference `module_ids_len` values. `path` and an optional
+/// `presented_handle_id` must be valid C strings for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    path: *const c_char,
+    stage: u32,
+    surface: u32,
+    parent_fd: i32,
+    fd: i32,
+    needs_read: i32,
+    needs_write: i32,
+    presented_handle_id: *const c_char,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{NonEmptyString, Stage};
+
+    if path.is_null()
+        || module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || !matches!(stage, 0..=5)
+    {
+        return -1;
+    }
+    let (operation_key, coverage_edge_id) = match surface {
+        0 => ("fs-open", "surface.native.op.exactfsopen.05ao6wa"),
+        1 => ("fs-read-file", "surface.native.op.exactreadfile.1cmzco7"),
+        2 => (
+            "fs-read-file-async",
+            "surface.native.op.exactfsreadfileasync.0fw3fo0",
+        ),
+        3 => ("fs-stat", "surface.native.op.exactstat.1432ztv"),
+        4 => ("fs-readdir", "surface.native.op.exactreaddir.0tg30vk"),
+        5 => ("fs-write-file", "surface.native.op.exactwritefile.1h0gy8u"),
+        6 => (
+            "fs-append-file",
+            "surface.native.op.exactappendfile.1b1b7nn",
+        ),
+        7 => (
+            "fs-write-file-async",
+            "surface.native.op.exactfswritefileasync.0fv6zp9",
+        ),
+        8 => (
+            "fs-stat-async",
+            "surface.native.op.exactfsstatasync.0b0hr8s",
+        ),
+        9 => ("fs-realpath", "surface.native.op.exactrealpath.06qb6s2"),
+        10 => ("fs-lstat", "surface.native.op.exactlstat.1c98s6l"),
+        11 => (
+            "fs-lstat-async",
+            "surface.native.op.exactfsstatasync.0b0hr8s",
+        ),
+        12 => ("fs-mkdir", "surface.native.op.exactmkdir.021eaz0"),
+        _ => return -1,
+    };
+    let follow_mode = if matches!(surface, 10 | 11) {
+        capsec_semantics::model::FollowMode::NoFollowFinal
+    } else {
+        capsec_semantics::model::FollowMode::FollowFinal
+    };
+    let path_bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
+    #[cfg(unix)]
+    let path = {
+        use std::os::unix::ffi::OsStrExt;
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(path_bytes))
+    };
+    #[cfg(not(unix))]
+    let path = match std::str::from_utf8(path_bytes) {
+        Ok(path) => std::path::PathBuf::from(path),
+        Err(_) => return -1,
+    };
+    let presented = if presented_handle_id.is_null() {
+        Vec::new()
+    } else {
+        let value = unsafe { CStr::from_ptr(presented_handle_id) }
+            .to_string_lossy()
+            .into_owned();
+        match NonEmptyString::new(value) {
+            Ok(value) => vec![value],
+            Err(_) => return -1,
+        }
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let (stage, object_state, disclosure_only, parent_object, final_object, retained_handle) =
+        if stage == 0 {
+            (
+                Stage::Requested,
+                capsec_semantics::model::ObjectState::Existing,
+                true,
+                None,
+                None,
+                None,
+            )
+        } else if matches!(stage, 3 | 4) {
+            #[cfg(unix)]
+            {
+                if parent_fd < 0 {
+                    return -1;
+                }
+                let Some(parent_object) = object_identity_for_fd(parent_fd) else {
+                    return 0;
+                };
+                let (object_state, final_object) = match object_identity_at(
+                    parent_fd,
+                    &path,
+                    follow_mode == capsec_semantics::model::FollowMode::FollowFinal,
+                ) {
+                    Ok(Some(identity)) => (
+                        capsec_semantics::model::ObjectState::Existing,
+                        Some(identity),
+                    ),
+                    Ok(None) => (capsec_semantics::model::ObjectState::AbsentCreate, None),
+                    Err(()) => return 0,
+                };
+                (
+                    Stage::Discovery,
+                    object_state,
+                    stage == 3,
+                    Some(parent_object),
+                    final_object,
+                    None,
+                )
+            }
+            #[cfg(not(unix))]
+            {
+                return -1;
+            }
+        } else {
+            if parent_fd < 0 || fd < 0 {
+                return -1;
+            }
+            #[cfg(unix)]
+            {
+                let Some(final_object) = object_identity_for_fd(fd) else {
+                    return -1;
+                };
+                let Some(parent_object) = object_identity_for_fd(parent_fd) else {
+                    return -1;
+                };
+                let retained = match NonEmptyString::new(format!("fd:{fd}")) {
+                    Ok(value) => value,
+                    Err(_) => return -1,
+                };
+                (
+                    if stage == 1 {
+                        Stage::Commit
+                    } else {
+                        Stage::Repeat
+                    },
+                    capsec_semantics::model::ObjectState::Existing,
+                    stage == 5,
+                    Some(parent_object),
+                    Some(final_object),
+                    Some(retained),
+                )
+            }
+            #[cfg(not(unix))]
+            {
+                return -1;
+            }
+        };
+    let resolved_parent_path = if stage == Stage::Requested {
+        None
+    } else {
+        match resolved_path_for_fd(parent_fd) {
+            Some(path) => Some(path),
+            None => return 0,
+        }
+    };
+    with_host(
+        |host| {
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            #[cfg(unix)]
+            if matches!(stage, Stage::Discovery | Stage::Commit) {
+                let Some(principal) = host.typed_principal_for_module(&module_id.to_string())
+                else {
+                    return -1;
+                };
+                let requested = match host.typed_logical_path(&principal, &path) {
+                    Ok(requested) => requested,
+                    Err(error) => {
+                        eprintln!("error: typed filesystem path refused: {error}");
+                        return -1;
+                    }
+                };
+                // Opening a logical root necessarily retains its parent, which
+                // is outside that root. The decision below binds the discovered
+                // final object to the authenticated root object; descendants
+                // still require the retained parent itself to descend from it.
+                // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+                if !requested.components.is_empty() {
+                    match host.validate_typed_parent_fd_ancestry(&principal, &path, parent_fd) {
+                        Ok(true) => {}
+                        Ok(false) => return 0,
+                        Err(error) => {
+                            eprintln!(
+                                "error: retained filesystem parent ancestry refused: {error}"
+                            );
+                            return -1;
+                        }
+                    }
+                }
+            }
+            match host.authorize_typed_fs_open_stage(
+                &module_id.to_string(),
+                operation_key,
+                coverage_edge_id,
+                constrained_principals,
+                &path,
+                stage,
+                object_state,
+                follow_mode,
+                disclosure_only,
+                resolved_parent_path.as_deref(),
+                needs_read != 0
+                    && !(stage == Stage::Discovery
+                        && object_state == capsec_semantics::model::ObjectState::AbsentCreate
+                        && !disclosure_only),
+                needs_write != 0,
+                parent_object,
+                final_object,
+                retained_handle,
+                presented,
+            ) {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed filesystem authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
+/// Authorize one declared stage of a reviewed native system-information read.
+/// Returns 1 for allow, 0 for deny, and -1 for malformed or unsupported input.
+///
+/// `surface` selects a closed native adapter/coverage-edge mapping.  The
+/// `info_name` tag is consulted only by the generic cached-value gate; native
+/// readers have an immutable resource kind in the table below.  This keeps
+/// JavaScript from supplying action ids or coverage-edge ids as strings.
+///
+/// # Safety
+/// `module_ids` must reference `module_ids_len` values for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_system_info_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    surface: u32,
+    info_name: u32,
+    stage: u32,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{Stage, SystemInfoName};
+
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 || stage > 1 {
+        return -1;
+    }
+    let decode_name = |tag| match tag {
+        0 => Some(SystemInfoName::Architecture),
+        1 => Some(SystemInfoName::CameraMetadata),
+        2 => Some(SystemInfoName::Cpus),
+        3 => Some(SystemInfoName::Cwd),
+        4 => Some(SystemInfoName::Hostname),
+        5 => Some(SystemInfoName::Language),
+        6 => Some(SystemInfoName::LoadAverage),
+        7 => Some(SystemInfoName::Locale),
+        8 => Some(SystemInfoName::Memory),
+        9 => Some(SystemInfoName::NetworkInterfaces),
+        10 => Some(SystemInfoName::OsRelease),
+        11 => Some(SystemInfoName::Platform),
+        12 => Some(SystemInfoName::Screen),
+        13 => Some(SystemInfoName::StoragePaths),
+        14 => Some(SystemInfoName::Uptime),
+        15 => Some(SystemInfoName::User),
+        _ => None,
+    };
+    let (operation_key, coverage_edge_id, name) = match surface {
+        0 => (
+            "get-cpu-count",
+            "surface.native.op.exactgetcpucount.1k05aty",
+            SystemInfoName::Cpus,
+        ),
+        1 => (
+            "get-free-memory",
+            "surface.native.op.exactgetfreemem.0dytp7m",
+            SystemInfoName::Memory,
+        ),
+        2 => (
+            "get-hostname",
+            "surface.native.op.exactgethostname.01gi6am",
+            SystemInfoName::Hostname,
+        ),
+        3 => (
+            "get-load-average",
+            "surface.native.op.exactgetloadavg.10t3k2t",
+            SystemInfoName::LoadAverage,
+        ),
+        4 => (
+            "get-network-interfaces",
+            "surface.native.op.exactgetnetworkinterfaces.15q8n2j",
+            SystemInfoName::NetworkInterfaces,
+        ),
+        5 => (
+            "get-total-memory",
+            "surface.native.op.exactgettotalmem.0ziuv9c",
+            SystemInfoName::Memory,
+        ),
+        6 => (
+            "get-uptime",
+            "surface.native.op.exactgetuptime.0ydqt27",
+            SystemInfoName::Uptime,
+        ),
+        7 => (
+            "get-user-info",
+            "surface.native.op.exactgetuserinfo.027b1gs",
+            SystemInfoName::User,
+        ),
+        8 => (
+            "authorize-cached-system-info",
+            "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+            match decode_name(info_name) {
+                Some(name) => name,
+                None => return -1,
+            },
+        ),
+        9 => (
+            "system-info-process-rss",
+            "surface.native.op.exactgetprocessrss.0o50wgs",
+            SystemInfoName::Memory,
+        ),
+        10 => (
+            "system-info-cwd",
+            "surface.native.op.exactgetcwd.1bhagb7",
+            SystemInfoName::Cwd,
+        ),
+        _ => return -1,
+    };
+    let stage = if stage == 0 {
+        Stage::Requested
+    } else {
+        Stage::Commit
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            match host.authorize_typed_system_info_stage(
+                &module_id.to_string(),
+                operation_key,
+                coverage_edge_id,
+                constrained_principals,
+                name,
+                stage,
+            ) {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed system-information authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
+/// Authorize one requested/commit stage for an exact broker-base environment
+/// read. Returns 1 allow, 0 deny, and -1 for malformed adapter input.
+///
+/// # Safety
+/// `module_ids` and `name` must reference their declared lengths for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_environment_read_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    stage: u32,
+    name: *const u8,
+    name_len: usize,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{EnvironmentName, Stage};
+
+    if module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || name.is_null()
+        || name_len == 0
+        || name_len > 32_768
+        || stage > 1
+    {
+        return -1;
+    }
+    let stage = if stage == 0 {
+        Stage::Requested
+    } else {
+        Stage::Commit
+    };
+    let name = unsafe { std::slice::from_raw_parts(name, name_len) };
+    let name = match std::str::from_utf8(name)
+        .ok()
+        .and_then(|name| EnvironmentName::new(name).ok())
+    {
+        Some(name) => name,
+        None => return -1,
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            match host.authorize_typed_environment_read_stage(
+                &module_id.to_string(),
+                constrained_principals,
+                name,
+                stage,
+            ) {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed environment authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
+/// Authorize one stage of the direct global `print()` stdout broker write.
+/// Returns 1 allow, 0 deny, and -1 for malformed adapter input.
+///
+/// # Safety
+/// `module_ids` must reference `module_ids_len` values for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_print_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    stage: u32,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::Stage;
+
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return -1;
+    }
+    let stage = match stage {
+        0 => Stage::Requested,
+        2 => Stage::Commit,
+        4 => Stage::Repeat,
+        _ => return -1,
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            match host.authorize_typed_print_stage(
+                &module_id.to_string(),
+                constrained_principals,
+                stage,
+            ) {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed print authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
+/// Authorize one staged fetch or raw-connect occurrence from an engine adapter.
+/// Returns 1 allow, 0 deny, and -1 for malformed or unsupported input.
+///
+/// `network_kind` is 0/1 for HTTP/HTTPS fetch and 2..=7 for
+/// TCP/TLS/UDP/WS/WSS connect. `stage` is requested, candidate,
+/// commit, delivery, repeat, or cleanup as 0..=5. Candidates are a canonical
+/// JSON array of IP address strings; optional strings use null pointers.
+///
+/// # Safety
+/// All pointer/length pairs and C strings must remain valid for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    network_kind: u32,
+    host: *const c_char,
+    port: u16,
+    stage: u32,
+    candidates_json: *const c_char,
+    selected_candidate: *const c_char,
+    verified_peer: *const c_char,
+    connection_id: *const c_char,
+    redirect_index: u64,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{
+        ConcreteHost, ConnectTransport, DnsName, FetchScheme, IpAddress, NonEmptyString, Port,
+        SafeUint, Stage, VerifiedPeer,
+    };
+
+    if module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || host.is_null()
+        || candidates_json.is_null()
+        || port == 0
+        || stage > 5
+        || network_kind > 6
+    {
+        return -1;
+    }
+    let stage = match stage {
+        0 => Stage::Requested,
+        1 => Stage::Candidate,
+        2 => Stage::Commit,
+        3 => Stage::Delivery,
+        4 => Stage::Repeat,
+        5 => Stage::Cleanup,
+        _ => return -1,
+    };
+    let host_text = unsafe { CStr::from_ptr(host) }.to_string_lossy();
+    let concrete_host = match host_text.parse::<std::net::IpAddr>() {
+        Ok(address) if IpAddress::new(address).to_string() == host_text => ConcreteHost::Ip {
+            address: IpAddress::new(address),
+        },
+        Ok(_) => return -1,
+        Err(_) => match DnsName::new(host_text.as_ref()) {
+            Ok(name) => ConcreteHost::DnsName { name },
+            Err(_) => return -1,
+        },
+    };
+    let Some(port) = Port::new(port) else {
+        return -1;
+    };
+    let candidates_text = unsafe { CStr::from_ptr(candidates_json) }.to_bytes();
+    let candidates: Vec<IpAddress> = match std::str::from_utf8(candidates_text)
+        .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))
+        .and_then(capsec_semantics::strict_json::parse_strict)
+        .and_then(|value| {
+            serde_json::from_value(value)
+                .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))
+        }) {
+        Ok(candidates) => candidates,
+        Err(_) => return -1,
+    };
+    let parse_optional_ip = |value: *const c_char| -> Option<Option<IpAddress>> {
+        if value.is_null() {
+            return Some(None);
+        }
+        let text = unsafe { CStr::from_ptr(value) }.to_string_lossy();
+        let address = text.parse::<std::net::IpAddr>().ok()?;
+        (IpAddress::new(address).to_string() == text).then_some(Some(IpAddress::new(address)))
+    };
+    let Some(selected_candidate) = parse_optional_ip(selected_candidate) else {
+        return -1;
+    };
+    let Some(verified_address) = parse_optional_ip(verified_peer) else {
+        return -1;
+    };
+    let verified_peer = verified_address.map(|address| VerifiedPeer { address, port });
+    let connection_id = if connection_id.is_null() {
+        None
+    } else {
+        match NonEmptyString::new(
+            unsafe { CStr::from_ptr(connection_id) }
+                .to_string_lossy()
+                .into_owned(),
+        ) {
+            Ok(value) => Some(value),
+            Err(_) => return -1,
+        }
+    };
+    let redirect_index = if redirect_index == u64::MAX {
+        None
+    } else {
+        match SafeUint::new(redirect_index) {
+            Ok(value) => Some(value),
+            Err(_) => return -1,
+        }
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            let result = match network_kind {
+                0 | 1 => host.authorize_typed_fetch_stage(
+                    &module_id.to_string(),
+                    constrained_principals,
+                    if network_kind == 0 {
+                        FetchScheme::Http
+                    } else {
+                        FetchScheme::Https
+                    },
+                    concrete_host,
+                    port,
+                    stage,
+                    candidates,
+                    selected_candidate,
+                    verified_peer,
+                    connection_id,
+                    redirect_index,
+                ),
+                2..=6 => host.authorize_typed_connect_stage(
+                    &module_id.to_string(),
+                    match network_kind {
+                        2 | 3 => "tcp-connect",
+                        4 => "udp-send",
+                        5 | 6 => "websocket-connect",
+                        _ => unreachable!(),
+                    },
+                    match network_kind {
+                        2 | 3 => "surface.native.op.exacttcpconnect.1cs9rhu",
+                        4 => "surface.native.op.exactudpsend.0k2gg86",
+                        5 | 6 => "surface.native.op.exactwsconnect.026jz87",
+                        _ => unreachable!(),
+                    },
+                    constrained_principals,
+                    match network_kind {
+                        2 => ConnectTransport::Tcp,
+                        3 => ConnectTransport::Tls,
+                        4 => ConnectTransport::Udp,
+                        5 => ConnectTransport::Ws,
+                        6 => ConnectTransport::Wss,
+                        _ => unreachable!(),
+                    },
+                    concrete_host,
+                    port,
+                    stage,
+                    candidates,
+                    selected_candidate,
+                    verified_peer,
+                    connection_id,
+                ),
+                _ => return -1,
+            };
+            match result {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed network authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
+/// Authorize one literal-destination UDP datagram across requested, candidate,
+/// and commit stages while parsing and attributing its inputs only once.
+///
+/// # Safety
+/// Pointer arguments must remain valid for the duration of this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_udp_datagram_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    host: *const c_char,
+    port: u16,
+    connection_id: *const c_char,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{
+        ConcreteHost, ConnectTransport, IpAddress, NonEmptyString, Port, Stage, VerifiedPeer,
+    };
+
+    if module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || host.is_null()
+        || connection_id.is_null()
+        || port == 0
+    {
+        return -1;
+    }
+    let host_text = unsafe { CStr::from_ptr(host) }.to_string_lossy();
+    let address = match host_text.parse::<std::net::IpAddr>() {
+        Ok(address) if IpAddress::new(address).to_string() == host_text => IpAddress::new(address),
+        _ => return -1,
+    };
+    let Some(port) = Port::new(port) else {
+        return -1;
+    };
+    let connection_id = match NonEmptyString::new(
+        unsafe { CStr::from_ptr(connection_id) }
+            .to_string_lossy()
+            .into_owned(),
+    ) {
+        Ok(value) => value,
+        Err(_) => return -1,
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let mut constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            constrained_principals
+                .sort_by_key(|principal| principal.canonical_sort_key().unwrap_or_default());
+            constrained_principals.dedup();
+            let requested = ConcreteHost::Ip { address };
+            for stage in [Stage::Requested, Stage::Candidate, Stage::Commit] {
+                let selected = (stage != Stage::Requested).then_some(address);
+                let verified = (stage == Stage::Commit).then_some(VerifiedPeer { address, port });
+                let committed_id = (stage == Stage::Commit).then_some(connection_id.clone());
+                let result = host.authorize_typed_connect_stage(
+                    &module_id.to_string(),
+                    "udp-send",
+                    "surface.native.op.exactudpsend.0k2gg86",
+                    constrained_principals.clone(),
+                    ConnectTransport::Udp,
+                    requested.clone(),
+                    port,
+                    stage,
+                    vec![address],
+                    selected,
+                    verified,
+                    committed_id,
+                );
+                match result {
+                    Ok(decision)
+                        if matches!(
+                            decision.outcome,
+                            DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                        ) => {}
+                    Ok(_) => return 0,
+                    Err(error) => {
+                        eprintln!("error: typed UDP authorization refused: {error}");
+                        return -1;
+                    }
+                }
+            }
+            1
+        },
+        -1,
+    )
+}
+
+#[cfg(unix)]
+fn object_identity_for_fd(fd: i32) -> Option<capsec_semantics::model::ObjectIdentity> {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    object_identity_from_stat(unsafe { stat.assume_init() })
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn resolved_path_for_fd(fd: i32) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+    if unsafe { libc::fcntl(fd, libc::F_GETPATH, buffer.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    let length = buffer.iter().position(|byte| *byte == 0)?;
+    Some(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(
+        &buffer[..length],
+    )))
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+fn resolved_path_for_fd(fd: i32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()
+}
+
+#[cfg(unix)]
+fn object_identity_at(
+    parent_fd: i32,
+    path: &std::path::Path,
+    follow_final: bool,
+) -> Result<Option<capsec_semantics::model::ObjectIdentity>, ()> {
+    use std::os::unix::ffi::OsStrExt;
+    let name = path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("."));
+    let name = std::ffi::CString::new(name.as_bytes()).map_err(|_| ())?;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let flags = if follow_final {
+        0
+    } else {
+        libc::AT_SYMLINK_NOFOLLOW
+    };
+    if unsafe { libc::fstatat(parent_fd, name.as_ptr(), stat.as_mut_ptr(), flags) } == 0 {
+        return Ok(object_identity_from_stat(unsafe { stat.assume_init() }));
+    }
+    match std::io::Error::last_os_error().raw_os_error() {
+        Some(libc::ENOENT) => Ok(None),
+        _ => Err(()),
+    }
+}
+
+#[cfg(unix)]
+fn object_identity_from_stat(stat: libc::stat) -> Option<capsec_semantics::model::ObjectIdentity> {
+    object_identity(stat.st_dev as u64, stat.st_ino)
+}
+
+#[cfg(unix)]
+fn object_identity(dev: u64, ino: u64) -> Option<capsec_semantics::model::ObjectIdentity> {
+    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+    Some(ObjectIdentity {
+        platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+            ObjectPlatform::Apple
+        } else {
+            ObjectPlatform::Unix
+        },
+        volume: NonEmptyString::new(format!("dev:{dev}")).ok()?,
+        file: NonEmptyString::new(format!("ino:{ino}")).ok()?,
+    })
+}
+
+/// Publish a ceiling-bounded typed dynamic grant. Returns 1 when applied, 0
+/// for an idempotent duplicate, and -1 on malformed/forbidden input.
+///
+/// # Safety
+///
+/// `request` must reference `request_len` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_dynamic_grant(
+    module_id: u64,
+    request: *const u8,
+    request_len: usize,
+) -> i32 {
+    if request.is_null() {
+        return -1;
+    }
+    let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+    let result = with_host(
+        |host| match host.typed_principal_for_module(&module_id.to_string()) {
+            Some(principal) => {
+                match host.grant_typed_dynamic_json_for_principal(principal, request) {
+                    Ok(applied) => i32::from(applied),
+                    Err(error) => {
+                        eprintln!("error: typed dynamic grant refused: {error}");
+                        -1
+                    }
+                }
+            }
+            None => {
+                eprintln!("error: typed dynamic grant refused: unknown executing principal");
+                -1
+            }
+        },
+        -1,
+    );
+    if result == 1 {
+        notify_runtime_authority_change();
+    }
+    result
+}
+
+/// Revoke a typed dynamic grant by its JSON string ID. Returns 1 when removed,
+/// 0 when absent, and -1 on malformed input.
+///
+/// # Safety
+///
+/// `request` must reference `request_len` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_dynamic_revoke(
+    module_id: u64,
+    request: *const u8,
+    request_len: usize,
+) -> i32 {
+    if request.is_null() {
+        return -1;
+    }
+    let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+    let result = with_host(
+        |host| match host.typed_principal_for_module(&module_id.to_string()) {
+            Some(principal) => {
+                match host.revoke_typed_dynamic_json_for_principal(&principal, request) {
+                    Ok(removed) => i32::from(removed),
+                    Err(error) => {
+                        eprintln!("error: typed dynamic revocation refused: {error}");
+                        -1
+                    }
+                }
+            }
+            None => {
+                eprintln!("error: typed dynamic revocation refused: unknown executing principal");
+                -1
+            }
+        },
+        -1,
+    );
+    if result == 1 {
+        notify_runtime_authority_change();
+    }
+    result
+}
+
+/// Mint or re-attenuate an unguessable typed bearer handle. Returns a
+/// heap-owned JSON `handleId` or `error` envelope.
+///
+/// # Safety
+///
+/// `request` must reference `request_len` readable bytes for this call. Free
+/// the returned string with `ex_host_free_string`.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_handle_mint(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    request: *const u8,
+    request_len: usize,
+) -> *mut c_char {
+    if request.is_null() || module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return as_json_cstring(&json!({"error": "null typed handle request"}));
+    }
+    let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let result = with_host(
+        |host| {
+            let Some(actor) = host.typed_principal_for_module(&module_id.to_string()) else {
+                return as_json_cstring(&json!({"error": "authenticated handle actor is unknown"}));
+            };
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => {
+                    return as_json_cstring(
+                        &json!({"error": "constrained handle principal is unknown"}),
+                    )
+                }
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(error) => {
+                        return as_json_cstring(&json!({"error": error.to_string()}));
+                    }
+                };
+            match host.mint_typed_handle_json_for_actor(actor, constrained_principals, request) {
+                Ok(handle_id) => {
+                    notify_runtime_authority_change();
+                    as_json_cstring(&json!({"handleId": handle_id.as_str()}))
+                }
+                Err(error) => as_json_cstring(&json!({"error": error.to_string()})),
+            }
+        },
+        std::ptr::null_mut(),
+    );
+    if result.is_null() {
+        as_json_cstring(&json!({"error": "host is not installed"}))
+    } else {
+        result
+    }
+}
+
+/// Revoke a typed bearer handle and all descendants by JSON string ID.
+/// Returns 1 when removed, 0 when absent, and -1 on malformed input.
+///
+/// # Safety
+///
+/// `request` must reference `request_len` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_handle_revoke(
+    module_id: u64,
+    request: *const u8,
+    request_len: usize,
+) -> i32 {
+    if request.is_null() {
+        return -1;
+    }
+    let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+    let result = with_host(
+        |host| {
+            let Some(actor) = host.typed_principal_for_module(&module_id.to_string()) else {
+                return -1;
+            };
+            match host.revoke_typed_handle_json_for_actor(&actor, request) {
+                Ok(removed) => i32::from(removed),
+                Err(error) => {
+                    eprintln!("error: typed handle revocation refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    );
+    if result == 1 {
+        notify_runtime_authority_change();
+    }
+    result
+}
+
+/// Copy the current authenticated authority generations into caller-owned
+/// outputs. Returns 1 for an armed host and 0 otherwise.
+///
+/// # Safety
+/// All output pointers must be non-null and writable.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_generations(
+    negative: *mut u64,
+    dynamic: *mut u64,
+    handle: *mut u64,
+) -> i32 {
+    if negative.is_null() || dynamic.is_null() || handle.is_null() {
+        return 0;
+    }
+    let Some(generations) = with_host(|host| host.typed_generations(), None) else {
+        return 0;
+    };
+    unsafe {
+        *negative = generations.negative.get();
+        *dynamic = generations.dynamic.get();
+        *handle = generations.handle.get();
+    }
+    1
+}
+
+fn notify_runtime_authority_change() {
+    unsafe extern "C" {
+        fn ex_hermes_notify_callback();
+    }
+    unsafe { ex_hermes_notify_callback() };
 }
 
 /// Returns 1 if the host is in Legacy (allow-all) mode, 0 otherwise.
@@ -792,6 +2454,48 @@ pub extern "C" fn ex_host_install() {
 #[no_mangle]
 pub extern "C" fn ex_host_is_allow_all() -> i32 {
     with_host(|host| if host.is_allow_all() { 1 } else { 0 }, 0)
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_is_armed() -> i32 {
+    with_host(|host| i32::from(host.armed_snapshot().is_some()), 0)
+}
+
+/// Return the authenticated snapshot endowments for the active Host context as
+/// a strict JSON array of `{locator,endowments}` rows. Bootstrap consumes and
+/// frees this copy; no process-global environment channel or delimiter parser
+/// participates in production authority.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+#[no_mangle]
+pub extern "C" fn ex_host_armed_endowments() -> *mut c_char {
+    let projection = with_host(
+        |host| {
+            host.armed_snapshot().map_or(Ok(None), |snapshot| {
+                snapshot.compartment_endowments_json().map(Some)
+            })
+        },
+        Ok(None),
+    );
+    let Ok(Some(projection)) = projection else {
+        return ptr::null_mut();
+    };
+    CString::new(projection)
+        .map(CString::into_raw)
+        .unwrap_or(ptr::null_mut())
+}
+
+/// Return the current legacy capability-decision generation. Zero means no
+/// host is installed and therefore cannot validate a retained-resource lease.
+#[no_mangle]
+pub extern "C" fn ex_host_legacy_authorization_generation() -> u64 {
+    with_host(Host::legacy_authorization_generation, 0)
+}
+
+/// Only enforce-mode allows may be memoized. Audit would-denies deliberately
+/// proceed but must still append evidence on every occurrence.
+#[no_mangle]
+pub extern "C" fn ex_host_legacy_authorization_cacheable() -> i32 {
+    with_host(|host| i32::from(host.legacy_authorization_cacheable()), 0)
 }
 
 /// Read an entire file into a heap-allocated buffer in a single call.
@@ -811,7 +2515,8 @@ pub extern "C" fn ex_host_fs_read_file(
     let mut file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(err) => {
-            let errno_code = err.raw_os_error().unwrap_or(libc::EIO);
+            let errno_code = normalized_io_error_code(&err);
+            record_fs_error(errno_code);
             unsafe {
                 *out_len = 0;
                 if !out_errno.is_null() {
@@ -836,7 +2541,8 @@ pub extern "C" fn ex_host_fs_read_file(
             Box::into_raw(boxed) as *mut u8
         }
         Err(err) => {
-            let errno_code = err.raw_os_error().unwrap_or(libc::EIO);
+            let errno_code = normalized_io_error_code(&err);
+            record_fs_error(errno_code);
             unsafe {
                 *out_len = 0;
                 if !out_errno.is_null() {
@@ -1174,6 +2880,7 @@ pub extern "C" fn ex_host_register_module_package(
     module_id: u64,
     package: *const c_char,
     locator: *const c_char,
+    integrity: *const c_char,
 ) {
     if package.is_null() {
         return;
@@ -1190,9 +2897,25 @@ pub extern "C" fn ex_host_register_module_package(
                 .to_string(),
         )
     };
+    let integrity = if integrity.is_null() {
+        None
+    } else {
+        Some(
+            unsafe { CStr::from_ptr(integrity) }
+                .to_string_lossy()
+                .to_string(),
+        )
+    };
     let module = module_id.to_string();
     with_host(
-        |host| host.register_module_package(&module, &package, locator.as_deref()),
+        |host| {
+            host.register_module_package(
+                &module,
+                &package,
+                locator.as_deref(),
+                integrity.as_deref(),
+            )
+        },
         (),
     );
 }
@@ -1298,6 +3021,7 @@ fn module_meta_json(module: &crate::module_loader::ResolvedModule) -> serde_json
         // so the loader can form the `name@version` runtime identity for
         // version-distinguished principals/compartments. (ENG-22621)
         "pkgVersion": module.package_version,
+        "pkgIntegrity": module.package_integrity,
     })
 }
 
@@ -1310,6 +3034,7 @@ fn module_resolve_cstring(payload: &serde_json::Value) -> *mut c_char {
 
 #[no_mangle]
 pub extern "C" fn ex_host_module_resolve(
+    requester_module_id: u64,
     specifier: *const c_char,
     referrer: *const c_char,
 ) -> *mut c_char {
@@ -1320,7 +3045,11 @@ pub extern "C" fn ex_host_module_resolve(
     let resolved = with_host(
         |host| {
             let path = referrer.as_ref().map(std::path::PathBuf::from);
-            host.resolve_module(&spec, path.as_deref())
+            host.resolve_module_for_principal(
+                &spec,
+                path.as_deref(),
+                Some(&requester_module_id.to_string()),
+            )
         },
         Err(anyhow::anyhow!("Host not initialized")),
     );
@@ -1332,10 +3061,42 @@ pub extern "C" fn ex_host_module_resolve(
             record
         }
         Err(err) => json!({
-            "error": err.to_string()
+            "error": format!("{err:#}")
         }),
     };
 
+    module_resolve_cstring(&payload)
+}
+
+/// Loader-private resolver for trusted builtin implementation fan-out. The
+/// host method accepts only exact generated-manifest specifiers and can never
+/// enter package/path resolution. The corresponding JSI global is captured and
+/// deleted by the bootstrap loader before package code can execute.
+/// @ref LLP 0013#policy
+#[no_mangle]
+pub extern "C" fn ex_host_resolve_manifest_builtin_internal(
+    specifier: *const c_char,
+) -> *mut c_char {
+    if specifier.is_null() {
+        return ptr::null_mut();
+    }
+    let spec = unsafe { CStr::from_ptr(specifier) }
+        .to_string_lossy()
+        .to_string();
+    let resolved = with_host(
+        |host| host.resolve_manifest_builtin_internal(&spec),
+        Err(anyhow::anyhow!("Host not initialized")),
+    );
+    let payload = match resolved {
+        Ok(module) => {
+            let mut record = module_meta_json(&module);
+            record["source"] = json!(module.source.unwrap_or_default());
+            record
+        }
+        Err(err) => json!({
+            "error": format!("{err:#}")
+        }),
+    };
     module_resolve_cstring(&payload)
 }
 
@@ -1347,6 +3108,7 @@ pub extern "C" fn ex_host_module_resolve(
 /// Caller must free the returned string with `ex_host_free_string`.
 #[no_mangle]
 pub extern "C" fn ex_host_module_resolve_meta(
+    requester_module_id: u64,
     specifier: *const c_char,
     referrer: *const c_char,
 ) -> *mut c_char {
@@ -1357,7 +3119,11 @@ pub extern "C" fn ex_host_module_resolve_meta(
     let resolved = with_host(
         |host| {
             let path = referrer.as_ref().map(std::path::PathBuf::from);
-            host.resolve_module_meta(&spec, path.as_deref())
+            host.resolve_module_meta_for_principal(
+                &spec,
+                path.as_deref(),
+                Some(&requester_module_id.to_string()),
+            )
         },
         Err(anyhow::anyhow!("Host not initialized")),
     );
@@ -1391,6 +3157,7 @@ const FS_READ: u32 = 1;
 const FS_WRITE: u32 = 2;
 const FS_CREATE: u32 = 4;
 const FS_TRUNCATE: u32 = 8;
+const FS_APPEND: u32 = 16;
 
 #[no_mangle]
 pub extern "C" fn ex_host_fs_open(path: *const c_char, flags: u32) -> *mut ExactFileHandle {
@@ -1406,6 +3173,7 @@ pub extern "C" fn ex_host_fs_open(path: *const c_char, flags: u32) -> *mut Exact
     opts.write(flags & FS_WRITE != 0);
     opts.create(flags & FS_CREATE != 0);
     opts.truncate(flags & FS_TRUNCATE != 0);
+    opts.append(flags & FS_APPEND != 0);
 
     match opts.open(path) {
         Ok(file) => Box::into_raw(Box::new(ExactFileHandle { file })),
@@ -1544,7 +3312,14 @@ pub extern "C" fn ex_host_fs_pwrite(
     let restore_result = std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(saved));
     match (write_result, restore_result) {
         (Ok(bytes), Ok(_)) => bytes as i32,
-        (Err(err), _) | (Ok(_), Err(err)) => {
+        // The write is irreversible. Reporting failure here invites callers
+        // to retry and duplicate the write; retain the restore diagnostic for
+        // observability but report the committed byte count.
+        (Ok(bytes), Err(err)) => {
+            set_errno_from_io_error(&err);
+            bytes as i32
+        }
+        (Err(err), _) => {
             set_errno_from_io_error(&err);
             -1
         }
@@ -1558,6 +3333,48 @@ pub extern "C" fn ex_host_fs_close(file: *mut ExactFileHandle) {
     }
     unsafe {
         drop(Box::from_raw(file));
+    }
+}
+
+/// Flush file contents and metadata (`data_only == 0`) or file contents only
+/// (`data_only != 0`) to stable storage.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_sync(file: *mut ExactFileHandle, data_only: i32) -> i32 {
+    if file.is_null() {
+        record_fs_error(libc::EBADF);
+        return -1;
+    }
+    let handle = unsafe { &mut *file };
+    let result = if data_only != 0 {
+        handle.file.sync_data()
+    } else {
+        handle.file.sync_all()
+    };
+    match result {
+        Ok(()) => 0,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+/// Return metadata for the open file identity, independent of later path
+/// rename/unlink operations. Caller frees the JSON string with
+/// `ex_host_free_string`.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_fstat(file: *mut ExactFileHandle) -> *mut c_char {
+    if file.is_null() {
+        record_fs_error(libc::EBADF);
+        return ptr::null_mut();
+    }
+    let handle = unsafe { &mut *file };
+    match handle.file.metadata() {
+        Ok(metadata) => as_json_cstring(&make_stat_payload_from_metadata(metadata)),
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            ptr::null_mut()
+        }
     }
 }
 
@@ -1667,6 +3484,40 @@ pub extern "C" fn ex_host_fs_mkdir(path: *const c_char, recursive: i32) -> i32 {
     }
 }
 
+/// Recursively create a directory and return the highest missing path that
+/// this call created (Node's recursive-mkdir result), or an empty string when
+/// the full path already existed. Caller frees the result with
+/// `ex_host_free_string`.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_mkdir_recursive_result(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return ptr::null_mut();
+    }
+    let path = std::path::PathBuf::from(
+        unsafe { CStr::from_ptr(path) }
+            .to_string_lossy()
+            .into_owned(),
+    );
+    let mut cursor = path.clone();
+    let mut first_created = None;
+    while !cursor.exists() {
+        first_created = Some(cursor.clone());
+        if !cursor.pop() {
+            break;
+        }
+    }
+    if let Err(err) = std::fs::create_dir_all(&path) {
+        set_errno_from_io_error(&err);
+        return ptr::null_mut();
+    }
+    let value = first_created
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    CString::new(value)
+        .map(CString::into_raw)
+        .unwrap_or(ptr::null_mut())
+}
+
 /// Remove an empty directory.
 #[no_mangle]
 pub extern "C" fn ex_host_fs_rmdir(path: *const c_char) -> i32 {
@@ -1739,6 +3590,205 @@ pub extern "C" fn ex_host_fs_copy(from: *const c_char, to: *const c_char) -> i32
             -1
         }
     }
+}
+
+/// Copy a file while atomically refusing an existing destination.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_copy_exclusive(from: *const c_char, to: *const c_char) -> i32 {
+    if from.is_null() || to.is_null() {
+        return -1;
+    }
+    let from = unsafe { CStr::from_ptr(from) }
+        .to_string_lossy()
+        .into_owned();
+    let to = unsafe { CStr::from_ptr(to) }.to_string_lossy().into_owned();
+    let result = (|| -> std::io::Result<()> {
+        let mut source = std::fs::File::open(&from)?;
+        let mut destination = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&to)?;
+        std::io::copy(&mut source, &mut destination)?;
+        if let Ok(metadata) = source.metadata() {
+            destination.set_permissions(metadata.permissions())?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => 0,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+/// Resize a file by path.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_truncate(path: *const c_char, len: u64) -> i32 {
+    if path.is_null() {
+        return -1;
+    }
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .into_owned();
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_len(len))
+    {
+        Ok(()) => 0,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+fn system_time_from_unix_seconds(value: f64) -> Option<SystemTime> {
+    if !value.is_finite() {
+        return None;
+    }
+    let duration = std::time::Duration::try_from_secs_f64(value.abs()).ok()?;
+    if value.is_sign_negative() {
+        UNIX_EPOCH.checked_sub(duration)
+    } else {
+        UNIX_EPOCH.checked_add(duration)
+    }
+}
+
+/// Set path access and modification timestamps from Unix seconds.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_utimes(path: *const c_char, atime: f64, mtime: f64) -> i32 {
+    if path.is_null() {
+        return -1;
+    }
+    let Some(atime) = system_time_from_unix_seconds(atime) else {
+        record_fs_error(libc::EINVAL);
+        return -1;
+    };
+    let Some(mtime) = system_time_from_unix_seconds(mtime) else {
+        record_fs_error(libc::EINVAL);
+        return -1;
+    };
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .into_owned();
+    let times = std::fs::FileTimes::new()
+        .set_accessed(atime)
+        .set_modified(mtime);
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_times(times))
+    {
+        Ok(()) => 0,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+/// Return Node-shaped filesystem capacity metadata as JSON.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_statfs(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return ptr::null_mut();
+    }
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .into_owned();
+    #[cfg(windows)]
+    let payload = {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "Kernel32")]
+        extern "system" {
+            fn GetDiskFreeSpaceW(
+                root: *const u16,
+                sectors_per_cluster: *mut u32,
+                bytes_per_sector: *mut u32,
+                free_clusters: *mut u32,
+                total_clusters: *mut u32,
+            ) -> i32;
+        }
+        let canonical = match std::fs::canonicalize(&path) {
+            Ok(path) => path,
+            Err(err) => {
+                set_errno_from_io_error(&err);
+                return ptr::null_mut();
+            }
+        };
+        let mut root = std::path::PathBuf::new();
+        for component in canonical.components() {
+            root.push(component.as_os_str());
+            if matches!(component, std::path::Component::RootDir) {
+                break;
+            }
+        }
+        let mut wide = root.as_os_str().encode_wide().collect::<Vec<_>>();
+        wide.push(0);
+        let mut sectors = 0u32;
+        let mut bytes_per_sector = 0u32;
+        let mut free_clusters = 0u32;
+        let mut total_clusters = 0u32;
+        if unsafe {
+            GetDiskFreeSpaceW(
+                wide.as_ptr(),
+                &mut sectors,
+                &mut bytes_per_sector,
+                &mut free_clusters,
+                &mut total_clusters,
+            )
+        } == 0
+        {
+            let err = std::io::Error::last_os_error();
+            set_errno_from_io_error(&err);
+            return ptr::null_mut();
+        }
+        let block_size = u64::from(sectors) * u64::from(bytes_per_sector);
+        json!({
+            "type": 0,
+            "bsize": block_size,
+            "blocks": total_clusters,
+            "bfree": free_clusters,
+            "bavail": free_clusters,
+            "files": 0,
+            "ffree": 0,
+        })
+    };
+    #[cfg(unix)]
+    let payload = {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(path) = CString::new(std::ffi::OsStr::new(&path).as_bytes()) else {
+            record_fs_error(libc::EINVAL);
+            return ptr::null_mut();
+        };
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+            record_fs_error(
+                std::io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or(libc::EIO),
+            );
+            return ptr::null_mut();
+        }
+        json!({
+            "type": 0,
+            "bsize": stat.f_bsize,
+            "blocks": stat.f_blocks,
+            "bfree": stat.f_bfree,
+            "bavail": stat.f_bavail,
+            "files": stat.f_files,
+            "ffree": stat.f_ffree,
+        })
+    };
+    #[cfg(not(any(unix, windows)))]
+    let payload = {
+        record_fs_error(libc::ENOSYS);
+        return ptr::null_mut();
+    };
+    as_json_cstring(&payload)
 }
 
 /// Return the canonical absolute path. Caller must free with `ex_host_free_string`.
@@ -1939,7 +3989,7 @@ pub extern "C" fn ex_host_fs_append(path: *const c_char, data: *const u8, len: u
     opts.write(true).create(true).append(true);
     match opts.open(&path) {
         Ok(mut file) => match write_all_return_count(&mut file, slice) {
-            Ok(n) => n as i32,
+            Ok(n) => n,
             Err(err) => {
                 set_errno_from_io_error(&err);
                 -1
@@ -1971,8 +4021,9 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
     install_sqlite_authorizer(&db);
 
     with_sqlite_state(|state| {
-        let handle = state.next_db_handle;
-        state.next_db_handle = state.next_db_handle.saturating_add(1);
+        let Some(handle) = state.allocate_db_handle() else {
+            return 0;
+        };
         state.dbs.insert(handle, Arc::new(Mutex::new(db)));
         handle
     })
@@ -2040,8 +4091,7 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
     };
 
     let statement_handle = with_sqlite_state(|state| {
-        let statement_handle = state.next_statement_handle;
-        state.next_statement_handle = state.next_statement_handle.saturating_add(1);
+        let statement_handle = state.allocate_statement_handle()?;
         state.statements.insert(
             statement_handle,
             SqliteStatementRecord {
@@ -2050,8 +4100,11 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
                 read_only,
             },
         );
-        statement_handle
+        Some(statement_handle)
     });
+    let Some(statement_handle) = statement_handle else {
+        return as_json_cstring(&json!({"error": "sqlite statement handle space exhausted"}));
+    };
 
     as_json_cstring(&json!({
         "handle": statement_handle,
@@ -2524,6 +4577,88 @@ mod tests {
         }
     }
 
+    #[test]
+    fn typed_network_abi_rejects_noncanonical_inputs_before_host_lookup() {
+        let ids = [0u64];
+        let candidates = CString::new("[]").unwrap();
+        let uppercase_host = CString::new("API.example.com").unwrap();
+        let mapped_host = CString::new("::ffff:169.254.169.254").unwrap();
+        let canonical_host = CString::new("api.example.com").unwrap();
+        let malformed_candidates = CString::new(r#"{"a":1,"a":2}"#).unwrap();
+
+        let uppercase = unsafe {
+            ex_host_authorize_typed_network_stack(
+                0,
+                ids.as_ptr(),
+                ids.len(),
+                1,
+                uppercase_host.as_ptr(),
+                443,
+                0,
+                candidates.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                u64::MAX,
+            )
+        };
+        assert_eq!(uppercase, -1);
+
+        let mapped = unsafe {
+            ex_host_authorize_typed_network_stack(
+                0,
+                ids.as_ptr(),
+                ids.len(),
+                4,
+                mapped_host.as_ptr(),
+                80,
+                0,
+                candidates.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                u64::MAX,
+            )
+        };
+        assert_eq!(mapped, -1);
+
+        let duplicate_key = unsafe {
+            ex_host_authorize_typed_network_stack(
+                0,
+                ids.as_ptr(),
+                ids.len(),
+                1,
+                canonical_host.as_ptr(),
+                443,
+                0,
+                malformed_candidates.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                u64::MAX,
+            )
+        };
+        assert_eq!(duplicate_key, -1);
+
+        let unsafe_redirect = unsafe {
+            ex_host_authorize_typed_network_stack(
+                0,
+                ids.as_ptr(),
+                ids.len(),
+                1,
+                canonical_host.as_ptr(),
+                443,
+                0,
+                candidates.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                9_007_199_254_740_992,
+            )
+        };
+        assert_eq!(unsafe_redirect, -1);
+    }
+
     struct FailingWriter;
 
     impl Write for FailingWriter {
@@ -2660,6 +4795,21 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_handle_allocators_refuse_before_wrap_or_reuse() {
+        let mut state = SqliteState::new();
+        state.next_db_handle = u64::MAX - 1;
+        state.next_statement_handle = u64::MAX - 1;
+
+        assert_eq!(state.allocate_db_handle(), Some(u64::MAX - 1));
+        assert_eq!(state.allocate_db_handle(), None);
+        assert_eq!(state.next_db_handle, u64::MAX);
+
+        assert_eq!(state.allocate_statement_handle(), Some(u64::MAX - 1));
+        assert_eq!(state.allocate_statement_handle(), None);
+        assert_eq!(state.next_statement_handle, u64::MAX);
+    }
+
+    #[test]
     fn install_host_replaces_existing_host() {
         let _guard = host_test_lock();
 
@@ -2671,6 +4821,17 @@ mod tests {
             ..Default::default()
         }));
         assert!(!with_host(|host| host.is_allow_all(), true));
+    }
+
+    #[test]
+    fn typed_decision_abi_returns_fail_closed_error_envelope() {
+        let result =
+            unsafe { ex_host_evaluate_typed_decision(std::ptr::null(), 0, std::ptr::null(), 0) };
+        assert!(!result.is_null());
+        let payload = unsafe { CStr::from_ptr(result) }.to_str().unwrap();
+        let value: serde_json::Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(value["error"], "null typed decision input");
+        ex_host_free_string(result);
     }
 
     #[test]
@@ -2751,6 +4912,64 @@ mod tests {
         assert_eq!(&contents, b"xyCDEFGHIJ");
     }
 
+    #[test]
+    fn portable_path_abi_preserves_node_creation_and_metadata_semantics() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("first/second");
+        let nested_c = CString::new(nested.to_string_lossy().as_bytes()).unwrap();
+        let created = ex_host_fs_mkdir_recursive_result(nested_c.as_ptr());
+        assert!(!created.is_null());
+        let created_path = unsafe { CStr::from_ptr(created) }
+            .to_string_lossy()
+            .into_owned();
+        ex_host_free_string(created);
+        assert_eq!(created_path, root.path().join("first").to_string_lossy());
+        let created_again = ex_host_fs_mkdir_recursive_result(nested_c.as_ptr());
+        assert_eq!(unsafe { CStr::from_ptr(created_again) }.to_bytes(), b"");
+        ex_host_free_string(created_again);
+
+        let source = root.path().join("source");
+        let destination = root.path().join("destination");
+        std::fs::write(&source, b"abcdef").unwrap();
+        let source_c = CString::new(source.to_string_lossy().as_bytes()).unwrap();
+        let destination_c = CString::new(destination.to_string_lossy().as_bytes()).unwrap();
+        assert_eq!(
+            ex_host_fs_copy_exclusive(source_c.as_ptr(), destination_c.as_ptr()),
+            0
+        );
+        std::fs::write(&source, b"replacement").unwrap();
+        assert_eq!(
+            ex_host_fs_copy_exclusive(source_c.as_ptr(), destination_c.as_ptr()),
+            -1
+        );
+        assert_eq!(std::fs::read(&destination).unwrap(), b"abcdef");
+
+        assert_eq!(ex_host_fs_truncate(destination_c.as_ptr(), 3), 0);
+        assert_eq!(std::fs::read(&destination).unwrap(), b"abc");
+        let timestamp = 1_700_000_000.0;
+        assert_eq!(
+            ex_host_fs_utimes(destination_c.as_ptr(), timestamp, timestamp),
+            0
+        );
+        let modified = std::fs::metadata(&destination)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(modified, timestamp as u64);
+
+        let root_c = CString::new(root.path().to_string_lossy().as_bytes()).unwrap();
+        let statfs = ex_host_fs_statfs(root_c.as_ptr());
+        assert!(!statfs.is_null());
+        let payload: serde_json::Value =
+            serde_json::from_slice(unsafe { CStr::from_ptr(statfs) }.to_bytes()).unwrap();
+        ex_host_free_string(statfs);
+        assert!(payload["bsize"].as_u64().is_some_and(|size| size > 0));
+        assert!(payload["blocks"].as_u64().is_some_and(|blocks| blocks > 0));
+    }
+
     /// Run `sql` through the exec ABI, asserting it did not fault, and free the
     /// returned status string.
     #[cfg(test)]
@@ -2780,6 +4999,65 @@ mod tests {
             .into_owned();
         ex_host_free_string(ptr);
         serde_json::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn sqlite_tagged_blob_binding_is_stored_as_blob() {
+        let _guard = host_test_lock();
+
+        let mem = CString::new(":memory:").unwrap();
+        let db = ex_host_sqlite_open(mem.as_ptr(), ptr::null());
+        assert_ne!(db, 0);
+        exec_ok(db, "CREATE TABLE bytes (value BLOB)", None);
+        exec_ok(
+            db,
+            "INSERT INTO bytes (value) VALUES (?)",
+            Some(r#"[{"$ibexSqliteBindingV1":{"kind":"blob","base64":"AAEC/v8="}}]"#),
+        );
+
+        let prep = CString::new(
+            "SELECT typeof(value) AS kind, length(value) AS size, hex(value) AS hex FROM bytes",
+        )
+        .unwrap();
+        let prepared = take_json(ex_host_sqlite_prepare(db, prep.as_ptr()));
+        let handle = prepared["handle"].as_u64().unwrap();
+        let result = take_json(ex_host_sqlite_get(handle, ptr::null()));
+        assert_eq!(result["row"]["kind"], "blob");
+        assert_eq!(result["row"]["size"], 5);
+        assert_eq!(result["row"]["hex"], "000102FEFF");
+
+        assert_eq!(ex_host_sqlite_close(db), 0);
+    }
+
+    #[test]
+    fn sqlite_blob_tag_lookalike_plain_object_keeps_legacy_text_semantics() {
+        let value = serde_json::json!({"$ibexSqliteBlobBase64": "AAEC/v8="});
+        assert!(matches!(
+            to_sql_value(&value),
+            rusqlite::types::Value::Text(text)
+                if text == "$ibexSqliteBlobBase64=\"AAEC/v8=\""
+        ));
+    }
+
+    #[test]
+    fn sqlite_value_envelope_does_not_recursively_decode_user_transport_lookalike() {
+        let value = serde_json::json!({
+            "$ibexSqliteBindingV1": {
+                "kind": "value",
+                "value": {
+                    "$ibexSqliteBindingV1": {
+                        "kind": "blob",
+                        "base64": "AAEC/v8="
+                    }
+                }
+            }
+        });
+        assert_eq!(
+            to_sql_value(&value),
+            rusqlite::types::Value::Text(
+                "$ibexSqliteBindingV1={\"base64\":\"AAEC/v8=\",\"kind\":\"blob\"}".into(),
+            ),
+        );
     }
 
     #[test]

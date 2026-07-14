@@ -1,1 +1,0 @@
-{ "mode":"enforce", "allow":["fs:read","network","process","crypto","time","env","os","device","worker","ffi"], "deny":["fs:write"] }

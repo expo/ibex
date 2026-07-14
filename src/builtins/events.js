@@ -256,15 +256,15 @@ function _emitUnhandledPromiseRejection(err, promise) {
 }
 
 function _maybeCaptureRejection(emitter, result, eventName, args) {
-  if (!result || typeof result.then !== 'function') return;
   var shouldCapture = emitter &&
     (emitter.captureRejections === true || EventEmitter.captureRejections === true);
   if (!shouldCapture) {
-    result.then(undefined, function(err) {
-      _emitUnhandledPromiseRejection(err, result);
-    });
+    // Node ignores listener return values unless captureRejections is enabled.
+    // Observing every returned promise here races the runtime's own handled-
+    // rejection tracking and can mark a separately-caught rejection fatal.
     return;
   }
+  if (!result || typeof result.then !== 'function') return;
   result.then(undefined, function(err) {
     _emitPromiseRejection(emitter, err, eventName, args);
   });

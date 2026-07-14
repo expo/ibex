@@ -139,7 +139,7 @@ resolve_version() {
 # cache-hit path installs was built from upstream@SHA *plus* patches/hermes/*.
 # Keying only on the upstream SHA let an edited/added patch silently install a
 # stale-patched framework ("already built"), greenlighting old enforcement
-# semantics in the llp0013 suites. Digest content + filenames so an edit,
+# semantics in the authenticated CapSec callback/conformance suites. Digest content + filenames so an edit,
 # add, remove, or reorder all miss the cache. (ENG-23131; mirrors the
 # hashFiles('patches/hermes/**') key compartment-conformance.yml already uses.)
 # The digest derivation is shared with download-hermes.sh and the

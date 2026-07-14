@@ -630,6 +630,11 @@ extern "C" ExactHermesRuntime* ex_worklet_create() {
   handle->runtime = std::move(runtime);
   handle->runtime_thread = std::this_thread::get_id();
   handle->restricted = true;
+  handle->runtime_nonce = exactAllocateRuntimeNonce();
+  if (handle->runtime_nonce == 0) {
+    delete handle;
+    return nullptr;
+  }
   disableDebugger(handle);
 
   {

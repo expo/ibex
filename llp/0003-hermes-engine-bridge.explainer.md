@@ -5,6 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -18,39 +19,53 @@ it does not restate the embedding ABI ([LLP 0002](./0002-host-embedding-abi.spec
 
 ## How Hermes is driven
 
-`ex_hermes_create()` (`src/engine/hermes_runtime.cc:1388-1453`) `[observed]`:
+Production uses `ex_hermes_create_armed(snapshot_digest)`; the historical
+`ex_hermes_create()` symbol is intentionally non-executable, and the separately
+named diagnostic constructor is not a project-execution API. Armed creation:
 
 1. Builds a `hermes::vm::RuntimeConfig` with a microtask queue and `eval`
    enabled, then `facebook::hermes::makeHermesRuntime(config)`
    (`src/engine/hermes_runtime.cc:1391-1403`).
-2. Wraps it in an `ExactHermesRuntime` handle, records the owning thread
-   (`src/engine/hermes_runtime.cc:1409-1411`).
+2. Wraps it in an `ExactHermesRuntime` handle, records the owning thread, a
+   fresh runtime nonce, and the exact claimed immutable Host context.
 3. Optionally constructs the async debugger if the Hermes build supports it
    (`src/engine/hermes_runtime.cc:1415-1432`).
-4. Calls `installGlobals(handle)` — which installs the native host functions and
-   runs the bootstrap scripts — then registers the runtime
-   (`src/engine/hermes_runtime.cc:1436, 1449`).
+4. Calls `installGlobals(handle)`, then verifies lockdown, compartments,
+   bootstrap seals, and frame attribution structurally before registering or
+   returning the runtime. Any mismatch destroys the partial runtime and
+   refuses construction.
 
 `ex_hermes_eval()` evaluates UTF-8 source or Hermes bytecode (`is_bytecode`
 flag) and returns a result string `[observed]`
 (`src/engine/hermes_runtime.cc:1464`).
 
+Frame attribution is runtime-handle scoped, not merely thread scoped. A thread
+may drive multiple runtimes or re-enter `ex_hermes_eval()` for a nested runtime
+from an outer runtime's host call; runtime creation, `ex_hermes_eval()`, and
+`ex_hermes_poll()` select the handle's attribution VM for the duration of that
+entry and restore the prior selection on unwind `[observed]`
+(`src/engine/hermes_runtime_internal.h`; `src/engine/hermes_runtime.cc`). This
+keeps capability checks attached to the executing runtime without weakening LLP
+0013's fail-closed no-user-principal rule.
+
 The engine uses Hermes through **JSI** (`<jsi/jsi.h>`) `[observed]`
 (`src/engine/hermes_runtime.cc:14-15`). Native functions are registered with
 `jsi::Function::createFromHostFunction` and set as properties on `rt.global()`
-`[observed]` (e.g. `__exactModuleResolve`, `__exactEnsure*`, and `__hostCall`,
-`src/engine/hermes_runtime.cc:1160-1283, 1754-1806`).
+`[observed]` (e.g. `__exactModuleResolve`, `__exactEnsure*`, and, on unarmed
+diagnostic runtimes only, `__hostCall`; `src/engine/hermes_runtime.cc`).
 
 ### The `__hostCall` bridge
 
-`ex_hermes_set_host_call` installs the generic `__hostCall(op, argsJson)` JSI
-host function `[observed]` (`src/engine/hermes_runtime.cc:1754-1806`). The
-protocol — a `+` (JSON success) / `-` (error) status sigil on the returned C
-string, freed by the C++ side and `JSON.parse`d — is documented in
-[LLP 0002 §The `__hostCall` bridge](./0002-host-embedding-abi.spec.md#the-hostcall-bridge--the-generic-host-channel).
-It is the catch-all native channel; higher-traffic subsystems get dedicated
-host functions instead `[inferred: dedicated functions avoid per-call JSON
-encode/parse overhead and string-typed dispatch]`.
+For an unarmed diagnostic runtime, `ex_hermes_set_host_call` installs the
+generic `__hostCall(op, argsJson)` JSI host function `[observed]`
+(`src/engine/hermes_runtime.cc`). The protocol — a `+` (JSON success) / `-`
+(error) status sigil on the returned C string, freed by the C++ side and
+`JSON.parse`d — is documented in
+[LLP 0002 §The `__hostCall` bridge](./0002-host-embedding-abi.spec.md#the-__hostcall-bridge--the-generic-host-channel).
+Armed runtimes reject both generic bridge setters and the async resolver before
+mutating bridge state or invoking callbacks; they expose only dedicated native
+functions. This removes the string-typed catch-all from the production
+authority boundary while retaining it for diagnostic embedders.
 
 ### Lazy installation of host functions
 
@@ -58,10 +73,17 @@ Several subsystem functions are installed lazily on first use through
 `__exactEnsure*` shims. Filesystem functions are behind `__exactEnsureFs` on
 non-Windows platforms, while Windows installs them eagerly because the Windows
 FS implementation is a separate file compiled only for that target `[observed]`
-(`src/engine/hermes_runtime.cc:1056-1072`). HTTP, SQLite, DNS, child-process,
-and Net are also registered on demand `[observed]`
-(`src/engine/hermes_runtime.cc:1197-1283`). `[inferred: this trims startup cost
-for runtimes that never touch those subsystems.]`
+(`src/engine/hermes_runtime.cc`). HTTP, SQLite, DNS, child-process, and the full
+Net/TLS transport surface are also registered on demand `[observed]`
+(`src/engine/hermes_runtime.cc`). The transport-independent `__exactNetOwner`
+primitive is the deliberate exception: each platform installs it before the
+native WebSocket shim and shared runtime bundle capture it, so retained Socket,
+WebSocket, and WebSocketStream wrappers have runtime/principal identity before
+they have a transport selector without eagerly initializing network I/O
+`[observed]` (`src/engine/hermes_runtime.cc`;
+`src/engine/hermes_runtime_net.cc`;
+`src/engine/hermes_runtime_platform_windows.cc`). `[inferred: keeping the rest
+lazy trims startup cost for runtimes that never touch those subsystems.]`
 
 ### The bootstrap sequence
 
@@ -105,6 +127,25 @@ detached watcher thread turns that into a `pushRuntimeCallback` that drains
 pending signals into the JS `process` emitter `[observed]`
 (`src/engine/hermes_runtime_crypto.cc`, `src/engine/bootstrap/stream-enhance.js`).
 
+Cross-thread callback identity is the pair `(ExactHermesRuntime*,
+runtime_nonce)`, never the address alone. Destruction changes the registry row
+from `Running` to `Closing`, unregisters or cancels event sources, and keeps
+that exact generation present while already-admitted native producer pins
+drain. Those producers may transfer JSI-owning completion closures into the
+closing runtime queue; destroy discards them (without invoking user JS) on the
+owner thread. Native finalizers, including a WebSocket context's final
+`jsi::Object`, run on that same thread. Only after the pin count reaches zero
+does teardown erase the generation and delete Hermes. An old completion can
+therefore neither enter a new runtime allocated at the same address nor force
+the former leak-on-dead-runtime fallback `[observed]`
+(`src/engine/hermes_runtime.cc`; `src/engine/hermes_runtime_{dns,fs,http,fetch,websocket}.cc`).
+The public watchdog bridge applies the same rule at the host boundary: the
+host captures the live nonce and later supplies pointer plus nonce to the
+generation-bearing entry point. Its retained three-argument compatibility
+symbol rejects every request, because recovering the *current* nonce from a
+stale address would relabel an old producer for a replacement runtime
+`[observed]` (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+
 Async failures are fatal, matching Node: a callback that throws with no
 `uncaughtException` handler consuming it — a timer, a `process.nextTick`, a
 cross-thread task or callback — makes the poll report `-1`, which the host
@@ -116,24 +157,56 @@ throwing timer). Likewise the JS-side `unhandledrejection` default action sets
 crashing mid-run. Before ENG-23130, all of these logged and exited 0 — a
 silent green for any CI or agent using the exit code as the pass/fail signal.
 
+### Inspector resource discipline
+
+The loopback CDP service treats handshakes and established sessions as one
+bounded resource class. At most 16 sockets may occupy it concurrently; peek
+and WebSocket handshakes have five-second deadlines, writes have a five-second
+deadline, idle sessions close after five minutes, and tungstenite is configured
+to reject frames and reassembled messages above the 256 KiB protocol budget
+before allocating its much larger defaults. Every inbound data or control
+message consumes the same rate budget.
+
+The Network domain fans events into a separate bounded queue per enabled CDP
+client, so clients cannot drain or disable one another. Each queue retains at
+most 1,000 events and 2 MiB. Response bodies are capped at 1 MiB each and 16 MiB
+in aggregate under byte-budgeted LRU eviction; request post data is capped at
+64 KiB. Truncation and event eviction are explicit in diagnostic metadata.
+
 ### Blocking-work worker pools
 
 Anything that would block the JS thread for longer than a scheduling quantum
 runs on a bounded pool of detached worker threads and delivers its completion
 back through `pushRuntimeCallback` + `ex_hermes_notify_callback`: DNS
 resolution (`DnsWorkerPool`, ENG-22995), fetch on Linux (`FetchWorkerPool`,
-ENG-23471), and — since ENG-23497 — the async fs API (`FsWorkerPool`,
-`src/engine/hermes_runtime_fs.cc`). The fs pool backs
+ENG-23471), and — since ENG-23497/ENG-23541 — the async fs API
+(`FsWorkerPool`, `src/engine/hermes_runtime_fs.cc` and
+`src/engine/hermes_runtime_fs_windows.cc`). The fs pool backs
 `__exactFsReadFileAsync` / `__exactFsWriteFileAsync` / `__exactFsReadAsync` /
-`__exactFsWriteAsync` / `__exactFsStatAsync`; `src/builtins/fs.js` routes
-`readFile`/`writeFile`/`appendFile`/`read`/`write`/`stat`/`lstat`/`fstat`,
-`fs.promises`, `FileHandle`, and the ReadStream/WriteStream data paths through
-them when present, and falls back to the historical deferred-sync path when
-absent (the Windows fs backend does not implement them yet). `*Sync` entry
-points remain synchronous by design. Before ENG-23497 the whole "async" fs
-API ran its syscalls synchronously on the JS thread and only deferred the
-callback, so one large `readFile` starved timers and sockets for its full
-duration.
+`__exactFsWriteAsync` / `__exactFsReadvAsync` / `__exactFsWritevAsync` /
+`__exactFsPathAsync` / `__exactFsStatAsync`; `src/builtins/fs.js` routes
+`readFile`/`writeFile`/`appendFile`/`read`/`write`/`readv`/`writev`/
+`stat`/`lstat`/`fstat`, directory/metadata path operations, `fs.promises`,
+`FileHandle`, and the ReadStream/WriteStream data paths through them when
+present, and falls back to the historical deferred-sync path when absent.
+`*Sync` entry points remain synchronous by design. Before ENG-23497 the whole
+"async" fs API ran its syscalls synchronously on the JS thread and only
+deferred the callback, so one large `readFile` starved timers and sockets for
+its full duration.
+
+The Windows fs pool runs over the Rust `ex_host_fs_*` ABI rather than POSIX
+file descriptors. Its opaque file handles are shared between sync JS-thread
+calls and worker-thread async calls with a per-handle I/O mutex, because the
+Windows positional read/write shims are save-cursor/seek/op/restore sequences
+on one handle rather than atomic `pread`/`pwrite` syscalls. Close removes the
+JS fd mapping immediately while an in-flight worker retains shared ownership,
+so the native handle is released exactly once after the last operation. Append
+is an open-handle mode rather than a reopen-by-path operation, preserving fd
+identity across rename/unlink and OS append serialization. Filesystem failures
+cross the ABI through a thread-local normalized errno slot; probing the path
+after failure is forbidden because it misclassifies permission/type errors as
+`ENOENT`. The same handle ABI exposes real `sync_all`/`sync_data` durability
+for Windows `fsync`/`fdatasync`.
 
 The shared pool discipline, learned the hard way:
 
@@ -150,6 +223,11 @@ The shared pool discipline, learned the hard way:
   the runtime handle (`pending_dns_lookups`, `pending_fs_ops`) that the loop's
   referenced-work checks consult; otherwise the process exits before the
   worker delivers its completion.
+- **Teardown producer pin.** Any worker carrying a JSI resolve/reject/object
+  holds a generation-scoped native-worker pin from queue admission through
+  callback transfer. Closing refuses new pins, cancels sources that can be
+  cancelled, waits for the rest, and destroys transferred captures on the
+  runtime thread before Hermes.
 - **No JSI off-thread; checks stay on the JS thread.** Workers touch plain
   data only. Argument validation and capability checks (the deputy stack is
   JS-thread-local) run before enqueue; errno capture happens on the worker at
@@ -225,6 +303,17 @@ both on Linux and Windows):
   `destroy` on a CONNECTING socket work), and return; the
   handshake runs on the backend's io/delegate thread and reports failure as
   an error callback followed by `close(1006, unclean)`.
+
+The Android OkHttp bridge additionally bounds paused receive delivery at 256
+messages and 8 MiB per socket. The queue owns each already-copied message once,
+drains FIFO under the existing JS flow-control handshake, and closes with 1009
+instead of silently dropping data when either bound would be exceeded. That
+state machine lives in the Android source set but has no Android/OkHttp
+dependency, so `scripts/test-android-java.sh` executes the production queue on
+a host JVM: text/binary floods, terminal error/close ordering, transport
+close/error cleanup, FIFO ownership, and repeated pause/resume are behavioral
+tests rather than source-text assertions. Device coverage remains responsible
+for the thin OkHttp and JNI adapters.
 
 On Linux there is a third: **the io thread exclusively owns the CURL easy
 handle.** libcurl forbids using one handle from two threads, and the io

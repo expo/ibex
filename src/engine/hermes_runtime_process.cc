@@ -16,6 +16,7 @@
 #include <csignal>
 #include <fcntl.h>
 #include <mutex>
+#include <optional>
 #include <poll.h>
 #include <spawn.h>
 #include <string>
@@ -33,6 +34,8 @@ extern "C" char** environ;
 #endif
 
 namespace {
+extern "C" uint64_t ex_hermes_current_runtime_nonce();
+
 // @ref LLP 0008#sockets-dns-and-process — a cancellable timeout watchdog for the
 // SYNCHRONOUS child_process paths (ENG-23113: __exactExecSync /
 // __exactSpawnSync). Its destructor cancels + JOINS the worker, so the worker
@@ -64,6 +67,133 @@ struct SyncTimeoutWatchdog {
     if (worker.joinable()) worker.join();
   }
 };
+
+// Process handles are numeric at the JS boundary and therefore forgeable.
+// Keep an unforgeable runtime nonce alongside principal/capability ownership;
+// different runtimes commonly reuse the same principal ids.
+struct SpawnedProcess {
+  uint64_t runtimeNonce = 0;
+  uint64_t owner = 0;
+  std::string capability;
+  pid_t pid = -1;
+  int stdinFd = -1;
+  int stdoutFd = -1;
+  int stderrFd = -1;
+  int ipcFd = -1;
+  std::vector<int> extraFds;
+  bool exited = false;
+  // @ref LLP 0008#sockets-dns-and-process — Node's ChildProcess.ref()/unref()
+  // controls whether the process keeps its owning runtime alive. Runtime
+  // teardown may kill referenced children to
+  // reclaim them, but an explicitly unref'ed child is intentionally orphaned
+  // and must be allowed to finish independently.
+  bool referenced = true;
+  int exitCode = -1;
+  int exitSignal = 0;
+};
+
+std::unordered_map<int, std::shared_ptr<SpawnedProcess>> s_spawnedProcesses;
+uint64_t s_nextSpawnHandle = 1;
+std::mutex s_spawnMutex;
+
+std::optional<int> allocateSpawnHandleLocked() {
+  if (s_nextSpawnHandle == 0 ||
+      s_nextSpawnHandle > static_cast<uint64_t>(std::numeric_limits<int>::max())) {
+    return std::nullopt;
+  }
+  return static_cast<int>(s_nextSpawnHandle++);
+}
+
+void closeSpawnedProcessFds(const std::shared_ptr<SpawnedProcess>& proc) {
+  if (!proc) return;
+  if (proc->stdinFd >= 0) close(proc->stdinFd);
+  if (proc->stdoutFd >= 0) close(proc->stdoutFd);
+  if (proc->stderrFd >= 0) close(proc->stderrFd);
+  if (proc->ipcFd >= 0) close(proc->ipcFd);
+  for (int fd : proc->extraFds) {
+    if (fd >= 0) close(fd);
+  }
+  proc->stdinFd = proc->stdoutFd = proc->stderrFd = proc->ipcFd = -1;
+  for (int& fd : proc->extraFds) fd = -1;
+}
+
+// A process-global, detached reaper prevents children intentionally orphaned
+// by ChildProcess.unref() from becoming zombies when a Hermes runtime is
+// destroyed while its native host process continues running. The state is
+// deliberately process-lifetime storage: a detached worker must never observe
+// function-static teardown during C++ global destruction.
+struct UnreferencedSpawnReaper {
+  std::mutex mutex;
+  std::condition_variable cv;
+  std::vector<pid_t> pids;
+  bool workerStarted = false;
+};
+
+UnreferencedSpawnReaper& unreferencedSpawnReaper() {
+  static auto* state = new UnreferencedSpawnReaper();
+  return *state;
+}
+
+void runUnreferencedSpawnReaper(UnreferencedSpawnReaper* state) {
+  for (;;) {
+    std::vector<pid_t> candidates;
+    {
+      std::unique_lock<std::mutex> lock(state->mutex);
+      state->cv.wait(lock, [state] { return !state->pids.empty(); });
+      candidates = state->pids;
+    }
+
+    std::vector<pid_t> finished;
+    for (pid_t pid : candidates) {
+      int status = 0;
+      pid_t result;
+      do {
+        result = waitpid(pid, &status, WNOHANG);
+      } while (result < 0 && errno == EINTR);
+      // ECHILD means another legitimate waiter already reaped it. Treat other
+      // permanent waitpid errors as terminal too, avoiding a hot retry loop.
+      if (result == pid || result < 0) finished.push_back(pid);
+    }
+
+    std::unique_lock<std::mutex> lock(state->mutex);
+    for (pid_t pid : finished) {
+      state->pids.erase(
+          std::remove(state->pids.begin(), state->pids.end(), pid),
+          state->pids.end());
+    }
+    if (!state->pids.empty()) {
+      state->cv.wait_for(lock, std::chrono::milliseconds(50));
+    }
+  }
+}
+
+void reapUnreferencedSpawnEventually(pid_t pid) {
+  if (pid <= 0) return;
+  auto& state = unreferencedSpawnReaper();
+  bool startWorker = false;
+  {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    if (std::find(state.pids.begin(), state.pids.end(), pid) == state.pids.end()) {
+      state.pids.push_back(pid);
+    }
+    if (!state.workerStarted) {
+      state.workerStarted = true;
+      startWorker = true;
+    }
+  }
+  if (startWorker) {
+    try {
+      std::thread(runUnreferencedSpawnReaper, &state).detach();
+    } catch (...) {
+      // Never allow a resource-exhaustion exception to escape the C teardown
+      // ABI. A later enqueue retries worker creation; process exit still hands
+      // the child to the OS reaper if this was the final runtime.
+      std::lock_guard<std::mutex> lock(state.mutex);
+      state.workerStarted = false;
+    }
+  }
+  state.cv.notify_one();
+}
 }  // namespace
 
 static void s_skipJsonWhitespace(const std::string& value, size_t& pos) {
@@ -71,6 +201,41 @@ static void s_skipJsonWhitespace(const std::string& value, size_t& pos) {
     char ch = value[pos];
     if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t') break;
     pos++;
+  }
+}
+
+static int s_jsonHex(char ch) {
+  if (ch >= '0' && ch <= '9') return ch - '0';
+  if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+  if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+  return -1;
+}
+
+static bool s_readJsonCodeUnit(const std::string& value, size_t& pos, uint32_t& out) {
+  if (pos + 4 > value.size()) return false;
+  out = 0;
+  for (int i = 0; i < 4; ++i) {
+    int nibble = s_jsonHex(value[pos++]);
+    if (nibble < 0) return false;
+    out = (out << 4) | static_cast<uint32_t>(nibble);
+  }
+  return true;
+}
+
+static void s_appendUtf8(std::string& out, uint32_t cp) {
+  if (cp <= 0x7f) out.push_back(static_cast<char>(cp));
+  else if (cp <= 0x7ff) {
+    out.push_back(static_cast<char>(0xc0 | (cp >> 6)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+  } else if (cp <= 0xffff) {
+    out.push_back(static_cast<char>(0xe0 | (cp >> 12)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3f)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
+  } else {
+    out.push_back(static_cast<char>(0xf0 | (cp >> 18)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3f)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3f)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3f)));
   }
 }
 
@@ -82,12 +247,35 @@ static std::string s_parseJsonString(const std::string& value, size_t& pos) {
     char ch = value[pos++];
     if (ch == '\\' && pos < value.size()) {
       char escaped = value[pos++];
-      if (escaped == 'n') out.push_back('\n');
+      if (escaped == 'b') out.push_back('\b');
+      else if (escaped == 'f') out.push_back('\f');
+      else if (escaped == 'n') out.push_back('\n');
       else if (escaped == 't') out.push_back('\t');
       else if (escaped == 'r') out.push_back('\r');
       else if (escaped == '"') out.push_back('"');
       else if (escaped == '\\') out.push_back('\\');
       else if (escaped == '/') out.push_back('/');
+      else if (escaped == 'u') {
+        uint32_t code = 0;
+        if (!s_readJsonCodeUnit(value, pos, code)) {
+          s_appendUtf8(out, 0xfffd);
+        } else if (code >= 0xd800 && code <= 0xdbff &&
+                   pos + 6 <= value.size() && value[pos] == '\\' &&
+                   value[pos + 1] == 'u') {
+          size_t lowPos = pos + 2;
+          uint32_t low = 0;
+          if (s_readJsonCodeUnit(value, lowPos, low) && low >= 0xdc00 && low <= 0xdfff) {
+            pos = lowPos;
+            s_appendUtf8(out, 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00));
+          } else {
+            s_appendUtf8(out, 0xfffd);
+          }
+        } else if (code >= 0xd800 && code <= 0xdfff) {
+          s_appendUtf8(out, 0xfffd);
+        } else {
+          s_appendUtf8(out, code);
+        }
+      }
       else out.push_back(escaped);
       continue;
     }
@@ -95,6 +283,64 @@ static std::string s_parseJsonString(const std::string& value, size_t& pos) {
     out.push_back(ch);
   }
   return out;
+}
+
+struct ScopedSpawnFd {
+  int fd = -1;
+  ScopedSpawnFd() = default;
+  explicit ScopedSpawnFd(int source) {
+    if (source >= 0) fd = fcntl(source, F_DUPFD_CLOEXEC, 10);
+  }
+  ~ScopedSpawnFd() {
+    if (fd >= 0) close(fd);
+  }
+  ScopedSpawnFd(const ScopedSpawnFd&) = delete;
+  ScopedSpawnFd& operator=(const ScopedSpawnFd&) = delete;
+};
+
+// Move every child-side source above the complete target-fd range before
+// fork. Besides avoiding `dup2(fd, fd); close(fd)`, this prevents one mapping
+// from overwriting a source needed by a later mapping (stdio swaps and extra
+// descriptors). The parent performs this allocation while it is still safe to
+// call allocator-backed libc internals.
+static bool s_liftChildFd(int& fd, int firstSafeFd) {
+  if (fd < 0 || fd >= firstSafeFd) return true;
+  int lifted = fcntl(fd, F_DUPFD_CLOEXEC, firstSafeFd);
+  if (lifted < 0) return false;
+  close(fd);
+  fd = lifted;
+  return true;
+}
+
+// Async-signal-safe child mapping. dup2 clears FD_CLOEXEC when source and
+// target differ; for the equal case clear it explicitly and never close the
+// target. Returns errno-style 0/specific failure for the exec-error pipe.
+static int s_mapChildFd(int source, int target) {
+  if (source < 0) return EBADF;
+  if (source == target) {
+    int flags = fcntl(target, F_GETFD, 0);
+    if (flags < 0) return errno;
+    if (fcntl(target, F_SETFD, flags & ~FD_CLOEXEC) < 0) return errno;
+    return 0;
+  }
+  if (dup2(source, target) < 0) return errno;
+  // POSIX specifies that dup2 clears FD_CLOEXEC on the new descriptor, but
+  // make that postcondition explicit: these sources are deliberately marked
+  // close-on-exec before fork, and every mapped child descriptor must survive
+  // the immediately following execve on every supported libc/kernel pair.
+  int flags = fcntl(target, F_GETFD, 0);
+  if (flags < 0) return errno;
+  if (fcntl(target, F_SETFD, flags & ~FD_CLOEXEC) < 0) return errno;
+  close(source);
+  return 0;
+}
+
+[[noreturn]] static void s_reportChildSetupFailure(int errorFd, int error) {
+  if (errorFd >= 0) {
+    ssize_t written = write(errorFd, &error, sizeof(error));
+    (void)written;
+  }
+  _exit(127);
 }
 
 static bool s_skipJsonValue(const std::string& value, size_t& pos) {
@@ -159,6 +405,109 @@ static bool s_findTopLevelJsonValue(const std::string& optsJson,
   return false;
 }
 
+using TopLevelJsonIndex = std::unordered_map<std::string, size_t>;
+
+static bool s_indexTopLevelJsonValues(
+    const std::string& optsJson,
+    TopLevelJsonIndex& index) {
+  size_t pos = 0;
+  s_skipJsonWhitespace(optsJson, pos);
+  if (pos >= optsJson.size() || optsJson[pos] != '{') return false;
+  pos++;
+  while (pos < optsJson.size()) {
+    s_skipJsonWhitespace(optsJson, pos);
+    if (pos < optsJson.size() && optsJson[pos] == ',') {
+      pos++;
+      s_skipJsonWhitespace(optsJson, pos);
+    }
+    if (pos >= optsJson.size()) return false;
+    if (optsJson[pos] == '}') return true;
+    if (optsJson[pos] != '"') return false;
+    auto key = s_parseJsonString(optsJson, pos);
+    s_skipJsonWhitespace(optsJson, pos);
+    if (pos >= optsJson.size() || optsJson[pos] != ':') return false;
+    pos++;
+    s_skipJsonWhitespace(optsJson, pos);
+    // Match the old first-key-wins lookup semantics for duplicate keys.
+    index.emplace(std::move(key), pos);
+    if (!s_skipJsonValue(optsJson, pos)) return false;
+  }
+  return false;
+}
+
+static bool s_indexedTopLevelJsonValue(
+    const TopLevelJsonIndex& index,
+    const char* key,
+    size_t& valuePos) {
+  auto found = index.find(key);
+  if (found == index.end()) return false;
+  valuePos = found->second;
+  return true;
+}
+
+static bool s_parseIndexedJsonString(
+    const std::string& optsJson,
+    const TopLevelJsonIndex& index,
+    const char* key,
+    std::string& out) {
+  size_t pos = 0;
+  if (!s_indexedTopLevelJsonValue(index, key, pos) || pos >= optsJson.size() ||
+      optsJson[pos] != '"') {
+    return false;
+  }
+  out = s_parseJsonString(optsJson, pos);
+  return true;
+}
+
+static bool s_parseIndexedJsonBool(
+    const std::string& optsJson,
+    const TopLevelJsonIndex& index,
+    const char* key,
+    bool& out) {
+  size_t pos = 0;
+  if (!s_indexedTopLevelJsonValue(index, key, pos)) return false;
+  if (optsJson.compare(pos, 4, "true") == 0) {
+    out = true;
+    return true;
+  }
+  if (optsJson.compare(pos, 5, "false") == 0) {
+    out = false;
+    return true;
+  }
+  return false;
+}
+
+static bool s_parseIndexedJsonUnsigned(
+    const std::string& optsJson,
+    const TopLevelJsonIndex& index,
+    const char* key,
+    unsigned long long& out) {
+  size_t pos = 0;
+  if (!s_indexedTopLevelJsonValue(index, key, pos) || pos >= optsJson.size() ||
+      optsJson[pos] < '0' || optsJson[pos] > '9') {
+    return false;
+  }
+  char* end = nullptr;
+  auto parsed = std::strtoull(optsJson.c_str() + pos, &end, 10);
+  if (end == optsJson.c_str() + pos) return false;
+  out = parsed;
+  return true;
+}
+
+static bool s_parseIndexedJsonLong(
+    const std::string& optsJson,
+    const TopLevelJsonIndex& index,
+    const char* key,
+    long& out) {
+  size_t pos = 0;
+  if (!s_indexedTopLevelJsonValue(index, key, pos)) return false;
+  char* end = nullptr;
+  auto parsed = std::strtol(optsJson.c_str() + pos, &end, 10);
+  if (end == optsJson.c_str() + pos) return false;
+  out = parsed;
+  return true;
+}
+
 static bool s_parseTopLevelJsonString(const std::string& optsJson,
                                       const char* key,
                                       std::string& out) {
@@ -187,19 +536,6 @@ static bool s_parseTopLevelJsonBool(const std::string& optsJson,
   return false;
 }
 
-static bool s_parseTopLevelJsonUnsigned(const std::string& optsJson,
-                                        const char* key,
-                                        unsigned long long& out) {
-  size_t pos = 0;
-  if (!s_findTopLevelJsonValue(optsJson, key, pos)) return false;
-  if (pos >= optsJson.size() || optsJson[pos] < '0' || optsJson[pos] > '9') return false;
-  char* end = nullptr;
-  auto parsed = std::strtoull(optsJson.c_str() + pos, &end, 10);
-  if (end == optsJson.c_str() + pos) return false;
-  out = parsed;
-  return true;
-}
-
 static bool s_parseTopLevelJsonLong(const std::string& optsJson, const char* key, long& out) {
   size_t pos = 0;
   if (!s_findTopLevelJsonValue(optsJson, key, pos)) return false;
@@ -210,11 +546,11 @@ static bool s_parseTopLevelJsonLong(const std::string& optsJson, const char* key
   return true;
 }
 
-static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) {
+static std::vector<std::string> s_parseEnvAt(
+    const std::string& optsJson,
+    size_t pos) {
   std::vector<std::string> envVec;
-  size_t pos = 0;
-  if (!s_findTopLevelJsonValue(optsJson, "env", pos) || pos >= optsJson.size() ||
-      optsJson[pos] != '{') {
+  if (pos >= optsJson.size() || optsJson[pos] != '{') {
     return envVec;
   }
   pos++;
@@ -242,6 +578,202 @@ static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) 
   return envVec;
 }
 
+static std::vector<std::string> s_parseEnvFromOpts(
+    const std::string& optsJson,
+    bool& envPresent) {
+  size_t pos = 0;
+  envPresent = s_findTopLevelJsonValue(optsJson, "env", pos);
+  if (!envPresent) return {};
+  return s_parseEnvAt(optsJson, pos);
+}
+
+static std::vector<std::string> s_parseIndexedEnvFromOpts(
+    const std::string& optsJson,
+    const TopLevelJsonIndex& index,
+    bool& envPresent) {
+  size_t pos = 0;
+  envPresent = s_indexedTopLevelJsonValue(index, "env", pos);
+  if (!envPresent) return {};
+  return s_parseEnvAt(optsJson, pos);
+}
+
+static char** s_processEnvironment() {
+#if defined(__APPLE__)
+  return *_NSGetEnviron();
+#else
+  return environ;
+#endif
+}
+
+static void s_setEnvEntry(std::vector<std::string>& entries,
+                          const std::string& key,
+                          const std::string& value) {
+  const std::string prefix = key + "=";
+  for (auto& entry : entries) {
+    if (entry.compare(0, prefix.size(), prefix) == 0) {
+      entry = prefix + value;
+      return;
+    }
+  }
+  entries.push_back(prefix + value);
+}
+
+static void s_removeEnvEntry(
+    std::vector<std::string>& entries,
+    const std::string& key) {
+  const std::string prefix = key + "=";
+  entries.erase(
+      std::remove_if(
+          entries.begin(),
+          entries.end(),
+          [&](const std::string& entry) {
+            return entry.compare(0, prefix.size(), prefix) == 0;
+          }),
+      entries.end());
+}
+
+static std::optional<std::string> s_envValue(
+    const std::vector<std::string>& entries,
+    const std::string& key) {
+  const std::string prefix = key + "=";
+  for (const auto& entry : entries) {
+    if (entry.compare(0, prefix.size(), prefix) == 0) {
+      return entry.substr(prefix.size());
+    }
+  }
+  return std::nullopt;
+}
+
+static std::optional<size_t> s_parseExtraStreamName(
+    const std::string& streamName) {
+  constexpr char kPrefix[] = "extra:";
+  if (streamName.compare(0, sizeof(kPrefix) - 1, kPrefix) != 0) {
+    return std::nullopt;
+  }
+  const char* start = streamName.c_str() + sizeof(kPrefix) - 1;
+  if (*start == '\0') return std::nullopt;
+  for (const char* current = start; *current != '\0'; ++current) {
+    if (*current < '0' || *current > '9') return std::nullopt;
+  }
+  errno = 0;
+  char* end = nullptr;
+  unsigned long long parsed = std::strtoull(start, &end, 10);
+  if (errno != 0 || end == start || *end != '\0' ||
+      parsed > static_cast<unsigned long long>(std::numeric_limits<size_t>::max())) {
+    return std::nullopt;
+  }
+  return static_cast<size_t>(parsed);
+}
+
+static std::string s_absoluteChildPath(const std::string& path,
+                                       const std::string& cwd) {
+  if (path.empty() || path[0] == '/') return path;
+  char current[PATH_MAX];
+  const char* base = nullptr;
+  std::string resolvedBase;
+  if (!cwd.empty()) {
+    if (cwd[0] == '/') {
+      base = cwd.c_str();
+    } else if (getcwd(current, sizeof(current)) != nullptr) {
+      resolvedBase = std::string(current) + "/" + cwd;
+      base = resolvedBase.c_str();
+    }
+  } else if (getcwd(current, sizeof(current)) != nullptr) {
+    base = current;
+  }
+  return base ? std::string(base) + "/" + path : path;
+}
+
+static std::string s_resolveExecutable(const std::string& file,
+                                       const std::string& cwd,
+                                       const std::vector<std::string>& env) {
+  if (file.find('/') != std::string::npos) {
+    return s_absoluteChildPath(file, cwd);
+  }
+  auto configuredSearch = s_envValue(env, "PATH");
+  // A missing PATH gets the platform's deterministic default search path.
+  // An explicitly empty PATH is different: it contains one empty component,
+  // so only the child's working directory is searched. Falling back for both
+  // cases lets `env: { PATH: '' }` unexpectedly execute a parent-installed
+  // binary.
+  std::string search =
+      configuredSearch.value_or("/usr/local/bin:/usr/bin:/bin");
+  size_t start = 0;
+  while (start <= search.size()) {
+    size_t end = search.find(':', start);
+    if (end == std::string::npos) end = search.size();
+    std::string dir = search.substr(start, end - start);
+    if (dir.empty()) dir = ".";
+    auto candidate = s_absoluteChildPath(dir + "/" + file, cwd);
+    if (access(candidate.c_str(), X_OK) == 0) return candidate;
+    start = end + 1;
+  }
+  // Preserve the normal ENOENT report through the exec error pipe.
+  return s_absoluteChildPath(file, cwd);
+}
+
+// Everything that may allocate or lock is constructed before fork. The child
+// only reads these stable buffers and calls POSIX async-signal-safe syscalls
+// (dup2/close/open/fcntl/chdir/set*id/setsid/execve/write/_exit).
+// @ref LLP 0008#sockets-dns-and-process — multithreaded runtimes must not run
+// C++ allocation, setenv, or PATH-resolution logic after fork (ENG-24262).
+struct SpawnExecPlan {
+  std::vector<std::string> envEntries;
+  std::vector<char*> envp;
+  std::vector<std::string> argvEntries;
+  std::vector<char*> argv;
+  std::string executable;
+};
+
+static SpawnExecPlan s_buildSpawnExecPlan(
+    const std::string& file,
+    const std::vector<std::string>& args,
+    const std::string& argv0,
+    bool useShell,
+    const std::string& shellPath,
+    const std::string& cwd,
+    const std::vector<std::string>& customEnv,
+    bool customEnvPresent,
+    int ipcFd) {
+  SpawnExecPlan plan;
+  // Presence, not entry count, selects inheritance. `env: {}` is a deliberate
+  // empty environment and must not inherit parent secrets.
+  if (!customEnvPresent) {
+    for (char** current = s_processEnvironment(); current && *current; ++current) {
+      plan.envEntries.emplace_back(*current);
+    }
+  } else {
+    plan.envEntries = customEnv;
+  }
+  s_setEnvEntry(plan.envEntries, "EXACT_QUIET", "1");
+  // Never let a caller-supplied/stale IPC marker reach a child without a
+  // corresponding native IPC socket. The actual mapped slot is authoritative.
+  s_removeEnvEntry(plan.envEntries, "EXACT_IPC_FD");
+  if (ipcFd >= 0) {
+    s_setEnvEntry(plan.envEntries, "EXACT_IPC_FD", std::to_string(ipcFd));
+  }
+
+  if (useShell) {
+    std::string shell = shellPath.empty() ? "/bin/sh" : shellPath;
+    plan.executable = s_resolveExecutable(shell, cwd, plan.envEntries);
+    std::string command = file;
+    for (const auto& arg : args) command += " " + arg;
+    plan.argvEntries = {shell, "-c", std::move(command)};
+  } else {
+    plan.executable = s_resolveExecutable(file, cwd, plan.envEntries);
+    plan.argvEntries.reserve(args.size() + 1);
+    plan.argvEntries.push_back(argv0.empty() ? file : argv0);
+    plan.argvEntries.insert(plan.argvEntries.end(), args.begin(), args.end());
+  }
+  plan.envp.reserve(plan.envEntries.size() + 1);
+  for (auto& entry : plan.envEntries) plan.envp.push_back(entry.data());
+  plan.envp.push_back(nullptr);
+  plan.argv.reserve(plan.argvEntries.size() + 1);
+  for (auto& arg : plan.argvEntries) plan.argv.push_back(arg.data());
+  plan.argv.push_back(nullptr);
+  return plan;
+}
+
 // (ENG-23485) Parse options.uid/options.gid for the spawn child. Trust a
 // "uid"/"gid" key only when it appears BEFORE the env object in the options
 // JSON — JS serializes credentials ahead of env, so an env *value* containing
@@ -257,6 +789,21 @@ static void s_parseSpawnCredentials(const std::string& optsJson,
   }
   parsed = -1;
   if (s_parseTopLevelJsonLong(optsJson, "gid", parsed) && parsed >= 0) {
+    spawnGid = parsed;
+  }
+}
+
+static void s_parseIndexedSpawnCredentials(
+    const std::string& optsJson,
+    const TopLevelJsonIndex& index,
+    long& spawnUid,
+    long& spawnGid) {
+  long parsed = -1;
+  if (s_parseIndexedJsonLong(optsJson, index, "uid", parsed) && parsed >= 0) {
+    spawnUid = parsed;
+  }
+  parsed = -1;
+  if (s_parseIndexedJsonLong(optsJson, index, "gid", parsed) && parsed >= 0) {
     spawnGid = parsed;
   }
 }
@@ -359,6 +906,19 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value(false);
       });
   rt.global().setProperty(rt, "__exactSpawnKill", std::move(killFn));
+
+  auto setReferencedFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSetReferenced"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(false);
+      });
+  rt.global().setProperty(
+      rt, "__exactSpawnSetReferenced", std::move(setReferencedFn));
 
   auto closeFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -486,6 +1046,13 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           unlink(stderrTmpPath);
           throw facebook::jsi::JSError(runtime, "Failed to create stdout pipe");
         }
+        if (!s_liftChildFd(stdoutPipe[1], 3) || !s_liftChildFd(stderrFd, 3)) {
+          close(stderrFd);
+          close(stdoutPipe[0]);
+          close(stdoutPipe[1]);
+          unlink(stderrTmpPath);
+          throw facebook::jsi::JSError(runtime, "Failed to reserve child stdio descriptors");
+        }
 
         // ENG-23113 — cancellable, self-joining timeout watchdog (see
         // SyncTimeoutWatchdog): the previous detached thread wrote a stack
@@ -502,10 +1069,10 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
         if (pid == 0) {
           close(stdoutPipe[0]);
-          dup2(stdoutPipe[1], STDOUT_FILENO);
-          close(stdoutPipe[1]);
-          dup2(stderrFd, STDERR_FILENO);
-          close(stderrFd);
+          if (s_mapChildFd(stdoutPipe[1], STDOUT_FILENO) != 0 ||
+              s_mapChildFd(stderrFd, STDERR_FILENO) != 0) {
+            _exit(127);
+          }
           if (!cwd.empty() && chdir(cwd.c_str()) != 0) {
             _exit(127);
           }
@@ -705,6 +1272,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         bool max_buffer_unlimited = false;
         int kill_signal = 15;
         std::vector<std::string> envEntries;
+        bool envPresent = false;
         std::string stdinInput;
         bool hasStdinInput = false;
         bool inputIsBase64 = false;
@@ -721,31 +1289,34 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
         if (count > 2 && args[2].isString()) {
           auto optsJson = args[2].toString(runtime).utf8(runtime);
-          s_parseTopLevelJsonString(optsJson, "cwd", cwd);
+          TopLevelJsonIndex optsIndex;
+          s_indexTopLevelJsonValues(optsJson, optsIndex);
+          s_parseIndexedJsonString(optsJson, optsIndex, "cwd", cwd);
           bool shellBool = false;
-          if (s_parseTopLevelJsonBool(optsJson, "shell", shellBool) && shellBool) {
+          if (s_parseIndexedJsonBool(optsJson, optsIndex, "shell", shellBool) && shellBool) {
             useShell = true;
           }
-          if (s_parseTopLevelJsonString(optsJson, "shell", shellPath)) {
+          if (s_parseIndexedJsonString(optsJson, optsIndex, "shell", shellPath)) {
             useShell = true;
           }
           unsigned long long parsedUnsigned = 0;
-          if (s_parseTopLevelJsonUnsigned(optsJson, "timeout", parsedUnsigned)) {
+          if (s_parseIndexedJsonUnsigned(optsJson, optsIndex, "timeout", parsedUnsigned)) {
             timeout_ms = static_cast<uint32_t>(parsedUnsigned);
           }
-          if (s_parseTopLevelJsonUnsigned(optsJson, "maxBuffer", parsedUnsigned)) {
+          if (s_parseIndexedJsonUnsigned(optsJson, optsIndex, "maxBuffer", parsedUnsigned)) {
             if (parsedUnsigned == 0ULL) {
               max_buffer_unlimited = true;
             } else {
               max_buffer = static_cast<size_t>(parsedUnsigned);
             }
           }
-          if (s_parseTopLevelJsonUnsigned(optsJson, "killSignal", parsedUnsigned)) {
+          if (s_parseIndexedJsonUnsigned(optsJson, optsIndex, "killSignal", parsedUnsigned)) {
             int parsedSig = static_cast<int>(parsedUnsigned);
             if (parsedSig > 0) kill_signal = parsedSig;
           }
-          s_parseSpawnCredentials(optsJson, spawnUid, spawnGid);
-          envEntries = s_parseEnvFromOpts(optsJson);
+          s_parseIndexedSpawnCredentials(optsJson, optsIndex, spawnUid, spawnGid);
+          envEntries =
+              s_parseIndexedEnvFromOpts(optsJson, optsIndex, envPresent);
           // Parse stdio: string form ("inherit"/"pipe"/"ignore") sets all three
           // fds; (ENG-23025) array form ["ignore","inherit","inherit"] sets them
           // per-index. JS serializes mixed modes as a JSON array, but this path
@@ -753,7 +1324,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           // "pipe" — so an array-form stdio was ignored (stdout/stderr captured
           // instead of reaching the terminal; stdin left inherited).
           size_t stdioPos = 0;
-          if (s_findTopLevelJsonValue(optsJson, "stdio", stdioPos) &&
+          if (s_indexedTopLevelJsonValue(optsIndex, "stdio", stdioPos) &&
               stdioPos < optsJson.size() && optsJson[stdioPos] == '"') {
             std::string mode = s_parseJsonString(optsJson, stdioPos);
             stdinMode = mode;
@@ -761,7 +1332,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             stderrMode = mode;
           } else {
             size_t pos = 0;
-            if (s_findTopLevelJsonValue(optsJson, "stdio", pos) &&
+            if (s_indexedTopLevelJsonValue(optsIndex, "stdio", pos) &&
                 pos < optsJson.size() && optsJson[pos] == '[') {
               pos++;
               std::string* slots[3] = {&stdinMode, &stdoutMode, &stderrMode};
@@ -786,19 +1357,19 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           }
           // Parse input option for stdin
           std::string inputStr;
-          if (s_parseTopLevelJsonString(optsJson, "input", inputStr)) {
+          if (s_parseIndexedJsonString(optsJson, optsIndex, "input", inputStr)) {
             stdinInput = inputStr;
             hasStdinInput = true;
           }
           // (ENG-23009) When JS marks the stdin payload as base64 the raw bytes
           // were preserved across the JSON boundary; decode below before writing.
           std::string inputEncoding;
-          if (s_parseTopLevelJsonString(optsJson, "inputEncoding", inputEncoding) &&
+          if (s_parseIndexedJsonString(optsJson, optsIndex, "inputEncoding", inputEncoding) &&
               inputEncoding == "base64") {
             inputIsBase64 = true;
           }
           // Parse argv0 option for custom process.argv[0]
-          s_parseTopLevelJsonString(optsJson, "argv0", argv0);
+          s_parseIndexedJsonString(optsJson, optsIndex, "argv0", argv0);
         }
 
         const bool syncStdoutPipe = (stdoutMode == "pipe");
@@ -825,16 +1396,22 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         int syncStdinFdRedirect = parseSyncFdMode(stdinMode);
         int syncStdoutFdRedirect = parseSyncFdMode(stdoutMode);
         int syncStderrFdRedirect = parseSyncFdMode(stderrMode);
-        if (!isAllowAll()) {
-          if (syncStdinFdRedirect >= 0) {
-            exactRequireFdReadable(runtime, syncStdinFdRedirect, "__exactSpawnSync stdio[0]");
-          }
-          if (syncStdoutFdRedirect >= 0) {
-            exactRequireFdWritable(runtime, syncStdoutFdRedirect, "__exactSpawnSync stdio[1]");
-          }
-          if (syncStderrFdRedirect >= 0) {
-            exactRequireFdWritable(runtime, syncStderrFdRedirect, "__exactSpawnSync stdio[2]");
-          }
+        if (syncStdinFdRedirect >= 0) {
+          exactRequireFdReadable(runtime, syncStdinFdRedirect, "__exactSpawnSync stdio[0]");
+        }
+        if (syncStdoutFdRedirect >= 0) {
+          exactRequireFdWritable(runtime, syncStdoutFdRedirect, "__exactSpawnSync stdio[1]");
+        }
+        if (syncStderrFdRedirect >= 0) {
+          exactRequireFdWritable(runtime, syncStderrFdRedirect, "__exactSpawnSync stdio[2]");
+        }
+        ScopedSpawnFd safeSyncStdin(syncStdinFdRedirect);
+        ScopedSpawnFd safeSyncStdout(syncStdoutFdRedirect);
+        ScopedSpawnFd safeSyncStderr(syncStderrFdRedirect);
+        if ((syncStdinFdRedirect >= 0 && safeSyncStdin.fd < 0) ||
+            (syncStdoutFdRedirect >= 0 && safeSyncStdout.fd < 0) ||
+            (syncStderrFdRedirect >= 0 && safeSyncStderr.fd < 0)) {
+          throw facebook::jsi::JSError(runtime, "Failed to duplicate stdio redirect");
         }
 
         // JSON escape helper
@@ -960,6 +1537,31 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
         fcntl(execErrPipe[1], F_SETFD, FD_CLOEXEC);
 
+        bool childFdsReserved = s_liftChildFd(execErrPipe[1], 3) &&
+            (!syncStdoutPipe || s_liftChildFd(stdoutPipe[1], 3)) &&
+            (!syncStderrPipe || s_liftChildFd(stderrPipe[1], 3)) &&
+            (!hasStdinInput || s_liftChildFd(stdinPipe[0], 3)) &&
+            s_liftChildFd(safeSyncStdout.fd, 3) &&
+            s_liftChildFd(safeSyncStderr.fd, 3) &&
+            s_liftChildFd(safeSyncStdin.fd, 3);
+        if (!childFdsReserved) {
+          close(execErrPipe[0]);
+          close(execErrPipe[1]);
+          if (stdoutPipe[0] >= 0) close(stdoutPipe[0]);
+          if (stdoutPipe[1] >= 0) close(stdoutPipe[1]);
+          if (stderrPipe[0] >= 0) close(stderrPipe[0]);
+          if (stderrPipe[1] >= 0) close(stderrPipe[1]);
+          if (stdinPipe[0] >= 0) close(stdinPipe[0]);
+          if (stdinPipe[1] >= 0) close(stdinPipe[1]);
+          throw facebook::jsi::JSError(runtime, "Failed to reserve child stdio descriptors");
+        }
+
+        // Precompute argv/env/PATH resolution while every runtime thread and
+        // allocator lock is still valid. The child must not allocate.
+        auto execPlan = s_buildSpawnExecPlan(
+            file, spawnArgs, argv0, useShell, shellPath, cwd, envEntries,
+            envPresent, -1);
+
         pid_t pid = fork();
         if (pid < 0) {
           close(execErrPipe[0]);
@@ -975,57 +1577,49 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           close(execErrPipe[0]);
           if (syncStdoutPipe) {
             close(stdoutPipe[0]);
-            dup2(stdoutPipe[1], STDOUT_FILENO);
-            close(stdoutPipe[1]);
-          } else if (syncStdoutFdRedirect >= 0) {
-            dup2(syncStdoutFdRedirect, STDOUT_FILENO);
+            int mapError = s_mapChildFd(stdoutPipe[1], STDOUT_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
+          } else if (safeSyncStdout.fd >= 0) {
+            int mapError = s_mapChildFd(safeSyncStdout.fd, STDOUT_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
           } else if (syncStdoutIgnore) {
             int nullFd = open("/dev/null", O_WRONLY);
-            if (nullFd >= 0) { dup2(nullFd, STDOUT_FILENO); close(nullFd); }
+            if (nullFd >= 0) {
+              int mapError = s_mapChildFd(nullFd, STDOUT_FILENO);
+              if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
+            }
           }
           // else inherit: do nothing, keep parent's stdout
 
           if (syncStderrPipe) {
             close(stderrPipe[0]);
-            dup2(stderrPipe[1], STDERR_FILENO);
-            close(stderrPipe[1]);
-          } else if (syncStderrFdRedirect >= 0) {
-            dup2(syncStderrFdRedirect, STDERR_FILENO);
+            int mapError = s_mapChildFd(stderrPipe[1], STDERR_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
+          } else if (safeSyncStderr.fd >= 0) {
+            int mapError = s_mapChildFd(safeSyncStderr.fd, STDERR_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
           } else if (syncStderrIgnore) {
             int nullFd = open("/dev/null", O_WRONLY);
-            if (nullFd >= 0) { dup2(nullFd, STDERR_FILENO); close(nullFd); }
+            if (nullFd >= 0) {
+              int mapError = s_mapChildFd(nullFd, STDERR_FILENO);
+              if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
+            }
           }
           // else inherit: do nothing, keep parent's stderr
 
           if (hasStdinInput) {
             close(stdinPipe[1]);
-            dup2(stdinPipe[0], STDIN_FILENO);
-            close(stdinPipe[0]);
-          } else if (syncStdinFdRedirect >= 0) {
-            dup2(syncStdinFdRedirect, STDIN_FILENO);
+            int mapError = s_mapChildFd(stdinPipe[0], STDIN_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
+          } else if (safeSyncStdin.fd >= 0) {
+            int mapError = s_mapChildFd(safeSyncStdin.fd, STDIN_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
           } else if (syncStdinIgnore) {
             int nullFd = open("/dev/null", O_RDONLY);
-            if (nullFd >= 0) { dup2(nullFd, STDIN_FILENO); close(nullFd); }
-          }
-
-          // Suppress runtime bundle note in child processes
-          setenv("EXACT_QUIET", "1", 1);
-
-          // Build envp array (must outlive execvp call)
-          std::vector<char*> envp;
-          if (!envEntries.empty()) {
-            // Ensure EXACT_QUIET is included in custom env
-            envEntries.push_back("EXACT_QUIET=1");
-            envp.reserve(envEntries.size() + 1);
-            for (auto& e : envEntries) {
-              envp.push_back(const_cast<char*>(e.c_str()));
+            if (nullFd >= 0) {
+              int mapError = s_mapChildFd(nullFd, STDIN_FILENO);
+              if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
             }
-            envp.push_back(nullptr);
-#if defined(__APPLE__)
-            *_NSGetEnviron() = envp.data();
-#else
-            environ = envp.data();
-#endif
           }
 
           if (!cwd.empty()) {
@@ -1049,25 +1643,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             }
           }
 
-          if (useShell) {
-            std::string fullCmd = file;
-            for (auto& a : spawnArgs) {
-              fullCmd += " " + a;
-            }
-            // (ENG-23032) Honor a custom `shell` binary; fall back to /bin/sh.
-            const char* shBin = shellPath.empty() ? "/bin/sh" : shellPath.c_str();
-            execl(shBin, shBin, "-c", fullCmd.c_str(), nullptr);
-          } else {
-            std::vector<char*> argv;
-            // Use custom argv0 if provided, otherwise use file as argv[0]
-            std::string argv0Str = argv0.empty() ? file : argv0;
-            argv.push_back(const_cast<char*>(argv0Str.c_str()));
-            for (auto& a : spawnArgs) {
-              argv.push_back(const_cast<char*>(a.c_str()));
-            }
-            argv.push_back(nullptr);
-            execvp(file.c_str(), argv.data());
-          }
+          execve(execPlan.executable.c_str(), execPlan.argv.data(), execPlan.envp.data());
           {
             int execErrno = errno;
             ssize_t nw = write(execErrPipe[1], &execErrno, sizeof(execErrno));
@@ -1132,7 +1708,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         SyncTimeoutWatchdog watchdog;
 
         if (timeout_ms > 0) {
-          watchdog.worker = std::thread([&watchdog, timeout_ms, pid]() {
+          watchdog.worker = std::thread([&watchdog, timeout_ms, pid, kill_signal]() {
             std::unique_lock<std::mutex> lk(watchdog.mtx);
             if (!watchdog.cv.wait_for(
                     lk, std::chrono::milliseconds(timeout_ms),
@@ -1141,7 +1717,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               // window where the child was reaped between wait_for waking and this
               // check: no reap has happened yet unless childExited is set, so pid
               // is not recycled.
-              if (!watchdog.childExited.load() && kill(pid, SIGKILL) == 0) {
+              if (!watchdog.childExited.load() && kill(pid, kill_signal) == 0) {
                 watchdog.timedOut.store(true);
               }
             }
@@ -1338,54 +1914,49 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactSpawnSync", std::move(spawnSyncFn));
 
   // --- Async spawn support ---
-  // SpawnedProcess stores pipe fds and pid for async child processes.
-  struct SpawnedProcess {
-    uint64_t owner;
-    std::string capability;
-    pid_t pid;
-    int stdinFd;   // parent writes to child's stdin
-    int stdoutFd;  // parent reads from child's stdout
-    int stderrFd;  // parent reads from child's stderr
-    int ipcFd;     // IPC channel fd (optional)
-    std::vector<int> extraFds; // parent-side fds for stdio indices 4+
-    bool exited;
-    int exitCode;
-    int exitSignal; // 0 if exited normally, >0 if signaled
-  };
-  static std::unordered_map<int, SpawnedProcess> s_spawnedProcesses;
-  static int s_nextSpawnHandle = 1;
-  static std::mutex s_spawnMutex;
-
-  auto requireSpawnHandle =
-      [](facebook::jsi::Runtime& runtime, int handle, const char* syscall) {
-        uint64_t owner = 0;
-        std::string capability;
+  auto requireSpawnHandleOwnership =
+      [](facebook::jsi::Runtime& runtime, int handle, const char* syscall)
+          -> std::shared_ptr<SpawnedProcess> {
+        std::shared_ptr<SpawnedProcess> proc;
         {
           std::lock_guard<std::mutex> lock(s_spawnMutex);
           auto it = s_spawnedProcesses.find(handle);
           if (it == s_spawnedProcesses.end()) {
-            throw facebook::jsi::JSError(runtime, std::string(syscall) + ": invalid handle");
+                throw facebook::jsi::JSError(runtime, std::string(syscall) + ": invalid handle");
           }
-          owner = it->second.owner;
-          capability = it->second.capability;
+          proc = it->second;
         }
-        if (!isAllowAll()) {
-          if (owner != currentPrincipalId()) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-          if (!capability.empty() && !checkCapability(capability)) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
+        if (proc->runtimeNonce != ex_hermes_current_runtime_nonce()) {
+          throw facebook::jsi::JSError(
+              runtime, std::string(syscall) + ": handle belongs to a different runtime");
         }
+        // Permissive policy does not make numeric handles ambient. Ownership
+        // is an object-capability boundary independent of whether authority
+        // checks are configured to allow all operations.
+        if (proc->owner != currentPrincipalId()) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        return proc;
+      };
+
+  auto requireSpawnHandle =
+      [requireSpawnHandleOwnership](facebook::jsi::Runtime& runtime,
+                                    int handle,
+                                    const char* syscall)
+          -> std::shared_ptr<SpawnedProcess> {
+        auto proc = requireSpawnHandleOwnership(runtime, handle, syscall);
+        if (!proc->capability.empty() && !checkCapability(proc->capability)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        return proc;
       };
 
   auto trySpawnHandle =
       [requireSpawnHandle](facebook::jsi::Runtime& runtime, int handle, const char* syscall) {
         try {
-          requireSpawnHandle(runtime, handle, syscall);
-          return true;
+          return requireSpawnHandle(runtime, handle, syscall);
         } catch (const facebook::jsi::JSError&) {
-          return false;
+          return std::shared_ptr<SpawnedProcess>();
         }
       };
 
@@ -1449,6 +2020,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         long spawnGid = -1;
         std::vector<std::string> stdioModes = {"pipe", "pipe", "pipe", "pipe"};
         std::vector<std::string> envEntries;
+        bool envPresent = false;
 
         auto normalizeStdioMode = [](const std::string& value) {
           if (value == "ignore") return std::string("ignore");
@@ -1525,13 +2097,16 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               }
             }
           }
-          envEntries = s_parseEnvFromOpts(optsJson);
+          envEntries = s_parseEnvFromOpts(optsJson, envPresent);
         }
 
         const bool stdinPipeRequested = stdioModes[0] == "pipe";
         const bool stdoutPipeRequested = stdioModes[1] == "pipe";
         const bool stderrPipeRequested = stdioModes[2] == "pipe";
         const bool ipcRequested = stdioModes[3] == "ipc";
+        const bool stdinIgnoreRequested = stdioModes[0] == "ignore";
+        const bool stdoutIgnoreRequested = stdioModes[1] == "ignore";
+        const bool stderrIgnoreRequested = stdioModes[2] == "ignore";
 
         // Parse fd:N modes for stdio redirection to existing file descriptors
         int stdinFdRedirect = -1, stdoutFdRedirect = -1, stderrFdRedirect = -1;
@@ -1555,24 +2130,26 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             return false;
           }
           auto principal = currentPrincipalId();
+          auto runtimeNonce = ex_hermes_current_runtime_nonce();
           std::lock_guard<std::mutex> lock(s_spawnMutex);
           for (const auto& pair : s_spawnedProcesses) {
             const auto& proc = pair.second;
-            if (!isAllowAll() && proc.owner != principal) {
+            if (!proc || proc->runtimeNonce != runtimeNonce ||
+                proc->owner != principal) {
               continue;
             }
-            if (fd == proc.stdinFd) {
+            if (fd == proc->stdinFd) {
               if (needsRead) return false;
               if (needsWrite) return true;
             }
-            if (fd == proc.stdoutFd || fd == proc.stderrFd) {
+            if (fd == proc->stdoutFd || fd == proc->stderrFd) {
               if (needsWrite) return false;
               if (needsRead) return true;
             }
-            if (fd == proc.ipcFd) {
+            if (fd == proc->ipcFd) {
               return true;
             }
-            for (int extraFd : proc.extraFds) {
+            for (int extraFd : proc->extraFds) {
               if (fd == extraFd) {
                 return true;
               }
@@ -1582,7 +2159,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         };
 
         auto requireRedirectFd = [&](int fd, bool needsRead, bool needsWrite, const char* syscall) {
-          if (fd < 0 || isAllowAll()) {
+          if (fd < 0) {
             return;
           }
           if (currentPrincipalOwnsSpawnFd(fd, needsRead, needsWrite)) {
@@ -1607,6 +2184,15 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         requireRedirectFd(stdinFdRedirect, true, false, "__exactSpawn stdio[0]");
         requireRedirectFd(stdoutFdRedirect, false, true, "__exactSpawn stdio[1]");
         requireRedirectFd(stderrFdRedirect, false, true, "__exactSpawn stdio[2]");
+        ScopedSpawnFd safeStdinRedirect(stdinFdRedirect);
+        ScopedSpawnFd safeStdoutRedirect(stdoutFdRedirect);
+        ScopedSpawnFd safeStderrRedirect(stderrFdRedirect);
+        if ((stdinFdRedirect >= 0 && safeStdinRedirect.fd < 0) ||
+            (stdoutFdRedirect >= 0 && safeStdoutRedirect.fd < 0) ||
+            (stderrFdRedirect >= 0 && safeStderrRedirect.fd < 0)) {
+          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(
+              runtime, "{\"error\":\"Failed to duplicate stdio redirect\"}"));
+        }
 
         // Create pipes for stdin, stdout, stderr
         int stdinPipeFd[2] = {-1, -1};
@@ -1720,6 +2306,50 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
         fcntl(execErrPipe[1], F_SETFD, FD_CLOEXEC);
 
+        int ipcFd = -1;
+        if (ipcRequested) {
+          for (size_t si = 0; si < stdioModes.size(); si++) {
+            if (stdioModes[si] == "ipc") {
+              ipcFd = static_cast<int>(si);
+              break;
+            }
+          }
+        }
+        int firstSafeChildFd = std::max<int>(4, static_cast<int>(stdioModes.size()));
+        bool childFdsReserved = s_liftChildFd(execErrPipe[1], firstSafeChildFd) &&
+            (!stdinPipeRequested || s_liftChildFd(stdinPipeFd[0], firstSafeChildFd)) &&
+            (!stdoutPipeRequested || s_liftChildFd(stdoutPipeFd[1], firstSafeChildFd)) &&
+            (!stderrPipeRequested || s_liftChildFd(stderrPipeFd[1], firstSafeChildFd)) &&
+            (!ipcRequested || s_liftChildFd(ipcPair[0], firstSafeChildFd)) &&
+            s_liftChildFd(safeStdinRedirect.fd, firstSafeChildFd) &&
+            s_liftChildFd(safeStdoutRedirect.fd, firstSafeChildFd) &&
+            s_liftChildFd(safeStderrRedirect.fd, firstSafeChildFd);
+        for (auto& pipePair : extraPipes) {
+          childFdsReserved = childFdsReserved &&
+              s_liftChildFd(pipePair.second, firstSafeChildFd);
+        }
+        if (!childFdsReserved) {
+          close(execErrPipe[0]);
+          close(execErrPipe[1]);
+          if (stdinPipeFd[0] >= 0) close(stdinPipeFd[0]);
+          if (stdinPipeFd[1] >= 0) close(stdinPipeFd[1]);
+          if (stdoutPipeFd[0] >= 0) close(stdoutPipeFd[0]);
+          if (stdoutPipeFd[1] >= 0) close(stdoutPipeFd[1]);
+          if (stderrPipeFd[0] >= 0) close(stderrPipeFd[0]);
+          if (stderrPipeFd[1] >= 0) close(stderrPipeFd[1]);
+          if (ipcPair[0] >= 0) close(ipcPair[0]);
+          if (ipcPair[1] >= 0) close(ipcPair[1]);
+          for (auto& pipePair : extraPipes) {
+            if (pipePair.first >= 0) close(pipePair.first);
+            if (pipePair.second >= 0) close(pipePair.second);
+          }
+          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(
+              runtime, "{\"error\":\"Failed to reserve child descriptors\"}"));
+        }
+        auto execPlan = s_buildSpawnExecPlan(
+            file, spawnArgs, "", useShell, shellPath, cwd, envEntries,
+            envPresent, ipcFd);
+
         pid_t pid = fork();
         if (pid < 0) {
           close(execErrPipe[0]);
@@ -1758,66 +2388,69 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           }
           if (stdinPipeRequested) {
             close(stdinPipeFd[1]);
-            dup2(stdinPipeFd[0], STDIN_FILENO);
-            close(stdinPipeFd[0]);
-          } else if (stdinFdRedirect >= 0) {
-            dup2(stdinFdRedirect, STDIN_FILENO);
+            int mapError = s_mapChildFd(stdinPipeFd[0], STDIN_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
+          } else if (safeStdinRedirect.fd >= 0) {
+            int mapError = s_mapChildFd(safeStdinRedirect.fd, STDIN_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
             int stdinFlags = fcntl(STDIN_FILENO, F_GETFL, 0);
             if (stdinFlags >= 0 && (stdinFlags & O_NONBLOCK)) {
               fcntl(STDIN_FILENO, F_SETFL, stdinFlags & ~O_NONBLOCK);
             }
-          } else if (stdioModes[0] == "ignore") {
+          } else if (stdinIgnoreRequested) {
             int nullStdin = open("/dev/null", O_RDONLY);
             if (nullStdin >= 0) {
-              dup2(nullStdin, STDIN_FILENO);
-              close(nullStdin);
+              int mapError = s_mapChildFd(nullStdin, STDIN_FILENO);
+              if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
             }
           }
 
           if (stdoutPipeRequested) {
             close(stdoutPipeFd[0]);
-            dup2(stdoutPipeFd[1], STDOUT_FILENO);
-            close(stdoutPipeFd[1]);
-          } else if (stdoutFdRedirect >= 0) {
-            dup2(stdoutFdRedirect, STDOUT_FILENO);
+            int mapError = s_mapChildFd(stdoutPipeFd[1], STDOUT_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
+          } else if (safeStdoutRedirect.fd >= 0) {
+            int mapError = s_mapChildFd(safeStdoutRedirect.fd, STDOUT_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
             int stdoutFlags = fcntl(STDOUT_FILENO, F_GETFL, 0);
             if (stdoutFlags >= 0 && (stdoutFlags & O_NONBLOCK)) {
               fcntl(STDOUT_FILENO, F_SETFL, stdoutFlags & ~O_NONBLOCK);
             }
-          } else if (stdioModes[1] == "ignore") {
+          } else if (stdoutIgnoreRequested) {
             int nullStdout = open("/dev/null", O_WRONLY);
             if (nullStdout >= 0) {
-              dup2(nullStdout, STDOUT_FILENO);
-              close(nullStdout);
+              int mapError = s_mapChildFd(nullStdout, STDOUT_FILENO);
+              if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
             }
           }
 
           if (stderrPipeRequested) {
             close(stderrPipeFd[0]);
-            dup2(stderrPipeFd[1], STDERR_FILENO);
-            close(stderrPipeFd[1]);
-          } else if (stderrFdRedirect >= 0) {
-            dup2(stderrFdRedirect, STDERR_FILENO);
+            int mapError = s_mapChildFd(stderrPipeFd[1], STDERR_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
+          } else if (safeStderrRedirect.fd >= 0) {
+            int mapError = s_mapChildFd(safeStderrRedirect.fd, STDERR_FILENO);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
             int stderrFlags = fcntl(STDERR_FILENO, F_GETFL, 0);
             if (stderrFlags >= 0 && (stderrFlags & O_NONBLOCK)) {
               fcntl(STDERR_FILENO, F_SETFL, stderrFlags & ~O_NONBLOCK);
             }
-          } else if (stdioModes[2] == "ignore") {
+          } else if (stderrIgnoreRequested) {
             int nullStderr = open("/dev/null", O_WRONLY);
             if (nullStderr >= 0) {
-              dup2(nullStderr, STDERR_FILENO);
-              close(nullStderr);
+              int mapError = s_mapChildFd(nullStderr, STDERR_FILENO);
+              if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
             }
           }
 
           if (ipcRequested) {
             close(ipcPair[1]);
-            dup2(ipcPair[0], 3);
-            close(ipcPair[0]);
+            int mapError = s_mapChildFd(ipcPair[0], ipcFd);
+            if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
             // Set IPC fd to non-blocking so child's poll reads don't hang
-            int ipcFlags = fcntl(3, F_GETFL, 0);
+            int ipcFlags = fcntl(ipcFd, F_GETFL, 0);
             if (ipcFlags >= 0) {
-              fcntl(3, F_SETFL, ipcFlags | O_NONBLOCK);
+              fcntl(ipcFd, F_SETFL, ipcFlags | O_NONBLOCK);
             }
           }
 
@@ -1826,8 +2459,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             if (extraPipes[i].second >= 0) {
               close(extraPipes[i].first); // close parent end in child
               int targetFd = static_cast<int>(i + 4);
-              dup2(extraPipes[i].second, targetFd);
-              close(extraPipes[i].second);
+              int mapError = s_mapChildFd(extraPipes[i].second, targetFd);
+              if (mapError != 0) s_reportChildSetupFailure(execErrPipe[1], mapError);
             }
           }
 
@@ -1846,46 +2479,6 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (!ipcRequested) {
             if (ipcPair[0] >= 0) close(ipcPair[0]);
             if (ipcPair[1] >= 0) close(ipcPair[1]);
-          }
-
-          // Suppress runtime bundle note in child processes
-          setenv("EXACT_QUIET", "1", 1);
-
-          // Set EXACT_IPC_FD so the child knows which fd is the IPC channel
-          if (ipcRequested) {
-            for (size_t si = 0; si < stdioModes.size(); si++) {
-              if (stdioModes[si] == "ipc") {
-                std::string ipcFdStr = std::to_string(si);
-                setenv("EXACT_IPC_FD", ipcFdStr.c_str(), 1);
-                break;
-              }
-            }
-          }
-
-          // Build envp array (must outlive execvp call)
-          std::vector<char*> envp;
-          if (!envEntries.empty()) {
-            // Ensure EXACT_QUIET is included in custom env
-            envEntries.push_back("EXACT_QUIET=1");
-            // Include EXACT_IPC_FD in custom env if IPC requested
-            if (ipcRequested) {
-              for (size_t si = 0; si < stdioModes.size(); si++) {
-                if (stdioModes[si] == "ipc") {
-                  envEntries.push_back("EXACT_IPC_FD=" + std::to_string(si));
-                  break;
-                }
-              }
-            }
-            envp.reserve(envEntries.size() + 1);
-            for (auto& e : envEntries) {
-              envp.push_back(const_cast<char*>(e.c_str()));
-            }
-            envp.push_back(nullptr);
-#if defined(__APPLE__)
-            *_NSGetEnviron() = envp.data();
-#else
-            environ = envp.data();
-#endif
           }
 
           if (!cwd.empty()) {
@@ -1909,23 +2502,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             }
           }
 
-          if (useShell) {
-            std::string fullCmd = file;
-            for (auto& a : spawnArgs) {
-              fullCmd += " " + a;
-            }
-            // (ENG-23032) Honor a custom `shell` binary; fall back to /bin/sh.
-            const char* shBin = shellPath.empty() ? "/bin/sh" : shellPath.c_str();
-            execl(shBin, shBin, "-c", fullCmd.c_str(), nullptr);
-          } else {
-            std::vector<char*> argv;
-            argv.push_back(const_cast<char*>(file.c_str()));
-            for (auto& a : spawnArgs) {
-              argv.push_back(const_cast<char*>(a.c_str()));
-            }
-            argv.push_back(nullptr);
-            execvp(file.c_str(), argv.data());
-          }
+          execve(execPlan.executable.c_str(), execPlan.argv.data(), execPlan.envp.data());
           // exec failed - write errno to parent via the error pipe
           {
             int execErrno = errno;
@@ -2004,35 +2581,43 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           }
         }
 
-        // Store in map
-        int handle;
-        {
-          std::lock_guard<std::mutex> lock(s_spawnMutex);
-          handle = s_nextSpawnHandle++;
-          SpawnedProcess proc;
-          proc.owner = currentPrincipalId();
-          proc.capability = "process:spawn";
-          proc.pid = pid;
-          proc.stdinFd = stdinPipeRequested ? stdinPipeFd[1] : -1;
-          proc.stdoutFd = stdoutPipeRequested ? stdoutPipeFd[0] : -1;
-          proc.stderrFd = stderrPipeRequested ? stderrPipeFd[0] : -1;
-          proc.ipcFd = ipcRequested ? ipcPair[1] : -1;
-          // Store parent-side fds for extra stdio pipes and close child ends
-          for (size_t i = 0; i < extraPipes.size(); i++) {
-            int extraFlags = fcntl(extraPipes[i].first, F_GETFL, 0);
-            if (extraFlags >= 0) {
-              fcntl(extraPipes[i].first, F_SETFL, extraFlags | O_NONBLOCK);
-            }
-            proc.extraFds.push_back(extraPipes[i].first);
-            if (extraPipes[i].second >= 0) close(extraPipes[i].second); // close child end in parent
+        auto proc = std::make_shared<SpawnedProcess>();
+        proc->runtimeNonce = ex_hermes_current_runtime_nonce();
+        proc->owner = currentPrincipalId();
+        proc->capability = "process:spawn";
+        proc->pid = pid;
+        proc->stdinFd = stdinPipeRequested ? stdinPipeFd[1] : -1;
+        proc->stdoutFd = stdoutPipeRequested ? stdoutPipeFd[0] : -1;
+        proc->stderrFd = stderrPipeRequested ? stderrPipeFd[0] : -1;
+        proc->ipcFd = ipcRequested ? ipcPair[1] : -1;
+        for (size_t i = 0; i < extraPipes.size(); i++) {
+          int extraFlags = fcntl(extraPipes[i].first, F_GETFL, 0);
+          if (extraFlags >= 0) {
+            fcntl(extraPipes[i].first, F_SETFL, extraFlags | O_NONBLOCK);
           }
-          proc.exited = false;
-          proc.exitCode = -1;
-          proc.exitSignal = 0;
-          s_spawnedProcesses[handle] = std::move(proc);
+          proc->extraFds.push_back(extraPipes[i].first);
+          if (extraPipes[i].second >= 0) close(extraPipes[i].second);
         }
 
-        std::string resultJson = "{\"handle\":" + std::to_string(handle)
+        std::optional<int> handle;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          handle = allocateSpawnHandleLocked();
+          if (handle) {
+            auto [_, inserted] = s_spawnedProcesses.emplace(*handle, proc);
+            if (!inserted) handle.reset();
+          }
+        }
+        if (!handle) {
+          kill(pid, SIGKILL);
+          while (waitpid(pid, nullptr, 0) < 0 && errno == EINTR) {}
+          closeSpawnedProcessFds(proc);
+          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(
+              runtime,
+              "{\"error\":\"ERR_OUT_OF_RANGE\",\"errno\":-1,\"message\":\"spawn handle space exhausted\"}"));
+        }
+
+        std::string resultJson = "{\"handle\":" + std::to_string(*handle)
             + ",\"pid\":" + std::to_string(static_cast<int>(pid)) + "}";
         return facebook::jsi::Value(
             facebook::jsi::String::createFromUtf8(runtime, resultJson));
@@ -2040,7 +2625,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactSpawn", std::move(spawnFn));
 
   // __exactSpawnRead(handle, stream) -> Uint8Array (raw bytes read, empty if
-  // nothing available). stream is "stdout", "stderr", or "ipc". Non-blocking.
+  // nothing available). `_exactEof` distinguishes EOF from EAGAIN. One bounded
+  // read per call prevents a chatty child from monopolizing the JS turn.
   // (ENG-23009) The data channel is byte-accurate: child output is handed to JS
   // as raw bytes rather than a UTF-8 string, so bytes >= 0x80 and NULs survive
   // the native->JS boundary instead of being mangled by createFromUtf8/U+FFFD.
@@ -2053,18 +2639,26 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
+        auto makeReadResult = [&](std::vector<uint8_t> bytes, bool eof) {
+          auto value = makeUint8Array(runtime, std::move(bytes));
+          auto object = value.asObject(runtime);
+          object.setProperty(runtime, "_exactEof", facebook::jsi::Value(eof));
+          return facebook::jsi::Value(std::move(object));
+        };
         if (count < 2 || !args[0].isNumber()) {
-          return makeUint8Array(runtime, {});
+          return makeReadResult({}, true);
         }
         int handle = static_cast<int>(args[0].asNumber());
-        if (!trySpawnHandle(runtime, handle, "__exactSpawnRead")) {
-          return makeUint8Array(runtime, {});
+        auto proc = trySpawnHandle(runtime, handle, "__exactSpawnRead");
+        if (!proc) {
+          return makeReadResult({}, true);
         }
         std::string streamName;
         if (args[1].isString()) {
           streamName = args[1].toString(runtime).utf8(runtime);
         } else if (args[1].isNumber()) {
-          switch (static_cast<int>(args[1].asNumber())) {
+          int streamIndex = static_cast<int>(args[1].asNumber());
+          switch (streamIndex) {
             case 1:
               streamName = "stdout";
               break;
@@ -2075,25 +2669,26 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               streamName = "ipc";
               break;
             default:
-              return makeUint8Array(runtime, {});
+              if (streamIndex >= 4) {
+                streamName = "extra:" + std::to_string(streamIndex - 4);
+              } else {
+                return makeReadResult({}, true);
+              }
           }
         } else {
-          return makeUint8Array(runtime, {});
+          return makeReadResult({}, true);
         }
 
         int fd = -1;
-        {
-          std::lock_guard<std::mutex> lock(s_spawnMutex);
-          auto it = s_spawnedProcesses.find(handle);
-          if (it == s_spawnedProcesses.end()) {
-            return makeUint8Array(runtime, {});
-          }
-          if (streamName == "stdout") {
-            fd = it->second.stdoutFd;
-          } else if (streamName == "stderr") {
-            fd = it->second.stderrFd;
-          } else if (streamName == "ipc") {
-            fd = it->second.ipcFd;
+        if (streamName == "stdout") {
+          fd = proc->stdoutFd;
+        } else if (streamName == "stderr") {
+          fd = proc->stderrFd;
+        } else if (streamName == "ipc") {
+          fd = proc->ipcFd;
+        } else if (auto extraIdx = s_parseExtraStreamName(streamName)) {
+          if (*extraIdx < proc->extraFds.size()) {
+            fd = proc->extraFds[*extraIdx];
           }
         }
 
@@ -2101,29 +2696,29 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (streamName == "ipc" && startup_trace_enabled()) {
             fprintf(stderr, "[spawn_read] ipc fd=-1 for handle %d\n", handle);
           }
-          return makeUint8Array(runtime, {});
+          return makeReadResult({}, true);
         }
 
-        // Non-blocking read
+        // One non-blocking chunk per call. JS owns the scheduling/backpressure
+        // policy and will promptly call again after activity.
         char buf[65536];
         std::vector<uint8_t> result;
-        while (true) {
-          ssize_t n = read(fd, buf, sizeof(buf));
-          if (n > 0) {
-            result.insert(result.end(), buf, buf + n);
-          } else {
-            if (streamName == "ipc" && startup_trace_enabled() && n < 0) {
-              fprintf(stderr, "[spawn_read] ipc fd=%d errno=%d (%s)\n", fd, errno, strerror(errno));
-            }
-            break;  // EAGAIN/EWOULDBLOCK or EOF
-          }
+        ssize_t n;
+        do {
+          n = read(fd, buf, sizeof(buf));
+        } while (n < 0 && errno == EINTR);
+        bool eof = n == 0;
+        if (n > 0) result.insert(result.end(), buf, buf + n);
+        if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) eof = true;
+        if (streamName == "ipc" && startup_trace_enabled() && n < 0) {
+          fprintf(stderr, "[spawn_read] ipc fd=%d errno=%d (%s)\n", fd, errno, strerror(errno));
         }
 
         if (!result.empty() && streamName == "ipc" && startup_trace_enabled()) {
           fprintf(stderr, "[spawn_read] ipc fd=%d got %zu bytes\n", fd, result.size());
         }
 
-        return makeUint8Array(runtime, std::move(result));
+        return makeReadResult(std::move(result), eof);
       });
   rt.global().setProperty(rt, "__exactSpawnRead", std::move(spawnReadFn));
 
@@ -2141,23 +2736,20 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(-1);
         }
         int handle = static_cast<int>(args[0].asNumber());
-        if (!trySpawnHandle(runtime, handle, "__exactSpawnGetFd")) {
+        auto proc = trySpawnHandle(runtime, handle, "__exactSpawnGetFd");
+        if (!proc) {
           return facebook::jsi::Value(-1);
         }
         int streamIndex = static_cast<int>(args[1].asNumber());
-        std::lock_guard<std::mutex> lock(s_spawnMutex);
-        auto it = s_spawnedProcesses.find(handle);
-        if (it == s_spawnedProcesses.end()) return facebook::jsi::Value(-1);
-        const auto& proc = it->second;
         switch (streamIndex) {
-          case 0: return facebook::jsi::Value(proc.stdinFd);
-          case 1: return facebook::jsi::Value(proc.stdoutFd);
-          case 2: return facebook::jsi::Value(proc.stderrFd);
-          case 3: return facebook::jsi::Value(proc.ipcFd);
+          case 0: return facebook::jsi::Value(proc->stdinFd);
+          case 1: return facebook::jsi::Value(proc->stdoutFd);
+          case 2: return facebook::jsi::Value(proc->stderrFd);
+          case 3: return facebook::jsi::Value(proc->ipcFd);
           default: {
             int extraIdx = streamIndex - 4;
-            if (extraIdx >= 0 && extraIdx < (int)proc.extraFds.size()) {
-              return facebook::jsi::Value(proc.extraFds[extraIdx]);
+            if (extraIdx >= 0 && extraIdx < (int)proc->extraFds.size()) {
+              return facebook::jsi::Value(proc->extraFds[extraIdx]);
             }
             return facebook::jsi::Value(-1);
           }
@@ -2183,7 +2775,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(-1);
         }
         int handle = static_cast<int>(args[0].asNumber());
-        if (!trySpawnHandle(runtime, handle, "__exactSpawnWrite")) {
+        auto proc = trySpawnHandle(runtime, handle, "__exactSpawnWrite");
+        if (!proc) {
           return facebook::jsi::Value(-1);
         }
         // Collect the payload as raw bytes from either a string or a byte view.
@@ -2208,21 +2801,13 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         int fd = -1;
-        {
-          std::lock_guard<std::mutex> lock(s_spawnMutex);
-          auto it = s_spawnedProcesses.find(handle);
-          if (it == s_spawnedProcesses.end()) {
-            return facebook::jsi::Value(-1);
-          }
-          if (streamName == "stdin") {
-            fd = it->second.stdinFd;
-          } else if (streamName == "ipc") {
-            fd = it->second.ipcFd;
-          } else if (streamName.substr(0, 6) == "extra:") {
-            int extraIdx = std::atoi(streamName.c_str() + 6);
-            if (extraIdx >= 0 && extraIdx < (int)it->second.extraFds.size()) {
-              fd = it->second.extraFds[extraIdx];
-            }
+        if (streamName == "stdin") {
+          fd = proc->stdinFd;
+        } else if (streamName == "ipc") {
+          fd = proc->ipcFd;
+        } else if (auto extraIdx = s_parseExtraStreamName(streamName)) {
+          if (*extraIdx < proc->extraFds.size()) {
+            fd = proc->extraFds[*extraIdx];
           }
         }
 
@@ -2290,7 +2875,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(-1);
         }
         int handle = static_cast<int>(args[0].asNumber());
-        if (!trySpawnHandle(runtime, handle, "__exactSpawnSendMsg")) {
+        auto proc = trySpawnHandle(runtime, handle, "__exactSpawnSendMsg");
+        if (!proc) {
           return facebook::jsi::Value(-1);
         }
         std::string strHolder;
@@ -2316,13 +2902,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           exactRequireTransferableFd(runtime, sendFd, "__exactSpawnSendMsg");
         }
 
-        int ipcFd = -1;
-        {
-          std::lock_guard<std::mutex> lock(s_spawnMutex);
-          auto it = s_spawnedProcesses.find(handle);
-          if (it == s_spawnedProcesses.end()) return facebook::jsi::Value(-1);
-          ipcFd = it->second.ipcFd;
-        }
+        int ipcFd = proc->ipcFd;
         if (ipcFd < 0) return facebook::jsi::Value(-1);
 
         struct iovec iov;
@@ -2379,17 +2959,12 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::null();
         }
         int handle = static_cast<int>(args[0].asNumber());
-        if (!trySpawnHandle(runtime, handle, "__exactSpawnRecvMsg")) {
+        auto proc = trySpawnHandle(runtime, handle, "__exactSpawnRecvMsg");
+        if (!proc) {
           return facebook::jsi::Value::null();
         }
 
-        int ipcFd = -1;
-        {
-          std::lock_guard<std::mutex> lock(s_spawnMutex);
-          auto it = s_spawnedProcesses.find(handle);
-          if (it == s_spawnedProcesses.end()) return facebook::jsi::Value::null();
-          ipcFd = it->second.ipcFd;
-        }
+        int ipcFd = proc->ipcFd;
         if (ipcFd < 0) return facebook::jsi::Value::null();
 
         char buf[65536];
@@ -2457,50 +3032,43 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}"));
         }
         int handle = static_cast<int>(args[0].asNumber());
-        if (!trySpawnHandle(runtime, handle, "__exactSpawnPoll")) {
+        auto proc = trySpawnHandle(runtime, handle, "__exactSpawnPoll");
+        if (!proc) {
           return facebook::jsi::Value(
               facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":true,\"exitCode\":-1,\"signal\":0}"));
         }
 
-        std::lock_guard<std::mutex> lock(s_spawnMutex);
-        auto it = s_spawnedProcesses.find(handle);
-        if (it == s_spawnedProcesses.end()) {
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":true,\"exitCode\":-1,\"signal\":0}"));
-        }
-
-        auto& proc = it->second;
-        if (proc.exited) {
-          std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc.exitCode)
-              + ",\"signal\":" + std::to_string(proc.exitSignal) + "}";
+        if (proc->exited) {
+          std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc->exitCode)
+              + ",\"signal\":" + std::to_string(proc->exitSignal) + "}";
           return facebook::jsi::Value(
               facebook::jsi::String::createFromUtf8(runtime, json));
         }
 
         int status = 0;
-        pid_t result = waitpid(proc.pid, &status, WNOHANG);
+        pid_t result = waitpid(proc->pid, &status, WNOHANG);
         if (result == 0) {
           // Still running
           return facebook::jsi::Value(
               facebook::jsi::String::createFromUtf8(runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}"));
         } else if (result > 0) {
           // Process exited
-          proc.exited = true;
+          proc->exited = true;
           if (WIFEXITED(status)) {
-            proc.exitCode = WEXITSTATUS(status);
-            proc.exitSignal = 0;
+            proc->exitCode = WEXITSTATUS(status);
+            proc->exitSignal = 0;
           } else if (WIFSIGNALED(status)) {
-            proc.exitCode = -1;
-            proc.exitSignal = WTERMSIG(status);
+            proc->exitCode = -1;
+            proc->exitSignal = WTERMSIG(status);
           }
-          std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc.exitCode)
-              + ",\"signal\":" + std::to_string(proc.exitSignal) + "}";
+          std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc->exitCode)
+              + ",\"signal\":" + std::to_string(proc->exitSignal) + "}";
           return facebook::jsi::Value(
               facebook::jsi::String::createFromUtf8(runtime, json));
         } else {
           // waitpid error
-          proc.exited = true;
-          proc.exitCode = -1;
+          proc->exited = true;
+          proc->exitCode = -1;
           std::string json = "{\"exited\":true,\"exitCode\":-1,\"signal\":0}";
           return facebook::jsi::Value(
               facebook::jsi::String::createFromUtf8(runtime, json));
@@ -2522,7 +3090,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(false);
         }
         int handle = static_cast<int>(args[0].asNumber());
-        if (!trySpawnHandle(runtime, handle, "__exactSpawnKill")) {
+        auto proc = trySpawnHandle(runtime, handle, "__exactSpawnKill");
+        if (!proc) {
           return facebook::jsi::Value(false);
         }
         int sig = SIGTERM; // default
@@ -2530,25 +3099,53 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           sig = static_cast<int>(args[1].asNumber());
         }
 
-        std::lock_guard<std::mutex> lock(s_spawnMutex);
-        auto it = s_spawnedProcesses.find(handle);
-        if (it == s_spawnedProcesses.end()) {
+        if (proc->exited) {
           return facebook::jsi::Value(false);
         }
 
-        auto& proc = it->second;
-        if (proc.exited) {
-          return facebook::jsi::Value(false);
-        }
-
-        int killResult = kill(proc.pid, sig);
+        int killResult = kill(proc->pid, sig);
         return facebook::jsi::Value(killResult == 0);
       });
   rt.global().setProperty(rt, "__exactSpawnKill", std::move(spawnKillFn));
 
-  // __exactSpawnCloseStdin(handle) -> void
-  // __exactSpawnCloseStdin(handle, stream?) -> void
-  // Closes the requested stream so the child process sees EOF.
+  // __exactSpawnSetReferenced(handle, referenced) -> boolean
+  // Lifecycle reference state is object authority, not an ambient numeric
+  // handle. Validate both runtime nonce and principal before changing it. This
+  // intentionally does not re-check process:spawn: a capability revocation
+  // must not prevent the owning process object from being safely unref'ed.
+  auto spawnSetReferencedFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSetReferenced"),
+      2,
+      [requireSpawnHandleOwnership](facebook::jsi::Runtime& runtime,
+                                    const facebook::jsi::Value&,
+                                    const facebook::jsi::Value* args,
+                                    size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isBool()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactSpawnSetReferenced: numeric handle and boolean state required");
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto proc = requireSpawnHandleOwnership(
+            runtime, handle, "__exactSpawnSetReferenced");
+        bool updated = false;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          auto it = s_spawnedProcesses.find(handle);
+          if (it != s_spawnedProcesses.end() && it->second == proc) {
+            proc->referenced = args[1].getBool();
+            updated = true;
+          }
+        }
+        return facebook::jsi::Value(updated);
+      });
+  rt.global().setProperty(
+      rt, "__exactSpawnSetReferenced", std::move(spawnSetReferencedFn));
+
+  // __exactSpawnCloseStdin(handle, stream?, fullClose?) -> void
+  // stdin/ipc close outright. Extra socketpairs half-close their writable side
+  // for Duplex.end(), while Duplex.destroy() requests a full close.
   auto spawnCloseStdinFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnCloseStdin"),
@@ -2561,32 +3158,40 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         int handle = static_cast<int>(args[0].asNumber());
-        if (!trySpawnHandle(runtime, handle, "__exactSpawnCloseStdin")) {
+        auto proc = trySpawnHandle(runtime, handle, "__exactSpawnCloseStdin");
+        if (!proc) {
           return facebook::jsi::Value::undefined();
         }
         auto streamName = std::string("stdin");
         if (count > 1 && args[1].isString()) {
           streamName = args[1].toString(runtime).utf8(runtime);
         }
+        bool fullClose = count > 2 && args[2].isBool() && args[2].getBool();
 
-        std::lock_guard<std::mutex> lock(s_spawnMutex);
-        auto it = s_spawnedProcesses.find(handle);
-        if (it == s_spawnedProcesses.end()) {
-          return facebook::jsi::Value::undefined();
-        }
-
-        auto& proc = it->second;
         if (streamName == "ipc") {
           // Only close the IPC fd, not stdin
-          if (proc.ipcFd >= 0) {
-            close(proc.ipcFd);
-            proc.ipcFd = -1;
+          if (proc->ipcFd >= 0) {
+            close(proc->ipcFd);
+            proc->ipcFd = -1;
           }
-        } else {
-          // Close stdin (default behavior)
-          if (proc.stdinFd >= 0) {
-            close(proc.stdinFd);
-            proc.stdinFd = -1;
+        } else if (streamName == "stdin") {
+          if (proc->stdinFd >= 0) {
+            close(proc->stdinFd);
+            proc->stdinFd = -1;
+          }
+        } else if (auto extraIdx = s_parseExtraStreamName(streamName)) {
+          if (*extraIdx < proc->extraFds.size()) {
+            int& fd = proc->extraFds[*extraIdx];
+            if (fd >= 0) {
+              if (fullClose) {
+                close(fd);
+                fd = -1;
+              } else {
+                // Ignore ENOTCONN/EPIPE: a child may have closed first. Keep
+                // the readable half registered until EOF or disposal.
+                shutdown(fd, SHUT_WR);
+              }
+            }
           }
         }
         return facebook::jsi::Value::undefined();
@@ -2605,7 +3210,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnDispose"),
       1,
-      [](facebook::jsi::Runtime&,
+      [trySpawnHandle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -2613,33 +3218,26 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         int handle = static_cast<int>(args[0].asNumber());
+        auto proc = trySpawnHandle(runtime, handle, "__exactSpawnDispose");
+        if (!proc) {
+          return facebook::jsi::Value::undefined();
+        }
 
         // Detach the entry under the lock, then close its fds outside the lock.
-        SpawnedProcess proc;
-        bool found = false;
         {
           std::lock_guard<std::mutex> lock(s_spawnMutex);
           auto it = s_spawnedProcesses.find(handle);
-          if (it != s_spawnedProcesses.end()) {
-            proc = std::move(it->second);
+          if (it != s_spawnedProcesses.end() && it->second == proc) {
             s_spawnedProcesses.erase(it);
-            found = true;
+          } else {
+            return facebook::jsi::Value::undefined();
           }
-        }
-        if (!found) {
-          return facebook::jsi::Value::undefined();
         }
 
         // The child has already been reaped by __exactSpawnPoll; here we only
         // reclaim the parent-side descriptors. Each may already be -1 if closed
         // earlier (e.g. stdin via __exactSpawnCloseStdin, ipc via disconnect).
-        if (proc.stdinFd >= 0) close(proc.stdinFd);
-        if (proc.stdoutFd >= 0) close(proc.stdoutFd);
-        if (proc.stderrFd >= 0) close(proc.stderrFd);
-        if (proc.ipcFd >= 0) close(proc.ipcFd);
-        for (int extraFd : proc.extraFds) {
-          if (extraFd >= 0) close(extraFd);
-        }
+        closeSpawnedProcessFds(proc);
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactSpawnDispose", std::move(spawnDisposeFn));
@@ -2704,4 +3302,39 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactWhich", std::move(whichFn));
 
+}
+
+extern "C" void exactCleanupRuntimeSpawnedProcesses(uint64_t runtimeNonce) {
+  if (runtimeNonce == 0) return;
+
+  std::vector<std::shared_ptr<SpawnedProcess>> owned;
+  {
+    std::lock_guard<std::mutex> lock(s_spawnMutex);
+    for (auto it = s_spawnedProcesses.begin(); it != s_spawnedProcesses.end();) {
+      if (it->second && it->second->runtimeNonce == runtimeNonce) {
+        owned.push_back(it->second);
+        it = s_spawnedProcesses.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  for (const auto& proc : owned) {
+    if (!proc->exited && proc->pid > 0) {
+      if (proc->referenced) {
+        // An unreaped child keeps its pid reserved, so kill-before-wait cannot
+        // hit a recycled process. Referenced children belong to this runtime
+        // and are reclaimed synchronously during teardown.
+        kill(proc->pid, SIGKILL);
+        while (waitpid(proc->pid, nullptr, 0) < 0 && errno == EINTR) {}
+        proc->exited = true;
+      } else {
+        // Explicit ChildProcess.unref() transfers lifetime out of the runtime.
+        // Do not kill it; keep the native host zombie-free if it remains alive.
+        reapUnreferencedSpawnEventually(proc->pid);
+      }
+    }
+    closeSpawnedProcessFds(proc);
+  }
 }

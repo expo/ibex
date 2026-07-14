@@ -61,7 +61,7 @@ fn timers_keep_firing_during_large_readfile() {
     std::fs::write(&big, vec![0xA5u8; 64 * 1024 * 1024]).expect("write 64MiB file");
 
     let out = Command::new(IBEX)
-        .args(["run", "starve.js", big.to_str().unwrap()])
+        .args(["capsec", "audit", "starve.js", big.to_str().unwrap()])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -111,7 +111,7 @@ fn inflight_async_fs_op_keeps_event_loop_alive() {
     std::fs::write(&small, "alive").expect("write small file");
 
     let out = Command::new(IBEX)
-        .args(["run", "keepalive.js", small.to_str().unwrap()])
+        .args(["capsec", "audit", "keepalive.js", small.to_str().unwrap()])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -146,7 +146,7 @@ fn process_exit_after_pool_use_terminates_promptly() {
 
     let start = Instant::now();
     let mut child = Command::new(IBEX)
-        .args(["run", "exit.js", small.to_str().unwrap()])
+        .args(["capsec", "audit", "exit.js", small.to_str().unwrap()])
         .current_dir(&dir)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -204,7 +204,7 @@ fn fs_worker_pool_handles_concurrent_fanout() {
     std::fs::write(&small, "fanout").expect("write small file");
 
     let out = Command::new(IBEX)
-        .args(["run", "fanout.js", small.to_str().unwrap()])
+        .args(["capsec", "audit", "fanout.js", small.to_str().unwrap()])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -271,7 +271,7 @@ fn fs_worker_pool_handles_path_metadata_ops() {
     std::fs::write(&script, PATH_OPS_JS).expect("write script");
 
     let out = Command::new(IBEX)
-        .args(["run", "pathops.js"])
+        .args(["capsec", "audit", "pathops.js"])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -309,7 +309,7 @@ fn async_readfile_errors_keep_node_shape() {
     std::fs::write(&script, ERROR_SHAPE_JS).expect("write script");
 
     let out = Command::new(IBEX)
-        .args(["run", "errshape.js", dir.to_str().unwrap()])
+        .args(["capsec", "audit", "errshape.js", dir.to_str().unwrap()])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -320,5 +320,117 @@ fn async_readfile_errors_keep_node_shape() {
         "async readFile error must keep Node shape:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// Every fd-form async native duplicates the descriptor before dispatch. A
+// close issued immediately afterwards may revoke/close the public descriptor,
+// but must not redirect the in-flight operation onto a reused fd number.
+#[test]
+fn inflight_fd_read_is_pinned_across_async_close() {
+    let dir = unique_dir("fs-fd-close-race");
+    let script = dir.join("race.js");
+    std::fs::write(
+        &script,
+        r#"var fs = require('fs');
+var fd = fs.openSync('payload.txt', 'r');
+var buf = Buffer.alloc(6);
+fs.read(fd, buf, 0, 6, 0, function(err, n) {
+  console.log('fd-close-race: ' + (err ? err.code : n + ':' + buf.toString()));
+});
+fs.close(fd, function(err) { if (err) console.log('close-error:' + err.code); });
+"#,
+    )
+    .expect("write race script");
+    std::fs::write(dir.join("payload.txt"), "pinned").expect("write payload");
+    let out = Command::new(IBEX)
+        .args(["capsec", "audit", "race.js"])
+        .current_dir(&dir)
+        .output()
+        .expect("run close race");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stdout.contains("fd-close-race: 6:pinned"),
+        "in-flight read must retain its open file description:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
+    let dir = unique_dir("fs-queue-reject");
+    let script = dir.join("reject.js");
+    std::fs::write(
+        &script,
+        r#"var fs = require('fs');
+(async function() {
+  fs.writeFileSync('payload.txt', 'alive');
+  var fd = fs.openSync('payload.txt', 'r');
+  var before = fs.readdirSync('/dev/fd').length;
+  var rejected = await Promise.all(Array.from({length: 100}, function(_, i) {
+    var op = i % 2 ? fs.promises.fstat(fd) : fs.promises.fchmod(fd, 0o600);
+    return op.then(function() { return false; }, function() { return true; });
+  }));
+  var closeRejected = await fs.promises.close(fd).then(function() { return false; }, function() { return true; });
+  var byte = Buffer.alloc(1); fs.readSync(fd, byte, 0, 1, 0);
+  var openRejected = await fs.promises.open('must-not-exist.txt', 'w').then(function() { return false; }, function() { return true; });
+  var after = fs.readdirSync('/dev/fd').length;
+  fs.closeSync(fd);
+  console.log('fs-queue-reject: rejected=' + rejected.filter(Boolean).length +
+    ' close=' + closeRejected + ' open=' + openRejected + ' byte=' + byte.toString() +
+    ' created=' + fs.existsSync('must-not-exist.txt') + ' fdDelta=' + (after - before));
+})().catch(function(e) { console.log('fs-queue-reject: error=' + (e.stack || e)); process.exitCode = 1; });
+"#,
+    )
+    .expect("write rejection script");
+    let out = Command::new(IBEX)
+        .args(["capsec", "audit", "reject.js"])
+        .env("IBEX_TEST_FS_WORKER_MAX_QUEUE", "0")
+        .current_dir(&dir)
+        .output()
+        .expect("run queue rejection test");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "queue rejection process must exit normally, got {:?}:\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        out.status.code()
+    );
+    assert!(
+        stdout.contains("rejected=100 close=true open=true byte=a created=false fdDelta=0"),
+        "queue rejection must release duplicates and restore close authority:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn large_typed_readdir_stays_within_worker_queue_bound() {
+    let dir = unique_dir("fs-large-readdir");
+    let entries = dir.join("entries");
+    std::fs::create_dir(&entries).expect("create entries dir");
+    for i in 0..1500 {
+        std::fs::write(entries.join(format!("entry-{i}")), "").expect("write entry");
+    }
+    std::fs::write(
+        dir.join("large-readdir.js"),
+        r#"var fs = require('fs');
+fs.promises.readdir('entries', {withFileTypes:true}).then(function(items) {
+  console.log('large-readdir: count=' + items.length + ' files=' + items.filter(function(x) { return x.isFile(); }).length);
+}, function(err) { console.log('large-readdir: error=' + (err.code || err)); process.exitCode = 1; });
+"#,
+    )
+    .expect("write large readdir script");
+    let out = Command::new(IBEX)
+        .args(["capsec", "audit", "large-readdir.js"])
+        .current_dir(&dir)
+        .output()
+        .expect("run large readdir");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stdout.contains("large-readdir: count=1500 files=1500"),
+        "bounded traversal must not overflow the 1024-job queue:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

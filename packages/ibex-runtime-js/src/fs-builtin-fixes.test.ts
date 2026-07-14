@@ -85,7 +85,7 @@ function writeAllToFd(fd: number, bytes: Uint8Array): void {
     off += nodeFs.writeSync(fd, bytes, off, bytes.length - off, null);
   }
 }
-const asyncNativeCalls = { readv: 0, writev: 0 };
+const asyncNativeCalls = { readv: 0, writev: 0, fd: [] as string[], open: 0, close: 0, stat: 0 };
 const pathAsyncCalls: Record<string, number> = {};
 function bufferLikeLength(value: any): number {
   return typeof value?.byteLength === 'number' ? value.byteLength : (value?.length ?? 0);
@@ -175,6 +175,33 @@ g.__exactFsWritevAsync = (fd: number, buffers: ArrayBufferView[], position: numb
     return Promise.reject(e);
   }
 };
+g.__exactFsFdAsync = (op: string, fd: number, x?: number, y?: number) => {
+  asyncNativeCalls.fd.push(op);
+  try {
+    switch (op) {
+      case 'fchmod': nodeFs.fchmodSync(fd, x!); break;
+      case 'fchown': nodeFs.fchownSync(fd, x!, y!); break;
+      case 'ftruncate': nodeFs.ftruncateSync(fd, x!); break;
+      case 'futimes': nodeFs.futimesSync(fd, x!, y!); break;
+      case 'fsync': nodeFs.fsyncSync(fd); break;
+      case 'fdatasync': nodeFs.fdatasyncSync(fd); break;
+      default: throw new Error(`unsupported fd async op: ${op}`);
+    }
+    return Promise.resolve(undefined);
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
+g.__exactFsOpenAsync = (path: string, flags: number, mode: number) => {
+  asyncNativeCalls.open += 1;
+  try { return Promise.resolve(nodeFs.openSync(path, flags, mode)); }
+  catch (e) { return Promise.reject(e); }
+};
+g.__exactFsCloseAsync = (fd: number) => {
+  asyncNativeCalls.close += 1;
+  try { nodeFs.closeSync(fd); return Promise.resolve(undefined); }
+  catch (e) { return Promise.reject(e); }
+};
 g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?: number) => {
   recordPathAsyncCall(op);
   try {
@@ -182,8 +209,13 @@ g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?
       case 'readdir':
         return Promise.resolve(JSON.stringify(nodeFs.readdirSync(a)));
       case 'mkdir':
+        const firstMissing = x !== 0 ? (() => {
+          let cursor = a; const missing: string[] = [];
+          while (!nodeFs.existsSync(cursor)) { missing.push(cursor); const parent = nodePath.dirname(cursor); if (parent === cursor) break; cursor = parent; }
+          return missing.length ? missing[missing.length - 1] : '';
+        })() : undefined;
         nodeFs.mkdirSync(a, { recursive: x !== 0 });
-        return Promise.resolve(undefined);
+        return Promise.resolve(firstMissing);
       case 'rmdir':
         nodeFs.rmdirSync(a);
         return Promise.resolve(undefined);
@@ -195,6 +227,9 @@ g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?
         return Promise.resolve(undefined);
       case 'copyfile':
         nodeFs.copyFileSync(a, b as string);
+        return Promise.resolve(undefined);
+      case 'copyfile_excl':
+        nodeFs.copyFileSync(a, b as string, nodeFs.constants.COPYFILE_EXCL);
         return Promise.resolve(undefined);
       case 'realpath':
         return Promise.resolve(nodeFs.realpathSync(a));
@@ -214,6 +249,13 @@ g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?
       case 'utime':
         nodeFs.utimesSync(a, x ?? Date.now() / 1000, y ?? Date.now() / 1000);
         return Promise.resolve(undefined);
+      case 'lutime':
+        nodeFs.lutimesSync(a, x ?? Date.now() / 1000, y ?? Date.now() / 1000);
+        return Promise.resolve(undefined);
+      case 'lchmod':
+        if (typeof (nodeFs as any).lchmodSync !== 'function') throw Object.assign(new Error('ENOSYS'), { code: 'ENOSYS' });
+        (nodeFs as any).lchmodSync(a, x ?? 0o666);
+        return Promise.resolve(undefined);
       case 'statfs':
         return Promise.resolve(JSON.stringify({ type: 0, bsize: 4096, blocks: 1, bfree: 1, bavail: 1, files: 1, ffree: 1 }));
       default:
@@ -224,6 +266,7 @@ g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?
   }
 };
 g.__exactFsStatAsync = (target: string | number, kind: string) => {
+  asyncNativeCalls.stat += 1;
   try {
     if (kind === 'fstat') return Promise.resolve(statJson(nodeFs.fstatSync(target as number)));
     if (kind === 'lstat') return Promise.resolve(statJson(nodeFs.lstatSync(target as string)));
@@ -310,8 +353,14 @@ describe('absent-hook syscalls raise ENOSYS (ENG-22963 #6)', () => {
     expect(() => fs.utimesSync(nodePath.join(dir, 'nope'), new Date(), new Date())).toThrow(/ENOSYS/);
   });
   test('async fsync surfaces ENOSYS to its callback', async () => {
-    const err = await new Promise<any>((resolve) => fs.fsync(fd, resolve));
-    expect(err && err.code).toBe('ENOSYS');
+    const native = g.__exactFsFdAsync;
+    g.__exactFsFdAsync = undefined;
+    try {
+      const err = await new Promise<any>((resolve) => fs.fsync(fd, resolve));
+      expect(err && err.code).toBe('ENOSYS');
+    } finally {
+      g.__exactFsFdAsync = native;
+    }
   });
 });
 
@@ -499,6 +548,31 @@ describe('path async fs natives (ENG-23541)', () => {
     expect(pathAsyncCalls.unlink).toBe(3);
     expect(pathAsyncCalls.rmdir).toBe(1);
   });
+
+  test('recursive readdir and opendir use async readdir/stat natives', async () => {
+    const root = nodePath.join(dir, 'async-tree');
+    nodeFs.mkdirSync(nodePath.join(root, 'nested'), { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(root, 'nested', 'leaf'), 'x');
+    for (const key of Object.keys(pathAsyncCalls)) delete pathAsyncCalls[key];
+    const entries = await fs.promises.readdir(root, { recursive: true });
+    expect(entries).toContain('nested');
+    expect(entries).toContain(nodePath.join('nested', 'leaf'));
+    const opened = await fs.promises.opendir(root);
+    const first = await opened.read();
+    await opened.close();
+    expect(first && first.name).toBe('nested');
+    expect(pathAsyncCalls.readdir).toBeGreaterThanOrEqual(3);
+  });
+
+  test('recursive readdir preserves nested names for absolute trailing-slash roots', async () => {
+    const root = nodePath.join(dir, 'async-tree-trailing');
+    nodeFs.mkdirSync(nodePath.join(root, 'nested'), { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(root, 'nested', 'leaf'), 'x');
+    const entries = await fs.promises.readdir(root + nodePath.sep, { recursive: true });
+    expect(entries).toContain('nested');
+    expect(entries).toContain(nodePath.join('nested', 'leaf'));
+    expect(entries).not.toContain(nodePath.join('ested', 'leaf'));
+  });
 });
 
 describe('vectored async fs natives (ENG-23541)', () => {
@@ -572,5 +646,185 @@ describe('vectored async fs natives (ENG-23541)', () => {
     }
     expect(asyncNativeCalls.readv).toBe(2);
     expect(asyncNativeCalls.writev).toBe(2);
+  });
+});
+
+describe('descriptor async fs native (ENG-23541)', () => {
+  test('callbacks, promises, and FileHandle metadata route off-thread', async () => {
+    const p = nodePath.join(dir, 'fd-async.txt');
+    nodeFs.writeFileSync(p, 'abcdef');
+    const fd = nodeFs.openSync(p, 'r+');
+    asyncNativeCalls.fd = [];
+    try {
+      await new Promise<void>((resolve, reject) => fs.ftruncate(fd, 4, (e: any) => e ? reject(e) : resolve()));
+      await fs.promises.fchmod(fd, 0o600);
+      await fs.promises.fsync(fd);
+      await fs.promises.fdatasync(fd);
+    } finally { nodeFs.closeSync(fd); }
+    const fh = await fs.promises.open(p, 'r+');
+    try {
+      await fh.truncate(3);
+      await fh.utimes(1, 2);
+      await fh.sync();
+      await fh.datasync();
+    } finally { await fh.close(); }
+    expect(asyncNativeCalls.fd).toEqual([
+      'ftruncate', 'fchmod', 'fsync', 'fdatasync',
+      'ftruncate', 'futimes', 'fsync', 'fdatasync'
+    ]);
+    expect(nodeFs.readFileSync(p, 'utf8')).toBe('abc');
+  });
+
+  test('callback and promises open/close route through async natives', async () => {
+    const p = nodePath.join(dir, 'open-close-async.txt');
+    asyncNativeCalls.open = 0; asyncNativeCalls.close = 0;
+    const fd = await new Promise<number>((resolve, reject) => fs.open(p, 'w+', (e: any, value: number) => e ? reject(e) : resolve(value)));
+    await new Promise<void>((resolve, reject) => fs.close(fd, (e: any) => e ? reject(e) : resolve()));
+    const fh = await fs.promises.open(p, 'r');
+    await fh.close();
+    expect(asyncNativeCalls.open).toBe(2);
+    expect(asyncNativeCalls.close).toBe(2);
+  });
+
+  test('FileHandle keeps its private fd retryable after a rejected foreign close', async () => {
+    const p = nodePath.join(dir, 'owner-retry-close.txt');
+    nodeFs.writeFileSync(p, 'owner-data');
+    const fh = await fs.promises.open(p, 'r');
+    const ownerFd = fh.fd;
+    const originalCloseAsync = g.__exactFsCloseAsync;
+    let principal = 'foreign';
+    const attempts: Array<[string, number]> = [];
+    g.__exactFsCloseAsync = (fd: number) => {
+      attempts.push([principal, fd]);
+      if (principal === 'foreign') return Promise.reject(new Error('wrong principal'));
+      return originalCloseAsync(fd);
+    };
+    try {
+      expect(() => { fh.fd = ownerFd + 1; }).toThrow(/read-only/);
+      expect(() => { fh._closed = true; }).toThrow(/private/);
+      await expect(fh.close()).rejects.toThrow('wrong principal');
+      expect(fh.fd).toBe(ownerFd);
+      expect(fh._closed).toBe(false);
+      expect((await fh.stat()).size).toBe(10);
+
+      principal = 'owner';
+      await fh.close();
+      expect(fh.fd).toBeNull();
+      expect(fh._closed).toBe(true);
+      expect(attempts).toEqual([
+        ['foreign', ownerFd],
+        ['owner', ownerFd],
+      ]);
+    } finally {
+      g.__exactFsCloseAsync = originalCloseAsync;
+      if (fh.fd !== null) {
+        principal = 'owner';
+        await fh.close();
+      }
+    }
+  });
+});
+
+describe('async traversal fs APIs (ENG-23541)', () => {
+  test('cp, glob, and rm compose worker-backed primitives', async () => {
+    const src = nodePath.join(dir, 'traverse-src');
+    const dst = nodePath.join(dir, 'traverse-dst');
+    nodeFs.mkdirSync(nodePath.join(src, 'sub'), { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(src, 'sub', 'leaf.txt'), 'leaf');
+    for (const key of Object.keys(pathAsyncCalls)) delete pathAsyncCalls[key];
+    asyncNativeCalls.stat = 0;
+    await fs.promises.cp(src, dst, { recursive: true });
+    const found: string[] = [];
+    for await (const item of fs.promises.glob('**/*.txt', { cwd: dst })) found.push(item);
+    expect(found).toEqual(['sub/leaf.txt']);
+    await fs.promises.rm(dst, { recursive: true, force: true });
+    expect(nodeFs.existsSync(dst)).toBe(false);
+    expect(pathAsyncCalls.readdir).toBeGreaterThanOrEqual(3);
+    expect(pathAsyncCalls.copyfile).toBeGreaterThanOrEqual(1);
+    expect(asyncNativeCalls.stat).toBeGreaterThanOrEqual(3);
+  });
+
+  test('recursive mkdir result and COPYFILE_EXCL stay on path worker', async () => {
+    const root = nodePath.join(dir, 'mkdir-worker');
+    for (const key of Object.keys(pathAsyncCalls)) delete pathAsyncCalls[key];
+    const first = await fs.promises.mkdir(nodePath.join(root, 'a', 'b'), { recursive: true });
+    expect(first).toBe(root);
+    const src = nodePath.join(root, 'src'), dst = nodePath.join(root, 'dst');
+    nodeFs.writeFileSync(src, 'new'); nodeFs.writeFileSync(dst, 'old');
+    await expect(fs.promises.copyFile(src, dst, fs.constants.COPYFILE_EXCL)).rejects.toMatchObject({ code: 'EEXIST' });
+    expect(nodeFs.readFileSync(dst, 'utf8')).toBe('old');
+    expect(pathAsyncCalls.copyfile_excl).toBe(1);
+  });
+
+  test('watchFile polling uses async stat native', async () => {
+    const p = nodePath.join(dir, 'watch-async.txt');
+    nodeFs.writeFileSync(p, 'a'); asyncNativeCalls.stat = 0;
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => { fs.unwatchFile(p); reject(new Error('watch timeout')); }, 1000);
+      fs.watchFile(p, { interval: 10 }, () => {
+        clearTimeout(timeout); fs.unwatchFile(p); resolve();
+      });
+      setTimeout(() => nodeFs.writeFileSync(p, 'bb'), 30);
+    });
+    expect(asyncNativeCalls.stat).toBeGreaterThanOrEqual(2);
+  });
+
+  test('watch polling uses async metadata natives and detects a file change', async () => {
+    const p = nodePath.join(dir, 'watch-worker-backed.txt');
+    nodeFs.writeFileSync(p, 'a');
+    asyncNativeCalls.stat = 0;
+    await new Promise<void>((resolve, reject) => {
+      const watcher = fs.watch(p, { interval: 10 }, (event: string) => {
+        if (event !== 'change') return;
+        clearTimeout(timeout);
+        watcher.close();
+        resolve();
+      });
+      const timeout = setTimeout(() => {
+        watcher.close();
+        reject(new Error('watch timeout'));
+      }, 1000);
+      setTimeout(() => nodeFs.writeFileSync(p, 'changed'), 40);
+    });
+    expect(asyncNativeCalls.stat).toBeGreaterThanOrEqual(2);
+  });
+
+  test('directory watch establishes its first snapshot without synthetic rename events', async () => {
+    const watched = nodePath.join(dir, 'watch-directory-baseline');
+    nodeFs.mkdirSync(watched);
+    nodeFs.writeFileSync(nodePath.join(watched, 'already-present.txt'), 'baseline');
+    const events: Array<[string, string | Buffer | null]> = [];
+    const watcher = fs.watch(watched, { interval: 10 }, (event: string, filename: any) => {
+      events.push([event, filename]);
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(events).toEqual([]);
+
+      const observed = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('directory watch timeout')), 1000);
+        watcher.once('change', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+      nodeFs.writeFileSync(nodePath.join(watched, 'created-after-baseline.txt'), 'new');
+      await observed;
+      expect(events.some(([event]) => event === 'rename')).toBe(true);
+    } finally {
+      watcher.close();
+    }
+  });
+
+  test('non-recursive async rm rejects directories without deleting them', async () => {
+    const empty = nodePath.join(dir, 'rm-empty-directory');
+    const nonempty = nodePath.join(dir, 'rm-nonempty-directory');
+    nodeFs.mkdirSync(empty);
+    nodeFs.mkdirSync(nonempty);
+    nodeFs.writeFileSync(nodePath.join(nonempty, 'child'), 'x');
+    await expect(fs.promises.rm(empty)).rejects.toMatchObject({ code: 'ERR_FS_EISDIR' });
+    await expect(fs.promises.rm(nonempty)).rejects.toMatchObject({ code: 'ERR_FS_EISDIR' });
+    expect(nodeFs.existsSync(empty)).toBe(true);
+    expect(nodeFs.existsSync(nonempty)).toBe(true);
   });
 });

@@ -92,6 +92,7 @@ constexpr const char* kNetworkingClassSlash = "dev/ibex/runtime/IbexNetworking";
 constexpr const char* kNetworkingClassDot = "dev.ibex.runtime.IbexNetworking";
 
 struct AndroidFetchRequest {
+  uint64_t runtime_nonce = 0;
   NativeFetchResponseCallback response_callback = nullptr;
   void* context = nullptr;
 };
@@ -2127,6 +2128,7 @@ extern "C" int android_post_animation_frame(
 
 extern "C" void native_fetch_perform(
     uint32_t request_id,
+    uint64_t runtime_nonce,
     const char* method,
     const char* url,
     const char* headers,
@@ -2145,7 +2147,8 @@ extern "C" void native_fetch_perform(
 
   {
     std::lock_guard<std::mutex> lock(g_fetch_mutex);
-    g_fetch_requests[request_id] = AndroidFetchRequest{response_callback, context};
+    g_fetch_requests[request_id] = AndroidFetchRequest{
+        runtime_nonce, response_callback, context};
   }
 
   if (!call_android_fetch(request_id, method, url, headers, decompress, body, body_length)) {
@@ -2161,10 +2164,15 @@ extern "C" void native_fetch_perform(
   }
 }
 
-extern "C" void native_fetch_cancel(uint32_t request_id) {
+extern "C" void native_fetch_cancel(uint32_t request_id, uint64_t runtime_nonce) {
   {
     std::lock_guard<std::mutex> lock(g_fetch_mutex);
-    g_fetch_requests.erase(request_id);
+    auto it = g_fetch_requests.find(request_id);
+    if (it == g_fetch_requests.end() ||
+        it->second.runtime_nonce != runtime_nonce) {
+      return;
+    }
+    g_fetch_requests.erase(it);
   }
   call_android_cancel_fetch(request_id);
 }

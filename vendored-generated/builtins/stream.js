@@ -212,6 +212,95 @@ function _scheduleDrain(stream) {
 	if (!stream) return;
 	stream.emit("drain");
 }
+var _retainedOwnerGuards = /* @__PURE__ */ new WeakMap();
+var _retainedOwnerState = /* @__PURE__ */ new WeakMap();
+function _registerRetainedOwnerGuard(stream, guard) {
+	if (typeof guard !== "function") return;
+	if (_retainedOwnerGuards.has(stream)) throw new Error("stream retained-owner guard is already registered");
+	_retainedOwnerGuards.set(stream, guard);
+}
+function _assertRetainedOwner(stream) {
+	var guard = _retainedOwnerGuards.get(stream);
+	if (guard) guard(stream);
+}
+function _findPropertyDescriptor(object, property) {
+	var current = object;
+	while (current) {
+		var descriptor = Object.getOwnPropertyDescriptor(current, property);
+		if (descriptor) return descriptor;
+		current = Object.getPrototypeOf(current);
+	}
+	return null;
+}
+function _sealRetainedOwnerProperty(stream, property) {
+	var ownDescriptor = Object.getOwnPropertyDescriptor(stream, property);
+	if (ownDescriptor && ownDescriptor.configurable === false) return;
+	var descriptor = ownDescriptor || _findPropertyDescriptor(Object.getPrototypeOf(stream), property);
+	var state = _retainedOwnerState.get(stream);
+	var cell;
+	if (descriptor && (typeof descriptor.get === "function" || typeof descriptor.set === "function")) cell = {
+		get: descriptor.get,
+		set: descriptor.set,
+		enumerable: !!(ownDescriptor && descriptor.enumerable)
+	};
+	else cell = {
+		value: descriptor ? descriptor.value : stream[property],
+		writable: !descriptor || descriptor.writable !== false,
+		enumerable: !!(ownDescriptor && descriptor && descriptor.enumerable)
+	};
+	state.set(property, cell);
+	var projected = {
+		configurable: false,
+		enumerable: cell.enumerable,
+		get: function() {
+			_assertRetainedOwner(stream);
+			if (cell.get) return cell.get.call(stream);
+			return cell.value;
+		}
+	};
+	if (cell.set || cell.writable) projected.set = function(value) {
+		_assertRetainedOwner(stream);
+		if (cell.set) cell.set.call(stream, value);
+		else cell.value = value;
+	};
+	Object.defineProperty(stream, property, projected);
+}
+function _sealRetainedOwnerState(stream) {
+	if (!_retainedOwnerGuards.has(stream)) return;
+	if (_retainedOwnerState.has(stream)) throw new Error("stream retained-owner state is already sealed");
+	_retainedOwnerState.set(stream, /* @__PURE__ */ new Map());
+	Object.getOwnPropertyNames(stream).forEach(function(property) {
+		_sealRetainedOwnerProperty(stream, property);
+	});
+	var prototype = Object.getPrototypeOf(stream);
+	while (prototype && prototype !== Object.prototype) {
+		Object.getOwnPropertyNames(prototype).forEach(function(property) {
+			if (property === "constructor") return;
+			var descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+			if (!descriptor) return;
+			if (typeof descriptor.value === "function" || descriptor.get || descriptor.set) _sealRetainedOwnerProperty(stream, property);
+		});
+		if (typeof Object.getOwnPropertySymbols === "function") Object.getOwnPropertySymbols(prototype).forEach(function(property) {
+			var descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+			if (descriptor && (typeof descriptor.value === "function" || descriptor.get || descriptor.set)) _sealRetainedOwnerProperty(stream, property);
+		});
+		prototype = Object.getPrototypeOf(prototype);
+	}
+	[
+		"_construct",
+		"_destroy",
+		"_final",
+		"_flush",
+		"_pendingDestroyAfterConstruct",
+		"_read",
+		"_readFromSource",
+		"_transform",
+		"_write",
+		"_writev"
+	].forEach(function(property) {
+		_sealRetainedOwnerProperty(stream, property);
+	});
+}
 function Stream() {
 	EventEmitter.call(this);
 	if (!this._events || typeof this._events !== "object") this._events = {};
@@ -401,6 +490,7 @@ Stream.prototype._emitClose = function() {
 	this._close(true);
 };
 Stream.prototype._close = function(force) {
+	_assertRetainedOwner(this);
 	if (this._closed) return;
 	if (!force && this._readableState && this._writableState && (!this._readableState.endEmitted || !this._writableState.finished)) {
 		this._needsClose = true;
@@ -413,6 +503,7 @@ Stream.prototype._close = function(force) {
 	this.emit("close");
 };
 Stream.prototype._undestroy = function() {
+	_assertRetainedOwner(this);
 	this._destroyed = false;
 	this.destroyed = false;
 	this._closed = false;
@@ -476,6 +567,7 @@ Stream.prototype._undestroy = function() {
 	}
 };
 Stream.prototype.destroy = function(error, callback) {
+	_assertRetainedOwner(this);
 	if (this._destroyed || this.destroyed) {
 		if (typeof callback === "function") setTimeout(function() {
 			callback();
@@ -782,6 +874,7 @@ Object.defineProperties(Readable.prototype, {
 	}
 });
 Readable.prototype.emit = function(event) {
+	_assertRetainedOwner(this);
 	if (event === "end" && this._readableState && this.listenerCount("end") > 0) this._readableState.endConsumed = true;
 	return EventEmitter.prototype.emit.apply(this, arguments);
 };
@@ -1094,6 +1187,7 @@ Readable.prototype._emitReadableIfNeeded = function() {
 	});
 };
 Readable.prototype._readFromSource = function(size) {
+	_assertRetainedOwner(this);
 	var state = this._readableState;
 	if (this.readableFlowing === true || this._destroyed || !state || state.reading || typeof this._read !== "function") return;
 	state.reading = true;
@@ -1112,6 +1206,7 @@ Readable.prototype._readFromSource = function(size) {
 	}
 };
 Readable.prototype.push = function(chunk, encoding) {
+	_assertRetainedOwner(this);
 	if (this._destroyed) return false;
 	var state = this._readableState;
 	var self = this;
@@ -1265,6 +1360,7 @@ Readable.prototype.push = function(chunk, encoding) {
 	return state.length < state.highWaterMark || state.length === 0;
 };
 Readable.prototype.read = function(size) {
+	_assertRetainedOwner(this);
 	if (this._destroyed) return null;
 	var state = this._readableState;
 	var n = _coerceReadSize(size);
@@ -1375,6 +1471,7 @@ Readable.prototype.read = function(size) {
 	return chunk;
 };
 Readable.prototype.unshift = function(chunk, encoding) {
+	_assertRetainedOwner(this);
 	var state = this._readableState;
 	if (chunk === null) {
 		state.reading = false;
@@ -1414,11 +1511,13 @@ Readable.prototype.unshift = function(chunk, encoding) {
 	return state.length < state.highWaterMark || state.length === 0;
 };
 Readable.prototype.setEncoding = function(enc) {
+	_assertRetainedOwner(this);
 	_setReadableEncoding(this._readableState, enc);
 	this.readableEncoding = this._readableState.encoding;
 	return this;
 };
 Readable.prototype.resume = function() {
+	_assertRetainedOwner(this);
 	if (this.readableFlowing !== true) {
 		var shouldEmitResume = true;
 		this.readableFlowing = true;
@@ -1448,6 +1547,7 @@ Readable.prototype.resume = function() {
 	return this;
 };
 Readable.prototype.pause = function() {
+	_assertRetainedOwner(this);
 	if (this.readableFlowing !== false) {
 		this.readableFlowing = false;
 		this._syncReadableState();
@@ -1456,6 +1556,7 @@ Readable.prototype.pause = function() {
 	return this;
 };
 Readable.prototype.on = function(event, listener) {
+	_assertRetainedOwner(this);
 	if (event === "readable" && arguments.length === 1) {
 		var state = this._readableState;
 		this.readableFlowing = false;
@@ -1497,6 +1598,7 @@ Readable.prototype.on = function(event, listener) {
 };
 Readable.prototype.addListener = Readable.prototype.on;
 Readable.prototype.isPaused = function() {
+	_assertRetainedOwner(this);
 	return this.readableFlowing === false;
 };
 Readable.prototype._read = function(size) {};
@@ -3641,11 +3743,16 @@ if (!Object.hasOwn(Writable.prototype, "writableFinished")) try {
 } catch (_defErr) {}
 Writable.prototype.__exactWritableProtoPatched = true;
 Object.defineProperty(Writable, Symbol.hasInstance, { value: function(object) {
-	if (Function.prototype[Symbol.hasInstance].call(this, object)) return true;
+	var prototype = object == null ? null : Object.getPrototypeOf(object);
+	while (prototype) {
+		if (prototype === this.prototype) return true;
+		prototype = Object.getPrototypeOf(prototype);
+	}
 	if (this !== Writable) return false;
 	return object != null && typeof object === "object" && object._writableState != null;
 } });
 Writable.prototype._write = function(chunk, encoding, callback) {
+	_assertRetainedOwner(this);
 	if (typeof this._writev === "function") {
 		this._writev([{
 			chunk,
@@ -3661,6 +3768,7 @@ Writable.prototype.pipe = function() {
 	this.emit("error", makeError(Error, "ERR_STREAM_CANNOT_PIPE", "Cannot pipe, not readable"));
 };
 Writable.prototype.write = function(chunk, encoding, callback) {
+	_assertRetainedOwner(this);
 	if (typeof encoding === "function") {
 		callback = encoding;
 		encoding = void 0;
@@ -3863,6 +3971,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 	return !needsDrain;
 };
 Writable.prototype._flushWriteQueue = function() {
+	_assertRetainedOwner(this);
 	if (!this._writeQueue || this._writeQueue.length === 0) return;
 	if (!this._writableState || this._writableState.writing || this._writableState.bufferProcessing || this._writableState.constructed === false) return;
 	if (this._destroyed || this.destroyed || this._writableState.destroyed) {
@@ -3972,6 +4081,7 @@ Writable.prototype._flushWriteQueue = function() {
 	runNext();
 };
 Writable.prototype.end = function(chunk, encoding, callback) {
+	_assertRetainedOwner(this);
 	if (typeof chunk === "function") {
 		callback = chunk;
 		chunk = null;
@@ -4139,15 +4249,18 @@ Writable.prototype.end = function(chunk, encoding, callback) {
 	return this;
 };
 Writable.prototype.cork = function() {
+	_assertRetainedOwner(this);
 	this.writableCorked++;
 };
 Writable.prototype.uncork = function() {
+	_assertRetainedOwner(this);
 	if (this.writableCorked > 0) {
 		this.writableCorked--;
 		if (this.writableCorked <= 0) this._flushWriteQueue();
 	}
 };
 Writable.prototype.setDefaultEncoding = function(enc) {
+	_assertRetainedOwner(this);
 	if (!this._writableState) return this;
 	if (typeof enc !== "string") {
 		var encStr;
@@ -4315,8 +4428,9 @@ function _transformDefaultFinal(callback) {
 		if (typeof callback === "function") callback();
 	}
 }
-function Transform(options) {
-	if (!(this instanceof Transform)) return new Transform(options);
+function Transform(options, retainedOwnerGuard) {
+	if (!(this instanceof Transform)) return new Transform(options, retainedOwnerGuard);
+	_registerRetainedOwnerGuard(this, retainedOwnerGuard);
 	Duplex.call(this, options);
 	if (!this._writableState) Writable.call(this, options);
 	this._transformState = {
@@ -4334,6 +4448,7 @@ function Transform(options) {
 	this.on("prefinish", function() {
 		if (_self._final !== _transformDefaultFinal) _transformDefaultFinal.call(_self);
 	});
+	_sealRetainedOwnerState(this);
 }
 Transform.prototype = Object.create(Duplex.prototype);
 Transform.prototype.constructor = Transform;
@@ -4343,12 +4458,14 @@ Transform.prototype._transform = function(chunk, encoding, callback) {
 	throw err;
 };
 Transform.prototype.push = function(chunk, encoding) {
+	_assertRetainedOwner(this);
 	var ret = Duplex.prototype.push.call(this, chunk, encoding);
 	var state = this._transformState;
 	if (state && state.transforming && ret === false) state.backpressured = true;
 	return ret;
 };
 Transform.prototype._write = function(chunk, encoding, callback) {
+	_assertRetainedOwner(this);
 	var self = this;
 	var callbackCalled = false;
 	var state = self._transformState || {};
@@ -4411,6 +4528,7 @@ PassThrough.prototype._transform = function(chunk, encoding, callback) {
 	if (typeof callback === "function") callback(null, chunk);
 };
 Stream.prototype.pipe = function(dest, options) {
+	_assertRetainedOwner(this);
 	var source = this;
 	var state = source._readableState;
 	var hasDrainListener = false;
@@ -4615,6 +4733,7 @@ Stream.prototype.pipe = function(dest, options) {
 	return dest;
 };
 Stream.prototype.unpipe = function(dest) {
+	_assertRetainedOwner(this);
 	var state = this._readableState;
 	var cleanupBuckets = this._pipeCleanups;
 	if (state) {
@@ -4669,6 +4788,7 @@ Stream.prototype.unpipe = function(dest) {
 	return this;
 };
 Readable.prototype.wrap = function(stream) {
+	_assertRetainedOwner(this);
 	var self = this;
 	stream.on("data", function(chunk) {
 		self.push(chunk);

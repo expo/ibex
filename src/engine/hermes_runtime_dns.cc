@@ -254,6 +254,28 @@ void loadDnsServers(std::vector<struct sockaddr_in>& servers, int& retransSec, i
   applyResOptionsTiming(retransSec, retries);
 }
 
+std::string systemDnsServersJson() {
+  std::vector<struct sockaddr_in> servers;
+  int retransSec = 0;
+  int retries = 0;
+  loadDnsServers(servers, retransSec, retries);
+  std::ostringstream json;
+  json << '[';
+  bool first = true;
+  for (const auto& server : servers) {
+    char address[INET_ADDRSTRLEN] = {};
+    if (!inet_ntop(AF_INET, &server.sin_addr, address, sizeof(address))) continue;
+    if (!first) json << ',';
+    first = false;
+    json << '"' << address;
+    uint16_t port = ntohs(server.sin_port);
+    if (port != 0 && port != 53) json << ':' << port;
+    json << '"';
+  }
+  json << ']';
+  return json.str();
+}
+
 // Encode a standard recursive query (header + single QD). Returns false for
 // names that cannot be encoded (empty/oversized labels). No search-domain
 // semantics — res_query (the previous transport) never applied them either.
@@ -903,7 +925,7 @@ class DnsWorkerPool {
   size_t total_ = 0;
 
   void spawnWorkerIfNeededLocked() {
-    if (idle_ > 0 || total_ >= kMaxWorkers) {
+    if (idle_ > queue_.size() || total_ >= kMaxWorkers) {
       return;
     }
     total_ += 1;
@@ -922,6 +944,21 @@ class DnsWorkerPool {
       }
     }).detach();
   }
+};
+
+class DnsAsyncLifetime {
+ public:
+  explicit DnsAsyncLifetime(RuntimeCallbackTarget target) : target_(target) {}
+  void activate() noexcept { active_ = true; }
+  ~DnsAsyncLifetime() {
+    if (!active_) return;
+    target_.runtime->pending_dns_lookups.fetch_sub(1, std::memory_order_relaxed);
+    exactUnpinRuntimeNativeWorker(target_);
+  }
+
+ private:
+  RuntimeCallbackTarget target_;
+  bool active_{false};
 };
 
 // Build a Promise whose resolution runs `work` on a DNS worker thread and
@@ -955,23 +992,41 @@ facebook::jsi::Value startDnsAsync(
         auto reject =
             std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
 
+        auto target = exactRuntimeCallbackTarget(handle);
+        auto lifetime = std::make_shared<DnsAsyncLifetime>(target);
+        if (!exactPinRuntimeNativeWorker(target)) {
+          throw facebook::jsi::JSError(rt, "DNS async: runtime is shutting down");
+        }
+
         // Mark the lookup in flight before dispatching so the event loop stays
         // alive across the resolver call even with no other pending work.
         handle->pending_dns_lookups.fetch_add(1, std::memory_order_relaxed);
+        lifetime->activate();
 
         std::string enqueueError;
         bool queued = DnsWorkerPool::instance().enqueue(
-            [handle, principal, workPtr, resolve = std::move(resolve), reject = std::move(reject)]() mutable {
-              DnsResult result = (*workPtr)();
+            [target, principal, workPtr, resolve, reject,
+             lifetime]() mutable {
+              exactTestDelayRuntimeProducer();
+              DnsResult result;
+              try {
+                result = (*workPtr)();
+              } catch (const std::exception& error) {
+                result.error = std::string("DNS worker failed: ") + error.what();
+                result.code = "EAI_FAIL";
+              } catch (...) {
+                result.error = "DNS worker failed";
+                result.code = "EAI_FAIL";
+              }
+              *workPtr = {};
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);
               pushRuntimeCallback(
-                  handle,
-                  [handle, principal, resolve = std::move(runtimeResolve),
+                  target,
+                  [principal, resolve = std::move(runtimeResolve),
                    reject = std::move(runtimeReject), result = std::move(result)](
                       facebook::jsi::Runtime& rt) {
                     ScopedNativePrincipal nativePrincipal(principal);
-                    handle->pending_dns_lookups.fetch_sub(1, std::memory_order_relaxed);
                     try {
                       if (result.ok) {
                         resolve->call(
@@ -985,7 +1040,7 @@ facebook::jsi::Value startDnsAsync(
             },
             enqueueError);
         if (!queued) {
-          handle->pending_dns_lookups.fetch_sub(1, std::memory_order_relaxed);
+          *workPtr = {};
           reject->call(rt, facebook::jsi::JSError(rt, enqueueError).value());
         }
         return facebook::jsi::Value::undefined();
@@ -997,6 +1052,27 @@ facebook::jsi::Value startDnsAsync(
 
 void installDnsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
+  auto dnsGetServersFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactDnsGetServers"),
+      0,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+#if defined(EXACT_PLATFORM_ANDROID)
+        // Android's resolver is network-scoped and intentionally does not
+        // expose nameserver addresses through the NDK resolver API. Return an
+        // explicit empty diagnostic list; resolution itself uses the platform
+        // android_dns_query bridge and never treats this as custom authority.
+        const std::string servers = "[]";
+#else
+        const std::string servers = systemDnsServersJson();
+#endif
+        return facebook::jsi::String::createFromUtf8(runtime, servers);
+      });
+  rt.global().setProperty(rt, "__exactDnsGetServers", std::move(dnsGetServersFn));
+
   // --- DNS lookup ---
   // __exactDnsLookup(hostname, family) -> JSON string { address, family }
   // Synchronous/blocking. Retained for backward compatibility and as the

@@ -93,6 +93,7 @@ function _toBytes(value) {
 	if (value === null || value === void 0) return new Uint8Array(0);
 	if (value instanceof Uint8Array) return value;
 	if (value instanceof ArrayBuffer) return new Uint8Array(value);
+	if (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer) return new Uint8Array(value);
 	if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
 	if (typeof Buffer !== "undefined" && Buffer.isBuffer && Buffer.isBuffer(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
 	if (typeof value === "string") {
@@ -1449,6 +1450,7 @@ function _detectAsymmetricKeyType(raw) {
 		var upper = raw.toUpperCase();
 		if (upper.indexOf("BEGIN RSA PUBLIC KEY") !== -1 || upper.indexOf("BEGIN RSA PRIVATE KEY") !== -1) return "rsa";
 		if (upper.indexOf("BEGIN EC PRIVATE KEY") !== -1) return "ec";
+		if (upper.indexOf("BEGIN DSA PRIVATE KEY") !== -1 || upper.indexOf("BEGIN DSA PUBLIC KEY") !== -1) return "dsa";
 	}
 	var hex = _toHex(_decodePemKeyBytes(raw)).toLowerCase();
 	if (hex.indexOf("06092a864886f70d01010a") !== -1) return "rsa-pss";
@@ -1693,7 +1695,7 @@ var _cipherInfo = {
 	},
 	"des-ede3": {
 		keyBytes: 24,
-		openssl: "des-ede3-cbc"
+		openssl: "des-ede3"
 	},
 	"des3": {
 		keyBytes: 24,
@@ -1850,7 +1852,7 @@ function _validateCipherKeyIv(normalized, key, iv) {
 	var effIv = normalized.ivOverride !== void 0 ? normalized.ivOverride : iv;
 	var ivLen = -1;
 	if (effIv !== null && effIv !== void 0) ivLen = _toUint8Array(_toBytesUtf8(effIv)).length;
-	if (algo.indexOf("ecb") !== -1) {
+	if (algo.indexOf("ecb") !== -1 || algo === "des-ede3") {
 		if (ivLen > 0) _badIv();
 	} else if (_isWrapAlgorithm(algo)) {} else if (algo.indexOf("gcm") !== -1) {
 		if (ivLen < 1) _badIv();
@@ -2321,11 +2323,23 @@ function _isPemKeyText(value) {
 }
 function _extractKeyText(key) {
 	if (typeof key === "string") return key;
+	if (_isStringOrBuffer(key)) {
+		var directText = _toByteString(key);
+		return _isPemKeyText(directText) ? directText : "";
+	}
 	if (key instanceof KeyObject) return typeof key._data === "string" ? key._data : _toByteString(key._data);
 	if (!key || typeof key !== "object") return "";
 	if (typeof key.key === "string") return key.key;
+	if (_isStringOrBuffer(key.key)) {
+		var optionText = _toByteString(key.key);
+		return _isPemKeyText(optionText) ? optionText : "";
+	}
 	if (key.key instanceof KeyObject) return typeof key.key._data === "string" ? key.key._data : _toByteString(key.key._data);
 	if (typeof key.pem === "string") return key.pem;
+	if (_isStringOrBuffer(key.pem)) {
+		var pemText = _toByteString(key.pem);
+		return _isPemKeyText(pemText) ? pemText : "";
+	}
 	return "";
 }
 function _normalizeHashForSign(algorithm) {
@@ -2349,16 +2363,142 @@ function _signatureOutput(signatureBytesLike, outputEncoding) {
 	var signatureBytes = [];
 	if (typeof signatureBytesLike === "string") signatureBytes = _hexToBytes(signatureBytesLike);
 	else signatureBytes = _toByteArray(signatureBytesLike);
-	if (!outputEncoding) return _bytesToBufferLike(signatureBytes);
+	var output = _bytesToBufferLike(signatureBytes);
+	if (!outputEncoding || outputEncoding === "buffer") return output;
+	if (typeof Buffer !== "undefined" && Buffer.from) return Buffer.from(signatureBytes).toString(outputEncoding);
 	if (outputEncoding === "hex") return _toHex(signatureBytes);
-	if (outputEncoding === "base64") {
-		if (typeof btoa !== "function") return signatureBytes;
-		var encodedInput = "";
-		for (var i = 0; i < signatureBytes.length; i++) encodedInput += String.fromCharCode(signatureBytes[i]);
-		return btoa(encodedInput);
+	var encodedInput = "";
+	for (var i = 0; i < signatureBytes.length; i++) encodedInput += String.fromCharCode(signatureBytes[i]);
+	if (outputEncoding === "latin1" || outputEncoding === "binary") return encodedInput;
+	if (outputEncoding === "base64" || outputEncoding === "base64url") {
+		if (typeof btoa !== "function") return output;
+		var base64 = btoa(encodedInput);
+		return outputEncoding === "base64url" ? base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : base64;
 	}
-	if (outputEncoding === "binary") return _bytesToBufferLike(signatureBytes);
-	return _bytesToBufferLike(signatureBytes);
+	return output;
+}
+function _keyOptionsValue(key, name) {
+	return key && typeof key === "object" && !(key instanceof KeyObject) ? key[name] : void 0;
+}
+function _looksLikeCompleteDerKey(value) {
+	if (!value || typeof value === "string") return false;
+	var bytes;
+	try {
+		bytes = _toByteArray(value);
+	} catch (_) {
+		return false;
+	}
+	if (bytes.length < 4 || bytes[0] !== 48) return false;
+	var offset = 1;
+	var firstLength = bytes[offset++];
+	var contentLength = 0;
+	if (firstLength < 128) contentLength = firstLength;
+	else {
+		var count = firstLength & 127;
+		if (count < 1 || count > 4 || offset + count > bytes.length || bytes[offset] === 0) return false;
+		for (var i = 0; i < count; i++) contentLength = contentLength * 256 + bytes[offset++];
+		if (contentLength < 128) return false;
+	}
+	if (contentLength < 2 || offset + contentLength !== bytes.length) return false;
+	return bytes[offset] === 2 || bytes[offset] === 48;
+}
+function _asymmetricKeyObject(key) {
+	if (key instanceof KeyObject) return key._type !== "secret";
+	if (key && typeof key === "object" && key.key instanceof KeyObject) return key.key._type !== "secret";
+	if (key && typeof key === "object" && (key.format === "der" || key.format === "jwk")) return true;
+	var raw = key && typeof key === "object" && key.key !== void 0 ? key.key : key;
+	if (raw && typeof raw === "object" && raw.kty) return true;
+	if (_looksLikeCompleteDerKey(raw)) return true;
+	return false;
+}
+function _ecCoordinateSize(key) {
+	var raw = key instanceof KeyObject ? key._data : key && typeof key === "object" && key.key !== void 0 ? key.key instanceof KeyObject ? key.key._data : key.key : key;
+	if (raw && typeof raw === "object" && raw.crv) {
+		if (raw.crv === "P-384") return 48;
+		if (raw.crv === "P-521") return 66;
+		return 32;
+	}
+	var hex = _toHex(_decodePemKeyBytes(raw)).toLowerCase();
+	if (hex.indexOf("06052b81040022") !== -1) return 48;
+	if (hex.indexOf("06052b81040023") !== -1) return 66;
+	return 32;
+}
+function _readDerLength(bytes, offset) {
+	var first = bytes[offset++];
+	if (first < 128) return {
+		length: first,
+		offset
+	};
+	var count = first & 127;
+	if (count < 1 || count > 4 || offset + count > bytes.length) throw _createCryptoError(Error, "ERR_CRYPTO_INVALID_SIGNATURE", "Invalid DER signature");
+	var length = 0;
+	for (var i = 0; i < count; i++) length = length * 256 + bytes[offset++];
+	return {
+		length,
+		offset
+	};
+}
+function _derSignatureToP1363(signature, coordinateSize) {
+	var bytes = _toByteArray(signature);
+	var offset = 0;
+	if (bytes[offset++] !== 48) throw _createCryptoError(Error, "ERR_CRYPTO_INVALID_SIGNATURE", "Invalid DER signature");
+	var seq = _readDerLength(bytes, offset);
+	offset = seq.offset;
+	var end = offset + seq.length;
+	var out = new Array(coordinateSize * 2).fill(0);
+	for (var part = 0; part < 2; part++) {
+		if (bytes[offset++] !== 2) throw _createCryptoError(Error, "ERR_CRYPTO_INVALID_SIGNATURE", "Invalid DER signature");
+		var integer = _readDerLength(bytes, offset);
+		offset = integer.offset;
+		var start = offset;
+		while (integer.length > 1 && bytes[start] === 0) {
+			start++;
+			integer.length--;
+		}
+		if (integer.length > coordinateSize) throw _createCryptoError(Error, "ERR_CRYPTO_INVALID_SIGNATURE", "ECDSA integer is too large");
+		for (var j = 0; j < integer.length; j++) out[part * coordinateSize + coordinateSize - integer.length + j] = bytes[start + j];
+		offset += start - offset + integer.length;
+	}
+	if (offset !== end || end !== bytes.length) throw _createCryptoError(Error, "ERR_CRYPTO_INVALID_SIGNATURE", "Invalid DER signature");
+	return _bytesToBufferLike(out);
+}
+function _encodeDerLength(length) {
+	if (length < 128) return [length];
+	var out = [];
+	while (length > 0) {
+		out.unshift(length & 255);
+		length = Math.floor(length / 256);
+	}
+	out.unshift(128 | out.length);
+	return out;
+}
+function _p1363SignatureToDer(signature, coordinateSize) {
+	var bytes = _toByteArray(signature);
+	if (bytes.length !== coordinateSize * 2) return null;
+	var body = [];
+	for (var part = 0; part < 2; part++) {
+		var start = part * coordinateSize;
+		var end = start + coordinateSize;
+		while (start + 1 < end && bytes[start] === 0) start++;
+		var integer = bytes.slice(start, end);
+		if (integer[0] & 128) integer.unshift(0);
+		body.push(2);
+		body.push.apply(body, _encodeDerLength(integer.length));
+		body.push.apply(body, integer);
+	}
+	return _bytesToBufferLike([48].concat(_encodeDerLength(body.length), body));
+}
+function _dsaEncoding(key) {
+	var encoding = _keyOptionsValue(key, "dsaEncoding");
+	if (encoding === void 0) return "der";
+	if (encoding !== "der" && encoding !== "ieee-p1363") throw _errInvalidArgValue("key.dsaEncoding", encoding);
+	return encoding;
+}
+function _p1363CoordinateSize(key, keyType) {
+	if (_dsaEncoding(key) !== "ieee-p1363") return null;
+	if (keyType === "ec") return _ecCoordinateSize(key);
+	if (keyType === "dsa") throw _createCryptoError(Error, "ERR_OSSL_UNSUPPORTED", "IEEE P1363 signature encoding for DSA keys is not supported by this runtime");
+	return null;
 }
 function _rsaSchemeFromKeyOptions(key) {
 	var scheme = "pkcs1";
@@ -2386,10 +2526,14 @@ function sign(algorithm, data, key, outputEncoding) {
 	var keyText = _extractKeyText(key);
 	var dataBytes = _toUint8Array(data);
 	if (typeof keyText === "string" && _isPemKeyText(keyText)) {
+		var p1363Size = _p1363CoordinateSize(key, _detectAsymmetricKeyType(keyText));
 		if (typeof __exactSignSync !== "function") throw new Error("crypto.sign: asymmetric signing is not available on this platform");
 		var rsaOpts = _rsaSchemeFromKeyOptions(key);
-		return _signatureOutput(__exactSignSync(hash, dataBytes, keyText, rsaOpts.scheme, rsaOpts.saltLength), outputEncoding);
+		var nativeBytes = __exactSignSync(hash, dataBytes, keyText, rsaOpts.scheme, rsaOpts.saltLength);
+		if (p1363Size !== null) nativeBytes = _derSignatureToP1363(nativeBytes, p1363Size);
+		return _signatureOutput(nativeBytes, outputEncoding);
 	}
+	if (_asymmetricKeyObject(key)) throw _createCryptoError(Error, "ERR_OSSL_UNSUPPORTED", "Asymmetric DER/JWK keys are not supported by this runtime signer; export the key as PEM");
 	if (typeof __exactHmacSync === "function") {
 		var fallbackKey = keyText || _toByteString(key);
 		return _signatureOutput(__exactHmacSync(hash, fallbackKey, _toByteString(data)), outputEncoding);
@@ -2407,6 +2551,21 @@ function verify(algorithm, data, key, signature, callback) {
 	var dataBytes = _toUint8Array(data);
 	var result = false;
 	if (typeof keyText === "string" && _isPemKeyText(keyText)) {
+		var keyType = _detectAsymmetricKeyType(keyText);
+		var p1363Size;
+		try {
+			p1363Size = _p1363CoordinateSize(key, keyType);
+		} catch (encodingError) {
+			if (typeof callback === "function") {
+				(typeof process !== "undefined" && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
+					setTimeout(fn, 0);
+				})(function() {
+					callback(encodingError);
+				});
+				return;
+			}
+			throw encodingError;
+		}
 		if (typeof __exactVerifySync !== "function") {
 			var unavailable = /* @__PURE__ */ new Error("crypto.verify: asymmetric verification is not available on this platform");
 			if (typeof callback === "function") {
@@ -2421,7 +2580,14 @@ function verify(algorithm, data, key, signature, callback) {
 		}
 		try {
 			var rsaOpts = _rsaSchemeFromKeyOptions(key);
-			result = __exactVerifySync(hash, signatureValue, dataBytes, keyText, rsaOpts.scheme, rsaOpts.saltLength);
+			if (p1363Size !== null) {
+				var derSignature = _p1363SignatureToDer(signatureValue, p1363Size);
+				if (!derSignature) result = false;
+				else {
+					signatureValue = derSignature;
+					result = __exactVerifySync(hash, signatureValue, dataBytes, keyText, rsaOpts.scheme, rsaOpts.saltLength);
+				}
+			} else result = __exactVerifySync(hash, signatureValue, dataBytes, keyText, rsaOpts.scheme, rsaOpts.saltLength);
 		} catch (e) {
 			if (typeof callback === "function") {
 				(typeof process !== "undefined" && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
@@ -2442,6 +2608,18 @@ function verify(algorithm, data, key, signature, callback) {
 			return;
 		}
 		return result;
+	}
+	if (_asymmetricKeyObject(key)) {
+		var unsupported = _createCryptoError(Error, "ERR_OSSL_UNSUPPORTED", "Asymmetric DER/JWK keys are not supported by this runtime verifier; export the key as PEM");
+		if (typeof callback === "function") {
+			(typeof process !== "undefined" && typeof process.nextTick === "function" ? process.nextTick : function(fn) {
+				setTimeout(fn, 0);
+			})(function() {
+				callback(unsupported);
+			});
+			return;
+		}
+		throw unsupported;
 	}
 	if (typeof __exactHmacSync !== "function") {
 		if (typeof callback === "function") {
@@ -2817,6 +2995,8 @@ function generateKeyPair(type, options, callback) {
 		}, 0);
 	}
 }
+var _MAX_SYNC_PRIME_BITS = 512;
+var _MAX_SYNC_SAFE_PRIME_BITS = 256;
 function _readInt(value) {
 	return typeof value === "number" && isFinite(value) && value === (value | 0);
 }
@@ -2829,6 +3009,7 @@ function DiffieHellman(sizeOrKey, generatorEncoding, generator, genEncoding) {
 	if (typeof prime === "number") {
 		if (!_readInt(prime)) throw _createCryptoError(RangeError, "ERR_OUT_OF_RANGE", "The value of \"sizeOrKey\" is out of range. It must be an integer. Received " + prime);
 		if (prime <= 1) throw _createCryptoError(Error, "ERR_OSSL_DH_MODULUS_TOO_SMALL", "modulus too small");
+		if (prime > _MAX_SYNC_PRIME_BITS) throw _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Diffie-Hellman prime generation is limited to " + _MAX_SYNC_PRIME_BITS + " bits in this runtime; provide explicit parameters or use a native worker backend");
 		this._prime = null;
 		this._primeBigInt = null;
 		this._primeLength = prime;
@@ -2957,6 +3138,7 @@ function _randomProbablePrime(bits) {
 	throw _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Failed to generate a " + bits + "-bit prime within the attempt budget");
 }
 function _generateProbablePrime(bits) {
+	if (!Number.isInteger(bits) || bits < 2 || bits > _MAX_SYNC_PRIME_BITS) throw _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Synchronous prime generation is limited to " + _MAX_SYNC_PRIME_BITS + " bits in this runtime");
 	return _randomProbablePrime(bits);
 }
 function _millerRabinTest(n, k) {
@@ -3347,32 +3529,37 @@ X509Certificate.prototype.verify = function() {
 	return false;
 };
 X509Certificate.prototype.publicKey = void 0;
+var _MAX_SYNC_PRIME_CHECKS = 64;
+function _primeConstraintToBigInt(value, name, size) {
+	if (value === void 0) return null;
+	if (typeof value === "bigint") return value;
+	var bytes = _toBytes(value);
+	var maxBytes = Math.ceil(size / 8);
+	if (bytes.length > maxBytes || bytes.length > Math.ceil(_MAX_SYNC_PRIME_BITS / 8)) throw _errOutOfRange(name, "no larger than the requested prime", bytes.length + " bytes");
+	return _bytesToBigInt(bytes);
+}
 function generatePrimeSync(size, options) {
 	if (typeof size !== "number") throw _errInvalidArgType("size", "of type number", size);
-	if (size < 1 || size > 2147483647 || !Number.isFinite(size)) throw _errOutOfRange("size", ">= 1 && <= 2147483647", size);
+	if (size < 1 || size > 2147483647 || !Number.isFinite(size) || !Number.isInteger(size)) throw _errOutOfRange("size", ">= 1 && <= 2147483647", size);
 	if (options !== void 0 && (typeof options !== "object" || options === null)) throw _errInvalidArgType("options", "of type object", options);
 	if (options) {
 		if (options.bigint !== void 0 && typeof options.bigint !== "boolean") throw _errInvalidArgType("options.bigint", "of type boolean", options.bigint);
 		if (options.safe !== void 0 && typeof options.safe !== "boolean") throw _errInvalidArgType("options.safe", "of type boolean", options.safe);
 		if (options.add !== void 0 && !_isStringOrBuffer(options.add) && typeof options.add !== "bigint") throw _errInvalidArgType("options.add", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", options.add);
 		if (options.rem !== void 0 && !_isStringOrBuffer(options.rem) && typeof options.rem !== "bigint") throw _errInvalidArgType("options.rem", "a bigint, ArrayBuffer, Buffer, TypedArray, or DataView", options.rem);
-		if (typeof options.add === "bigint" && options.add < BigInt("0")) throw _errOutOfRange("options.add", ">= 0", options.add + "n");
-		if (typeof options.rem === "bigint" && options.rem < BigInt("0")) throw _errOutOfRange("options.rem", ">= 0", options.rem + "n");
-		if (typeof options.add === "bigint" && options.add >= BigInt("1") << BigInt(size)) throw _errOutOfRange("options.add", "invalid options.add", "invalid options.add");
-		if (typeof options.add === "bigint" && typeof options.rem === "bigint" && options.rem >= options.add) throw _errOutOfRange("options.rem", "invalid options.rem", "invalid options.rem");
-		if (typeof options.add === "bigint" && typeof options.rem === "bigint") {
-			var maxPrime = (BigInt("1") << BigInt(size)) - BigInt("1");
-			if (options.rem <= maxPrime && maxPrime - options.rem < options.add && options.rem === options.rem) {
-				if (options.rem < BigInt("2")) throw _errOutOfRange("options.rem", "invalid options", "invalid options");
-			}
-		}
 	}
-	if (size < 2) throw _createCryptoError(Error, "ERR_OSSL_BN_BITS_TOO_SMALL", "error:01800076:bignum routines::bits too small");
-	var addB = options && options.add !== void 0 ? typeof options.add === "bigint" ? options.add : _bytesToBigInt(_toBytes(options.add)) : null;
-	var remB = options && options.rem !== void 0 ? typeof options.rem === "bigint" ? options.rem : _bytesToBigInt(_toBytes(options.rem)) : null;
 	var safe = !!(options && options.safe);
+	var maxSyncBits = safe ? _MAX_SYNC_SAFE_PRIME_BITS : _MAX_SYNC_PRIME_BITS;
+	if (size > maxSyncBits) throw _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Synchronous prime generation is limited to " + maxSyncBits + " bits in this runtime; use a native worker backend for larger primes");
+	if (size < 2) throw _createCryptoError(Error, "ERR_OSSL_BN_BITS_TOO_SMALL", "error:01800076:bignum routines::bits too small");
+	var addB = _primeConstraintToBigInt(options && options.add, "options.add", size);
+	var remB = _primeConstraintToBigInt(options && options.rem, "options.rem", size);
+	var sizeLimit = BigInt("1") << BigInt(size);
+	if (addB !== null && (addB <= BigInt("0") || addB >= sizeLimit)) throw _errOutOfRange("options.add", "> 0 and smaller than the requested prime", String(addB));
+	if (remB !== null && remB < BigInt("0")) throw _errOutOfRange("options.rem", ">= 0", String(remB));
+	if (addB !== null && remB !== null && remB >= addB) throw _errOutOfRange("options.rem", "smaller than options.add", String(remB));
 	var prime = null;
-	if (!addB && !safe) prime = _randomProbablePrime(size);
+	if (addB === null && !safe) prime = _randomProbablePrime(size);
 	else {
 		var byteLen = Math.ceil(size / 8);
 		var excess = byteLen * 8 - size;
@@ -3385,8 +3572,9 @@ function generatePrimeSync(size, options) {
 			candBytes[0] |= 128 >> excess;
 			candBytes[byteLen - 1] |= 1;
 			var candidate = _bytesToBigInt(candBytes);
-			if (addB) {
-				var wantRem = remB !== null ? remB : BigInt("1");
+			if (addB !== null) {
+				var wantRem = remB !== null ? remB : safe ? BigInt("3") : BigInt("1");
+				if (wantRem >= addB) throw _errOutOfRange("options.add", "larger than the default remainder", String(addB));
 				candidate = candidate - candidate % addB + wantRem;
 				if (candidate < sizeMin || candidate > sizeMax || candidate % BigInt("2") === BigInt("0")) continue;
 			}
@@ -3422,6 +3610,13 @@ function generatePrime(size, options, callback) {
 		if (typeof options.rem === "bigint" && options.rem < BigInt("0")) throw _errOutOfRange("options.rem", ">= 0", options.rem + "n");
 	}
 	if (typeof callback !== "function") throw _errInvalidArgType("callback", "of type function", callback);
+	if (size > 512 || options && options.safe && size > 256) {
+		var asyncPrimeErr = _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Asynchronous large-prime generation requires a native worker backend");
+		setTimeout(function() {
+			callback(asyncPrimeErr);
+		}, 0);
+		return;
+	}
 	try {
 		var result = generatePrimeSync(size, options);
 		setTimeout(function() {
@@ -3441,6 +3636,7 @@ function checkPrimeSync(candidate, options) {
 	if (options && options.checks !== void 0) {
 		if (typeof options.checks !== "number") throw _errInvalidArgType("options.checks", "of type number", options.checks);
 		if (options.checks < 0 || options.checks > 2147483647 || !Number.isInteger(options.checks)) throw _errOutOfRange("options.checks", ">= 0 && <= 2147483647", options.checks);
+		if (options.checks > _MAX_SYNC_PRIME_CHECKS) throw _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Synchronous prime checks are limited to " + _MAX_SYNC_PRIME_CHECKS + " Miller-Rabin rounds in this runtime");
 	}
 	if (_isStringOrBuffer(candidate)) {
 		var candidateLen = 0;
@@ -3448,10 +3644,14 @@ function checkPrimeSync(candidate, options) {
 		else if (candidate.byteLength !== void 0) candidateLen = candidate.byteLength;
 		else if (candidate.length !== void 0) candidateLen = candidate.length;
 		if (candidateLen >= 67108864) throw _createCryptoError(Error, "ERR_OSSL_BN_BIGNUM_TOO_LONG", "bignum too long");
+		if (candidateLen > Math.ceil(_MAX_SYNC_PRIME_BITS / 8)) throw _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Synchronous prime checks are limited to " + _MAX_SYNC_PRIME_BITS + " bits in this runtime; use a native worker backend for larger candidates");
 	}
 	var mrChecks = options && typeof options.checks === "number" && options.checks > 0 ? options.checks : 20;
 	var val;
-	if (typeof candidate === "bigint") return _isProbablePrimeBigInt(candidate, mrChecks);
+	if (typeof candidate === "bigint") {
+		if (candidate.toString(2).length > _MAX_SYNC_PRIME_BITS) throw _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Synchronous prime checks are limited to " + _MAX_SYNC_PRIME_BITS + " bits in this runtime; use a native worker backend for larger candidates");
+		return _isProbablePrimeBigInt(candidate, mrChecks);
+	}
 	var bytes = _toBytes(candidate);
 	if (bytes.length === 0) return false;
 	if (bytes.length <= 4) {
@@ -3494,6 +3694,13 @@ function checkPrime(candidate, options, callback) {
 		if (checkLen >= 67108864) throw _createCryptoError(Error, "ERR_OSSL_BN_BIGNUM_TOO_LONG", "bignum too long");
 	}
 	if (typeof callback !== "function") throw _errInvalidArgType("callback", "of type function", callback);
+	if ((typeof candidate === "bigint" ? candidate.toString(2).length : (_toBytes(candidate).length || 0) * 8) > 512) {
+		var asyncCheckErr = _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Asynchronous large-prime checks require a native worker backend");
+		setTimeout(function() {
+			callback(asyncCheckErr);
+		}, 0);
+		return;
+	}
 	try {
 		var result = checkPrimeSync(candidate, options);
 		setTimeout(function() {
@@ -3719,103 +3926,10 @@ var _webcrypto = typeof globalThis !== "undefined" && typeof globalThis.crypto =
 };
 var _subtle = _webcrypto.subtle || typeof globalThis !== "undefined" && globalThis.crypto && globalThis.crypto.subtle || void 0;
 var _fips = false;
-function _errCryptoOperationFailed(message) {
-	var err = new Error(message || "Crypto operation failed");
-	err.code = "ERR_CRYPTO_OPERATION_FAILED";
+function _kemUnsupportedError() {
+	var err = /* @__PURE__ */ new Error("Key encapsulation is not supported by this Ibex crypto backend");
+	err.code = "ERR_CRYPTO_KEM_NOT_SUPPORTED";
 	return err;
-}
-function _createKemInfo(id, sharedSecretLength, ciphertextLength, marker) {
-	return {
-		id,
-		sharedSecretLength,
-		ciphertextLength,
-		marker
-	};
-}
-function _hasOpenSslAtLeast(major, minor) {
-	if (typeof process !== "object" || process === null || !process.versions || typeof process.versions.openssl !== "string") return false;
-	var match = /^(\d+)\.(\d+)/.exec(process.versions.openssl);
-	if (!match) return false;
-	var currentMajor = parseInt(match[1], 10);
-	var currentMinor = parseInt(match[2], 10);
-	if (currentMajor > major) return true;
-	if (currentMajor < major) return false;
-	return currentMinor >= minor;
-}
-function _getKemInfoForKeyObject(keyObject) {
-	if (!keyObject) return null;
-	var keyType = keyObject._asymmetricKeyType;
-	if (keyType === "rsa") {
-		if (!_hasOpenSslAtLeast(3, 0)) return null;
-		return _createKemInfo("rsa", 256, 256, 82);
-	}
-	if (keyType === "x25519") {
-		if (!_hasOpenSslAtLeast(3, 2)) return null;
-		return _createKemInfo("x25519", 32, 32, 25);
-	}
-	if (keyType === "x448") {
-		if (!_hasOpenSslAtLeast(3, 2)) return null;
-		return _createKemInfo("x448", 64, 56, 72);
-	}
-	var raw = keyObject._data;
-	if (raw && typeof raw === "object" && !_isStringOrBuffer(raw) && !Array.isArray(raw)) {
-		if (raw.kty === "EC") {
-			if (!_hasOpenSslAtLeast(3, 2)) return null;
-			if (raw.crv === "P-256") return _createKemInfo("p-256", 32, 65, 38);
-			if (raw.crv === "P-384") return _createKemInfo("p-384", 48, 97, 56);
-			if (raw.crv === "P-521") return _createKemInfo("p-521", 64, 133, 82);
-			return null;
-		}
-		if (raw.kty === "OKP") {
-			if (raw.crv === "X25519") return _createKemInfo("x25519", 32, 32, 25);
-			if (raw.crv === "X448") return _createKemInfo("x448", 64, 56, 72);
-		}
-	}
-	var hex = _toHex(_decodePemKeyBytes(raw)).toLowerCase();
-	if (keyType === "ec") {
-		if (!_hasOpenSslAtLeast(3, 2)) return null;
-		if (hex.indexOf("06082a8648ce3d030107") !== -1) return _createKemInfo("p-256", 32, 65, 38);
-		if (hex.indexOf("06052b81040022") !== -1) return _createKemInfo("p-384", 48, 97, 56);
-		if (hex.indexOf("06052b81040023") !== -1) return _createKemInfo("p-521", 64, 133, 82);
-		return null;
-	}
-	if (keyType === "ml-kem") {
-		if (!_hasOpenSslAtLeast(3, 5)) return null;
-		if (hex.indexOf("0609608648016503040401") !== -1) return _createKemInfo("ml-kem-512", 32, 768, 18);
-		if (hex.indexOf("0609608648016503040402") !== -1) return _createKemInfo("ml-kem-768", 32, 1088, 19);
-		if (hex.indexOf("0609608648016503040403") !== -1) return _createKemInfo("ml-kem-1024", 32, 1568, 20);
-		return null;
-	}
-	return null;
-}
-function _deriveKemSharedKey(ciphertext, kemInfo) {
-	var secretLength = kemInfo.sharedSecretLength;
-	var cipherBytes = _toBytes(ciphertext);
-	var out = new Uint8Array(secretLength);
-	var marker = kemInfo.marker & 255;
-	var cipherLength = cipherBytes.length || 1;
-	for (var i = 0; i < secretLength; i++) out[i] = (cipherBytes[i % cipherLength] ^ cipherBytes[(cipherLength - 1 - i % cipherLength + cipherLength) % cipherLength] ^ marker ^ i * 29) + i & 255;
-	return typeof Buffer !== "undefined" && Buffer.from ? Buffer.from(out) : out;
-}
-function _encapsulateKemResult(kemInfo) {
-	var ciphertext = randomBytes(kemInfo.ciphertextLength);
-	if (ciphertext.length > 0) ciphertext[0] = kemInfo.marker;
-	return {
-		sharedKey: _deriveKemSharedKey(ciphertext, kemInfo),
-		ciphertext: typeof Buffer !== "undefined" && Buffer.from ? Buffer.from(ciphertext) : ciphertext
-	};
-}
-function _encapsulateSync(key) {
-	var kemInfo = _getKemInfoForKeyObject(createPublicKey(key));
-	if (!kemInfo) throw _errCryptoOperationFailed("Failed to initialize encapsulation");
-	return _encapsulateKemResult(kemInfo);
-}
-function _decapsulateSync(key, ciphertext) {
-	var kemInfo = _getKemInfoForKeyObject(createPrivateKey(key));
-	if (!kemInfo) throw _errCryptoOperationFailed("Failed to initialize decapsulation");
-	var secret = _toBytes(ciphertext);
-	if (secret.length !== kemInfo.ciphertextLength || secret.length > 0 && secret[0] !== kemInfo.marker) throw _errCryptoOperationFailed("Failed to perform decapsulation");
-	return _deriveKemSharedKey(secret, kemInfo);
 }
 var cryptoModule = {
 	randomBytes,
@@ -3909,39 +4023,13 @@ var cryptoModule = {
 	encapsulate: function(key, callback) {
 		if (key === void 0 || key === null || typeof key !== "object" && typeof key !== "string") throw _errInvalidArgType("key", "of type object or string or an instance of Buffer, TypedArray, DataView, or KeyObject", key);
 		if (callback !== void 0 && typeof callback !== "function") throw _errInvalidArgType("callback", "of type function", callback);
-		if (callback) {
-			try {
-				var asyncKemResult = _encapsulateSync(key);
-				setTimeout(function() {
-					callback(null, asyncKemResult);
-				}, 0);
-			} catch (keyErr) {
-				setTimeout(function() {
-					callback(keyErr);
-				}, 0);
-			}
-			return;
-		}
-		return _encapsulateSync(key);
+		throw _kemUnsupportedError();
 	},
 	decapsulate: function(key, ciphertext, callback) {
 		if (key === void 0 || key === null || typeof key !== "object" && typeof key !== "string") throw _errInvalidArgType("key", "of type object or string or an instance of Buffer, TypedArray, DataView, or KeyObject", key);
 		if (ciphertext === null || ciphertext === void 0) throw _errInvalidArgType("ciphertext", "an instance of ArrayBuffer, Buffer, TypedArray, or DataView", ciphertext);
 		if (callback !== void 0 && typeof callback !== "function") throw _errInvalidArgType("callback", "of type function", callback);
-		if (callback) {
-			try {
-				var asyncSecret = _decapsulateSync(key, ciphertext);
-				setTimeout(function() {
-					callback(null, asyncSecret);
-				}, 0);
-			} catch (kemErr) {
-				setTimeout(function() {
-					callback(/* @__PURE__ */ new Error("Deriving bits failed"));
-				}, 0);
-			}
-			return;
-		}
-		return _decapsulateSync(key, ciphertext);
+		throw _kemUnsupportedError();
 	}
 };
 cryptoModule.createCipher = createCipheriv;

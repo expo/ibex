@@ -45,9 +45,10 @@ void installIpcListenerPatch(ExactHermesRuntime* handle) {
       throw std::runtime_error("IPC listener patch failed to evaluate");
     }
   } catch (const facebook::jsi::JSError& err) {
-    ex_host_console_log(1, (std::string("IPC listener patch error: ") + err.getMessage()).c_str());
+    reportStartupFailure(handle, "IPC listener patch", err.getMessage());
   } catch (const std::exception& err) {
-    ex_host_console_log(1, (std::string("IPC listener patch error: ") + err.what()).c_str());
+    reportStartupFailure(handle, "IPC listener patch", err.what());
   } catch (...) {
+    reportStartupFailure(handle, "IPC listener patch", "unknown evaluation failure");
   }
 }

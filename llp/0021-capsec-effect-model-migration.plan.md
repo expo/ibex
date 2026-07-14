@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule)
+**Revised:** 2026-07-12 (ENG-24263: the complete exact-engine prerequisite matrix and artifact evidence now run in CI, which requires the incomplete candidate to remain unadvertised rather than treating expected refusal as conformance); 2026-07-12 (ENG-24278 bounds POSIX TCP/UDP repeat work with socket-identity, exact-peer/destination, principal-set, and mutable-generation leases); 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-12 (ENG-24462/ENG-24465 bind filesystem occurrences separately to every constrained principal and protect every authenticated package subtree lexically against writes; ENG-24464 makes production run nonces construction-fresh; ENG-24466 explicitly closes diagnostic file execution in the advertised registry pending authenticated ingress); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -166,6 +166,30 @@ Generated Rust, C++, JavaScript/TypeScript, JSON schemas, documentation tables,
 and fixtures consume these sources. Handwritten duplicate matcher tables are
 not authoritative. Drift is a build/CI failure.
 
+Coverage edges contain semantic data only. A separately generated
+`implementation-manifest.json` joins each edge to source-derived definitions,
+stubs, or security-relevant references, the later work package that owns its
+gate, fixture obligations, and content digests for generated outputs. Those
+references are inventory evidence, not conformance evidence; only executed
+fixtures can promote a target cell.
+
+An effect edge is normally `conjunctive`. WP1 may record a known
+parameter/provenance-dependent surface as `conditional-unrefined` only while
+every corresponding target cell remains `unsupported`; the edge names its
+refinement owner and why its possible effect set is not yet executable. Such an
+edge cannot be promoted or armed. The owning filesystem, network, process, or
+device work package must replace it with exact conjunctive logical branches
+before conformance.
+
+An exact conditional edge carries a canonical `logicalBranches` set. Each
+branch names the normalized operation facts that select it, its complete
+conjunctive effect set, principal/effect-owner sources, lifetime, and barriers.
+Selection facts are produced only after argument/resource normalization and
+must select exactly one branch; missing, unknown, or overlapping facts deny.
+Fixture obligations are derived independently for every logical branch,
+including branch selection and explicit no-effect branches, so a union of
+possible effects cannot masquerade as executed conditional semantics.
+
 ### Policy forms and digests
 
 Policy has three forms:
@@ -280,6 +304,9 @@ journal/WAL/SHM objects; `sqlite:*` is not canonical authority. Unix sockets
 decompose `network:local` into connect or listen plus the applicable filesystem
 effects. Ordinary randomness, pure in-memory cryptography, ordinary/high-
 resolution clocks, and status-only attenuations are reasoned non-capabilities.
+Exact SQLite `:memory:` databases are likewise computation because the host
+authorizer denies attach/detach and extension loading. URI-looking or empty
+filenames are not covered by that exemption and remain file-backed effects.
 
 Location, camera, microphone, and clipboard are authorable target-specific
 definitions. Their cells remain unsupported until native gates and broker/
@@ -322,9 +349,21 @@ has no runtime legacy-oracle or compatibility-mask stratum; the 57-bit table is
 build-time reconciliation evidence only. An unbounded process ceiling
 continues; a bounded ceiling requires containment, and an empty bounded ceiling
 denies everything.
-Package-root ceiling selectors evaluate separately against each constrained
-package principal's own binding. No later source, including ambient root, can
-override an earlier ceiling or denial.
+Every filesystem occurrence is projected separately through each constrained
+principal's authenticated root binding before any principal-indexed authority
+stratum runs. That rule applies to protected resources, process ceilings,
+principal denials, revocations, static floors, handles, dynamic grants, and
+implicit package-self authority; an actor-projected package path is never reused
+as another package's resource. An unprojected multi-principal path occurrence
+fails closed. A deeper foreign package binding shadows an owned package
+ancestor, so an outer package sees a nested dependency through the best
+ownerless root rather than as part of its own package tree; equal package host
+bindings and package principals without bindings refuse arming. Other
+path-bearing resource kinds (executables and Unix sockets) refuse a
+multi-principal package-root decision until their adapters supply complete
+projections. The host, ABI, and semantic core all use the same JCS principal
+ordering. No later source, including ambient root, can override an earlier
+ceiling or denial.
 
 The exact reserved `runtime/ibex-runtime-internal` frame stamp is transparent;
 other runtime identities are not, and the reserved identity is never an
@@ -342,10 +381,16 @@ An armed snapshot has exactly one authority row matching `rootIdentity`. Every
 package-graph node has a unique locator-and-integrity principal, an exact
 authority row, and its own package-root binding; package authority rows may not
 exist outside the graph. Import allowlists exactly equal authenticated graph
-edges, and every logical path resolves through a root binding. The protected
-object set is exactly armed policy, engine binary, package graph, and registry,
-with `fs:write` denied. Network posture binds direct-only routing and always
-denies metadata and unspecified peers.
+edges, and every logical path resolves through a root binding. Exact protected
+objects cover armed policy, engine binary, package graph, and registry. In
+addition, arming derives `fs:write` path-tree guards for every authenticated
+package binding in every principal's projected view. Authenticated package
+source cannot be written through any registered package spelling, even when two
+such spellings share an inode; writable package scratch space requires a
+separate future binding. A pre-existing filesystem alias outside every
+authenticated package binding is not covered by this lexical guarantee and
+requires a future commit-time identity/integrity guard. Network posture binds
+direct-only routing and always denies metadata and unspecified peers.
 
 ### Handles, dynamic authority, and generations
 
@@ -371,10 +416,24 @@ cannot enter the dynamic overlay. Mode fallback can never mint a grant or
 handle. Revocation advances a negative generation before any later positive
 decision.
 
+Arm-time ceilings, protected-object/resource guards, and principal policies
+retain an identity-preserving copy-on-write backing after validation. A live
+publication must present those exact four immutable identities and then fully
+validates only the changed generations, revocations, handles, and dynamic
+grants. Cloning and publishing live authority is therefore constant-time in
+the size of the static policy; attempting to mutate any immutable component
+creates a new backing identity and refuses publication `[observed]`
+(ENG-24280).
+
 Decision caches key at least action, canonical resource bytes, constrained
 principal set, effect owner, stage, vocabulary/registry/policy/armed-snapshot
 digests, and negative/dynamic/handle generations. Repeated and live operations
 must still obey their coverage edge's lifetime recheck contract.
+Authority-reducing release, reset, shutdown, and cancellation have no positive
+effect stage: they validate the retained object's runtime and principal owner
+but remain possible after its positive grant is revoked. Requiring a live
+positive lease to relinquish an owned resource can leak authority and violates
+the registry's `authority-release` non-capability classification.
 
 ### Canonicalization and digest domains
 
@@ -394,8 +453,10 @@ Digest text is lowercase `sha256-` followed by unpadded base64url. Domains are:
 
 - `ibex:capsec:vocab:1` — definitions, selector/occurrence schemas,
   decision-affecting coverage/classifier rules, and non-capability rationales;
-- `ibex:capsec:registry:1` — the complete generated registry, implementation
-  references, fixtures, and target cells;
+- `ibex:capsec:registry:1` — the source-derived generated registry,
+  implementation references, and fixtures. Report-promoted target-cell bytes
+  are bound separately so publishing a report cannot change the registry or
+  implementation digest that the same report attests;
 - `ibex:capsec:policy:1` — canonical review policy with its own digest omitted;
 - `ibex:capsec:armed:1` — policy/registry identities plus resolved host objects,
   engine target, routes, graph, ceilings, generations, run nonce, and channel
@@ -412,9 +473,16 @@ coverage and containment vectors. The registry fixture content-addresses every
 semantic and invalid fixture body as well as its closed file inventory; digest
 payloads and the fixed digest-vector oracle are explicitly excluded where
 including their raw bytes would create a cycle, and are checked independently.
-The registry bundle and armed snapshot are explicitly `contract-fixture`
-artifacts until WP1 provides a generated production registry; conformance
-remains unavailable until WP10. Canonical policy and armed examples carry
+The generated production registry is available after WP1. Its target cells are
+all unsupported and its source references are explicitly non-conformance
+inventory evidence. A tiny authored attestation catalog may name only a
+content-addressed report; generation revalidates that report against the exact
+source-derived implementation manifest and derives both target cells and the
+advertisement list. Target cells, their matrix, and advertisements are excluded
+from `implementationManifestDigest`, breaking the otherwise circular
+report-promotes-cells-that-change-the-report-input dependency. The armed
+snapshot remains a `contract-fixture`, and conformance remains unavailable
+until WP10. Canonical policy and armed examples carry
 recomputed self-digests and exact cross-digests. One checked golden vector
 freezes each of the five domains, and the domain-to-payload mapping is fixed.
 
@@ -430,7 +498,10 @@ members. Missing policy canonicalizes to enforce with empty dependency floors
 and empty escalation ceilings. Full deputy intersection, lockdown, frame
 attribution, native compartments, and immutable arming are structural.
 
-WP0 advertises no targets. An executable production or diagnostic-audit
+WP1 advertises no targets and records one candidate exact target,
+`aarch64-apple-darwin` with structural `hermes-frame-attribution`,
+`native-compartments`, and `native-lockdown` features. These are security
+properties, not Cargo feature names. An executable production or diagnostic-audit
 snapshot may arm only when its exact target triple and canonical feature set
 are advertised and every coverage edge has a matching `enforced`, `closed`, or
 `absent` cell; a missing or `unsupported` cell refuses before project code.
@@ -513,6 +584,58 @@ Acceptance:
 - Generated bindings and documentation are byte-reproducible.
 - Target cells begin honestly as unsupported/closed until fixtures prove more.
 
+Implementation: ENG-24145 generates the production coverage registry, exact
+candidate-target product, source-surface/fixture-obligation manifest, stable-ID
+schema, review tables, and Rust/C++/JavaScript/TypeScript bindings. Discovery is
+source-derived across native globals, public host/embedder/worklet ABI,
+builtin exports, installed globals, loader branches, callback producers,
+startup installers/scripts, inspector operations, and CLI commands. Unknown
+surfaces/actions/normalizers fail generation; source filenames never choose a
+semantic classification. `bun run check:capsec-registry`,
+`bun run check:capsec-contract`, their focused tests, and the repository drift
+gate are non-writing checks.
+
+Implementation alternatives retain their source-derived target variant,
+normalized applicability, backend/stub disposition, and a globally unique
+branch ID. Every target cell lists the exact applicable branch IDs even while
+unsupported; fixture obligations are scoped to those branch IDs. Promotion
+must execute the complete obligation union for exactly that source-derived
+branch set. Unknown, wrong-target, omitted, or invented branch evidence fails
+validation, while a branchless target can advance only to target-proved
+`absent`. A known `unsupported-stub` branch cannot promote. Weak-fallback and
+source-uncertain provenance are resolved only by the WP10 report's executed
+obligations bound to the exact target binary; they are not conformance evidence
+by themselves.
+
+The ENG-24145 baseline contains 6,804 logical surfaces and coverage edges,
+6,984 implementation-branch rows, and 11,048 source references. It includes
+2,823 builtin surfaces: 2,696 export/prototype/inherited-shape APIs plus 127
+specifier aliases. Inherited CommonJS and authored shared-runtime class shapes
+are traversed exactly when their base is source-resolvable; otherwise a
+review-bound dynamic-table sentinel closes the entire inherited property domain.
+Builtin enforcement-route discovery likewise follows only immutable source
+provenance: direct calls, constructor bodies, locally authored callable
+alternatives, and literal CommonJS dependencies joined to the exact manifest
+source key and export. Reassigned or computed dependency receivers, opaque
+callable alternatives, intrinsic mutation, and unresolved cross-source exports
+remain explicit ambiguities. Multiple source-proven terminals are retained
+rather than guessed away; WP10 still requires bounded public arguments to show
+which route the bound engine actually executes.
+It also includes 178 host-ABI surfaces: the complete 84/36/10
+`ex_host_*`/`ex_hermes_*`/`ex_worklet_*` families, one `ex_android_*` entry,
+and 39 Java plus 8 JNI Android bridge routes. All 6,804 candidate-target cells
+are unsupported; 760 known
+parameter/provenance-dependent effect edges are explicitly
+`conditional-unrefined` and therefore unpromotable.
+
+Generator hardening now makes the reviewed/discovered join bidirectional,
+rejects overlapping logical-branch predicates (including subset and
+cross-fact overlaps), fails on unrouted fixed rows and Android provider
+overloads, understands adjacent C++ literals and digit separators, and derives
+implementation branch identity from the target variant rather than mutable
+source-reference paths. Provenance remains digest-bound without becoming the
+semantic identifier.
+
 ### WP2 — Implement the typed policy and decision core
 
 Replace string parsing and matching with the typed Rust semantic core. Implement
@@ -526,6 +649,27 @@ Acceptance:
 - Unknown/malformed definitions fail in every mode.
 - Adding a future vocabulary action cannot widen an existing positive policy.
 - The decision core consumes normalized typed effects, never authored strings.
+
+Implementation: ENG-24146 adds the product-neutral `crates/capsec-semantics`
+workspace member. It strictly ingests the frozen WP0 definitions/rules, uses
+RFC 8785 canonical bytes and domain-bound digests, validates typed selector and
+occurrence semantics, evaluates every deny stratum before positive authority,
+intersects constrained principals, conjoins effects, rejects speculative stage
+facts, binds revocation/dynamic/handle generations, and keys decisions by the
+complete frozen semantic identity. Rust golden and property tests consume the
+same WP0 fixtures as the JavaScript/schema validator; CI runs the focused Rust
+test and clippy gates without requiring a Hermes build.
+
+The action-definition `selectorConstraints` fields are executable semantics in
+the Rust core, not schema commentary: the same validator now governs armed
+floors, denials, process/escalation ceilings, handles, dynamic grants, and
+normalized occurrence requests. A corpus test routes every declared invalid
+fixture through the corresponding strict JSON, selector, or occurrence ingress.
+Principal and every other semantic set now use one JCS-byte order at engine,
+host, and core boundaries. IPv4-mapped IPv6 values canonicalize to their
+embedded IPv4 identity, RFC 8785 number bytes use ECMAScript tie-breaking, late
+listen/device facts are required only when their stage produces them, and the
+decision cache is bounded and generation-evictable.
 
 ### WP3 — Rebuild policy generation and import-site authoring
 
@@ -542,11 +686,23 @@ Acceptance:
 - Drift reporting distinguishes authority expansion, narrowing, and semantic
   vocabulary changes.
 
+Implementation update (2026-07-12): policy authoring reuses the contract's
+action-specific selector validator. Drift review performs containment-aware
+diffs for floors, denials, ceilings, package/builtin imports, endowments, and
+principal identities, classifying expansion, narrowing, mixed, identity, and
+vocabulary changes. Every semantic set uses canonical UTF-8/JCS byte order.
+
 ### WP4 — Arm immutable snapshots through the CLI, host, and engine
 
 Build the trusted arming pipeline that binds canonical policy to an execution
 and hands the authenticated immutable snapshot to the host/engine. Report the
 actually loaded profile and digests from the decision context.
+
+Production runtime construction owns `runNonce`. After authenticating any
+supplied snapshot template, it discards the artifact/caller nonce, generates a
+fresh 128-bit value with the operating-system CSPRNG, and finalizes the armed
+digest before handing the snapshot to the host and engine. Fixed nonces remain
+valid only in contract fixtures; RNG failure refuses construction.
 
 Acceptance:
 
@@ -556,6 +712,30 @@ Acceptance:
   arming.
 - Audit, denial, handle, and dynamic-permission records carry the loaded
   semantic identity and snapshot generation.
+
+Implementation status (2026-07-12): Rust ingestion checks the WP0 root,
+authority/graph-edge, root-binding, and four protected-object invariants and
+uses the checked digest contract's semantic-set canonicalization. Production
+derives exact target cells from authenticated registry data; because every
+current cell is unsupported and no target is advertised, ordinary execution
+refuses before project code. Arming measures the artifact containing the loaded
+Hermes factory, requires structural lockdown/compartments/frame attribution,
+uses per-run nonces, rejects every generated closed startup control, and binds
+an immutable Host context to each runtime. The old unarmed constructor is
+non-executable. Package principals are stamped only after exact locator,
+resolved root, and whole-tree integrity verification; package-to-root imports
+require an exact authenticated graph edge. Default project-root discovery
+selects only a canonical ancestor containing `package.json`; a manifestless
+entry must receive an explicit trusted `--project-root` and otherwise refuses
+before policy construction or project evaluation.
+
+Implementation update (2026-07-12): canonical policy now carries the exact
+registry digest as well as vocabulary identity. Production strictly
+deserializes the complete typed artifact, recomputes its self-digest, validates
+every authority against current definitions, and refuses independently
+recomputed stale vocabulary or registry policies before projection. Bounded
+process ceilings containing package logical roots expand into one bound row per
+authenticated package principal rather than losing their owner identity.
 
 ### WP5 — Convert filesystem effects and checked-object execution
 
@@ -571,6 +751,92 @@ Acceptance:
 - File descriptors and handles retain owner, authority source, revocation
   generation, and resource identity for repeated operations.
 
+Implementation status (2026-07-11): synchronous and worker-backed async native
+`fs.open` now have an
+armed-only staged adapter for read, write, create, and truncate. It authorizes
+the requested logical path, retains and verifies the resolved parent directory
+inside the authenticated logical root, distinguishes existing from
+absent-create discovery, and authorizes the operation effects before `openat`.
+Final symlinks are closed with `O_NOFOLLOW`; parent symlinks that resolve outside
+the authenticated binding are refused. Truncation is deferred until commit has
+authorized the actual `fstat` identity and retained descriptor ID, so a denial
+cannot mutate an existing or absent target. An explicitly presented typed
+bearer ID participates in every stage. Legacy hosts retain their existing gate;
+armed refusal never falls back to it. The fd registry retains the parent
+descriptor and presented bearer ID, and every armed read or write re-authorizes
+at `repeat` against fresh identities and current authority generations. Async
+commit runs on the worker before the descriptor is delivered to JavaScript;
+registry publication remains on the attributed runtime thread. The remaining
+descriptor metadata/disclosure operations (`fstat`, truncate, sync, ownership,
+mode, and times, including their worker-backed forms) reuse the retained
+descriptor and typed repeat checks. Synchronous and worker-backed whole-file
+reads use their own conjunctive registry edges: `fs:list` authorizes requested
+path lookup and retained-object discovery, then `fs:read` authorizes commit
+immediately before the first byte can be observed and every repeat lease. The
+private descriptor open between discovery and commit discloses no file bytes
+and does not add a redundant read-discovery decision. Public `Cargo.toml`
+allow/deny recipes prove the four-stage action sequence and fail closed at the
+first list decision when lookup authority is absent. Whole-file reads accept
+only retained regular files. They perform one full repeat decision per
+descriptor lease and cheaply compare
+negative, dynamic, and handle generations before each chunk; any change
+re-enters the full evaluator before more bytes are observed. Leases are local
+to the exact operation and retained descriptors, so operation/gate/principal/
+object facts cannot collide and descriptor reuse starts a new lease. `stat` and directory
+enumeration likewise use retained no-follow targets and their own `fs:list`
+edges; enumeration rechecks before every disclosed entry. Worker-backed path
+and descriptor stat use the async stat edge and recheck on the worker before
+serialization. Sync and async lstat retain the link object itself with
+`no-follow-final` semantics. Realpath returns the canonical path of the retained
+no-follow descriptor under its own list edge. Whole-file replace,
+append, and worker-backed write use their own edges, authorize absent-create or
+existing state before `openat`, commit the actual regular file before delayed
+truncation, and recheck before each write/flush. The remaining path-based
+filesystem operations are still pending. Non-recursive synchronous and
+worker-backed directory creation now use the `mkdir` edge: they authorize the
+requested path, retain and verify the parent, preauthorize absent creation,
+create with `mkdirat`, and commit the opened directory identity, rolling the
+new directory back if commit fails. Recursive creation remains closed until
+every created component can run that full sequence independently. Path removal
+also remains closed in armed execution: retaining a target descriptor and then
+calling name-based `unlinkat` would still permit a swap between identity check
+and deletion, so sync and async denial fixtures require the original file or
+directory to survive until a genuinely race-safe removal strategy is adopted.
+The same armed denial fixture covers unported sync and async rename, copy,
+symlink, and hard-link paths, proving they cannot mutate either source or
+destination through the legacy oracle while their typed staged adapters remain
+pending.
+
+Post-review hardening (2026-07-12) preserves ENOENT/ENOTDIR and Node-shaped
+denials, avoids read-opening metadata targets and blocking FIFO lstat, shares a
+bounded runtime-scoped parent-directory descriptor cache, and rechecks regular
+whole-file reads per chunk. Open/create rollback ownership is established only
+by successful `O_CREAT|O_EXCL`; state races rediscover and reauthorize before
+retry, so a competitor's file is never treated as ours to unlink or truncate.
+FD, IPC, and transferable registries bind runtime nonce plus device/inode and
+evict stale rows on descriptor-number reuse. Async worker exceptions and result
+delivery failures reject instead of aborting or hanging, completed closures
+release descriptor captures eagerly, and callback attribution intersects live,
+captured, owner, and scheduler principals. Async directory traversal, realpath,
+mkdtemp, watch polling, recursive-readdir spelling, and non-recursive `rm`
+parity now use worker-backed paths. Windows preserves distinct errno values and
+implements recursive-mkdir results, exclusive copy, truncate, utimes, and
+statfs through the portable host ABI.
+
+Filesystem path occurrences now retain a non-wire projection for every
+constrained principal, keyed exactly to the constrained set and effect index.
+Every authority stratum uses that principal's projection, so two packages with
+the same package-relative tail cannot borrow one another's self grants. Arming
+also derives hard-deny `fs:write` path-tree guards for every package binding in
+every authenticated principal's view, including nested package layouts. These
+lexical guards make installed package source immutable without attempting to
+enumerate inodes or assuming that hard-linked files have distinct identities;
+first-party project paths outside package bindings remain writable. A foreign
+nested package is a shadow boundary rather than part of its ancestor's package
+tree, and colliding physical package bindings refuse. Aliases outside all
+registered package spellings remain a distinct integrity problem rather than a
+claim made by the lexical guard.
+
 ### WP6 — Convert network effects and protected peers
 
 Map fetch, raw/bidirectional connect, listen, and standalone resolve to separate
@@ -578,6 +844,60 @@ typed resources. Authorize requested endpoint, selected candidates, redirects,
 reconnects, routes/proxies, listeners, and final verified peers at their stages.
 Add an engine-level protected metadata-peer guard with only an exact loud
 exception if Ibex needs one.
+
+Implementation status (2026-07-11): the armed host now constructs typed
+`network:fetch` decision sets for requested and candidate stages using the
+authenticated principal stack, concrete scheme/host/port, resolved candidate
+set, selected candidate, and optional verified peer/connection facts. Candidate
+authorization applies selector peer classes, while an independent host guard
+unconditionally rejects metadata-service and unspecified selected or verified
+peers. Live fetch remains closed until the transport adapter can report and
+recheck the actual connected peer; requested-host authorization alone is not
+treated as sufficient enforcement. The host also evaluates staged typed TCP
+connect occurrences under the distinct `network:connect` action and retained
+verified-peer/connection facts. A package fixture proves a fetch-only floor
+cannot yield raw TCP authority, while a matching connect floor commits the
+verified public peer.
+The C ABI accepts the complete staged network fact set for fetch and connect,
+maps authenticated numeric frame stacks to typed principals, and rejects
+noncanonical host/IP text, duplicate-key or ill-typed candidate JSON, invalid
+ports/stages/transports, and unsafe redirect counters before host evaluation.
+The synchronous POSIX TCP adapter now uses that ABI end to end: it authorizes
+the request before resolution, submits the canonically sorted complete
+`getaddrinfo` candidate set, authorizes each attempted address, verifies
+`getpeername` at commit, retains the candidate/peer/connection facts with the
+socket handle. The first later I/O, and each generation-lease renewal, verifies
+the immutable connected peer with `getpeername`; stable later I/O pins the exact
+socket registry identity through the syscall without copying the retained
+candidate/peer strings. Retained socket use reuses a full repeat decision only
+for the exact peer and principal set while all mutable authority generations
+remain unchanged; a generation or deputy-set change forces a stable
+before/after redecision and another peer verification. The nonblocking POSIX path applies the same request and
+candidate gates, registers only a pending handle, and withholds read/write
+authority until poll observes successful `SO_ERROR`, verifies `getpeername`,
+and commits the peer. Pending handles may only be polled or closed. Armed
+local-bind options remain closed pending their own typed effects. Windows, TLS,
+WebSocket, and the remaining UDP adapters are not yet migrated. POSIX unconnected UDP sends
+are gated under their own registry edge: only canonical literal IPv4/IPv6
+destinations are accepted, and the first datagram authorizes requested,
+candidate, and committed destination facts immediately before `sendto` through
+one parsed and attributed ABI call. Repeated datagrams reuse that complete
+decision only for the same socket identity, literal host/port, canonical
+principal set, and unchanged negative/dynamic/handle generations. Endpoint,
+principal, revocation, or handle-generation changes force a stable
+before/after three-stage redecision; the registry lock pins the fd through
+`sendto`, so close/reuse cannot consume the lease. A bounded live fixture proves
+sixteen identical datagrams require only one three-stage decision, revocation
+forces exactly one renewal, and a metadata destination is rejected before
+transmission. UDP bind/receive/listen authority remains
+unmigrated and closed in armed execution.
+One live armed closure fixture exercises the remaining transport families at
+their native boundaries: fetch, standalone DNS, WebSocket, TCP listen, HTTP
+serve, Unix connect/listen, and UDP bind all refuse before an external effect;
+the Unix socket path remains absent. Together with the positive TCP-connect
+and per-datagram UDP fixtures, the initial advertised network profile is thus
+either typed end to end or explicitly closed rather than falling back to the
+legacy capability oracle.
 
 Acceptance:
 
@@ -603,6 +923,83 @@ Acceptance:
   ordinary handle.
 - Closed rows have denial/absence fixtures on every advertised target.
 
+Implementation status (2026-07-11): the armed host decodes explicit builtin
+and package import axes from the authenticated snapshot. Numeric engine module
+IDs bind only to a matching package name plus locator from that snapshot;
+unknown or mismatched registrations fail closed. Root and package import checks
+therefore no longer consult `PolicyFile` once armed.
+Armed runtime construction also rejects every inspector activation and
+configuration flag (`inspect`, wait/open/pause, host, and port), including the
+duplicate `run`-subcommand spellings, before reading arming artifacts or
+allocating the engine. The opt-in Bun compatibility facade is closed at the
+same boundary before its process-global environment marker can be installed.
+Hidden compatibility-fidelity controls that expose internals or alter
+process-wide stack/HTTP-parser configuration are rejected there as well,
+before armed artifact I/O.
+Ad-hoc eval/print, explicit or implicit REPL entry, and debug-registry commands
+are likewise rejected at the production dispatcher/runtime boundary before
+arming artifact I/O, engine allocation, or evaluation of supplied code.
+At runtime scalar broker-base environment reads use exact-name typed
+`env:read` decisions at requested and commit before disclosure. Environment
+enumeration remains explicitly closed and returns an empty object until it can
+authorize every concrete name without a wildcard. Process cwd disclosure now
+uses the same exact typed `sys:read`
+plane as other system information: requested and commit authorize the `cwd`
+selector before `getcwd`, while denial occurs before disclosure. Cwd mutation
+remains denied without changing the host process directory. Live armed
+fixtures cover these boundaries.
+The same live fixture invokes shell exec, synchronous spawn, and asynchronous
+spawn with a real marker-file command. All three are denied at the armed native
+boundary and the marker remains absent, so executable selection, child
+environment, stdio, and IPC option parsing cannot reach process creation via
+the legacy `process:spawn` oracle.
+Diagnostic audit keeps the child-process compatibility suite executable without
+widening that production boundary. Its low-descriptor regression uses a plain
+POSIX child to exercise IPC and extra-stdio `dup2` mapping directly; it does not
+grant a nested Ibex runtime ambient ownership of inherited numeric descriptors.
+Parent-side extra stdio is a bounded, backpressure-aware full-duplex stream:
+`end` half-closes writes, readable EOF gates the child `close` event, and
+`destroy` releases both directions. Production child environment and inherited
+stdio effects remain closed pending their typed conjunctive spawn implementation.
+The armed import gate also carries an artifact-independent terminal-builtin
+deny set for `async_hooks`, `inspector`, `vm`, `wasi`, and `worker_threads`
+(including `node:` aliases and subpaths). A deliberately overbroad but
+otherwise authenticated snapshot cannot re-enable those runtime-inspection,
+VM, WASI, or worker escape surfaces; ordinary typed builtins such as `node:fs`
+remain governed by the snapshot import policy.
+On-disk `.node` native-addon and `.wasm` module candidates now refuse in the
+native resolver before their bytes are read into the JavaScript compilation
+path. Exact loaded-engine fixtures use valid JavaScript payloads under both
+extensions and require the resolver-specific refusal while proving the payload
+marker never executes; both the public loader-kind facet and its compatibility
+module facet bind to that same runtime-derived denial.
+The eight native OS-information functions used by public `node:os` now enter
+the same exact typed plane on every implementation target. Hostname, CPU,
+memory, uptime, user, load-average, and network-interface reads authorize both
+their generated requested and commit stages before invoking POSIX, Apple, or
+Windows APIs. Loaded-Hermes fixtures exercise all 18 public exports in every
+effect scenario. Allow, malformed, missing-attribution, and wrong-principal
+fixtures independently observe the public requested/commit route under its
+exact floor while their typed adapter cases exercise the scenario-specific
+semantic branch; principal-deny fixtures observe the public requested-stage
+denial. Neither path consults the legacy string oracle (ENG-24450).
+The same exact-engine batch now exercises `node:fs` `statSync`, `lstatSync`, and
+`readdirSync` against harness-owned file and directory fixtures beneath an
+authenticated, canonical logical-root binding. Metadata calls must return after
+emitting requested, discovery, and repeat decisions. Directory enumeration must
+also emit the repeat decision that establishes its generation lease before any
+entry is returned. Denial fixtures stop at requested. For these exact
+source/setup/argument recipes, a noisy static dynamic-call list is diagnostic
+rather than residual: promotion still requires the runtime-observed gate to
+belong to the source-derived terminal allow-list.
+Direct global `print()` writes now authorize the exact stdout console-broker
+identity (`broker` / `ibex:console:stdout`) at requested, commit, and repeat
+before enqueuing a line. Denial therefore cannot leak output through the
+best-effort mirror, and this public path no longer bypasses typed
+`stdio:write` authority.
+The initial profile therefore has no debugger protocol or compatibility-facade
+route into package memory or runtime internals.
+
 ### WP8 — Port handles, dynamic authority, and audit evidence
 
 Rebase attenuated handles, revocation cascades, dynamic permission ceilings,
@@ -618,6 +1015,96 @@ Acceptance:
   static-only/closed definitions.
 - Evidence groups denials without losing loaded-policy or effect provenance.
 
+Implementation status (2026-07-11): armed hosts now decode the immutable
+snapshot into a validated `VerifiedDecisionContext`, accept strict typed
+decision-set/effect-gate input, classify final peers, and retain bounded
+structured evidence. Every legacy string check, import check, handle mint, and
+dynamic grant fails closed once that typed context is installed; production
+call sites must migrate to the typed ingress before a target can advertise.
+Typed dynamic grant publication now validates the canonical ceiling before
+advancing its generation; revocation advances negative and dynamic generations
+before publishing the replacement context, invalidating prior decisions. Typed
+bearer handles use OS-random identifiers, can be minted only from an owner's
+static floor or re-attenuated from a handle currently held by the actor, and
+revoke descendants as one negative/handle-generation publication.
+
+The live Hermes surface also exposes typed dynamic grant and revocation as
+`Ibex.permissions.requestTyped(request)` and `revokeTyped(grantId)`. Requests
+cross the native boundary as strict typed JSON and therefore use the same
+ceiling, lifecycle, digest, and generation validation as embedder calls;
+legacy colon strings are rejected by the typed method rather than reinterpreted.
+Both the private bridge and public methods are exact registry surfaces.
+Typed bearer mint and cascade revocation are likewise reachable as
+`Ibex.authority.mintHandle(request)` and `revokeHandle(handleId)`. Handle IDs
+remain opaque strings; the live bridge exposes no numeric conversion or legacy
+capability-string minting path.
+The live native ABI authenticates both authority surfaces from the executing
+Hermes principal rather than trusting the principal or actor supplied in JSON.
+Dynamic grants must name that authenticated principal and may be revoked only
+by it; handle mint actors must match it, and handle revocation is limited to the
+authenticated owner or current holder. Forged package identities and unknown
+grant or handle IDs therefore refuse at the bridge instead of becoming ambient
+authority or cross-principal revocation.
+For a new handle, the bridge also carries the canonical full Hermes principal
+stack into the host. The requested selector must be covered by every
+constrained principal's static floor, so an authorized inner actor cannot use
+an ungranted caller as a deputy to mint authority. Re-attenuation remains bound
+to an explicitly presented parent held by the authenticated actor.
+Successful typed grant, revocation, mint, and cascade-revocation publications
+wake the runtime. Each event-loop poll compares the authenticated negative,
+dynamic, and handle generations; changes emit a frozen generation tuple through
+`Ibex.authority.onChange`, including mutations initiated by an embedder rather
+than JavaScript itself.
+Every typed decision context carries a canonical sorted `presentedHandleIds`
+set. The bearer stratum considers only those IDs, and rejects duplicate,
+unsorted, unknown, or wrong-holder presentation as invalid attribution. Merely
+minting a handle for a principal therefore never turns possession into ambient
+principal authority.
+Armed root bindings are decoded into typed values and host paths normalize
+through the longest authenticated binding. Package roots match only their exact
+package owner, project roots do not borrow package identity, absolute bindings
+remain exact, and paths outside every armed binding refuse before a decision.
+For filesystem effects the host computes that normalization once per
+constrained principal, preserves the complete principal set for attribution and
+evidence, and refuses a missing, extra, or noncanonical projection before any
+authority match.
+Live typed filesystem decisions now carry the canonical full Hermes principal
+stack, including the captured schedule-time owner. Worker dispatch snapshots
+that stack on the runtime thread and installs a scoped immutable copy on the
+worker, so commit/repeat checks cannot lose an outer caller or detached
+scheduler. The evaluator intersects every constrained principal; an ungranted
+outer principal therefore denies even when the innermost actor has authority.
+Timers and next-tick queues likewise retain the complete schedule-time stack
+and restore it only for their callback invocation, so a later
+authority-bearing operation cannot shed an outer constrained deputy;
+generation checks still occur at the operation and observe intervening
+revocation rather than caching the schedule-time allow.
+A retained-operation fixture publishes ceiling-bounded dynamic filesystem
+authority, commits a descriptor use, revokes the grant, observes both negative
+and dynamic generation advances, and proves the immediately following repeat
+check denies.
+Distinct live dynamic grants are now restamped atomically to one published
+generation on every add/revoke/regrant transition, with failed publication
+leaving both rows and clocks unchanged. The typed decision ABI returns the
+decision and its exact structured evidence from one evaluation; bounded
+history receives a clone of that same record and is no longer queried to build
+the response.
+
+Implementation update (2026-07-12): exact source-bound public conformance now
+executes six callback/control-plane invariants against the loaded armed Hermes
+engine through production `process.env` and public authority-control operations:
+missing attribution denies, scheduled decisions recheck authority after
+generation changes, callback principals restore after delivery, bearer handles
+cannot cross snapshot identities, public grant requests cannot widen the static
+ceiling, and lockdown remains structurally immutable. A feature-gated one-shot
+observer records only the actual principal and runtime nonce; it cannot evaluate
+or authorize an operation, and the harness deletes its global before the public
+invariant operation runs. The 2,836 applicable non-capability fixtures carry
+runtime-derived results, exact structured typed outcomes/reasons where an
+auxiliary decision is required, and zero legacy observations. This closes those
+recipe obligations without advertising a target; target promotion remains gated
+on the complete exact-target execution report.
+
 ### WP9 — Make complete enforcement the default and remove weakening paths
 
 Flip ordinary CLI execution and embedding defaults only after WP4–WP8 cover the
@@ -625,6 +1112,38 @@ required initial profile. Remove or quarantine legacy policy parsing, public
 permissive execution, `--allow-all`, advisory attribution, environment-selected
 weakening, durable audit mode, optional lockdown under enforce, and permissive
 legacy host construction.
+
+Implementation status (2026-07-11): `Auto` and explicit `enforce` now resolve
+to the same enforce posture even when no policy is present. Durable audit or
+permissive policy modes, `--allow-all`, explicit permissive mode, legacy
+allow/deny overrides, environment-endowment widening, and advisory-attribution
+flags/environment inputs refuse instead of weakening production. Lockdown is
+installed structurally for both the ordinary CLI and direct `Runtime`
+construction, and missing lockdown, frame attribution, or package isolation is
+a hard enforce failure with no advisory override. Compatibility, inspector,
+and runtime-fidelity controls also refuse at ordinary host construction. The
+ordinary no-policy path now constructs an execution-bound immutable typed
+snapshot instead of the legacy host: it binds the actual project directory
+object, patched-Hermes binary digest, exact advertised target/features, empty
+package graph, empty dependency floors and dynamic ceilings, and the current
+semantic/registry identity. Auto and explicit enforce produce identical policy
+and authority state. Each runtime construction injects a fresh run nonce before
+finalizing the armed digest, so complete snapshot bytes and handshake digests
+intentionally differ. The trusted module loader may read
+only source that canonicalizes under the authenticated project binding after
+the typed import gate succeeds. A project-local `ibex-policy.json` (or explicit
+`--policy`) is now accepted only as strict, digest-valid canonical typed policy;
+its package principals, typed floor/denial/ceiling rows, import axes,
+endowments, graph nodes, root and package import edges, and authenticated package-root
+bindings are projected one way into that same snapshot. Environment-selected
+policy paths and stale/tampered policy digests refuse. Production builds always
+enable enforce isolation and cannot persist audit or permissive posture.
+Diagnostic audit is a separately named foreground command,
+`ibex capsec audit <file>`; it accepts no durable policy or ambient endowment
+input and never becomes an armed production profile. In the candidate registry,
+that canonical file-execution dispatch route is conservatively closed under
+`vm:evaluate` until authenticated code ingress and its fixtures exist; parser
+and positional metadata remain structural rows and claim no ingress authority.
 
 Acceptance:
 
@@ -642,6 +1161,191 @@ for each advertised target. Exercise the real Exact/Snapback graphs and the npm
 compatibility corpus as product-quality evidence, not as a reason to preserve
 the old policy format.
 
+Implementation status (2026-07-12): no target is advertised complete. The
+former runner incorrectly converted a handful of broad suite successes into
+21,597 synthetic per-obligation passes. The runner now executes the full
+default Rust/integration/red-team matrix, all-feature executable
+library/binary/test/example coverage plus compile-only all-target coverage,
+complete devtools and runtime-JS tests, Hermes transform/loader corpora,
+all generated drift gates, contract/registry checks, and `ref-check` from a
+clean revision. It launches an executable Hermes probe, but records that probe
+identity separately from the actual runtime engine artifact whose digest enters
+the binding; the probe can never promote a different embedded library. Those
+broad results remain prerequisite suite evidence only, and command logs are
+streamed to files with full digests plus bounded tails rather than retained
+unbounded in the report.
+The same runner is now the arm64 macOS CI gate. CI invokes
+`verify:capsec-conformance --expect-incomplete`, which still runs the entire
+matrix and emits exact command, adapter, public-surface, execution, and report
+artifacts. That mode succeeds only after the report is generated, remains
+`incomplete`, independently fails the recipe/public/report promotion checks,
+and has no matching committed target attestation. It fails automatically once
+the target becomes conformant, forcing CI to remove the expectation and adopt
+the ordinary promotion gate rather than silently retaining a stale
+"incomplete" posture.
+An obligation can pass only with fixture-specific command evidence carrying
+its exact fixture ID, result marker, exit status, recomputed evidence digest,
+and exact execution binding. Missing, generic, duplicated, stale, or synthetic
+records keep the report incomplete. Promotion remains closed until real
+executable evidence exists for every required fixture and the full matrix is
+green.
+
+Builtin public-surface evidence follows the same rule at value granularity.
+The source scanner records whether an export is data, a readable accessor, a
+callable, or unresolved, plus source-derived platform availability where the
+builtin authors conditional tables. It also distinguishes manifest-importable
+aliases from bootstrap-internal names that preempt a same-named manifest
+source. Registry-only names remain executable when an authenticated import
+policy grants their exact spelling, even when they are neither advertised nor
+bundler-external. Bootstrap-shadowed and unaliased manifest exports remain in
+the completeness inventory, but receive an explicit reachability residual
+rather than a public invocation recipe. A generic read recipe is valid only for
+a publicly reachable root data property or readable root accessor on the
+selected target; the loaded runtime must match the authored property
+descriptor, and accessor evidence actually invokes the getter. Retrieving a
+function, constructor, or prototype method is presence evidence rather than
+execution evidence, so those surfaces remain residual until a bounded
+call/setup recipe is authored.
+Import-only alias recipes remain residual. Loaded execution showed that the
+first selected alias performs a typed `env:read` of `NODE_DEBUG` during shared
+debug-log initialization, while later aliases only appeared decision-free
+because they reused the module cache. Cache order is not independent execution
+evidence, so no alias is promoted by that result. Export reads and calls remain
+separate obligations: their exact public module is loaded and driven to
+event-loop quiescence before the per-export observer opens, then the invocation
+still performs the authenticated public `require` and resolves the
+source-derived export from that cache. This isolates both synchronous and
+deferred module initialization from the export body without claiming that
+initialization was zero-effect. Manifest-builtin initialization may resolve
+exact manifest-owned private builtin dependencies without creating package
+import edges, but that exemption is scoped to synchronous body evaluation and
+does not suppress capability terminal checks or survive through an exported
+`require` closure.
+
+Bounded non-capability callable recipes are grouped by exact source template,
+not inferred from `typeof value === "function"`. The first authored families
+cover `assert`, `buffer`, `events`, `path`, `perf_hooks`, `punycode`,
+`querystring`, `zlib`, `stream`, `string_decoder`, `url`, and `util`: each
+recipe fixes its setup, receiver, arguments, dispatch mode, and expected return
+type. Direct member-to-member aliases inherit a callable shape only from the
+already observed source member, and reuse that member family's bounded
+arguments rather than weakening the template allowlist. Prototype
+recipes construct the declared owner (with dedicated bounded Buffer,
+CallTracker, zlib-transform, string-decoder, and configured
+readable/writable/duplex stream fixtures), then dispatch the exact
+source-inventoried prototype function. Zlib decoder probes derive a valid
+compressed input with the matching one-shot encoder, and every zlib receiver
+closes native stream state in a `finally` path. Stream recipes use inert
+read/write/transform callbacks; standalone `destroy` receives an explicit
+non-error value so it cannot leave an asynchronous `AbortError`, and `compose`
+remains residual because its normal return still owns a live pipeline.
+Performance observer `observe` likewise remains residual because it retains a
+callback; constructor, query, mutation, and explicitly disconnected observer
+recipes have bounded lifetimes. Evidence requires a normal return from the
+selected dispatch; an argument/receiver binding error or any other throw fails
+the recipe and cannot stand in for body entry. Normal return is not completion
+evidence on its own: the observer remains open while the harness drives the
+loaded engine to event-loop quiescence under the recipe's fixed one-second
+bound. A timeout or event-loop error stops the batch before another fixture can
+inherit its work, and the runtime completion marker is independently checked
+against the authored mode and bound. A later tranche adds exact bounded
+templates for in-memory crypto hash/HMAC/sign/verify, KDF, random-buffer,
+prime, key, DH, and ECDH operations; pure module/path, IP/block-list, URL, and
+version helpers; and unbound server metadata operations. Promise-returning
+stream consumers, pipelines, `wrap`, and Hash/HMAC readable-side finalization
+remain residual;
+their one-shot recipes do not own enough state to prove completion even with a
+quiescence drain. All accepted calls and data/accessor reads execute against
+the same mapped Hermes
+identity; there are no promoted cache-dependent module imports.
+Loaded execution also exposed lazy builtin assignments that were swallowed by
+locked inherited primordial properties; those Buffer, AssertionError, and
+StringDecoder prototype members
+are now installed as explicit writable/configurable own properties without
+weakening primordial lockdown. Source inventory also preserves own prototype
+overrides when an inherited member of the same name was propagated into a
+concrete constructor.
+
+Closed and conditional evidence remains branch-executed rather than
+classification-derived. A closed CLI facet is executable only when the harness
+first reconciles its source-discovered spelling, action, arity, defaults, and
+parser against the live Clap command and then observes the production entry
+reject that selected control before artifact or project execution. The four
+Hermes evaluator identities additionally bind the reviewed engine identity and
+lockdown-taming digest, resolve their exact intrinsic access path, and must
+actually throw the native lockdown error when invoked on the loaded engine.
+
+Production startup evidence now covers ten curated structural stages against a
+fresh armed runtime from the exact mapped Hermes artifact: runtime creation,
+global/module-loader/shared-runtime installation, capability-hatch sealing,
+eager lazy-installer sealing, lockdown, freeze-hatch sealing, compartment
+registry installation, and explicitly enabled Web Streams installation. Each
+stage has one fixed source descriptor and an independently validated
+postcondition; the probe then executes a project marker and requires zero
+legacy or typed decisions. Scanner-only script URLs, evaluation/call-site
+facets, installer definitions, skipped legacy bootstraps, and platform-only
+routes remain residual rather than inheriting these stage results.
+The runtime-create descriptor binds `ex_hermes_create_armed`, not the historical
+`ex_hermes_create` symbol that production deliberately leaves non-executable.
+
+A zero-effect conditional branch may pass without a typed decision only when a
+source-bound public invocation itself selects the registry's exact branch facts,
+returns normally, emits zero legacy and typed observations, and releases every
+harness-owned resource. The first such family covers the seven native JSI and
+seven Rust host-ABI SQLite operations on exact in-memory handles; each proves
+both branch selection and the no-effect result while the file-backed branches
+remain independent obligations. A valid public API cannot inject malformed
+internal branch facts, so malformed-branch-fact fixtures remain residual rather
+than reusing a generic malformed adapter result or a hand-labelled terminal.
+
+The macOS/aarch64
+candidate has exact loaded-Hermes adapter-probe evidence, but probe coverage is
+deliberately non-promotable and is not represented as fixture pass claims.
+`bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
+full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
+target-, and fixture-catalog-bound report. Promotion then requires a checked
+content-addressed attestation; the generator reopens and validates the report,
+the complete executable-recipe catalog, and a separate public-surface execution
+artifact. All three are immutable regular files addressed by their raw content,
+and the report and attestation bind the catalog and public-execution semantic
+digests. Adapter-probe evidence is a distinct diagnostic schema and is rejected
+at publication. `IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT` only selects the
+harness-owned diagnostic artifact destination; it never supplies authority,
+policy, a principal, a target claim, or production runtime input. The generator
+re-derives the exact required fixture set and
+requires one passing authored public-surface invocation (or target-absence
+probe) with the selected terminal observation for every recipe, with zero
+residual, missing, duplicate, or failed rows. It then derives every cell and
+advertisement and permits no source changes after the reported revision except
+those three evidence files, the attestation, and generated publication
+artifacts. Until every required fixture genuinely passes, production startup
+refuses before project code on every target.
+
+Source-derived global reads are executable evidence only when the authored
+runtime graph proves a concrete access path, every path segment has an actual
+registration rather than a synthesized namespace prefix, and the final value
+is unambiguously data or an accessor. The loaded-engine probe resolves the
+source-proven property path, checks the final descriptor shape, performs the
+read, and requires zero legacy or typed authorization observations. Merely
+retrieving a function is never call evidence. Conditional namespace aliases,
+multi-installer globals, receiver-dependent prototype members, and lazy getters
+that may already have materialized a callable remain residual until they have a
+bounded call/setup recipe. This keeps inventory facts from becoming synthetic
+execution claims while permitting exact non-capability data reads to close.
+
+Bounded native-call recipes likewise use only harness-owned literals,
+callbacks, listeners, handles, or results of source-bound native producers.
+When two arguments need the same generated key pair, the loaded-engine harness
+caches the exact producer invocation and projects only an own `privateKey` or
+`publicKey` property; independently generated keys are not interchangeable
+evidence. Timer callbacks are inert and their returned timers are cancelled
+before the fixture completes. Resource-consuming calls receive a handle minted
+inside that invocation. Compile-guarded globals absent from the attested engine
+remain residual even when source discovery finds their registration text.
+Every non-capability recipe requires zero legacy and zero typed authorization
+observations; in particular, ordinary random bytes cannot retain the retired
+always-allowed `crypto:random` legacy check.
+
 Acceptance:
 
 - Every authorable edge has positive, negative, wrong-principal, malformed,
@@ -658,6 +1362,19 @@ Update LLP 0013 and LLP 0014 to describe the final mechanism and artifact,
 revise LLP 0016's assessment, update LLP 0002/0004/0005 where their contracts
 change, refresh demos and documentation, and delete dead code/generators/tests
 for the legacy plane.
+
+Implementation status (2026-07-11): production CLI/runtime construction no
+longer loads or executes `PolicyFile`; only the explicitly diagnostic legacy
+Audit constructor may receive an already parsed value for historical test
+coverage. LLP 0013, LLP 0014, and LLP 0016 now identify their old mode, flag,
+and string-policy passages as superseded. The canonical typed artifact, armed
+snapshot, and target-bound conformance report are the current contracts.
+ENG-24263 subsequently retired LLP 0013's executable string-policy corpus and
+its 127 legacy fixtures. A checked 69-case retirement join names the current
+typed, armed-engine, production-closure, or migrated diagnostic coverage for
+every former test; the live callback harness now also proves package-global
+withholding and native-freeze hatch removal, while process signaling is covered
+inside the authenticated armed process-closure test.
 
 Acceptance:
 
@@ -703,21 +1420,21 @@ Every issue description must include:
 The umbrella issue tracks the overall completion gate but is not a substitute
 for dependency relations. The created issue set is:
 
-| Work package | Linear issue | Blocked by |
-|---|---|---|
-| Program | ENG-24143 | completion is defined by the child graph |
-| WP0 | ENG-24144 | — |
-| WP1 | ENG-24145 | ENG-24144 |
-| WP2 | ENG-24146 | ENG-24144 |
-| WP3 | ENG-24147 | ENG-24146 |
-| WP4 | ENG-24148 | ENG-24145, ENG-24147 |
-| WP5 | ENG-24149 | ENG-24148 |
-| WP6 | ENG-24150 | ENG-24148 |
-| WP7 | ENG-24151 | ENG-24148 |
-| WP8 | ENG-24152 | ENG-24148 |
-| WP9 | ENG-24153 | ENG-24149, ENG-24150, ENG-24151, ENG-24152 |
-| WP10 | ENG-24154 | ENG-24145, ENG-24149, ENG-24150, ENG-24151, ENG-24152 |
-| WP11 | ENG-24155 | ENG-24153, ENG-24154 |
+| Work package | Linear issue | Blocked by                                            |
+| ------------ | ------------ | ----------------------------------------------------- |
+| Program      | ENG-24143    | completion is defined by the child graph              |
+| WP0          | ENG-24144    | —                                                     |
+| WP1          | ENG-24145    | ENG-24144                                             |
+| WP2          | ENG-24146    | ENG-24144                                             |
+| WP3          | ENG-24147    | ENG-24146                                             |
+| WP4          | ENG-24148    | ENG-24145, ENG-24147                                  |
+| WP5          | ENG-24149    | ENG-24148                                             |
+| WP6          | ENG-24150    | ENG-24148                                             |
+| WP7          | ENG-24151    | ENG-24148                                             |
+| WP8          | ENG-24152    | ENG-24148                                             |
+| WP9          | ENG-24153    | ENG-24149, ENG-24150, ENG-24151, ENG-24152            |
+| WP10         | ENG-24154    | ENG-24145, ENG-24149, ENG-24150, ENG-24151, ENG-24152 |
+| WP11         | ENG-24155    | ENG-24153, ENG-24154                                  |
 
 ## Risks and controls
 

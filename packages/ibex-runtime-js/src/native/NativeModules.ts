@@ -98,7 +98,19 @@ export interface NativeFetchModule {
 // Native implementation uses platform WebSocket
 // =============================================================================
 export interface NativeWebSocketModule {
+  /** Mint a wrapper-lifetime runtime/principal stamp independent of socket teardown. */
+  createOwner(): unknown;
+  /** Authenticate access to retained wrapper state, listeners, and metadata. */
+  checkStateOwner(owner: unknown): void;
   create(url: string, protocols?: string[], instance?: any): number; // Returns socket ID
+  /**
+   * Synchronously authenticate the current runtime principal as this socket's
+   * owner without sending a frame. Queued JS adapters must call this before
+   * retaining caller-controlled data or changing observable send state.
+   */
+  checkOwner(id: number): void;
+  /** Authenticate only retained-handle ownership for release operations. */
+  checkReleaseOwner(id: number): void;
   send(id: number, data: string | Uint8Array): void;
   close(id: number, code?: number, reason?: string): void;
   pause?(id: number): void;

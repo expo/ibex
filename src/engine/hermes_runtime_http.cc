@@ -1,7 +1,9 @@
 #include "hermes_runtime_internal.h"
 
+#include <cmath>
 #include <condition_variable>
 #include <deque>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -9,6 +11,10 @@
 
 extern "C" char* ex_host_http_serve(uint16_t port, const char* hostname);
 extern "C" char* ex_host_http_wait(uint32_t server_id, uint32_t timeout_ms);
+extern "C" char* ex_host_http_wait_owned(
+    uint32_t server_id,
+    uint32_t timeout_ms,
+    uint64_t runtime_nonce);
 extern "C" char* ex_host_http_read_body(uint32_t server_id, uint32_t request_id);
 extern "C" int32_t ex_host_http_respond(
     uint32_t server_id,
@@ -51,6 +57,11 @@ extern "C" int32_t ex_host_http_await_writable(
     uint32_t server_id,
     uint32_t request_id,
     uint32_t timeout_ms);
+extern "C" int32_t ex_host_http_await_writable_owned(
+    uint32_t server_id,
+    uint32_t request_id,
+    uint32_t timeout_ms,
+    uint64_t runtime_nonce);
 extern "C" int32_t ex_host_http_respond_string(
     uint32_t server_id,
     uint32_t request_id,
@@ -68,12 +79,46 @@ extern "C" void ex_host_free_string(char* value);
 namespace {
 
 struct HttpServerEntry {
+  uint64_t runtimeNonce;
   uint64_t owner;
   std::string capability;
 };
 
 static std::mutex g_http_server_mutex;
 static std::unordered_map<uint32_t, HttpServerEntry> g_http_servers;
+
+class HttpAsyncLifetime {
+ public:
+  explicit HttpAsyncLifetime(RuntimeCallbackTarget target) : target_(target) {}
+  void activate() noexcept { active_ = true; }
+  ~HttpAsyncLifetime() {
+    if (active_) exactUnpinRuntimeNativeWorker(target_);
+  }
+
+ private:
+  RuntimeCallbackTarget target_;
+  bool active_{false};
+};
+
+void exactTestDelayHttpWaitWorkerIdle(std::unique_lock<std::mutex>& lock) {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  const char* value = std::getenv("IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS");
+  if (!value || !*value) return;
+  char* end = nullptr;
+  auto milliseconds = std::strtoull(value, &end, 10);
+  if (end == value || *end != '\0') return;
+  milliseconds = std::min<unsigned long long>(milliseconds, 2000);
+
+  // Keep the worker accounted as idle while making its wake deterministic.
+  // Notifications cannot be lost: the worker re-locks and checks the queue
+  // predicate before sleeping on the condition variable.
+  lock.unlock();
+  std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+  lock.lock();
+#else
+  (void)lock;
+#endif
+}
 
 uint32_t parseHttpServerId(const std::string& json) {
   auto id_pos = json.find("\"id\"");
@@ -98,21 +143,35 @@ uint32_t parseHttpServerId(const std::string& json) {
   return saw_digit ? id : 0;
 }
 
+bool parseHttpOwnerServerId(
+    const facebook::jsi::Value& value,
+    uint32_t& server_id) {
+  constexpr double kMaxSafeInteger = 9007199254740991.0;
+  if (!value.isNumber()) return false;
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || number < 1.0 ||
+      number > kMaxSafeInteger || std::floor(number) != number ||
+      number > static_cast<double>(std::numeric_limits<uint32_t>::max())) {
+    return false;
+  }
+  server_id = static_cast<uint32_t>(number);
+  return true;
+}
+
 void registerHttpServer(uint32_t server_id, const std::string& capability) {
   if (server_id == 0) {
     return;
   }
   std::lock_guard<std::mutex> lock(g_http_server_mutex);
-  g_http_servers[server_id] = HttpServerEntry{currentPrincipalId(), capability};
+  g_http_servers[server_id] = HttpServerEntry{
+      exactCurrentRuntimeNonce(), currentPrincipalId(), capability};
 }
 
 bool requireHttpServerOwner(
     facebook::jsi::Runtime& runtime,
     uint32_t server_id,
-    const char* syscall) {
-  if (isAllowAll()) {
-    return true;
-  }
+    const char* syscall,
+    bool requireLiveAuthority = true) {
   HttpServerEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_http_server_mutex);
@@ -122,11 +181,18 @@ bool requireHttpServerOwner(
     }
     entry = it->second;
   }
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(syscall) + ": server belongs to a different runtime");
+  }
+  // Capability posture never changes ownership of a forgeable numeric id.
+  // Keep package isolation in diagnostic/allow-all runtimes too.
   if (entry.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": server belongs to a different principal");
   }
-  if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+  if (requireLiveAuthority && !isAllowAll() && !entry.capability.empty() &&
+      !checkCapability(entry.capability)) {
     throw facebook::jsi::JSError(
         runtime, std::string("Permission denied: ") + syscall);
   }
@@ -135,7 +201,12 @@ bool requireHttpServerOwner(
 
 void unregisterHttpServer(uint32_t server_id) {
   std::lock_guard<std::mutex> lock(g_http_server_mutex);
-  g_http_servers.erase(server_id);
+  auto server = g_http_servers.find(server_id);
+  if (server != g_http_servers.end() &&
+      server->second.runtimeNonce == exactCurrentRuntimeNonce() &&
+      server->second.owner == currentPrincipalId()) {
+    g_http_servers.erase(server);
+  }
 }
 
 uint32_t extractOptionalHttpBody(
@@ -163,8 +234,42 @@ uint32_t extractOptionalHttpBody(
 
 } // namespace
 
+void exactCleanupRuntimeHttpServers(uint64_t runtimeNonce) {
+  std::lock_guard<std::mutex> lock(g_http_server_mutex);
+  for (auto it = g_http_servers.begin(); it != g_http_servers.end();) {
+    if (it->second.runtimeNonce == runtimeNonce) {
+      it = g_http_servers.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 void installHttpHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
+
+  // __exactHttpOwner(serverId) -> true or false
+  // Owner authentication is deliberately independent of the server's live
+  // positive grant. Retained JS wrappers use this non-mutating boundary before
+  // touching private buffered state, and release paths remain available after
+  // revocation. The numeric selector is still runtime- and principal-bound.
+  auto httpOwnerFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactHttpOwner"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        uint32_t server_id = 0;
+        if (count < 1 || !parseHttpOwnerServerId(args[0], server_id)) {
+          return facebook::jsi::Value(false);
+        }
+        return facebook::jsi::Value(requireHttpServerOwner(
+            runtime, server_id, "__exactHttpOwner", false));
+      });
+  rt.global().setProperty(rt, "__exactHttpOwner", std::move(httpOwnerFn));
+
   // __exactHttpServe(port, hostname) -> JSON string {"id":N,"port":N} or {"error":"..."}
   auto httpServeFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -184,7 +289,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         // @ref LLP 0013#policy — importing http/Bun.serve is not authority to
         // open a listening socket. Gate the native serve boundary. (ENG-22722)
-        std::string capability = "network:listen:" + hostname + ":" + std::to_string(port);
+        std::string capability = "network:listen:" + formatNetworkEndpoint(hostname, port);
         if (!checkCapability(capability)) {
           throw facebook::jsi::JSError(
               runtime,
@@ -320,14 +425,23 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                   args[0].asObject(runtime).asFunction(runtime));
               auto reject = std::make_shared<facebook::jsi::Function>(
                   args[1].asObject(runtime).asFunction(runtime));
+              auto target = exactRuntimeCallbackTarget(handle);
+              auto lifetime = std::make_shared<HttpAsyncLifetime>(target);
+              if (!exactPinRuntimeNativeWorker(target)) {
+                throw facebook::jsi::JSError(
+                    runtime, "__exactHttpWait: runtime is shutting down");
+              }
+              lifetime->activate();
 
               struct WaitTask {
-                ExactHermesRuntime* handle;
+                RuntimeCallbackTarget target;
                 uint32_t server_id;
                 uint32_t timeout_ms;
+                uint64_t runtime_nonce;
                 uint64_t principal;
                 std::shared_ptr<facebook::jsi::Function> resolve;
                 std::shared_ptr<facebook::jsi::Function> reject;
+                std::shared_ptr<HttpAsyncLifetime> lifetime;
               };
 
               constexpr size_t kMaxWaitWorkers = 16;
@@ -341,7 +455,10 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 size_t total_workers{0};
 
                 void spawnWorkerIfNeededLocked() {
-                  if (idle_workers > 0) {
+                  // Called before the new task is appended. Idle workers are
+                  // already owed to queued tasks, so only idle capacity beyond
+                  // the current backlog can service this enqueue.
+                  if (idle_workers > queue.size()) {
                     return;
                   }
                   if (total_workers >= kMaxWaitWorkers) {
@@ -355,13 +472,16 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                       {
                         std::unique_lock<std::mutex> lock(mutex);
                         idle_workers += 1;
+                        exactTestDelayHttpWaitWorkerIdle(lock);
                         cv.wait(lock, [this] { return !queue.empty(); });
                         idle_workers -= 1;
                         t = std::move(queue.front());
                         queue.pop_front();
                       }
 
-                      char* json = ex_host_http_wait(t.server_id, t.timeout_ms);
+                      exactTestDelayRuntimeProducer();
+                      char* json = ex_host_http_wait_owned(
+                          t.server_id, t.timeout_ms, t.runtime_nonce);
                       std::string payload;
                       bool has_payload = false;
                       if (json) {
@@ -373,7 +493,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                       auto resolve = std::move(t.resolve);
                       auto reject = std::move(t.reject);
                       pushRuntimeCallback(
-                          t.handle,
+                          t.target,
                           [resolve = std::move(resolve), reject = std::move(reject),
                            principal = t.principal, has_payload,
                            payload = std::move(payload)](
@@ -430,7 +550,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
               // pool lets exit() proceed normally.
               static WaitWorkerPool* workerPool = new WaitWorkerPool();
 
-              auto task = WaitTask{handle, server_id, timeout_ms, waitPrincipal, resolve, reject};
+              auto task = WaitTask{
+                  target, server_id, timeout_ms, handle->runtime_nonce,
+                  waitPrincipal, resolve, reject, lifetime};
               std::string enqueueError;
               if (!workerPool->enqueue(std::move(task), enqueueError)) {
                 reject->call(
@@ -683,7 +805,11 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondEnd")) {
+        // A response terminator carries no new payload and only relinquishes
+        // the already-owned response pipe, so grant revocation must not strand
+        // it. Runtime and principal ownership remain unconditional.
+        if (!requireHttpServerOwner(
+                runtime, server_id, "__exactHttpRespondEnd", false)) {
           return facebook::jsi::Value(-1);
         }
 
@@ -737,7 +863,8 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondEndTry")) {
+        if (!requireHttpServerOwner(
+                runtime, server_id, "__exactHttpRespondEndTry", false)) {
           return facebook::jsi::Value(-1);
         }
 
@@ -765,7 +892,11 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         uint32_t request_id = static_cast<uint32_t>(args[1].asNumber());
-        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpRespondAbort")) {
+        // @ref LLP 0021#handles-dynamic-authority-and-generations — abort only
+        // relinquishes an owned response pipe, so revocation must not prevent
+        // cleanup; runtime and principal ownership still apply unconditionally.
+        if (!requireHttpServerOwner(
+                runtime, server_id, "__exactHttpRespondAbort", false)) {
           return facebook::jsi::Value(-1);
         }
 
@@ -819,15 +950,24 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                   args[0].asObject(runtime).asFunction(runtime));
               auto reject = std::make_shared<facebook::jsi::Function>(
                   args[1].asObject(runtime).asFunction(runtime));
+              auto target = exactRuntimeCallbackTarget(handle);
+              auto lifetime = std::make_shared<HttpAsyncLifetime>(target);
+              if (!exactPinRuntimeNativeWorker(target)) {
+                throw facebook::jsi::JSError(
+                    runtime, "__exactHttpAwaitWritable: runtime is shutting down");
+              }
+              lifetime->activate();
 
               struct WritableTask {
-                ExactHermesRuntime* handle;
+                RuntimeCallbackTarget target;
                 uint32_t server_id;
                 uint32_t request_id;
                 uint32_t timeout_ms;
+                uint64_t runtime_nonce;
                 uint64_t principal;
                 std::shared_ptr<facebook::jsi::Function> resolve;
                 std::shared_ptr<facebook::jsi::Function> reject;
+                std::shared_ptr<HttpAsyncLifetime> lifetime;
               };
 
               constexpr size_t kMaxWritableWorkers = 16;
@@ -841,7 +981,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 size_t total_workers{0};
 
                 void spawnWorkerIfNeededLocked() {
-                  if (idle_workers > 0) {
+                  if (idle_workers > queue.size()) {
                     return;
                   }
                   if (total_workers >= kMaxWritableWorkers) {
@@ -861,13 +1001,15 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                         queue.pop_front();
                       }
 
-                      int32_t code = ex_host_http_await_writable(
-                          t.server_id, t.request_id, t.timeout_ms);
+                      exactTestDelayRuntimeProducer();
+                      int32_t code = ex_host_http_await_writable_owned(
+                          t.server_id, t.request_id, t.timeout_ms,
+                          t.runtime_nonce);
 
                       auto resolve = std::move(t.resolve);
                       auto reject = std::move(t.reject);
                       pushRuntimeCallback(
-                          t.handle,
+                          t.target,
                           [resolve = std::move(resolve), reject = std::move(reject),
                            principal = t.principal, code](
                               facebook::jsi::Runtime& rt) {
@@ -921,7 +1063,8 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
               static WritableWorkerPool* writablePool = new WritableWorkerPool();
 
               auto task = WritableTask{
-                  handle, server_id, request_id, timeout_ms, waitPrincipal, resolve, reject};
+                  target, server_id, request_id, timeout_ms,
+                  handle->runtime_nonce, waitPrincipal, resolve, reject, lifetime};
               std::string enqueueError;
               if (!writablePool->enqueue(std::move(task), enqueueError)) {
                 reject->call(
@@ -976,7 +1119,10 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t server_id = static_cast<uint32_t>(args[0].asNumber());
         int32_t force = count > 1 && args[1].isNumber() ? static_cast<int32_t>(args[1].asNumber()) : 0;
-        if (!requireHttpServerOwner(runtime, server_id, "__exactHttpClose")) {
+        // @ref LLP 0021#handles-dynamic-authority-and-generations — releasing
+        // an owned server remains possible after its positive grant is revoked.
+        if (!requireHttpServerOwner(
+                runtime, server_id, "__exactHttpClose", false)) {
           return facebook::jsi::Value(-1);
         }
         int32_t result = ex_host_http_close(server_id, force);

@@ -17,15 +17,48 @@ export interface Changes {
 type SQLBindings = string | number | bigint | boolean | null | Uint8Array;
 type SQLParams = SQLBindings | Record<string, SQLBindings>;
 
+interface StatementAuthorityState {
+  handle: any;
+  dbHandle: any;
+  finalized: boolean;
+}
+
+// Numeric SQLite handles are principal-bound native selectors. A WeakMap is
+// authoritative so retained objects cannot be retargeted by assigning an
+// underscore property, and a rejected foreign finalize leaves the real owner
+// able to retry.
+const statementAuthorityStates = new WeakMap<object, StatementAuthorityState>();
+
+function statementAuthorityState(statement: object): StatementAuthorityState {
+  const state = statementAuthorityStates.get(statement);
+  if (!state) throw new TypeError('Illegal Statement receiver');
+  return state;
+}
+
 export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
   /** @internal */
-  _handle: any;
+  get _handle(): any {
+    return statementAuthorityState(this).handle;
+  }
+  set _handle(_value: any) {
+    throw new TypeError('Statement handle is private');
+  }
   /** @internal */
-  _db: any;
+  get _db(): any {
+    return statementAuthorityState(this).dbHandle;
+  }
+  set _db(_value: any) {
+    throw new TypeError('Statement database handle is private');
+  }
   /** @internal */
   _sql: string;
   /** @internal */
-  _finalized = false;
+  get _finalized(): boolean {
+    return statementAuthorityState(this).finalized;
+  }
+  set _finalized(_value: boolean) {
+    throw new TypeError('Statement finalize state is private');
+  }
   /** @internal */
   _columnTypes: (string | null)[] = [];
   /** @internal */
@@ -67,7 +100,6 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
 
   /** @internal */
   constructor(dbHandle: any, sql: string) {
-    this._db = dbHandle;
     this._sql = sql;
 
     if (!g.__exactSqlitePrepare) {
@@ -78,7 +110,11 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
     }
 
     const result = g.__exactSqlitePrepare(dbHandle, sql);
-    this._handle = result.handle;
+    statementAuthorityStates.set(this, {
+      handle: result.handle,
+      dbHandle,
+      finalized: false,
+    });
     this.columnNames = result.columnNames || [];
     this._declaredTypes = result.declaredTypes || [];
     this.paramsCount = result.paramsCount || 0;
@@ -91,7 +127,7 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
   all(...params: ParamsType): ReturnType[] {
     this._checkFinalized();
     const bindings = this._normalizeParams(params);
-    const result = g.__exactSqliteAll(this._handle, bindings);
+    const result = g.__exactSqliteAll(statementAuthorityState(this).handle, bindings);
     this._recordExecution(result);
     return result.rows;
   }
@@ -103,7 +139,7 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
   get(...params: ParamsType): ReturnType | null {
     this._checkFinalized();
     const bindings = this._normalizeParams(params);
-    const result = g.__exactSqliteGet(this._handle, bindings);
+    const result = g.__exactSqliteGet(statementAuthorityState(this).handle, bindings);
     this._recordExecution(result);
     return result.row ?? null;
   }
@@ -114,7 +150,7 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
   run(...params: ParamsType): Changes {
     this._checkFinalized();
     const bindings = this._normalizeParams(params);
-    const result = g.__exactSqliteRun(this._handle, bindings);
+    const result = g.__exactSqliteRun(statementAuthorityState(this).handle, bindings);
     this._executed = true;
     return result;
   }
@@ -125,7 +161,7 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
   values(...params: ParamsType): unknown[][] {
     this._checkFinalized();
     const bindings = this._normalizeParams(params);
-    const result = g.__exactSqliteValues(this._handle, bindings);
+    const result = g.__exactSqliteValues(statementAuthorityState(this).handle, bindings);
     this._recordExecution(result);
     return result.rows;
   }
@@ -135,11 +171,12 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
    * Once finalized, the statement cannot be used again.
    */
   finalize(): void {
-    if (this._finalized) return;
-    this._finalized = true;
+    const state = statementAuthorityState(this);
+    if (state.finalized) return;
     if (g.__exactSqliteFinalize) {
-      g.__exactSqliteFinalize(this._handle);
+      g.__exactSqliteFinalize(state.handle);
     }
+    state.finalized = true;
   }
 
   /**
@@ -148,7 +185,7 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
   toString(): string {
     this._checkFinalized();
     if (g.__exactSqliteExpandedSql) {
-      return g.__exactSqliteExpandedSql(this._handle);
+      return g.__exactSqliteExpandedSql(statementAuthorityState(this).handle);
     }
     return this._sql;
   }
@@ -159,6 +196,7 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
    */
   as<T>(Class: new (...args: any[]) => T): Statement<T, ParamsType> {
     const wrapped = Object.create(this);
+    statementAuthorityStates.set(wrapped, statementAuthorityState(this));
     const origAll = this.all.bind(this);
     const origGet = this.get.bind(this);
 
@@ -182,7 +220,7 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
 
   /** @internal */
   private _checkFinalized(): void {
-    if (this._finalized) {
+    if (statementAuthorityState(this).finalized) {
       throw new Error('Statement has been finalized and cannot be used');
     }
   }

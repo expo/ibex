@@ -215,6 +215,14 @@ function compileComponent(
   while (i < pattern.length) {
     const ch = pattern[i];
 
+    // A backslash quotes the next pattern character. Without this branch an
+    // escaped '*', ':', '{', or '(' was still interpreted as syntax.
+    if (ch === "\\" && i + 1 < pattern.length) {
+      regexStr += escapeRegExp(pattern[i + 1]);
+      i += 2;
+      continue;
+    }
+
     // ----- Brace group: {pattern} with optional modifier -----
     if (ch === "{") {
       const closeBrace = findMatchingBrace(pattern, i);
@@ -989,6 +997,9 @@ export class URLPattern {
 
     if (base) {
       applyBaseComponents(values, specified, base, "*");
+    }
+    if (specified.has("hash") && !specified.has("search")) {
+      values.search = "";
     }
     canonicalizePatternValues(values);
 

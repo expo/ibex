@@ -83,12 +83,23 @@ export class IDBObjectStore {
         'DataError',
       );
     }
+    // IndexedDB performs structured serialization during the method call, not
+    // when the transaction queue eventually executes the request. This both
+    // snapshots subsequent mutations and makes DataCloneError synchronous.
+    const clonedValue = deserializeValue(serializeValue(value));
+    const clonedKey = key === undefined ? undefined : deserializeKey(serializeKey(key));
+    if (this.keyPath !== null) {
+      const inlineKey = extractKeyPath(clonedValue, this.keyPath);
+      if (inlineKey !== undefined && !isValidKey(inlineKey)) {
+        throw new DOMException('The keyPath value is not a valid key.', 'DataError');
+      }
+    }
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
     this._transaction._enqueueOp(request, () => {
       try {
-        const { key: resolvedKey, value: storedValue } = this._resolveKeyAndValue(value, key);
+        const { key: resolvedKey, value: storedValue } = this._resolveKeyAndValue(clonedValue, clonedKey);
         if (this._hasRecord(resolvedKey)) {
           throw new DOMException(
             `A record with key ${JSON.stringify(resolvedKey)} already exists`,
@@ -118,12 +129,20 @@ export class IDBObjectStore {
         'DataError',
       );
     }
+    const clonedValue = deserializeValue(serializeValue(value));
+    const clonedKey = key === undefined ? undefined : deserializeKey(serializeKey(key));
+    if (this.keyPath !== null) {
+      const inlineKey = extractKeyPath(clonedValue, this.keyPath);
+      if (inlineKey !== undefined && !isValidKey(inlineKey)) {
+        throw new DOMException('The keyPath value is not a valid key.', 'DataError');
+      }
+    }
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
     this._transaction._enqueueOp(request, () => {
       try {
-        const { key: resolvedKey, value: storedValue } = this._resolveKeyAndValue(value, key);
+        const { key: resolvedKey, value: storedValue } = this._resolveKeyAndValue(clonedValue, clonedKey);
         this._putRecord(resolvedKey, storedValue);
         request._resolve(resolvedKey);
       } catch (e: any) {
@@ -545,7 +564,7 @@ export class IDBObjectStore {
   _ensureTable(): void {
     this._migrateLegacyTables();
     this._db._exec(
-      `CREATE TABLE IF NOT EXISTS "${this._tableName}" (key TEXT PRIMARY KEY, value TEXT, keyenc TEXT)`
+      `CREATE TABLE IF NOT EXISTS "${this._tableName}" (key TEXT PRIMARY KEY, value BLOB, keyenc TEXT)`
     );
     // Ensure the order-preserving `keyenc` column + index exist and backfill
     // any store that predates it. Cached per-connection so this is off the hot
@@ -687,12 +706,12 @@ export class IDBObjectStore {
     }
     if (this.autoIncrement) {
       const newKey = this._db._nextAutoIncrement(this.name, this._tableName);
-      // If keyPath exists, set the generated key on a structured clone of the
-      // value (never on the caller's object).
+      // add()/put() pass their already-owned structured clone here. Inject
+      // into that clone directly: cloning it a second time duplicates every
+      // attachment (including multi-megabyte BLOBs) solely to add one key.
       if (this.keyPath !== null && typeof this.keyPath === 'string' && typeof value === 'object' && value !== null) {
-        const clone = deserializeValue(serializeValue(value));
-        setKeyPath(clone, this.keyPath, newKey);
-        return { key: newKey, value: clone };
+        setKeyPath(value, this.keyPath, newKey);
+        return { key: newKey, value };
       }
       return { key: newKey, value };
     }
@@ -729,9 +748,11 @@ export class IDBObjectStore {
     // transaction continues. Returns null when the store has no indexes.
     // (ENG-23016)
     const applyIndexes = this._prepareIndexMaintenance(key, value, pkSer);
-    // Structured (tagged) serialization preserves Date/TypedArray/ArrayBuffer/
-    // Map/Set/undefined that plain JSON silently corrupts. The `keyenc` column
-    // holds the order-preserving encoding used for range/ORDER BY. (ENG-22999)
+    // The versioned BLOB envelope preserves Date/Map/etc. while storing binary
+    // attachments as raw bytes (no base64/number-array amplification). SQLite's
+    // dynamic typing also accepts BLOBs in legacy value-TEXT tables; old TEXT
+    // rows remain readable and migrate lazily on rewrite. `keyenc` holds the
+    // order-preserving encoding used for range/ORDER BY. (ENG-22999/ENG-24277)
     this._db._exec(
       `INSERT OR REPLACE INTO "${this._tableName}" (key, value, keyenc) VALUES (?, ?, ?)`,
       [pkSer, serializeValue(value), encodeOrderedKey(key)]

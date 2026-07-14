@@ -23,6 +23,9 @@ fi
 # runtime bundles compile against. Flags live only in package.json (one source
 # of truth, shared with check:drift).
 bun run generate:capability-bits
+# @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — the
+# source-derived registry must exist before the contract binds its digests.
+bun run generate:capsec-registry
 bun run generate:capsec-contract
 bun run generate:identity
 bun run generate:modules

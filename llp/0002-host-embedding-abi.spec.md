@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks; previously 2026-07-09 for host-boundary constraints)
+**Revised:** 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -17,8 +17,11 @@ and a **Rust host surface** (`host::{install_host, Host}` plus the `ex_host_*` C
 functions) that the engine calls back into for native capabilities. The
 "narrow, stable contract" the root document names is the subset of this surface
 treated as semver-major: the lifecycle/eval functions plus the host-call bridge
-installer. The full `ex_host_*` callback surface is broader but is an
-implementation detail of how the engine reaches native services.
+installer. The installer is executable only for explicitly unarmed diagnostic
+embedders; its symbol and void signature remain stable, while armed runtimes
+silently reject the generic channel. The full `ex_host_*` callback surface is
+broader but is an implementation detail of how the engine reaches native
+services.
 
 This doc records what is observable in the extracted repo and owns the local
 Ibex embedding contract map.
@@ -29,10 +32,13 @@ The root document (LLP 0000 §Key invariants) names five C functions as the
 stable contract. All five are declared in
 `include/exact_runtime.h` and defined in `src/engine/hermes_runtime.cc`:
 
-- `ExactHermesRuntime* ex_hermes_create(void)` `[observed]`
-  (`include/exact_runtime.h:38`; defined `src/engine/hermes_runtime.cc:1388`) —
-  creates a Hermes runtime with all globals/bootstrap installed; returns an
-  opaque handle or NULL.
+- `ExactHermesRuntime* ex_hermes_create(void)` is retained as the historical
+  symbol but deliberately always returns NULL. Production construction is
+  `ex_hermes_create_armed(snapshot_digest)`, which atomically claims the exact
+  authenticated Host context and verifies structural lockdown, compartments,
+  bootstrap seals, and frame attribution before returning a handle.
+  `ex_hermes_create_diagnostic()` is an explicitly non-production constructor
+  for isolated tests and foreground audit.
 - `void ex_hermes_destroy(ExactHermesRuntime*)` `[observed]`
   (`include/exact_runtime.h:41`; `src/engine/hermes_runtime.cc:1455`).
 - `int ex_hermes_eval(runtime, data, len, source_url, is_bytecode, out_value)`
@@ -44,8 +50,9 @@ stable contract. All five are declared in
   (`include/exact_runtime.h:65`; `src/engine/hermes_runtime.cc:1809`) — frees any string the
   ABI returns; it is a thin wrapper over `free()`.
 - `void ex_hermes_set_host_call(runtime, callback)` `[observed]`
-  (`include/exact_runtime.h:154`; `src/engine/hermes_runtime.cc:1754`) — installs the
-  generic `__hostCall(op, argsJson)` JS function backed by the host callback.
+  (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`) — installs the
+  generic `__hostCall(op, argsJson)` JS function for an unarmed diagnostic
+  runtime. It is a silent no-op for an armed runtime.
 
 Treating these as the semver-major contract is asserted in LLP 0000; this doc
 does not re-derive the inherited rationale `[inferred: the five are singled out
@@ -112,11 +119,25 @@ publication dispatcher; pacing and lifecycle fencing remain embedder policy.
 These are optional convenience surfaces, not additions to the five-function
 semver-major contract.
 
+### Capability-security ABI inventory
+
+LLP 0021 adds a source-derived security inventory across the public ABI
+families: the Rust/native `ex_host_*` callbacks, the `ex_hermes_*` embedding
+surface, the `ex_worklet_*` surface, and the Android Java/JNI bridge. The
+current generator finds 89, 37, and 10 symbols in the first three families,
+plus one `ex_android_*`, 39 Java, and 8 JNI routes (184 total). It groups source
+definitions by target variant, including weak/default stubs, rather than
+maintaining a copied symbol list `[observed]`
+(`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`). Those rows
+are classification and fixture obligations, not a conformance claim; every WP1
+target cell remains unsupported.
+
 ### The `__hostCall` bridge — the generic host channel
 
-`ex_hermes_set_host_call` installs a JSI host function named `__hostCall` on the
-global object `[observed]` (`src/engine/hermes_runtime.cc:1754-1806`). It is the generic,
-string-typed channel from JS to the host:
+On an unarmed diagnostic runtime, `ex_hermes_set_host_call` installs a JSI host
+function named `__hostCall` on the global object `[observed]`
+(`src/engine/hermes_runtime.cc`). It is the generic, string-typed channel from
+JS to the host:
 
 - JS calls `__hostCall(op, argsJson)` with two strings `[observed]`
   (`src/engine/hermes_runtime.cc:1773-1774`).
@@ -132,25 +153,38 @@ On the JS side, the runtime wrapper calls `globalThis.__hostCall` directly and
 throws if it is not installed `[observed]`
 (`packages/ibex-runtime-js/src/core/host-call-bridge.ts:1-16`).
 
+Armed runtimes never expose `__hostCall` or `__hostCallAsync`. Both void setter
+ABIs return before storing the callback or mutating the global object, so a
+post-lockdown replacement attempt is also a silent no-op. Likewise,
+`ex_hermes_resolve_host_call` checks liveness and the armed bit while the
+runtime registry is pinned and returns before looking up, removing, or invoking
+a pending callback. These functions keep their existing void signatures: the
+fail-closed result is intentionally observable as absence/no completion, not a
+new ABI return code. Production callers must use dedicated, capability-aware
+native APIs. Existing camera and accessibility wrappers already treat an absent
+generic bridge as unavailable rather than granting fallback authority
+`[observed]` (`src/engine/hermes_runtime.cc`;
+`packages/ibex-runtime-js/src/camera/index.ts`;
+`packages/ibex-runtime-js/src/core/accessibility.ts`).
+
 ## The Rust host surface
 
 The engine declares the `ex_host_*` callbacks as `extern "C"` functions on the
-C++ side `[observed]` (`src/engine/hermes_runtime.cc:203-235`). They are
-implemented in Rust in `src/host/abi.rs` and resolve their behavior through a
-process-global `Host` singleton.
+C++ side `[observed]` (`src/engine/hermes_runtime.cc`). They are implemented in
+Rust in `src/host/abi.rs`. A compatibility Host remains process-visible for
+unscoped diagnostic calls, but each live Hermes runtime owns a claimed immutable
+Host-context ID. Engine entries and worker callbacks select that context for
+their dynamic scope, so installing runtime B cannot replace runtime A's policy.
 
 ### Installing the host
 
-- `host::install_host(host: Host)` stores (or replaces) the singleton in a
-  `OnceLock<RwLock<Host>>` `[observed]` (`src/host/abi.rs:64, 107-121`). A second
-  call replaces the current host rather than failing `[observed]`
-  (`src/host/abi.rs:108-118`, test `install_host_replaces_existing_host` at
-  `src/host/abi.rs:1857`).
-- `ex_host_install()` is the C entry point that installs a default permissive
-  ("legacy"/allow-all) host `[observed]` (`src/host/abi.rs:586-592`). The source
-  comment says the iOS/Swift path calls this, while the CLI calls
-  `install_host` with a configured `Host` `[observed]`
-  (`src/host/abi.rs:586-588`; `src/bin/ibex/runtime.rs`).
+- `host::install_host(host: Host)` updates the compatibility default and adds
+  an immutable context row. Runtime construction claims one row; engine entry,
+  asynchronous completion, and native-resource checks use that runtime's
+  context rather than whatever was installed most recently.
+- `ex_host_install()` installs only a closed, unarmed compatibility host. A
+  production embedder must replace it with `ex_host_install_armed(...)` and
+  create Hermes with the authenticated digest; absence or mismatch refuses.
 - `EXACT_HOST_ABI_VERSION` is `1`, returned by `ex_host_version()` `[observed]`
   (`src/host/abi.rs:62, 579-581`).
 
@@ -158,12 +192,9 @@ process-global `Host` singleton.
 
 `Host` (`src/host/mod.rs:71-76`) holds a `HostConfig`, an
 `Arc<CapabilityManager>`, and an `Arc<ModuleLoader>` `[observed]`. Constructors
-include `Host::new(config)`, `Host::default_legacy()` (permissive), and
-`Host::strict()` `[observed]` (`src/host/mod.rs:80, 130, 138`). `HostConfig`
-itself defaults to `SecurityMode::Enforce`, so "default host" is ambiguous:
-Rust configuration defaults enforce, while `ex_host_install()` intentionally
-installs the legacy permissive host `[observed]`
-(`src/host/mod.rs:57-68, 129-143`; `src/host/abi.rs:586-592`). `Host` exposes
+include `Host::new(config)` and `Host::new_armed(...)`; the latter is the
+production constructor. `HostConfig` and `ex_host_install()` are closed by
+default and do not parse a policy path. `Host` exposes
 `check_capability`, `is_allow_all`, and `resolve_module` `[observed]`
 (`src/host/mod.rs:146-174`). `SecurityMode` is `Permissive | Audit | Enforce`
 `[observed]` (`src/host/mod.rs:37-45`); the legacy `strict`/`capability`
@@ -183,10 +214,12 @@ embedding API):
   (compared symlink-resolved on both sides, same normalization as path-scoped
   grants). Module loading is included: the `module-loader` principal's reads
   are fenced like everyone else's.
-- `allowed_hosts`: every `network:*` capability value must name a listed host.
-  Entries are `host` or `host:port`; a port-less entry covers the host across
-  ports via the same scope-specific endpoint matcher grants use. An empty list
-  denies all network access.
+- `allowed_hosts`: every outbound `network:*` capability value must name a
+  listed remote host. Entries are `host` or `host:port`; a port-less entry
+  covers the host across ports via the same scope-specific endpoint matcher
+  grants use. This compatibility fence does not gate `network:listen`: local
+  bind authority remains an independent policy decision. An empty list denies
+  all outbound network access `[observed]` (ENG-24285).
 
 Composition with the capability policy: the fence is checked first and is a
 **hard ceiling** — policy grants compose *within* it and cannot widen past it,
@@ -232,23 +265,45 @@ Strings returned to C are malloc'd via `CString::into_raw` and freed by
 
 ## Lifecycle (observed)
 
+The typed production path adds an explicit authenticated lifecycle alongside
+the legacy entry points: `ex_host_install_armed(snapshot, expected_identity)`
+strictly parses and authenticates caller-owned bytes, copies them into an
+immutable host decision context, and `ex_hermes_create_armed(digest)` creates
+Hermes only when that installed context has the exact digest. Mismatch or
+absence returns failure before a runtime exists. The ordinary
+`ex_host_install` entry point installs a closed unarmed placeholder, not an
+allow-all production runtime.
+
 1. Host installs itself first: a Rust embedder can call
    `install_host(Host::new(...))`; the local `ibex` binary does this from CLI
-   security flags, while the C entry point `ex_host_install()` installs the
-   legacy permissive host `[observed]`
+   security configuration, while the C entry point `ex_host_install()` installs
+   only the closed placeholder; production uses `ex_host_install_armed`
    (`src/host/abi.rs:107-121, 586-592`). The CLI/iOS split is recorded in a
    source comment and now in the local binary implementation `[observed]`
    (`src/host/abi.rs:586-588`; `src/bin/ibex/runtime.rs`;
    [LLP 0010](./0010-ibex-binary-ownership.decision.md)).
 2. `ex_hermes_create()` builds the Hermes runtime, installs globals and runs
    bootstrap (see [LLP 0003](./0003-hermes-engine-bridge.explainer.md)).
-3. `ex_hermes_set_host_call()` wires `__hostCall` so JS can reach the host.
+3. An unarmed diagnostic embedder may call `ex_hermes_set_host_call()` to wire
+   `__hostCall`; the same call on an armed runtime is a silent no-op.
 4. The host drives execution via `ex_hermes_eval` and may pump the loop with
    `ex_hermes_poll(now_ms)` `[observed]` (`include/exact_runtime.h:71-91`;
    `src/engine/hermes_runtime.cc:1815-1949`). Source comments document a
    `cli-notify` replacement for the default callback path `[observed]`
    (`src/engine/mod.rs:18-37`).
-5. `ex_hermes_destroy()` tears the runtime down `[observed]`.
+   A host retaining a runtime for an asynchronous watchdog must snapshot its
+   nonce with `ex_hermes_runtime_nonce()` while it owns the live handle and
+   call `ex_hermes_schedule_watchdog_heartbeat_for_generation()`. The legacy
+   raw-pointer-only watchdog symbol remains ABI-compatible but fails closed;
+   it cannot safely infer which generation an address once named `[observed]`
+   (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+5. `ex_hermes_destroy()` must run on the runtime's owner thread. It marks the
+   pointer-plus-nonce registry identity closing, unregisters/cancels native
+   callback sources, drains generation-scoped producer pins, and destroys
+   queued JSI captures on that owner thread before deleting Hermes. Registry
+   removal happens only after the drain, so delayed work cannot enter a later
+   runtime whose handle reuses the same address `[observed]`
+   (`src/engine/hermes_runtime.cc`; [LLP 0003](./0003-hermes-engine-bridge.explainer.md#the-event-loop)).
 
 ## Notes / boundaries
 

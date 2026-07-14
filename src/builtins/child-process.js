@@ -1070,7 +1070,12 @@ function _validateSpawnSyncOptions(options) {
       }
       nativeOpts.env = envObj;
     } else if (opts.env) {
-      nativeOpts.env = _flattenEnv(opts.env);
+      // Public spawnSync already normalizes env exactly once while building
+      // internalOpts. Reusing that plain object avoids a second full key/value
+      // traversal on every synchronous spawn (large CI environments make this
+      // surprisingly expensive). internal/child_process's contract is
+      // explicitly normalized opts; envPairs remains the native-style path.
+      nativeOpts.env = opts.env;
     }
     if (opts.input !== undefined) nativeOpts.input = opts.input;
     if (opts.inputEncoding !== undefined) nativeOpts.inputEncoding = opts.inputEncoding;
@@ -1202,7 +1207,11 @@ function _validateSpawnSyncOptions(options) {
     var mappedSyncStdio = [];
     for (var ssi = 0; ssi < syncStdio.length; ssi++) {
       var syncEntry = syncStdio[ssi];
-      if (typeof syncEntry === 'number' && isFinite(syncEntry) && syncEntry >= 0) {
+      if (syncEntry === null || syncEntry === undefined) {
+        // Node defaults only fd 0-2 to pipes. Empty extra entries are ignored,
+        // not synthesized as authority-bearing fd3+ pipes.
+        mappedSyncStdio[ssi] = ssi < 3 ? 'pipe' : 'ignore';
+      } else if (typeof syncEntry === 'number' && isFinite(syncEntry) && syncEntry >= 0) {
         var syncFdNum = Math.floor(syncEntry);
         mappedSyncStdio[ssi] = syncFdNum === ssi ? 'inherit' : 'fd:' + syncFdNum;
       } else {
@@ -2132,6 +2141,21 @@ function _splitExactExecArgv(execArgv) {
   var compatArgs = [];
   for (var i = 0; i < execArgv.length; i++) {
     var arg = String(execArgv[i]);
+    // @ref LLP 0021#default-execution-contract — `ibex capsec audit` is the
+    // explicitly named diagnostic execution plane.
+    // Preserve it across `fork()` so a diagnostic parent cannot accidentally
+    // launch its child through production arming (or turn diagnostic-only
+    // startup controls into ambient production inputs).
+    if (
+      i === 0 &&
+      arg === 'capsec' &&
+      i + 1 < execArgv.length &&
+      String(execArgv[i + 1]) === 'audit'
+    ) {
+      cliArgs.push(arg, 'audit');
+      i++;
+      continue;
+    }
     if (_isExactCliBooleanExecArg(arg) || _isExactCliAssignmentExecArg(arg)) {
       cliArgs.push(arg);
       continue;
@@ -2170,12 +2194,10 @@ function _normalizeSpawnOptions(options, command) {
     normalized.stdio = [
       _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe'),
-      _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe')
     ];
   } else if (typeof stdio === 'number') {
     normalized.stdio = [
-      _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe')
@@ -2189,7 +2211,7 @@ function _normalizeSpawnOptions(options, command) {
         if (!relayReadablePipes) relayReadablePipes = Object.create(null);
         relayReadablePipes[si] = stdio[si];
       } else {
-        rawStdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
+        rawStdio[si] = _normalizeSpawnMode(stdio[si], si < 3 ? 'pipe' : 'ignore');
       }
     }
     var ipcIndex = rawStdio.indexOf('ipc');
@@ -2224,12 +2246,15 @@ function _normalizeSpawnOptions(options, command) {
           if (!normalized.relayReadablePipes) normalized.relayReadablePipes = Object.create(null);
           normalized.relayReadablePipes[si2] = relayReadablePipes[si2];
         } else {
-          normalized.stdio[si2] = _normalizeSpawnMode(stdio[si2], 'pipe');
+          normalized.stdio[si2] = _normalizeSpawnMode(
+            stdio[si2],
+            si2 < 3 ? 'pipe' : 'ignore'
+          );
         }
       }
     }
   } else {
-    normalized.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];
+    normalized.stdio = ['pipe', 'pipe', 'pipe'];
   }
   // (ENG-23485) fd:N where N equals its FINAL slot is exactly 'inherit'
   // (Node: stdio:[0,1,2] === 'inherit'). Resolve the equivalence here, in the
@@ -2450,6 +2475,67 @@ function _writeSpawnStream(handle, streamName, data, callback) {
   }
 
   step();
+}
+
+function _makeSpawnExtraStream(Stream, owner, extraIndex) {
+  var closedForWrite = false;
+  var fullyClosed = false;
+
+  function wakePump() {
+    if (typeof setTimeout !== 'function') return;
+    setTimeout(function() {
+      if (owner && typeof owner.__pumpFromNative === 'function') {
+        owner.__pumpFromNative();
+      }
+    }, 0);
+  }
+
+  function closeNative(fullClose) {
+    if (fullClose ? fullyClosed : closedForWrite) return;
+    if (fullClose) fullyClosed = true;
+    closedForWrite = true;
+    if (typeof globalThis.__exactSpawnCloseStdin === 'function' &&
+        owner && owner._handle !== null && owner._handle !== undefined &&
+        owner._handle >= 0) {
+      try {
+        globalThis.__exactSpawnCloseStdin(
+          owner._handle,
+          'extra:' + extraIndex,
+          fullClose === true
+        );
+      } catch (_) { /* child exit/disposal may win the close race */ }
+    }
+  }
+
+  var stream = new Stream.Duplex({
+    read: function() {
+      this._exactReadPaused = false;
+      wakePump();
+    },
+    write: function(chunk, encoding, callback) {
+      _writeSpawnStream(owner._handle, 'extra:' + extraIndex, chunk, callback);
+    },
+    final: function(callback) {
+      // Extra pipes are socketpairs. Writable EOF is a half-close so child
+      // output can continue flowing through the readable half.
+      closeNative(false);
+      if (typeof callback === 'function') callback(null);
+    },
+    destroy: function(err, callback) {
+      closeNative(true);
+      stream._exactReadableEnded = true;
+      wakePump();
+      if (typeof callback === 'function') callback(err || null);
+    }
+  });
+  stream._extraIndex = extraIndex;
+  stream._exactReadPaused = false;
+  stream._exactReadableEnded = false;
+  return stream;
+}
+
+function _spawnReadReachedEof(bytes) {
+  return !!(bytes && bytes._exactEof === true);
 }
 
 // Signal name<->number maps for the async spawn path. Reuse the canonical
@@ -2735,12 +2821,7 @@ function ChildProcess(handle, pid, stdioModes) {
     this.stdio.push(this._ipcMode ? null : undefined);
     for (var extraIdx = 0; extraIdx < modes.extra.length; extraIdx++) {
       if (modes.extra[extraIdx] === 'pipe') {
-        var extraStream = new Stream.Writable({
-          write: function(chunk, encoding, callback) {
-            _writeSpawnStream(self._handle, 'extra:' + this._extraIndex, chunk, callback);
-          }
-        });
-        extraStream._extraIndex = extraIdx;
+        var extraStream = _makeSpawnExtraStream(Stream, self, extraIdx);
         this.stdio.push(extraStream);
       } else {
         this.stdio.push(null);
@@ -2852,6 +2933,34 @@ function ChildProcess(handle, pid, stdioModes) {
   var pollInterval = 2; // ms
   var stdoutEnded = false;
   var stderrEnded = false;
+  var closeFinalized = false;
+
+  function allExtraStreamsEnded() {
+    for (var index = 0; index < (modes.extra ? modes.extra.length : 0); index++) {
+      if (modes.extra[index] !== 'pipe') continue;
+      var stream = self.stdio[index + 4];
+      if (stream && stream._exactReadableEnded !== true) return false;
+    }
+    return true;
+  }
+
+  function finishCloseIfReady() {
+    if (closeFinalized || !self._exited || !allExtraStreamsEnded()) {
+      return closeFinalized;
+    }
+    closeFinalized = true;
+    self._closeFinalized = true;
+    setTimeout(function() {
+      self.emit('close', self.exitCode, self.signalCode);
+      if (globalThis.__exactSpawnProcesses) {
+        delete globalThis.__exactSpawnProcesses[String(self._handle)];
+      }
+      if (typeof globalThis.__exactSpawnDispose === 'function') {
+        globalThis.__exactSpawnDispose(self._handle);
+      }
+    }, 0);
+    return true;
+  }
 
   function closeStreams() {
     if (!stdoutEnded) {
@@ -2874,7 +2983,7 @@ function ChildProcess(handle, pid, stdioModes) {
 
   function pollStreams() {
     if (self._pumpInProgress) return;
-    if (self._exited && stdoutEnded && stderrEnded) return;
+    if (closeFinalized) return;
     self._pumpInProgress = true;
     var hadActivity = false;
 
@@ -2895,6 +3004,23 @@ function ChildProcess(handle, pid, stdioModes) {
       pushStreamData('stderr', errData, modes.stderr);
       if (modes.stderr === 'pipe' && (!errData || !errData.length)) {
         if (self._exited) stderrEnded = true;
+      }
+    }
+
+    for (var extraIndex = 0; extraIndex < (modes.extra ? modes.extra.length : 0); extraIndex++) {
+      var extra = self.stdio[extraIndex + 4];
+      if (!extra || modes.extra[extraIndex] !== 'pipe' ||
+          extra._exactReadableEnded === true || extra._exactReadPaused === true) continue;
+      var extraData = globalThis.__exactSpawnRead(self._handle, extraIndex + 4);
+      if (extraData && extraData.length) {
+        hadActivity = true;
+        if (extra.push(_bytesToBuffer(extraData)) === false) {
+          extra._exactReadPaused = true;
+        }
+      }
+      if (_spawnReadReachedEof(extraData)) {
+        extra._exactReadableEnded = true;
+        extra.push(null);
       }
     }
 
@@ -2964,25 +3090,17 @@ function ChildProcess(handle, pid, stdioModes) {
         }
 
         self.emit('exit', self.exitCode, self.signalCode);
-        // 'close' fires after streams are done
-        setTimeout(function() {
-          self.emit('close', self.exitCode, self.signalCode);
-          if (globalThis.__exactSpawnProcesses) {
-            delete globalThis.__exactSpawnProcesses[String(self._handle)];
-          }
-          if (typeof globalThis.__exactSpawnDispose === 'function') {
-            globalThis.__exactSpawnDispose(self._handle);
-          }
-        }, 0);
-        self._pumpInProgress = false;
-        return;
+        finishCloseIfReady();
       }
     }
 
+    finishCloseIfReady();
+
     // (ENG-23032) Record activity so the driver loops below back off when idle.
     self._lastPollActivity = hadActivity;
-    if (!self._useNativePump && self._ref) {
+    if (!closeFinalized && !self._useNativePump) {
       self._pollTimer = setTimeout(pollStreams, _nextSpawnPollDelay(self, hadActivity));
+      if (!self._ref && self._pollTimer && typeof self._pollTimer.unref === 'function') self._pollTimer.unref();
     }
     self._pumpInProgress = false;
   }
@@ -2991,21 +3109,22 @@ function ChildProcess(handle, pid, stdioModes) {
 
   if (self._useNativePump && self._handle >= 0) {
     var nativePollFallback = function() {
-      if (self._exited) {
+      if (closeFinalized) {
         return;
       }
       if (typeof self.__pumpFromNative === 'function') {
         self.__pumpFromNative();
       }
-      if (!self._exited && self._ref) {
+      if (!closeFinalized) {
         self._pollTimer = setTimeout(nativePollFallback, _nextSpawnPollDelay(self, self._lastPollActivity));
+        if (!self._ref && self._pollTimer && typeof self._pollTimer.unref === 'function') self._pollTimer.unref();
       }
     };
     // Keep the JS event loop alive until the spawn settles for top-level await cases
     // where no other pending tasks exist.
     if (self._handle >= 0) {
       self._pollTimer = setTimeout(function() {
-        if (self._exited) return;
+        if (closeFinalized) return;
         if (!self._spawnEmitted) { self._spawnEmitted = true; self.emit('spawn'); }
         nativePollFallback();
       }, 0);
@@ -3014,8 +3133,9 @@ function ChildProcess(handle, pid, stdioModes) {
     // Start polling for stdout/stderr data and exit status.
     var fallbackPoll = function() {
       pollStreams();
-      if (!self._exited && self._ref) {
+      if (!self._exited) {
         self._pollTimer = setTimeout(fallbackPoll, _nextSpawnPollDelay(self, self._lastPollActivity));
+        if (!self._ref && self._pollTimer && typeof self._pollTimer.unref === 'function') self._pollTimer.unref();
       }
     };
     if (self._handle >= 0) {
@@ -3171,13 +3291,7 @@ ChildProcess.prototype.spawn = function(options) {
     this.stdio.push(this._ipcMode ? null : undefined);
     for (var extraIdx = 0; extraIdx < stdioCfg.extra.length; extraIdx++) {
       if (stdioCfg.extra[extraIdx] === 'pipe') {
-        var extraStreamIdx = extraIdx;
-        var extraStream = new Stream.Writable({
-          write: function(chunk, encoding, callback) {
-            _writeSpawnStream(self2._handle, 'extra:' + this._extraIndex, chunk, callback);
-          }
-        });
-        extraStream._extraIndex = extraIdx;
+        var extraStream = _makeSpawnExtraStream(Stream, self2, extraIdx);
         this.stdio.push(extraStream);
       } else {
         this.stdio.push(null);
@@ -3284,13 +3398,42 @@ ChildProcess.prototype.spawn = function(options) {
     if (self3.stdin && typeof self3.stdin.end === 'function') self3.stdin.end();
   }
 
+  var closeFinalized2 = false;
+
+  function allExtraStreamsEnded2() {
+    for (var index = 0; index < (stdioCfg.extra ? stdioCfg.extra.length : 0); index++) {
+      if (stdioCfg.extra[index] !== 'pipe') continue;
+      var stream = self3.stdio[index + 4];
+      if (stream && stream._exactReadableEnded !== true) return false;
+    }
+    return true;
+  }
+
+  function finishCloseIfReady2() {
+    if (closeFinalized2 || !self3._exited || !allExtraStreamsEnded2()) {
+      return closeFinalized2;
+    }
+    closeFinalized2 = true;
+    self3._closeFinalized = true;
+    setTimeout(function() {
+      self3.emit('close', self3.exitCode, self3.signalCode);
+      if (globalThis.__exactSpawnProcesses) {
+        delete globalThis.__exactSpawnProcesses[String(self3._handle)];
+      }
+      if (typeof globalThis.__exactSpawnDispose === 'function') {
+        globalThis.__exactSpawnDispose(self3._handle);
+      }
+    }, 0);
+    return true;
+  }
+
   function parseStatus2(jsonText) {
     if (!jsonText) return { exited: false };
     try { return JSON.parse(jsonText); } catch(e) { return { exited: false }; }
   }
 
   function pollStreams2() {
-    if (self3._exited) return;
+    if (closeFinalized2) return;
     var hadActivity = false;
     // Read stdout
     if (self3.stdout && self3._useNativePump && !self3._exactSuppressStdoutPump) {
@@ -3311,6 +3454,24 @@ ChildProcess.prototype.spawn = function(options) {
           self3.stderr.push(_bytesToBuffer(errOut)); // (ENG-23009) preserve binary bytes
         }
       } catch (e) { _swallowDebug('stderr pump read failed', e); }
+    }
+    for (var extraIndex = 0; extraIndex < (stdioCfg.extra ? stdioCfg.extra.length : 0); extraIndex++) {
+      var extra = self3.stdio[extraIndex + 4];
+      if (!extra || stdioCfg.extra[extraIndex] !== 'pipe' ||
+          extra._exactReadableEnded === true || extra._exactReadPaused === true) continue;
+      try {
+        var extraData = globalThis.__exactSpawnRead(self3._handle, extraIndex + 4);
+        if (extraData && extraData.length > 0) {
+          hadActivity = true;
+          if (extra.push(_bytesToBuffer(extraData)) === false) {
+            extra._exactReadPaused = true;
+          }
+        }
+        if (_spawnReadReachedEof(extraData)) {
+          extra._exactReadableEnded = true;
+          extra.push(null);
+        }
+      } catch (e) { _swallowDebug('extra stdio pump read failed', e); }
     }
     // Poll IPC messages
     if (self3._ipcMode && !self3._disconnectPending) {
@@ -3369,21 +3530,14 @@ ChildProcess.prototype.spawn = function(options) {
           }
           _flushSentSocketEntries(self3._sentSocketServers);
           self3.emit('exit', self3.exitCode, self3.signalCode);
-          setTimeout(function() {
-            self3.emit('close', self3.exitCode, self3.signalCode);
-            if (globalThis.__exactSpawnProcesses) {
-              delete globalThis.__exactSpawnProcesses[String(self3._handle)];
-            }
-            if (typeof globalThis.__exactSpawnDispose === 'function') {
-              globalThis.__exactSpawnDispose(self3._handle);
-            }
-          }, 0);
-          return;
+          finishCloseIfReady2();
         }
       } catch (e) { _swallowDebug('spawn status poll failed', e); }
     }
-    if (!self3._exited && self3._ref) {
+    finishCloseIfReady2();
+    if (!closeFinalized2) {
       self3._pollTimer = setTimeout(pollStreams2, _nextSpawnPollDelay(self3, hadActivity)); // (ENG-23032) back off when idle
+      if (!self3._ref && self3._pollTimer && typeof self3._pollTimer.unref === 'function') self3._pollTimer.unref();
     }
   }
 
@@ -3507,8 +3661,25 @@ ChildProcess.prototype.kill = function(signal) {
   return ok;
 };
 
+function _setNativeChildProcessReferenced(child, referenced) {
+  if (!child || child._exited || child._handle === null ||
+      child._handle === undefined || child._handle < 0) {
+    return;
+  }
+  if (typeof globalThis.__exactSpawnSetReferenced === 'function') {
+    // @ref LLP 0008#sockets-dns-and-process — the native registry owns teardown
+    // policy. Keeping this state only in the JS timer meant ex_hermes_destroy
+    // killed detached children even after an
+    // explicit child.unref(). The host validates runtime + principal ownership
+    // before accepting the transition.
+    globalThis.__exactSpawnSetReferenced(child._handle, referenced);
+  }
+}
+
 ChildProcess.prototype.ref = function() {
+  _setNativeChildProcessReferenced(this, true);
   this._ref = true;
+  if (this._pollTimer && typeof this._pollTimer.ref === 'function') this._pollTimer.ref();
   if (this._exited || this._pollTimer ||
       this._handle === null || this._handle === undefined || this._handle < 0) {
     return this;
@@ -3536,11 +3707,9 @@ ChildProcess.prototype.ref = function() {
 };
 
 ChildProcess.prototype.unref = function() {
+  _setNativeChildProcessReferenced(this, false);
   this._ref = false;
-  if (this._pollTimer) {
-    clearTimeout(this._pollTimer);
-    this._pollTimer = null;
-  }
+  if (this._pollTimer && typeof this._pollTimer.unref === 'function') this._pollTimer.unref();
   return this;
 };
 
@@ -4220,7 +4389,7 @@ cp.fork = function fork(modulePath, args, options) {
       } else if (si < 3) {
         normalizedStdio[si] = _normalizeSpawnMode(stdio[si], silent ? 'pipe' : 'inherit');
       } else {
-        normalizedStdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
+        normalizedStdio[si] = _normalizeSpawnMode(stdio[si], 'ignore');
       }
     }
     stdio = normalizedStdio;

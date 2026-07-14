@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Ibex CapSec rev2</title>
+    <style>
+      :root { color-scheme: dark; font: 20px/1.5 system-ui, sans-serif; }
+      body { margin: 0; background: #10131a; color: #f5f7fb; }
+      main { max-width: 880px; margin: auto; padding: 8vh 6vw; }
+      section { min-height: 76vh; display: grid; align-content: center; border-bottom: 1px solid #394150; }
+      h1, h2 { line-height: 1.1; color: #9ee7d7; }
+      code { color: #ffd479; }
+      .bad { color: #ff9e9e; text-decoration: line-through; }
+      .good { color: #9ee7d7; }
+      li { margin: .55rem 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section>
+        <h1>Ibex Capability Security rev2</h1>
+        <p>Typed effects, per-package principals, digest-bound policy, and fail-closed startup.</p>
+      </section>
+      <section>
+        <h2>Production has one posture</h2>
+        <p class="bad">--capsec permissive · --capsec enforce · --lockdown</p>
+        <p class="good"><code>ibex run app.js</code> is already enforce + lockdown.</p>
+        <p>An unsupported target, malformed policy, or stale digest refuses; it never selects a weaker mode.</p>
+      </section>
+      <section>
+        <h2>Policy is generated evidence</h2>
+        <ul>
+          <li>Exact package locator + integrity identify each principal.</li>
+          <li>Typed resources replace colon-delimited capability strings.</li>
+          <li>Import-site provenance explains every positive authority row.</li>
+          <li><code>ibex policy check --entry app.mjs</code> detects drift.</li>
+        </ul>
+      </section>
+      <section>
+        <h2>Authority is not reachability</h2>
+        <p>A package can have permission for an effect without receiving an ambient global that invokes it. Endowments and host-boundary authority are separate gates.</p>
+      </section>
+      <section>
+        <h2>Audit is explicit and ephemeral</h2>
+        <p><code>ibex capsec audit app.js</code></p>
+        <p>Foreground audit is a diagnostic workflow. It is not a durable policy mode and cannot consume ambient endowment overrides.</p>
+      </section>
+      <section>
+        <h2>Try the four chapters</h2>
+        <p><code>examples/capsec-demo/run.sh</code></p>
+        <p>Containment · typed least privilege · foreground audit · tamper refusal</p>
+      </section>
+    </main>
+  </body>
+</html>

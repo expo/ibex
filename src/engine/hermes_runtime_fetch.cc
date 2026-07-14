@@ -18,7 +18,8 @@ typedef void (*NativeFetchResponseCallback)(uint32_t request_id,
                                             size_t body_length,
                                             void* context);
 extern "C" void native_fetch_perform(uint32_t request_id,
-                                     const char* method,
+                                      uint64_t runtime_nonce,
+                                      const char* method,
                                      const char* url,
                                      const char* headers,
                                      int decompress,
@@ -26,9 +27,41 @@ extern "C" void native_fetch_perform(uint32_t request_id,
                                      size_t body_length,
                                      NativeFetchResponseCallback response_callback,
                                      void* context);
-extern "C" void native_fetch_cancel(uint32_t request_id);
+extern "C" void native_fetch_cancel(uint32_t request_id, uint64_t runtime_nonce);
 
 namespace {
+
+std::atomic<uint32_t> g_nextFetchId{1};
+std::mutex g_fetchTargetMutex;
+std::unordered_map<uint32_t, RuntimeCallbackTarget> g_fetchTargets;
+
+void registerFetchTarget(uint32_t requestId, RuntimeCallbackTarget target) {
+  std::lock_guard<std::mutex> lock(g_fetchTargetMutex);
+  g_fetchTargets[requestId] = target;
+}
+
+RuntimeCallbackTarget takeFetchTarget(uint32_t requestId) {
+  std::lock_guard<std::mutex> lock(g_fetchTargetMutex);
+  auto it = g_fetchTargets.find(requestId);
+  if (it == g_fetchTargets.end()) return {};
+  auto target = it->second;
+  g_fetchTargets.erase(it);
+  return target;
+}
+
+uint32_t allocateFetchId() {
+  auto current = g_nextFetchId.load(std::memory_order_relaxed);
+  for (;;) {
+    if (current == 0 || current == std::numeric_limits<uint32_t>::max()) {
+      return 0;
+    }
+    if (g_nextFetchId.compare_exchange_weak(
+            current, current + 1,
+            std::memory_order_relaxed, std::memory_order_relaxed)) {
+      return current;
+    }
+  }
+}
 
 // Web fetch has no default timeout: when JS passes no `timeout` (or 0), the
 // request runs until the network layer resolves it or JS aborts it via
@@ -124,6 +157,14 @@ static std::unordered_map<uint32_t, std::shared_ptr<SyncFetchResult>>
 
 } // namespace
 
+void exactForgetNativeFetchTarget(uint32_t requestId, uint64_t runtimeNonce) {
+  std::lock_guard<std::mutex> lock(g_fetchTargetMutex);
+  auto it = g_fetchTargets.find(requestId);
+  if (it != g_fetchTargets.end() && it->second.nonce == runtimeNonce) {
+    g_fetchTargets.erase(it);
+  }
+}
+
 void installFetchGlobals(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
 
@@ -192,10 +233,9 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
           }
         }
 
-        uint32_t requestId;
-        {
-          std::lock_guard<std::mutex> lock(handle->fetchMutex);
-          requestId = handle->nextFetchId++;
+        uint32_t requestId = allocateFetchId();
+        if (requestId == 0) {
+          throw facebook::jsi::JSError(runtime, "Fetch request id space exhausted");
         }
 
         auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
@@ -243,8 +283,11 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                   };
                 }
 
+                registerFetchTarget(requestId, exactRuntimeCallbackTarget(handle));
+
                 native_fetch_perform(
                     requestId,
+                    handle->runtime_nonce,
                     methodCopy->c_str(),
                     urlCopy->c_str(),
                     headersCopy->empty() ? nullptr : headersCopy->c_str(),
@@ -257,9 +300,12 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                        const char* resp_headers,
                        const uint8_t* resp_body,
                        size_t resp_body_length,
-                       void* ctx) {
-                      auto* wrapper = static_cast<ExactHermesRuntime*>(ctx);
-                      if (!wrapper) return;
+                      void* ctx) {
+                      (void)ctx;
+                      auto target = takeFetchTarget(req_id);
+                      exactTestDelayRuntimeProducer();
+                      if (!target || !exactPinRuntimeNativeWorker(target)) return;
+                      auto* wrapper = target.runtime;
 
                       std::vector<uint8_t> bodyCopy;
                       if (resp_body && resp_body_length > 0) {
@@ -280,13 +326,13 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                       // below — the exact check-then-lock TOCTOU that ENG-22925
                       // (489bf65) removed from resolve_host_call. ex_hermes_destroy
                       // runs on the runtime thread on dev-server reconnect and
-                      // frees the runtime under g_runtimeRegistryMutex, so a free
+                      // enters Closing under g_runtimeRegistryMutex, so a free
                       // landing in that gap made `wrapper->fetchMutex` a UAF. Pin
                       // the runtime across the liveness check AND the fetchCallbacks
                       // extraction (registry -> fetchMutex; destroy never locks
                       // fetchMutex, so no inversion). If it returns false the
                       // wrapper is gone: drop without dereferencing it.
-                      bool alive = withRuntimePinned(wrapper, [&]() {
+                      bool alive = withRuntimePinned(target, [&]() {
                         std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
                         auto it = wrapper->fetchCallbacks.find(req_id);
                         if (it == wrapper->fetchCallbacks.end()) return;
@@ -296,14 +342,18 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                         requestUrl = std::move(it->second.url);
                         wrapper->fetchCallbacks.erase(it);
                       });
-                      if (!alive) return;
+                      if (!alive) {
+                        exactUnpinRuntimeNativeWorker(target);
+                        return;
+                      }
 
                       if (!resolve || !reject) {
+                        exactUnpinRuntimeNativeWorker(target);
                         return;
                       }
 
                       pushRuntimeCallback(
-                          wrapper,
+                          target,
                           [resolve,
                            reject,
                            statusCopy,
@@ -393,8 +443,9 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                             } catch (...) {
                             }
                           });
+                      exactUnpinRuntimeNativeWorker(target);
                     },
-                    handle);
+                    nullptr);
               }
               return facebook::jsi::Value::undefined();
             });
@@ -415,7 +466,8 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                   handle->fetchCallbacks.erase(it);
                 }
               }
-              native_fetch_cancel(requestId);
+              exactForgetNativeFetchTarget(requestId, handle->runtime_nonce);
+              native_fetch_cancel(requestId, handle->runtime_nonce);
               return facebook::jsi::Value::undefined();
             });
         promise.setProperty(runtime, "__exactCancel", std::move(cancelFn));
@@ -483,10 +535,9 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
           }
         }
 
-        uint32_t requestId;
-        {
-          std::lock_guard<std::mutex> lock(handle->fetchMutex);
-          requestId = handle->nextFetchId++;
+        uint32_t requestId = allocateFetchId();
+        if (requestId == 0) {
+          throw facebook::jsi::JSError(runtime, "Fetch request id space exhausted");
         }
 
         // ENG-23113 — the completion callback runs on a DETACHED worker
@@ -503,6 +554,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         }
         native_fetch_perform(
             requestId,
+            handle->runtime_nonce,
             method.c_str(),
             url.c_str(),
             headers.empty() ? nullptr : headers.c_str(),
@@ -550,7 +602,7 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
           } else if (!result->cv.wait_for(
                   lock, std::chrono::milliseconds(timeout_ms), [&] { return result->done; })) {
             lock.unlock();
-            native_fetch_cancel(requestId);
+            native_fetch_cancel(requestId, handle->runtime_nonce);
             // Drop the keep-alive so a cancelled request whose worker never calls
             // back (Windows error/cancel paths) — or races this timeout — can't
             // leak the result. If the callback already took it, this is a no-op.

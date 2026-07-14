@@ -24,7 +24,7 @@
 #
 # Together: the app's own async work (its callback carries principal 0) is still
 # trusted; a dependency's detached-deputy op reaches no user frame and is denied.
-# Red-team: tests/llp0013_compartments.rs
+# Red-team: capsec_public_callback_invariant_batch::capsec_callback_invariant_mechanisms_smoke
 # detached_deputy_read_is_contained_but_app_wrapped_read_works.
 #
 diff --git a/include/hermes/VM/CapabilityAttribution.h b/include/hermes/VM/CapabilityAttribution.h

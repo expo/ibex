@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Crypto, CI
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
 
 ## Summary
@@ -169,6 +170,22 @@ and an NDK toolchain.
   `[observed]` (`build.rs:321-351`).
 - **Caching.** Cargo + Hermes-artifact caching per (OS, arch) to keep wall-clock
   sane.
+
+The checked CI now has three concrete layers. Hermetic Ubuntu preflight runs
+the semantic core, generated/drift gates, the platform-neutral Windows staging
+tests, and the production Android WebSocket flow-controller tests on a host
+JVM. A Windows runner repeats the staging suite and adds the real exclusive
+locked-DLL case. The arm64 macOS CapSec workflow installs the exact patched
+Hermes artifact and executes every command in `CONFORMANCE_COMMANDS`, including
+the complete default/all-feature Rust matrix, JS/runtime corpora, Android Java
+behavior, and artifact-bound report generation. Because the candidate still
+has unresolved fixture recipes, that job requires an incomplete report and no
+committed target attestation; it uploads the execution/report/refusal evidence
+and fails if the target either promotes or is advertised. This is a complete
+CapSec prerequisite/evidence gate, not a claim that the remaining Android
+cross-compile/emulator, iOS/tvOS, Linux, or full Windows runtime matrix rows
+have landed `[observed]` (`.github/workflows/ci.yml`;
+`.github/workflows/compartment-conformance.yml`).
 
 ## 5. Sequencing
 

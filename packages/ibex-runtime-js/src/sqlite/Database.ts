@@ -11,16 +11,14 @@ import { Statement, type Changes } from './Statement';
 
 const g = globalThis as any;
 
-const CRSQLITE_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
 function validateCrSqliteIdentifier(tableName: string): string {
-  if (typeof tableName !== 'string' || !CRSQLITE_IDENTIFIER_RE.test(tableName)) {
-    throw new TypeError(
-      'markAsCrr tableName must be a simple SQLite identifier matching ' +
-      '[A-Za-z_][A-Za-z0-9_]*'
-    );
+  if (typeof tableName !== 'string') {
+    throw new TypeError('markAsCrr tableName must be a string');
   }
-  return tableName;
+  if (tableName.length === 0 || tableName.indexOf('\0') !== -1) {
+    throw new TypeError('markAsCrr tableName must be a non-empty SQLite identifier');
+  }
+  return tableName.replace(/'/g, "''");
 }
 
 export interface DatabaseOptions {
@@ -36,13 +34,35 @@ export interface DatabaseOptions {
   strict?: boolean;
 }
 
+interface DatabaseAuthorityState {
+  handle: any;
+  closed: boolean;
+  queryCache: Map<string, Statement>;
+}
+
+const databaseAuthorityStates = new WeakMap<object, DatabaseAuthorityState>();
+
+function databaseAuthorityState(database: object): DatabaseAuthorityState {
+  const state = databaseAuthorityStates.get(database);
+  if (!state) throw new TypeError('Illegal Database receiver');
+  return state;
+}
+
 export class Database {
   /** @internal */
-  _handle: any;
+  get _handle(): any {
+    return databaseAuthorityState(this).handle;
+  }
+  set _handle(_value: any) {
+    throw new TypeError('Database handle is private');
+  }
   /** @internal */
-  _closed = false;
-  /** @internal */
-  _queryCache = new Map<string, Statement>();
+  get _closed(): boolean {
+    return databaseAuthorityState(this).closed;
+  }
+  set _closed(_value: boolean) {
+    throw new TypeError('Database close state is private');
+  }
   /** @internal */
   _options: DatabaseOptions;
   /** @internal */
@@ -75,12 +95,19 @@ export class Database {
     }
 
     const flags = typeof options === 'number' ? options : undefined;
-    this._handle = g.__exactSqliteOpen(this.filename, {
+    const handle = g.__exactSqliteOpen(this.filename, {
       readonly: this._options.readonly ?? false,
       create: this._options.create ?? true,
       readwrite: this._options.readwrite ?? true,
       safeIntegers: this._options.safeIntegers ?? false,
       flags,
+    });
+    // @ref LLP 0004#retained-native-wrapper-invariant — cached statements
+    // carry the database's native authority and must not be caller-poisonable.
+    databaseAuthorityStates.set(this, {
+      handle,
+      closed: false,
+      queryCache: new Map<string, Statement>(),
     });
 
     // Enable WAL mode by default for better concurrent access
@@ -92,7 +119,7 @@ export class Database {
    * The native SQLite handle.
    */
   get handle(): any {
-    return this._handle;
+    return databaseAuthorityState(this).handle;
   }
 
   /**
@@ -101,7 +128,7 @@ export class Database {
   get inTransaction(): boolean {
     this._checkClosed();
     if (g.__exactSqliteInTransaction) {
-      return g.__exactSqliteInTransaction(this._handle);
+      return g.__exactSqliteInTransaction(databaseAuthorityState(this).handle);
     }
     return false;
   }
@@ -112,10 +139,11 @@ export class Database {
    */
   query<R = any, P extends any[] = any[]>(sql: string): Statement<R, P> {
     this._checkClosed();
-    let stmt = this._queryCache.get(sql);
+    const cache = databaseAuthorityState(this).queryCache;
+    let stmt = cache.get(sql);
     if (!stmt) {
-      stmt = new Statement(this._handle, sql);
-      this._queryCache.set(sql, stmt);
+      stmt = new Statement(databaseAuthorityState(this).handle, sql);
+      cache.set(sql, stmt);
     }
     return stmt as Statement<R, P>;
   }
@@ -126,7 +154,7 @@ export class Database {
    */
   prepare<R = any, P extends any[] = any[]>(sql: string): Statement<R, P> {
     this._checkClosed();
-    return new Statement<R, P>(this._handle, sql);
+    return new Statement<R, P>(databaseAuthorityState(this).handle, sql);
   }
 
   /**
@@ -141,7 +169,7 @@ export class Database {
       const params = bindings.length === 1 && typeof bindings[0] === 'object' && bindings[0] !== null && !(bindings[0] instanceof Uint8Array)
         ? bindings[0]
         : bindings.length > 0 ? bindings : undefined;
-      return g.__exactSqliteExec(this._handle, sql, params);
+      return g.__exactSqliteExec(databaseAuthorityState(this).handle, sql, params);
     }
     // Fallback: use prepare + run
     const stmt = this.prepare(sql);
@@ -216,7 +244,8 @@ export class Database {
    * @param throwOnError If true, throws on close errors (default: false)
    */
   close(throwOnError = false): void {
-    if (this._closed) return;
+    const state = databaseAuthorityState(this);
+    if (state.closed) return;
 
     // Finalize cr-sqlite before closing (needs db still open)
     if (this._crSqliteLoaded) {
@@ -227,21 +256,26 @@ export class Database {
       }
     }
 
-    this._closed = true;
-
     // Finalize cached statements
-    for (const stmt of this._queryCache.values()) {
+    for (const stmt of state.queryCache.values()) {
       stmt.finalize();
     }
-    this._queryCache.clear();
+    // Finalization is irreversible even if closing the database itself later
+    // fails. Drop those terminal wrappers now so a still-live database can
+    // recreate them instead of returning a poisoned cached Statement.
+    state.queryCache.clear();
 
     if (g.__exactSqliteClose) {
       try {
-        g.__exactSqliteClose(this._handle);
+        g.__exactSqliteClose(state.handle);
       } catch (e) {
         if (throwOnError) throw e;
+        return;
       }
     }
+    // Commit terminal state only after native release succeeds. A principal
+    // mismatch (or any close failure) leaves the selector owner-retryable.
+    state.closed = true;
   }
 
   /**
@@ -253,7 +287,7 @@ export class Database {
     if (!g.__exactSqliteSerialize) {
       throw new Error('Database serialization not supported in this build');
     }
-    return g.__exactSqliteSerialize(this._handle, name ?? 'main');
+    return g.__exactSqliteSerialize(databaseAuthorityState(this).handle, name ?? 'main');
   }
 
   /**
@@ -266,7 +300,7 @@ export class Database {
     if (!g.__exactSqliteLoadExtension) {
       throw new Error('Extension loading not supported in this build');
     }
-    g.__exactSqliteLoadExtension(this._handle, path, entryPoint);
+    g.__exactSqliteLoadExtension(databaseAuthorityState(this).handle, path, entryPoint);
   }
 
   /**
@@ -279,7 +313,7 @@ export class Database {
     if (!g.__exactSqliteFileControl) {
       throw new Error('fileControl not supported in this build');
     }
-    return g.__exactSqliteFileControl(this._handle, ...args);
+    return g.__exactSqliteFileControl(databaseAuthorityState(this).handle, ...args);
   }
 
   // ================================================================
@@ -303,7 +337,7 @@ export class Database {
     if (g.__exactCrSqlitePath) {
       this.loadExtension(g.__exactCrSqlitePath());
     } else if (g.__exactSqliteLoadCrSqlite) {
-      g.__exactSqliteLoadCrSqlite(this._handle);
+      g.__exactSqliteLoadCrSqlite(databaseAuthorityState(this).handle);
     } else {
       throw new Error(
         'cr-sqlite extension not available. ' +
@@ -428,9 +462,11 @@ export class Database {
     const handle = g.__exactSqliteDeserialize(data, isReadOnly);
 
     const db = Object.create(Database.prototype) as Database;
-    db._handle = handle;
-    db._closed = false;
-    db._queryCache = new Map();
+    databaseAuthorityStates.set(db, {
+      handle,
+      closed: false,
+      queryCache: new Map<string, Statement>(),
+    });
     db._options = typeof options === 'object' ? options : { readonly: isReadOnly };
     (db as any).filename = ':memory:';
     db._crSqliteLoaded = false;
@@ -451,7 +487,7 @@ export class Database {
 
   /** @internal */
   private _checkClosed(): void {
-    if (this._closed) {
+    if (databaseAuthorityState(this).closed) {
       throw new Error('Database is closed');
     }
   }

@@ -69,6 +69,16 @@ pub trait Engine: Send + Sync {
     /// Run a JavaScript file
     async fn run_file(&self, path: &str) -> Result<Option<String>>;
 
+    /// Evaluate an already-read bytecode buffer. Generated-code caches use
+    /// this path so the exact bytes whose digest was verified are the bytes
+    /// executed; reopening a cache pathname after verification is a TOCTOU.
+    async fn run_bytecode_bytes(&self, _bytes: &[u8], _source_url: &str) -> Result<Option<String>> {
+        anyhow::bail!(
+            "{} does not support in-memory bytecode execution",
+            self.name()
+        )
+    }
+
     /// Run a JavaScript file WITHOUT driving the event loop to quiescence, so a
     /// long-lived server/timer started by the file returns control to the caller.
     /// The REPL's `.load` uses this and lets its idle pump drive background work,
@@ -120,9 +130,11 @@ pub enum EngineFeature {
 ///
 /// The CLI's clap value list rejects non-Hermes names before this runs; the
 /// unknown-engine arm guards internal callers.
-pub fn create_engine(name: &str) -> Result<Arc<dyn Engine>> {
+pub fn create_engine(name: &str, armed_snapshot_digest: Option<&str>) -> Result<Arc<dyn Engine>> {
     match name {
-        "hermes" => Ok(Arc::new(hermes::HermesEngine::new()?)),
+        "hermes" => Ok(Arc::new(hermes::HermesEngine::new_with_armed_snapshot(
+            armed_snapshot_digest,
+        )?)),
         other => anyhow::bail!("Unknown engine: {other}. Ibex currently supports Hermes only."),
     }
 }

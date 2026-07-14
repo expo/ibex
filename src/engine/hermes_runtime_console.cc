@@ -49,6 +49,7 @@ void installConsoleGlobals(ExactHermesRuntime* handle) {
               "[startup]   console_init skipped (set EX_SKIP_STARTUP_CONSOLE_INIT=0 to "
               "re-enable)\n");
     }
+    reportStartupFailure(handle, "Console globals", "disabled by startup control");
     return;
   }
 
@@ -60,6 +61,7 @@ void installConsoleGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
+        authorizeTypedPrint(runtime);
         std::string message;
         for (size_t i = 0; i < count; ++i) {
           if (i > 0) {
@@ -100,6 +102,9 @@ void installConsoleGlobals(ExactHermesRuntime* handle) {
               "to re-enable)\n");
 #endif
     }
+    if (handle->armed) {
+      reportStartupFailure(handle, "Console enhance", "disabled by startup control");
+    }
     return;
   }
 
@@ -123,10 +128,11 @@ void installConsoleGlobals(ExactHermesRuntime* handle) {
       throw std::runtime_error("console.enhance failed to evaluate");
     }
   } catch (const facebook::jsi::JSError& err) {
-    ex_host_console_log(1, (std::string("Console enhance error: ") + err.getMessage()).c_str());
+    reportStartupFailure(handle, "Console enhance", err.getMessage());
   } catch (const std::exception& err) {
-    ex_host_console_log(1, (std::string("Console enhance error: ") + err.what()).c_str());
+    reportStartupFailure(handle, "Console enhance", err.what());
   } catch (...) {
+    reportStartupFailure(handle, "Console enhance", "unknown evaluation failure");
   }
 
   if (tracing) {

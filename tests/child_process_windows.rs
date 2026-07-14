@@ -44,7 +44,8 @@ fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
 
     write_text(&dir.join("app.js"), app);
     let mut child = Command::new(IBEX)
-        .arg("run")
+        .arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -177,6 +178,56 @@ c.on('close', function (code) {
         Some("ECHO:hello"),
         "stdin write missed live child: {line}"
     );
+}
+
+#[test]
+fn win32_dispose_cancels_blocked_stdin_writer_for_nonreading_child() {
+    let app = r#"
+const cp = require('child_process');
+// ping stays alive without ever reading stdin. A large write fills the pipe
+// and puts the native writer inside synchronous WriteFile.
+const c = cp.spawn('ping.exe', ['-n', '3', '127.0.0.1'], {
+  stdio: ['pipe', 'ignore', 'ignore']
+});
+const accepted = c.stdin.write(Buffer.alloc(8 * 1024 * 1024, 0x61));
+let timerFired = false;
+setTimeout(function () {
+  timerFired = true;
+  globalThis.__exactSpawnDispose(c._handle);
+  console.log('RESULT|timer=' + timerFired + '|accepted=' + accepted);
+  process.exit(0);
+}, 100);
+"#;
+    let run = run_app("stdin-dispose", app, Duration::from_secs(10));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "timer="),
+        Some("true"),
+        "blocked WriteFile must not block the JS event loop: {line}"
+    );
+    assert_eq!(
+        field(line, "accepted="),
+        Some("false"),
+        "large stdin write should exercise the bounded/backpressured path: {line}"
+    );
+}
+
+#[test]
+fn win32_immediate_spawn_dispose_waits_for_writer_initialization_race() {
+    let app = r#"
+const cp = require('child_process');
+const c = cp.spawn('ping.exe', ['-n', '2', '127.0.0.1'], {
+  stdio: ['pipe', 'ignore', 'ignore']
+});
+globalThis.__exactSpawnDispose(c._handle);
+setTimeout(function () {
+  console.log('RESULT|timer=true');
+  process.exit(0);
+}, 10);
+"#;
+    let run = run_app("stdin-immediate-dispose", app, Duration::from_secs(10));
+    let line = result_line(&run);
+    assert_eq!(field(line, "timer="), Some("true"), "{line}");
 }
 
 #[test]

@@ -30,8 +30,11 @@ use tokio::time::timeout;
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 async fn run_script(script: &str, secs: u64) -> Value {
+    let dir = tempfile::tempdir().expect("create script tempdir");
+    let entry = dir.path().join("app.js");
+    std::fs::write(&entry, script).expect("write script fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(script);
+    cmd.arg("capsec").arg("audit").arg(&entry);
 
     let output = timeout(Duration::from_secs(secs), cmd.output())
         .await
@@ -209,7 +212,7 @@ async fn native_response_destroy_before_headers_unblocks_the_client() {
     let errored = evs
         .iter()
         .any(|e| e == "res-aborted" || e.starts_with("res-error:") || e.starts_with("req-error:"));
-    let synthesized_error_status = parsed["status"] == Value::from(500);
+    let synthesized_error_status = parsed["status"] == 500;
     assert!(
         errored || synthesized_error_status,
         "pre-header destroy should surface as a connection error or a synthesized 5xx, \

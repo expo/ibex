@@ -59,93 +59,15 @@ pub async fn run_all(cli: &Cli) -> Result<()> {
         )
         .await?;
 
-        // LLP 0297 W3: the async host-call channel. Kick each promise off in
-        // one eval (whose event-loop drive delivers the resolution) and read
-        // the settled outcome in the next.
+        // @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel — this
+        // self-test drives a production armed runtime, so the string-typed
+        // catch-all channel must remain absent after lockdown. Production
+        // integrations use dedicated, capability-aware native APIs instead.
         expect_eval(
             &runtime,
-            "typeof __hostCallAsync === 'function' ? 'true' : 'false'",
+            "typeof __hostCall === 'undefined' && typeof __hostCallAsync === 'undefined'",
             "true",
-            "__hostCallAsync installed",
-        )
-        .await?;
-        expect_eval(
-            &runtime,
-            "globalThis.__hcAsyncResolve = 'pending'; \
-             __hostCallAsync('agent.captureScreenshot', '{}').then(\
-                 function(r) { globalThis.__hcAsyncResolve = 'ok:' + (r && typeof r.error === 'string'); },\
-                 function() { globalThis.__hcAsyncResolve = 'rejected'; }); 'kicked'",
-            "kicked",
-            "async host-call resolve kickoff",
-        )
-        .await?;
-        expect_eval(
-            &runtime,
-            "globalThis.__hcAsyncResolve",
-            "ok:true",
-            "async host-call resolve path",
-        )
-        .await?;
-        expect_eval(
-            &runtime,
-            "globalThis.__hcAsyncReject = 'pending'; \
-             __hostCallAsync('selftest.unknown-op', '{}').then(\
-                 function() { globalThis.__hcAsyncReject = 'resolved'; },\
-                 function(e) { globalThis.__hcAsyncReject = (e && typeof e.message === 'string' && e.message.indexOf('Unknown host call') !== -1) ? 'rejected-with-message' : 'rejected-odd'; }); 'kicked'",
-            "kicked",
-            "async host-call reject kickoff",
-        )
-        .await?;
-        expect_eval(
-            &runtime,
-            "globalThis.__hcAsyncReject",
-            "rejected-with-message",
-            "async host-call reject path",
-        )
-        .await?;
-
-        // ENG-22885: raw callers pass objects (not pre-stringified JSON) and
-        // omit args entirely; the bridge must coerce instead of throwing
-        // synchronously before the promise exists.
-        expect_eval(
-            &runtime,
-            "globalThis.__hcAsyncObjArgs = 'pending'; \
-             __hostCallAsync('selftest.echoArgs', { a: 1, b: 'two' }).then(\
-                 function(r) { globalThis.__hcAsyncObjArgs = r && r.received; },\
-                 function(e) { globalThis.__hcAsyncObjArgs = 'rejected:' + (e && e.message); }); 'kicked'",
-            "kicked",
-            "async host-call object-args kickoff",
-        )
-        .await?;
-        expect_eval(
-            &runtime,
-            "globalThis.__hcAsyncObjArgs",
-            "{\"a\":1,\"b\":\"two\"}",
-            "async host-call object args are JSON.stringify'd",
-        )
-        .await?;
-        expect_eval(
-            &runtime,
-            "globalThis.__hcAsyncNoArgs = 'pending'; \
-             __hostCallAsync('selftest.echoArgs').then(\
-                 function(r) { globalThis.__hcAsyncNoArgs = r && r.received; },\
-                 function(e) { globalThis.__hcAsyncNoArgs = 'rejected:' + (e && e.message); }); 'kicked'",
-            "kicked",
-            "async host-call omitted-args kickoff",
-        )
-        .await?;
-        expect_eval(
-            &runtime,
-            "globalThis.__hcAsyncNoArgs",
-            "{}",
-            "async host-call omitted args default to {}",
-        )
-        .await?;
-        expect_eval(
-            &runtime,
-            "(function(){ try { var r = __hostCall('selftest.echoArgs', { sync: true }); return r && r.received; } catch (e) { return 'threw:' + (e && e.message); } })()",
-            "{\"sync\":true}",
-            "sync host-call object args are JSON.stringify'd",
+            "generic host-call bridge absent from armed runtime",
         )
         .await?;
 

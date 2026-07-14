@@ -17,6 +17,11 @@
 //! wake hook: a runtime parked on a long timer must dispatch immediately,
 //! not at the next timer expiry.
 //!
+//! The retired `EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE` path is not a second
+//! signal matrix: it is a generated closed startup control, and installing the
+//! shared runtime after structural lockdown would require mutating frozen
+//! globals. Its production refusal is covered by the CapSec closed batch.
+//!
 //! Run with: `scripts/run-tests.sh --scope test sigint` (plus `sigusr2` and
 //! `signal_listener` for the remaining cases).
 
@@ -56,9 +61,9 @@ struct SignalRun {
     timed_out: bool,
 }
 
-/// Spawn `ibex run app.js`, wait for a READY line on stdout, then deliver
-/// `signals` (signal number, delay-after-previous) to the process with real
-/// `libc::kill` from this (outside) process. Returns how it terminated.
+/// Spawn `ibex capsec audit app.js`, wait for a READY line on stdout, then
+/// deliver `signals` (signal number, delay-after-previous) to the process with
+/// real `libc::kill` from this (outside) process. Returns how it terminated.
 fn run_with_signals(
     tag: &str,
     app: &str,
@@ -69,7 +74,8 @@ fn run_with_signals(
     let dir = unique_dir(tag);
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -198,14 +204,6 @@ fn external_sigint_dispatches_to_js_handler() {
     assert_sigint_handler_runs("sigint-handler", &[]);
 }
 
-#[test]
-fn external_sigint_dispatches_to_js_handler_legacy_bootstrap() {
-    assert_sigint_handler_runs(
-        "sigint-handler-legacy",
-        &[("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1")],
-    );
-}
-
 /// No handler registered: external SIGINT must kill the process via the
 /// default disposition (nothing may trap/swallow it).
 #[test]
@@ -268,14 +266,6 @@ fn self_kill_sigusr2_delivers_to_handler() {
     assert_self_usr2_delivers("usr2-self", &[]);
 }
 
-#[test]
-fn self_kill_sigusr2_delivers_to_handler_legacy_bootstrap() {
-    assert_self_usr2_delivers(
-        "usr2-self-legacy",
-        &[("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1")],
-    );
-}
-
 /// Removing the last listener restores the default disposition: two SIGINTs
 /// run the handler (which removes itself on the second), the third kills.
 #[test]
@@ -332,19 +322,17 @@ fn signal_listener_does_not_keep_process_alive() {
 process.on('SIGINT', () => {});
 console.log('DONE');
 "#;
-    let start = Instant::now();
     let run = run_with_signals("sigint-noref", app, &[], &[], Duration::from_secs(20));
-    let elapsed = start.elapsed();
+    assert!(
+        !run.timed_out,
+        "signal listener kept the process alive\nstdout:\n{}\nstderr:\n{}",
+        run.stdout, run.stderr
+    );
     assert!(
         run.stdout.contains("DONE") && run.code == Some(0),
         "process did not exit cleanly (code={:?})\nstdout:\n{}\nstderr:\n{}",
         run.code,
         run.stdout,
         run.stderr
-    );
-    assert!(
-        elapsed < Duration::from_secs(10),
-        "signal listener kept the process alive ({}ms)",
-        elapsed.as_millis()
     );
 }

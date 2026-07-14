@@ -34,6 +34,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <condition_variable>
+#include <cstdlib>
 #include <deque>
 #include <cmath>
 #include <functional>
@@ -55,12 +57,14 @@ struct TimerEntry {
   bool repeat;
   bool referenced = true;
   uint64_t principal;
+  std::vector<uint64_t> principalStack;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
 };
 
 struct NextTickEntry {
   uint64_t principal;
+  std::vector<uint64_t> principalStack;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
 };
@@ -80,8 +84,50 @@ struct HostCallAsyncEntry {
   std::shared_ptr<facebook::jsi::Function> reject;
 };
 
+struct ExactHermesRuntime;
+
+// A runtime address is not an identity: allocators routinely reuse the same
+// address after destroy/recreate. Every asynchronous producer therefore
+// carries the creation nonce it observed while the handle was live, and the
+// registry validates the pair atomically before any handle dereference.
+// @ref LLP 0003#the-event-loop — callback delivery is runtime-generation scoped.
+struct RuntimeCallbackTarget {
+  ExactHermesRuntime* runtime{nullptr};
+  uint64_t nonce{0};
+
+  explicit operator bool() const {
+    return runtime != nullptr && nonce != 0;
+  }
+};
+
+inline void exactTestDelayRuntimeProducer() {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  const char* value = std::getenv("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+  if (!value || !*value) return;
+  char* end = nullptr;
+  auto milliseconds = std::strtoull(value, &end, 10);
+  if (end == value || *end != '\0') return;
+  milliseconds = std::min<unsigned long long>(milliseconds, 2000);
+  std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+#endif
+}
+
 struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
+  uint64_t host_context_id{0};
+  uint64_t runtime_nonce{0};
+  // Immutable constructor-selected posture. Bootstrap must never consult
+  // process-global environment toggles that other threads can observe/race.
+  bool armed{false};
+  bool structural_lockdown{false};
+  // Strict JSON [{locator,endowments}] projection copied from the immutable
+  // armed Host context. Locator punctuation is data, never bootstrap syntax.
+  std::string snapshot_endowments_json;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // The frame-attribution VM owned by this handle. The active pointer is
+  // selected at each engine entry point; a thread may drive nested runtimes.
+  void* attribution_runtime{nullptr};
+#endif
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
   std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debugger;
 #endif
@@ -109,14 +155,24 @@ struct ExactHermesRuntime {
   // counts as referenced work so the loop survives until the worker delivers
   // its completion via pushRuntimeCallback. (ENG-23497)
   std::atomic<int> pending_fs_ops{0};
+  // Pins held by native workers that may dereference this handle outside the
+  // runtime thread. Destroy enters Closing (refusing new pins), cancels source
+  // work, and keeps the exact registry generation until this reaches zero.
+  std::atomic<uint32_t> native_worker_pins{0};
+  std::mutex native_worker_mutex;
+  std::condition_variable native_worker_cv;
   std::mutex fetchMutex;
-  uint32_t nextFetchId{1};
   std::unordered_map<uint32_t, FetchCallbackEntry> fetchCallbacks;
   std::mutex hostCallAsyncMutex;
-  uint64_t nextHostCallAsyncId{1};
   std::unordered_map<uint64_t, HostCallAsyncEntry> hostCallAsyncCallbacks;
   std::mutex callbackMutex;
   std::deque<std::function<void(facebook::jsi::Runtime&)>> callbackQueue;
+  // Finalizers are admitted from native producer threads but always executed
+  // by poll/destroy on the owning runtime thread. Unlike callbackQueue, these
+  // run during teardown: they exist for native contexts whose final release
+  // owns a JSI value (notably WebSocket callback contexts).
+  std::mutex finalizerMutex;
+  std::deque<std::function<void()>> finalizerQueue;
   // Fail-loud marker for async callbacks (process.nextTick, cross-thread
   // tasks/callbacks) that threw with no uncaughtException handler consuming
   // the error: the poll that observes it returns -1 so the host loop surfaces
@@ -126,6 +182,10 @@ struct ExactHermesRuntime {
   // touched on the runtime thread.
   // @ref LLP 0003#the-event-loop — async failures are fatal (ENG-23130)
   bool fatal_async_error = false;
+  bool typed_authority_generations_initialized = false;
+  uint64_t typed_negative_generation = 0;
+  uint64_t typed_dynamic_generation = 0;
+  uint64_t typed_handle_generation = 0;
   // Host policy for JS errors escaping drained async callbacks (timers,
   // microtasks, nextTick, cross-thread tasks). CLI default (false): the
   // fatal_async_error / poll -1 contract above. Embedded app hosts opt in
@@ -181,14 +241,28 @@ struct ExactHermesRuntime {
 };
 
 struct NativeWebSocketCallbackContext {
-  ExactHermesRuntime* runtime;
+  RuntimeCallbackTarget target;
   std::shared_ptr<facebook::jsi::Object> ws_instance;
+  uint64_t runtime_nonce;
   uint64_t principal;
   std::string capability;
   std::atomic<uint32_t> ref_count{1};
+  // One producer pin spans native connect through the backend's final context
+  // release. It keeps teardown in its closing phase until every native callback
+  // has stopped touching this context and its JSI owner has been marshalled.
+  bool runtime_pin_held{false};
+  // Guarded by g_websocket_mutex in hermes_runtime_websocket.cc. Keeping the
+  // pre-registration terminal state on the exact per-runtime callback
+  // context avoids process-global missing-ID tombstones.
+  bool websocket_registered{false};
+  bool websocket_terminal{false};
 };
 
 extern "C" int32_t ex_host_is_allow_all(void);
+extern "C" int32_t ex_host_is_armed(void);
+extern "C" uint64_t ex_hermes_current_runtime_nonce(void);
+extern "C" int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
+                                                   uint64_t* out_inode);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
 extern "C" int32_t ex_host_check_capability_no_follow_final(uint64_t module_id,
                                                             const char* capability);
@@ -202,10 +276,40 @@ extern "C" void ex_host_log_event(const char* event_type,
 extern thread_local uint64_t g_active_module_id;
 constexpr uint64_t kNoNativePrincipalOverride = std::numeric_limits<uint64_t>::max();
 extern thread_local uint64_t g_native_callback_principal_id;
+extern thread_local uint64_t g_active_runtime_nonce;
+
+extern "C" uint64_t ex_host_enter_context(uint64_t context_id);
+extern "C" void ex_host_restore_context(uint64_t previous);
+
+inline uint64_t exactCurrentRuntimeNonce() {
+  return g_active_runtime_nonce;
+}
+
+class ScopedRuntimeSecurityContext {
+ public:
+  explicit ScopedRuntimeSecurityContext(const ExactHermesRuntime* runtime)
+      : previousRuntime_(g_active_runtime_nonce), previousHost_(UINT64_MAX) {
+    if (runtime != nullptr) {
+      g_active_runtime_nonce = runtime->runtime_nonce;
+      previousHost_ = ex_host_enter_context(runtime->host_context_id);
+    }
+  }
+  ~ScopedRuntimeSecurityContext() {
+    if (previousHost_ != UINT64_MAX) ex_host_restore_context(previousHost_);
+    g_active_runtime_nonce = previousRuntime_;
+  }
+  ScopedRuntimeSecurityContext(const ScopedRuntimeSecurityContext&) = delete;
+  ScopedRuntimeSecurityContext& operator=(const ScopedRuntimeSecurityContext&) = delete;
+
+ private:
+  uint64_t previousRuntime_;
+  uint64_t previousHost_;
+};
 
 extern "C" void ex_host_register_module_package(uint64_t module_id,
                                                 const char* package,
-                                                const char* locator);
+                                                const char* locator,
+                                                const char* integrity);
 extern "C" int32_t ex_host_check_capability_stack(const uint64_t* module_ids,
                                                   size_t len,
                                                   const char* capability);
@@ -224,6 +328,18 @@ extern "C" void ex_host_handle_revoke(uint64_t id);
 extern "C" int32_t ex_host_permission_request(const char* capability);
 extern "C" void ex_host_permission_revoke(const char* capability);
 extern "C" int32_t ex_host_permission_status(const char* capability);
+extern "C" int32_t ex_host_authorize_typed_environment_read_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t stage,
+    const uint8_t* name,
+    size_t name_len);
+extern "C" int32_t ex_host_authorize_typed_print_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t stage);
 
 // @ref LLP 0013#mechanism-3 — frame-derived capability attribution. The bridge
 // symbols are exported by the carried Hermes patch stack (patches/hermes/0003)
@@ -261,6 +377,28 @@ constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
 // with no grants that fails closed. Used as a fail-closed sentinel when the
 // deputy-stack collector may have truncated (see checkCapability). (ENG-22643)
 constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
+
+// A thread may drive more than one Hermes runtime, including re-entrantly when
+// an embedder host call evaluates a nested runtime. Capability attribution must
+// follow the runtime currently being driven, then restore the outer runtime on
+// unwind. @ref LLP 0013#mechanism-3
+class ScopedActiveAttributionRuntime {
+ public:
+  explicit ScopedActiveAttributionRuntime(void* runtime)
+      : previous_(g_vm_runtime) {
+    g_vm_runtime = runtime;
+  }
+
+  ScopedActiveAttributionRuntime(const ScopedActiveAttributionRuntime&) = delete;
+  ScopedActiveAttributionRuntime& operator=(const ScopedActiveAttributionRuntime&) = delete;
+
+  ~ScopedActiveAttributionRuntime() {
+    g_vm_runtime = previous_;
+  }
+
+ private:
+  void* previous_;
+};
 #endif
 
 // The capability principal for the code currently executing at the host
@@ -432,14 +570,138 @@ inline bool checkCapabilityNoFollowFinal(const std::string& capability) {
 // to transfer a raw fd, while fs.cc owns the registry that keeps raw integers
 // from becoming ambient authority. These helpers are implemented in
 // hermes_runtime_fs.cc and intentionally expose only narrow checked operations.
-// Windows compiles hermes_runtime_fs_windows.cc instead, which provides only
-// exactRegisterProcessIpcFd (as a no-op — no SCM_RIGHTS on Windows); the other
-// helpers are declared here but must not be referenced from TUs that build on
-// Windows (hermes_runtime_net.cc / hermes_runtime_process.cc are POSIX-only).
+// Windows compiles hermes_runtime_fs_windows.cc instead. Both implementations
+// provide exactCollectTypedPrincipalStack for common typed adapters; the raw-fd
+// transfer helpers remain POSIX-only except for the Windows IPC-registration
+// no-op.
 void exactRegisterTransferableFd(int fd, uint64_t owner);
 void exactRegisterProcessIpcFd(int fd);
 void exactRegisterReceivedFdForCurrentPrincipal(int fd);
 bool exactConsumeTransferableFdForCurrentPrincipal(int fd);
+std::vector<uint64_t> exactCollectTypedPrincipalStack();
+
+// Closed tags shared with ex_host_authorize_typed_system_info_stack.  Never
+// accept a coverage edge or selector name from JavaScript as free-form text.
+enum class ExactSystemInfoSurface : uint32_t {
+  CpuCount = 0,
+  FreeMemory = 1,
+  Hostname = 2,
+  LoadAverage = 3,
+  NetworkInterfaces = 4,
+  TotalMemory = 5,
+  Uptime = 6,
+  UserInfo = 7,
+  CachedValue = 8,
+  ProcessRss = 9,
+  Cwd = 10,
+};
+
+enum class ExactSystemInfoName : uint32_t {
+  Architecture = 0,
+  CameraMetadata = 1,
+  Cpus = 2,
+  Cwd = 3,
+  Hostname = 4,
+  Language = 5,
+  LoadAverage = 6,
+  Locale = 7,
+  Memory = 8,
+  NetworkInterfaces = 9,
+  OsRelease = 10,
+  Platform = 11,
+  Screen = 12,
+  StoragePaths = 13,
+  Uptime = 14,
+  User = 15,
+};
+
+extern "C" int32_t ex_host_authorize_typed_system_info_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t surface,
+    uint32_t info_name,
+    uint32_t stage);
+
+inline void exactRequireTypedSystemInfo(
+    facebook::jsi::Runtime& runtime,
+    ExactSystemInfoSurface surface,
+    ExactSystemInfoName name) {
+  if (ex_host_is_armed() != 1) return;
+  auto principals = exactCollectTypedPrincipalStack();
+  auto actor = currentPrincipalId();
+  // sys:read declares Requested and Commit.  Both decisions happen before
+  // the native reader crosses the information-disclosure barrier.
+  for (uint32_t stage = 0; stage <= 1; ++stage) {
+    if (ex_host_authorize_typed_system_info_stack(
+            actor,
+            principals.data(),
+            principals.size(),
+            static_cast<uint32_t>(surface),
+            static_cast<uint32_t>(name),
+            stage) != 1) {
+      throw facebook::jsi::JSError(runtime, "Permission denied: system information");
+    }
+  }
+}
+// @ref LLP 0021#typed-resources-and-initial-vocabulary — a broker-base
+// environment read authorizes its exact canonical name before disclosure.
+inline void authorizeTypedEnvironmentRead(
+    facebook::jsi::Runtime& runtime,
+    const std::string& name) {
+  if (ex_host_is_armed() != 1) return;
+  auto principal = currentPrincipalId();
+  auto principals = exactCollectTypedPrincipalStack();
+  for (uint32_t stage = 0; stage <= 1; ++stage) {
+    if (ex_host_authorize_typed_environment_read_stack(
+            principal,
+            principals.data(),
+            principals.size(),
+            stage,
+            reinterpret_cast<const uint8_t*>(name.data()),
+            name.size()) != 1) {
+      throw facebook::jsi::JSError(
+          runtime, "Permission denied: env:read authority required");
+    }
+  }
+}
+// @ref LLP 0021#decision-staging-and-principal-semantics — direct print
+// authorizes every generated stage before the line enters the stdout broker.
+inline void authorizeTypedPrint(facebook::jsi::Runtime& runtime) {
+  if (ex_host_is_armed() != 1) return;
+  auto principal = currentPrincipalId();
+  auto principals = exactCollectTypedPrincipalStack();
+  for (uint32_t stage : {0u, 2u, 4u}) {
+    if (ex_host_authorize_typed_print_stack(
+            principal, principals.data(), principals.size(), stage) != 1) {
+      throw facebook::jsi::JSError(
+          runtime, "Permission denied: stdio:write authority required");
+    }
+  }
+}
+void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce);
+void exactCleanupRuntimeSockets(uint64_t runtimeNonce);
+void exactCleanupRuntimeSqlite(uint64_t runtimeNonce);
+void exactCleanupRuntimeHttpServers(uint64_t runtimeNonce);
+bool disposeAsyncCallbackError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::JSError& err);
+RuntimeCallbackTarget exactRuntimeCallbackTarget(ExactHermesRuntime* runtime);
+uint64_t exactAllocateRuntimeNonce();
+bool exactPinRuntimeNativeWorker(RuntimeCallbackTarget target);
+void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target);
+
+class ScopedTypedPrincipalStack {
+ public:
+  explicit ScopedTypedPrincipalStack(const std::vector<uint64_t>& principals);
+  ~ScopedTypedPrincipalStack();
+  ScopedTypedPrincipalStack(const ScopedTypedPrincipalStack&) = delete;
+ ScopedTypedPrincipalStack& operator=(const ScopedTypedPrincipalStack&) = delete;
+
+ private:
+  std::vector<uint64_t> principals_;
+  const std::vector<uint64_t>* previous_;
+};
 void exactRequireOwnedIpcFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireTransferableFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 
@@ -497,10 +759,35 @@ inline bool parseNetworkPort(const std::string& value, int& port) {
   return true;
 }
 
-inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
+inline std::string formatNetworkEndpoint(const std::string& host, int port) {
+  // Capability resources must use URI-style brackets for IPv6. Without them,
+  // `::1:443` is ambiguous and policy parsing can reinterpret the final
+  // address component as a port.
+  if (host.find(':') != std::string::npos &&
+      !(host.size() >= 2 && host.front() == '[' && host.back() == ']')) {
+    return "[" + host + "]:" + std::to_string(port);
+  }
+  return host + ":" + std::to_string(port);
+}
+
+inline bool parseNetworkUrl(
+    const std::string& url,
+    ParsedNetworkUrl& parsed,
+    const char** failureReason = nullptr) {
+  const auto fail = [failureReason](const char* reason) {
+    if (failureReason != nullptr) {
+      *failureReason = reason;
+    }
+    return false;
+  };
+  for (unsigned char byte : url) {
+    if (byte <= 0x20 || byte == 0x7f) {
+      return fail("ASCII control or space");
+    }
+  }
   auto scheme_end = url.find("://");
   if (scheme_end == std::string::npos || scheme_end == 0) {
-    return false;
+    return fail("missing scheme");
   }
   parsed.scheme = asciiLower(url.substr(0, scheme_end));
   size_t authority_start = scheme_end + 3;
@@ -513,7 +800,7 @@ inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
     authority = authority.substr(at + 1);
   }
   if (authority.empty()) {
-    return false;
+    return fail("missing authority");
   }
 
   parsed.port = defaultPortForNetworkScheme(parsed.scheme);
@@ -521,29 +808,29 @@ inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
   if (authority[0] == '[') {
     auto close = authority.find(']');
     if (close == std::string::npos) {
-      return false;
+      return fail("unterminated IPv6 host");
     }
     host = authority.substr(1, close - 1);
     if (close + 1 < authority.size()) {
       if (authority[close + 1] != ':') {
-        return false;
+        return fail("invalid IPv6 authority suffix");
       }
       auto port_str = authority.substr(close + 2);
       if (!parseNetworkPort(port_str, parsed.port)) {
-        return false;
+        return fail("invalid port");
       }
     }
   } else {
     auto first_colon = authority.find(':');
     auto colon = authority.rfind(':');
     if (first_colon != std::string::npos && first_colon != colon) {
-      return false;
+      return fail("unbracketed IPv6 host");
     }
     if (colon != std::string::npos) {
       host = authority.substr(0, colon);
       auto port_str = authority.substr(colon + 1);
       if (!parseNetworkPort(port_str, parsed.port)) {
-        return false;
+        return fail("invalid port");
       }
     } else {
       host = authority;
@@ -551,7 +838,7 @@ inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
   }
 
   if (host.empty() || parsed.port < 0 || parsed.port > 65535) {
-    return false;
+    return fail("invalid host or port");
   }
   parsed.host = asciiLower(host);
   return true;
@@ -702,11 +989,16 @@ inline std::vector<uint8_t> extractBytes(
 
 bool startup_trace_enabled();
 bool env_flag_enabled(const char* env_name);
+void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage);
+void reportStartupFailure(ExactHermesRuntime* handle,
+                          const char* stage,
+                          const std::string& detail);
 std::string valueToString(facebook::jsi::Runtime& rt, const facebook::jsi::Value& value);
 uint64_t nowMs();
 double processUptimeSeconds();
 facebook::jsi::Function makeHardExitFn(facebook::jsi::Runtime& rt);
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
+void exactForgetNativeFetchTarget(uint32_t requestId, uint64_t runtimeNonce);
 
 bool eval_bootstrap_script(ExactHermesRuntime* handle,
                            const char* source,
@@ -729,8 +1021,12 @@ void runFinalProcessVersionsFix(ExactHermesRuntime* handle);
 void installWebStreamsPolyfill(ExactHermesRuntime* handle);
 void installDnsHostFunctions(ExactHermesRuntime* handle);
 void installCryptoHostFunctions(ExactHermesRuntime* handle);
+void unregisterSignalRuntime(ExactHermesRuntime* handle);
 void installFsHostFunctions(ExactHermesRuntime* handle);
 void installChildProcessHostFunctions(ExactHermesRuntime* handle);
+// Install only the runtime/principal-bound retained-wrapper owner primitive.
+// Full socket and TLS host functions remain behind __exactEnsureNet.
+void installNetOwnerHostFunction(ExactHermesRuntime* handle);
 void installNetHostFunctions(ExactHermesRuntime* handle);
 // Native TLS bridge host functions (ENG-23492/ENG-23526); installed from
 // installNetHostFunctions and driven by the platform TCP host functions.
@@ -746,6 +1042,12 @@ void installFetchGlobals(ExactHermesRuntime* handle);
 void installAndroidHostFunctions(ExactHermesRuntime* handle);
 void unregisterAndroidHostFunctions(ExactHermesRuntime* handle);
 void installIpcListenerPatch(ExactHermesRuntime* handle);
+
+// Process-global registries retain resources by runtime nonce and must be
+// drained before the owning Hermes handle is deleted.
+extern "C" void exactCleanupRuntimeSpawnedProcesses(uint64_t runtimeNonce);
+extern "C" void exactCleanupRuntimeWebSockets(uint64_t runtimeNonce);
+extern "C" void ibex_tls_cleanup_runtime(uint64_t runtimeNonce);
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" void native_ws_retain_context(void* context);
@@ -780,13 +1082,13 @@ void disableDebugger(ExactHermesRuntime* runtime);
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 std::string buildPausedEvent(facebook::hermes::debugger::Debugger& debugger);
 #endif
-bool runtimeIsAlive(ExactHermesRuntime* runtime);
+bool runtimeIsAlive(RuntimeCallbackTarget target);
 
 // ENG-22925/ENG-23028: run `body` with the runtime pinned alive. Holds
-// g_runtimeRegistryMutex across a membership test AND the synchronous execution
+// g_runtimeRegistryMutex across a generation test AND the synchronous execution
 // of `body`, so a caller on any thread can safely dereference runtime-owned
 // state (per-runtime mutexes/maps) that would otherwise race a concurrent
-// ex_hermes_destroy — which holds the same mutex across its `delete`. Returns
+// ex_hermes_destroy entering Closing. Returns
 // true iff the runtime was alive and `body` ran. `body` MUST be short and MUST
 // NOT re-enter the runtime registry (no ex_hermes_destroy / pushRuntimeCallback /
 // runtimeIsAlive). If it takes a per-runtime lock, that lock must follow the
@@ -795,7 +1097,7 @@ bool runtimeIsAlive(ExactHermesRuntime* runtime);
 // form of the resolve_host_call pin so sibling completion paths (fetch,
 // debugger, etc.) can close the same check-then-lock TOCTOU without exposing the
 // registry internals.
-bool withRuntimePinned(ExactHermesRuntime* runtime,
+bool withRuntimePinned(RuntimeCallbackTarget target,
                        const std::function<void()>& body);
 
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
@@ -803,8 +1105,15 @@ void emitNewScripts(ExactHermesRuntime* runtime,
                     facebook::hermes::debugger::Debugger& debugger);
 #endif
 
-void pushRuntimeCallback(ExactHermesRuntime* runtime,
-                         std::function<void(facebook::jsi::Runtime&)> fn);
+void pushRuntimeCallback(RuntimeCallbackTarget target,
+                         std::function<void(facebook::jsi::Runtime&)> fn,
+                         bool* accepted = nullptr);
+
+// Enqueue a native-resource finalizer without transferring ownership on
+// failure. A successful enqueue guarantees `fn` runs on the runtime thread,
+// including while destroy waits for native producer pins to drain.
+bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
+                          std::function<void()> fn);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);

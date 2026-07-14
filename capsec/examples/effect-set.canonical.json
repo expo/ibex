@@ -8,7 +8,8 @@
     "actor": { "kind": "root", "identity": "project-root" },
     "constrainedPrincipals": [
       { "kind": "root", "identity": "project-root" }
-    ]
+    ],
+    "presentedHandleIds": []
   },
   "effects": [
     {

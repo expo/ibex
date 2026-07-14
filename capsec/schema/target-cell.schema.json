@@ -16,7 +16,7 @@
   "$defs": {
     "cell": {
       "type": "object",
-      "required": ["edgeId", "target", "disposition", "fixtures", "rationale"],
+      "required": ["edgeId", "target", "disposition", "implementationBranchIds", "fixtures", "rationale"],
       "properties": {
         "edgeId": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
@@ -37,7 +37,14 @@
           "additionalProperties": false
         },
         "disposition": {
-          "enum": ["enforced", "closed", "absent", "unsupported"]
+          "enum": ["enforced", "closed", "non-capability", "absent", "unsupported"]
+        },
+        "implementationBranchIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          }
         },
         "fixtures": {
           "type": "array",
@@ -46,21 +53,42 @@
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
           }
         },
-        "implementationRef": { "type": "string", "minLength": 1 },
         "rationale": { "type": "string", "minLength": 1 }
       },
       "allOf": [
         {
           "if": {
-            "properties": { "disposition": { "enum": ["enforced", "closed"] } },
+            "properties": { "disposition": { "enum": ["enforced", "closed", "non-capability"] } },
             "required": ["disposition"]
           },
           "then": {
             "properties": {
-              "fixtures": { "type": "array", "minItems": 1 },
-              "implementationRef": { "type": "string", "minLength": 1 }
-            },
-            "required": ["implementationRef"]
+              "implementationBranchIds": { "type": "array", "minItems": 1 },
+              "fixtures": { "type": "array", "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "disposition": { "const": "absent" } },
+            "required": ["disposition"]
+          },
+          "then": {
+            "properties": {
+              "implementationBranchIds": { "type": "array", "maxItems": 0 },
+              "fixtures": { "type": "array", "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "disposition": { "const": "unsupported" } },
+            "required": ["disposition"]
+          },
+          "then": {
+            "properties": {
+              "fixtures": { "type": "array", "maxItems": 0 }
+            }
           }
         }
       ],

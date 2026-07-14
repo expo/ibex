@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-09 (Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; previously 2026-07-07: Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
+**Revised:** 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -42,23 +42,13 @@ already-running child `curl` process.
 
 ## Windows Child Process
 
-Windows has a real native **sync** spawn bridge (`__exactSpawnSync` in
-`hermes_runtime_platform_windows.cc`; ENG-23115 brought base64 stdio, real
-`process.env`, and `maxBuffer` parity), but **no async native spawn**.
-`cp.spawn`/`exec`/`execFile` on win32 are emulated by
-`_spawnSyncBackedChildProcess` in `src/builtins/child-process.js`: the child
-runs to completion inside spawnSync and its buffered output is replayed
-afterwards. Consequences (ENG-23485 finding #5):
-
-- the event loop blocks for the child's entire lifetime;
-- stdin writes and `kill()` can never reach the live child;
-- IPC could never deliver a message to or from a live child.
-
-Since ENG-23485 this is loud instead of silent: the emulation emits a one-time
-`process.emitWarning`, and `'ipc'` stdio (including `fork`) throws `ENOTSUP`
-on win32. A real async backend (CreateProcess + overlapped pipes implementing
-the same `__exactSpawn*` host-function contract as POSIX) is tracked in
-ENG-23500.
+Windows has native sync and async `CreateProcess` bridges in
+`hermes_runtime_platform_windows.cc`. The async path implements the shared
+`__exactSpawn*` contract with bounded stdin queuing, background pipe readers,
+poll/kill/dispose, environment/cwd/shell support, and detached process groups.
+Windows IPC, inherited `fd:N` entries, and extra pipe descriptors remain
+explicitly unsupported rather than silently falling back to blocking sync
+spawn.
 
 Android uses a Java/JNI OkHttp bridge for fetch and WebSocket. The C++ runtime
 keeps the same `native_fetch_*` and `native_ws_*` symbols, while
@@ -77,7 +67,7 @@ better app-runtime integration point. The June 2026 Android backend target is:
 | Surface | Best Android backend | Current state | Completion rule |
 | --- | --- | --- | --- |
 | Fetch / `http` client / `https` client | OkHttp for HTTP(S), redirects, TLS, compression, connection pooling, and cancellation; app Network Security Config remains authoritative for cleartext, pins, and trust anchors. | C++/JNI bridge to `IbexNetworking.fetch()`; OkHttp redirects are disabled because JS implements Fetch redirect policy. | Verify HTTP, HTTPS, headers, POST body, redirect behavior, gzip/decompression, abort, and network errors on an Android runtime. |
-| WebSocket / `ws` client | OkHttp `WebSocket`, using the same client/trust configuration as fetch. | C++/JNI bridge to `IbexNetworking.connectWebSocket()`. | Verify open, text/binary messages, close codes/reasons, errors, pause/resume semantics, and flow-control callbacks on Android. |
+| WebSocket / `ws` client | OkHttp `WebSocket`, using the same client/trust configuration as fetch. | C++/JNI bridge to `IbexNetworking.connectWebSocket()`; the production flow controller is host-JVM tested for paused text/binary FIFO, count/byte floods, error then 1009 close, transport terminal cleanup, and repeated pause/resume. | Keep the host-JVM behavioral gate; verify the remaining open/close/error and JNI/OkHttp adapter behavior on an Android app runtime. |
 | DNS | Android `DnsResolver` where available for raw DNS record queries; fallback to Bionic/POSIX resolver for older API levels, unsupported record types, or resolver failure. | `resolve*` raw record queries call Android `DnsResolver` on API 29+ and fall back to `res_query`; `lookup` and reverse lookup still use Bionic/POSIX resolver APIs. | Verify `lookup`, `resolve*`, reverse lookup, and the Android API-level/failure fallback boundary. |
 | TCP / UDP sockets | Bionic/POSIX sockets. These are Android's NDK-native socket APIs and preserve Node-compatible stream semantics better than Java sockets. | Uses POSIX socket code. | Keep POSIX backend; verify TCP connect/listen, UDP bind/send/recv, and Unix socket behavior expected by Android API levels. |
 | Filesystem | Bionic/POSIX file APIs inside app-specific internal/cache directories supplied by the embedding host; Storage Access Framework belongs in app-level file pickers, not Node-compatible `fs`. | Uses POSIX plus host ABI. Android initialization now reads `Context` storage roots and seeds cwd/`HOME` from `filesDir`, temp env from `cacheDir`, explicit `EXACT_ANDROID_*` storage env vars, `__exactAndroidStoragePaths`, and the Rust runtime cache helper's Android cache root. | Keep POSIX backend; verify file, dir, stat, statfs, symlink/link unsupported cases, relative paths under `filesDir`, and temp/cache paths under `cacheDir`. |
@@ -126,6 +116,20 @@ targets keep `statvfs(3)`.
 Known platform reality: `lchmod()` is unavailable on Linux and remains an
 `ENOSYS` path rather than a fabricated success.
 
+Windows uses `hermes_runtime_fs_windows.cc` over the same Rust host filesystem
+ABI rather than CRT file descriptors. Since ENG-23541 it also registers the
+worker-pool async hooks for whole-file reads/writes, fd chunk reads/writes,
+`readv`/`writev`, `stat`/`lstat`/`fstat`, and supported directory/path ops
+(`readdir`, `mkdir`, `rmdir`, `unlink`, `rename`, `copyfile`, `realpath`,
+`access`, `chmod`, `mkdtemp`). The Windows fd handles are shared between sync
+and async paths through a `shared_ptr` wrapper with a per-handle I/O mutex so
+the Rust save-cursor positional read/write shims cannot interleave on the same
+fd. Unsupported Windows fs operations still fail honestly with `ENOSYS` until
+host hooks exist. Durability is no longer one of those gaps: the opaque host
+handle exposes `File::sync_all` / `File::sync_data`, so Windows
+`fsync`/`fdatasync` reach `FlushFileBuffers`. The remaining unsupported set is
+the path metadata/link operations that the Windows shim does not implement.
+
 ## Sockets, DNS, and Process
 
 TCP, UDP, Unix sockets, DNS, child processes, IPC, and signals use POSIX APIs on
@@ -158,12 +162,24 @@ through). Windows' `__exactDnsResolve` is a `getaddrinfo`-based stub with no
 record-query transport, so it has no rcode to preserve; the JS-side code mapping
 in `src/builtins/dns.js` is shared across platforms.
 
+Async child-process registry entries are owned by both runtime nonce and
+principal. `ChildProcess.ref()` / `unref()` updates an owner-validated native
+reference bit: runtime teardown synchronously kills and reaps referenced
+children, but must preserve explicitly unref'ed children. POSIX hands those
+children to a process-global nonblocking `waitpid` reaper so a long-lived host
+does not accumulate zombies; Windows closes its process handle without calling
+`TerminateProcess` or waiting.
+
 ## OS Info
 
 `os` host functions use `sysconf`, `sysinfo`, `sysctl`, `getifaddrs`, and
 platform user APIs. This pass changed network interface reporting to read real
 link-layer MAC addresses from `AF_PACKET` on Linux and `AF_LINK` on Apple
 instead of returning `00:00:00:00:00:00` for every interface.
+Armed POSIX/Apple and Windows runtimes now authorize the eight native `os`
+backing functions through exact typed `sys:read` requested/commit stages before
+calling those platform APIs; public `node:os` allow and deny fixtures verify
+the common contract without a legacy capability check (ENG-24450).
 
 ## Crypto
 
@@ -288,6 +304,22 @@ must run on an Android runtime or emulator and exercise:
   `Choreographer` callback path.
 - `cargo fmt --check` passed.
 - `git diff --check` passed.
+- ENG-23541 Windows fs verification passed on the Windows build host with
+  Visual Studio Build Tools and the local Hermes Windows SDK:
+  `cargo check --lib` compiled the Windows C++ bridge, and an
+  `IBEX_NO_BYTECODE=1 cargo run --bin ibex -- run winfs-smoke.js` smoke
+  confirmed all eight async fs hooks were installed and exercised
+  readFile/writeFile/stat/readv/writev, zero-length fd read/write, empty
+  append-create, and directory/path operations. The smoke output reported all
+  hooks `true`, `readvText:"bc"`, `out:"abcZZf"`, zero byte counts, and
+  `emptyAppendExists:true`.
+- The recovered ENG-23541 hardening was recompiled on that Windows host with
+  `cargo check --lib`. `cargo test --test windows_fs_bridge_contract` passed
+  four source/ABI contract checks, and `cargo test --test windows_fs_async`
+  passed the runtime regression covering normalized `ENOENT`/`EEXIST`, append
+  through an fd after its path was renamed, handle-based `fstat`, and real
+  `fsync`/`fdatasync`. The older cross-platform fs suites currently assume a
+  POSIX `/tmp` from `os.tmpdir()` and therefore are not valid Windows evidence.
 - The Android Java helper compiled with Android API 36 plus OkHttp 5.4.0,
   Okio 3.17.0, and Kotlin stdlib 2.1.21.
 - `ANDROID_TARGET=aarch64-linux-android ./scripts/cargo-android.sh` passed,

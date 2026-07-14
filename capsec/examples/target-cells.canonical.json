@@ -9,6 +9,7 @@
         "features": ["hermes-frame-attribution"]
       },
       "disposition": "unsupported",
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "WP0 has not proved selected-peer, redirect, route, and lifetime semantics."
     },
@@ -19,6 +20,7 @@
         "features": ["hermes-frame-attribution"]
       },
       "disposition": "unsupported",
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "WP0 has not proved retained-object execution and staged multi-effect checks."
     },
@@ -29,8 +31,8 @@
         "features": ["hermes-frame-attribution"]
       },
       "disposition": "closed",
-      "fixtures": ["process.signal.closed"],
-      "implementationRef": "src/engine/hermes_runtime_process_setup.cc",
+      "implementationBranchIds": ["engine.process.signal.posix"],
+      "fixtures": ["engine.process.signal.posix.closed"],
       "rationale": "Package-originated signaling is refused for the initial profile."
     }
   ]

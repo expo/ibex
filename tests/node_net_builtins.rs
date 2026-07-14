@@ -22,8 +22,11 @@ use tokio::time::timeout;
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 async fn run_script(script: &str, secs: u64) -> Value {
+    let dir = tempfile::tempdir().expect("create script tempdir");
+    let entry = dir.path().join("app.js");
+    std::fs::write(&entry, script).expect("write script fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(script);
+    cmd.arg("capsec").arg("audit").arg(&entry);
 
     let output = timeout(Duration::from_secs(secs), cmd.output())
         .await
@@ -380,7 +383,9 @@ console.log(JSON.stringify({
 }));
 "#;
 
-    let parsed = run_script(script, 10).await;
+    // Foreground audit performs a full bundle/authentication pass before the
+    // fixture starts, so leave headroom beyond production's old startup time.
+    let parsed = run_script(script, 45).await;
     assert_eq!(parsed["range"], Value::Bool(true), "IPv4 range: {parsed}");
     assert_eq!(
         parsed["rangeFalse"],
@@ -480,7 +485,7 @@ s.on('close', function(hadErr) {
     );
     let events = parsed["events"].as_array().cloned().unwrap_or_default();
     assert_eq!(
-        events.get(0),
+        events.first(),
         Some(&Value::String("error:boom".to_string())),
         "error should be observable by a listener attached after destroy(): {parsed}"
     );

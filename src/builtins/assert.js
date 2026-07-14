@@ -906,7 +906,16 @@ function AssertionError(opts) {
   }
 }
 AssertionError.prototype = Object.create(Error.prototype);
-AssertionError.prototype.constructor = AssertionError;
+// Lazy builtin evaluation can run after primordial prototypes are locked down.
+// Define the own constructor directly so an inherited non-writable
+// Error.prototype.constructor cannot make a sloppy assignment disappear.
+// @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
+Object.defineProperty(AssertionError.prototype, 'constructor', {
+  value: AssertionError,
+  writable: true,
+  configurable: true,
+  enumerable: false
+});
 
 function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
   // Identical values

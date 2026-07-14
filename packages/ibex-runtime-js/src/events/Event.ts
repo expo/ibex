@@ -52,10 +52,13 @@ export class Event {
     // zero timeStamp is truthful there, since no clock is observable at all.
     this.timeStamp = (() => {
       try {
-        return performance?.now?.() ?? Date.now();
+        const highResolution = performance?.now?.();
+        if (typeof highResolution === 'number') return highResolution;
       } catch {
-        return 0;
+        // Try the wall clock independently: embedders may deny only the high
+        // resolution source.
       }
+      try { return Date.now(); } catch { return 0; }
     })();
     // Per spec, isTrusted must be an own property with a getter (no setter)
     // so that it shows up in Object.getOwnPropertyDescriptor().

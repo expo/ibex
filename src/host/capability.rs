@@ -8,6 +8,7 @@ use crate::host::policy::PolicyFile;
 use crate::module_loader::RUNTIME_GATED_NODE_BUILTINS;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::RwLock;
 
 const MAX_AUDIT_LOG_ENTRIES: usize = 1024;
@@ -69,6 +70,15 @@ pub struct ImportPolicy {
 /// Manages capability grants and checks
 pub struct CapabilityManager {
     mode: SecurityMode,
+    /// Monotonic identity of every input that can change a legacy capability
+    /// decision. Retained native resources use it only as an invalidation key:
+    /// a match permits reuse of an already successful decision for the exact
+    /// same principal stack and resource, while a mismatch forces the normal
+    /// policy path before the next external effect.
+    authorization_generation: AtomicU64,
+    /// Production-visible diagnostic counter used by hot-path regressions. It
+    /// counts full legacy decisions, not generation-only lease checks.
+    authorization_check_count: AtomicUsize,
     /// Grants by numeric module ID (and `*` for global grants).
     grants: RwLock<HashMap<String, Vec<CapabilityGrant>>>,
     /// Grants keyed by package **selector** (package name).
@@ -102,10 +112,33 @@ pub struct CapabilityManager {
     /// @ref LLP 0002#host-boundary-constraints
     fs_root: Option<String>,
     /// Host-boundary fence from `HostConfig.allowed_hosts`: normalized host
-    /// entries every `network:*` capability value must match. (ENG-23876)
+    /// entries every outbound `network:*` capability value must match. Local
+    /// listener authority is governed by `network:listen`, not this legacy
+    /// remote-host allowlist. (ENG-23876, ENG-24285)
     allowed_hosts: Option<Vec<String>>,
     /// Audit log of capability checks
     audit_log: RwLock<VecDeque<AuditEntry>>,
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    conformance_observer: RwLock<ConformanceObserver>,
+}
+
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObservedCapabilityDecision {
+    pub terminal_branch_id: String,
+    pub module_id: String,
+    pub capability: String,
+    pub decision: bool,
+    pub allowed: bool,
+    pub fence: Option<String>,
+}
+
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
+#[derive(Default)]
+struct ConformanceObserver {
+    terminal_branch_id: Option<String>,
+    decisions: Vec<ObservedCapabilityDecision>,
 }
 
 /// An entry in the capability audit log.
@@ -174,6 +207,8 @@ impl CapabilityManager {
     pub fn new(mode: SecurityMode) -> Self {
         Self {
             mode,
+            authorization_generation: AtomicU64::new(1),
+            authorization_check_count: AtomicUsize::new(0),
             grants: RwLock::new(HashMap::new()),
             package_grants: RwLock::new(HashMap::new()),
             module_to_package: RwLock::new(HashMap::new()),
@@ -184,6 +219,8 @@ impl CapabilityManager {
             fs_root: None,
             allowed_hosts: None,
             audit_log: RwLock::new(VecDeque::with_capacity(MAX_AUDIT_LOG_ENTRIES)),
+            #[cfg(any(test, feature = "capsec-conformance-observer"))]
+            conformance_observer: RwLock::new(ConformanceObserver::default()),
         }
     }
 
@@ -193,11 +230,7 @@ impl CapabilityManager {
     /// resolved-to-resolved; host entries are normalized like `network:*`
     /// resources. Takes `&mut self`: called once from `Host::new` before the
     /// manager is shared. (ENG-23876)
-    pub fn set_host_boundary(
-        &mut self,
-        root_dir: Option<&Path>,
-        allowed_hosts: Option<&[String]>,
-    ) {
+    pub fn set_host_boundary(&mut self, root_dir: Option<&Path>, allowed_hosts: Option<&[String]>) {
         self.fs_root = root_dir.map(|root| {
             normalize_fs_resource(
                 &root.to_string_lossy(),
@@ -205,8 +238,12 @@ impl CapabilityManager {
                 FsResourceKind::Value,
             )
         });
-        self.allowed_hosts = allowed_hosts
-            .map(|hosts| hosts.iter().map(|h| normalize_network_resource(h)).collect());
+        self.allowed_hosts = allowed_hosts.map(|hosts| {
+            hosts
+                .iter()
+                .map(|h| normalize_network_resource(h))
+                .collect()
+        });
     }
 
     /// Apply policy file allow/deny rules
@@ -259,6 +296,7 @@ impl CapabilityManager {
                     .iter()
                     .map(|s| normalize_capability(s))
                     .collect();
+                self.bump_authorization_generation();
             }
         }
         // The import policy just changed: every memoized allowed-import
@@ -308,7 +346,11 @@ impl CapabilityManager {
         let normalized = normalize_capability(capability);
         if let Ok(mut grants) = self.grants.write() {
             if let Some(list) = grants.get_mut("0") {
+                let previous_len = list.len();
                 list.retain(|g| g.denied || g.capability != normalized);
+                if list.len() != previous_len {
+                    self.bump_authorization_generation();
+                }
             }
         }
     }
@@ -344,6 +386,7 @@ impl CapabilityManager {
                     locator: locator.map(|s| s.to_string()),
                 },
             );
+            self.bump_authorization_generation();
         }
         // The principal's package resolution just changed (typically
         // unregistered→registered, which flips it from trusted to policied):
@@ -402,6 +445,7 @@ impl CapabilityManager {
                     constraint: None,
                     denied: false,
                 });
+            self.bump_authorization_generation();
         }
     }
 
@@ -418,6 +462,7 @@ impl CapabilityManager {
                     constraint: None,
                     denied: true,
                 });
+            self.bump_authorization_generation();
         }
     }
 
@@ -449,6 +494,8 @@ impl CapabilityManager {
         capability_str: &str,
         fs_mode: FsNormalizationMode,
     ) -> bool {
+        self.authorization_check_count
+            .fetch_add(1, Ordering::Relaxed);
         let normalized = normalize_capability_value_with_fs_mode(capability_str, fs_mode);
         if self.fence_denies(module_id, &normalized) {
             return false;
@@ -470,7 +517,7 @@ impl CapabilityManager {
     fn fence_denial(&self, capability: &str) -> Option<&'static str> {
         let mut parts = capability.splitn(3, ':');
         let scope = parts.next().unwrap_or("");
-        let _action = parts.next();
+        let action = parts.next().unwrap_or("");
         let resource = parts.next();
         match scope {
             "fs" => {
@@ -479,11 +526,12 @@ impl CapabilityManager {
                 // ANY path, which necessarily exceeds the fence: deny. Checked
                 // values are symlink-resolved by normalization, and the root
                 // was resolved the same way, so prefix containment is sound.
-                let inside = resource
-                    .is_some_and(|path| path == root || path_prefix_match(&format!("{root}/**"), path));
+                let inside = resource.is_some_and(|path| {
+                    path == root || path_prefix_match(&format!("{root}/**"), path)
+                });
                 (!inside).then_some("root_dir")
             }
-            "network" => {
+            "network" if action != "listen" => {
                 let hosts = self.allowed_hosts.as_deref()?;
                 // Endpoint values are `<host>` or `<host>:<port>`; an entry
                 // without a port covers the host across ports via the same
@@ -516,6 +564,8 @@ impl CapabilityManager {
             allowed: false,
             mode: self.mode,
         });
+        #[cfg(any(test, feature = "capsec-conformance-observer"))]
+        self.record_conformance_decision(module_id, normalized, false, false, Some(fence));
         true
     }
 
@@ -533,12 +583,14 @@ impl CapabilityManager {
     fn gate_and_record(&self, module_id: &str, capability: String, decision: bool) -> bool {
         // Permissive and Audit let everything proceed; only Enforce blocks.
         let allowed = self.mode != SecurityMode::Enforce || decision;
+        #[cfg(any(test, feature = "capsec-conformance-observer"))]
+        self.record_conformance_decision(module_id, &capability, decision, allowed, None);
         if !decision {
             self.record(AuditEntry {
                 timestamp: std::time::SystemTime::now(),
                 module_id: module_id.to_string(),
                 package: self.principal_for(module_id),
-                capability,
+                capability: capability.clone(),
                 constraint: None,
                 decision,
                 allowed,
@@ -546,6 +598,31 @@ impl CapabilityManager {
             });
         }
         allowed
+    }
+
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    fn record_conformance_decision(
+        &self,
+        module_id: &str,
+        capability: &str,
+        decision: bool,
+        allowed: bool,
+        fence: Option<&str>,
+    ) {
+        let Ok(mut observer) = self.conformance_observer.write() else {
+            return;
+        };
+        let Some(terminal_branch_id) = observer.terminal_branch_id.clone() else {
+            return;
+        };
+        observer.decisions.push(ObservedCapabilityDecision {
+            terminal_branch_id,
+            module_id: module_id.to_string(),
+            capability: capability.to_string(),
+            decision,
+            allowed,
+            fence: fence.map(str::to_string),
+        });
     }
 
     fn record(&self, entry: AuditEntry) {
@@ -766,6 +843,7 @@ impl CapabilityManager {
             for c in classes {
                 set.insert(normalize_capability(&c.into()));
             }
+            self.bump_authorization_generation();
         }
     }
 
@@ -815,6 +893,8 @@ impl CapabilityManager {
         capability_str: &str,
         fs_mode: FsNormalizationMode,
     ) -> bool {
+        self.authorization_check_count
+            .fetch_add(1, Ordering::Relaxed);
         let normalized = normalize_capability_value_with_fs_mode(capability_str, fs_mode);
         let top = stack.first().copied().unwrap_or("");
         if self.fence_denies(top, &normalized) {
@@ -861,6 +941,7 @@ impl CapabilityManager {
                 constraint,
                 denied: false,
             });
+            self.bump_authorization_generation();
         }
     }
 
@@ -875,7 +956,29 @@ impl CapabilityManager {
                 constraint,
                 denied: true,
             });
+            self.bump_authorization_generation();
         }
+    }
+
+    /// Current invalidation identity for retained legacy-resource leases.
+    pub fn authorization_generation(&self) -> u64 {
+        self.authorization_generation.load(Ordering::Acquire)
+    }
+
+    /// Number of full legacy capability decisions performed by this manager.
+    pub fn authorization_check_count(&self) -> usize {
+        self.authorization_check_count.load(Ordering::Relaxed)
+    }
+
+    fn bump_authorization_generation(&self) {
+        // Mutation APIs publish their locked data before this release update.
+        // Wrapping would permit an ancient lease to compare equal after 2^64
+        // mutations, so exhaust the process instead of silently reusing it.
+        self.authorization_generation
+            .fetch_update(Ordering::Release, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .expect("legacy capability generation exhausted");
     }
 
     /// Get the audit log
@@ -893,12 +996,29 @@ impl CapabilityManager {
         }
     }
 
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    pub fn begin_conformance_observation(&self, terminal_branch_id: &str) {
+        if let Ok(mut observer) = self.conformance_observer.write() {
+            observer.terminal_branch_id = Some(terminal_branch_id.to_string());
+            observer.decisions.clear();
+        }
+    }
+
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    pub fn take_conformance_observations(&self) -> Vec<ObservedCapabilityDecision> {
+        let Ok(mut observer) = self.conformance_observer.write() else {
+            return Vec::new();
+        };
+        observer.terminal_branch_id = None;
+        std::mem::take(&mut observer.decisions)
+    }
+
     /// Summarize would-deny decisions for operator-facing audit output.
     /// Returns an empty string when nothing was flagged.
     ///
-    /// @ref LLP 0013#phase-1 — `ibex run --capsec audit` feeds the compat
-    /// corpus: the would-deny set is exactly the grants an app must declare
-    /// before it can move to `--capsec enforce`.
+    /// @ref LLP 0021#wp9--make-complete-enforcement-the-default-and-remove-weakening-paths —
+    /// `ibex capsec audit` is the separate foreground diagnostic workflow;
+    /// ordinary production execution never selects this legacy reporter.
     pub fn audit_report(&self) -> String {
         let Ok(log) = self.audit_log.read() else {
             return String::new();
@@ -1375,21 +1495,56 @@ fn matches_capability(pattern: &str, value: &str) -> bool {
 }
 
 fn network_endpoint_match(pattern: &str, value: &str) -> bool {
-    if pattern == value {
-        return true;
-    }
     // Network endpoint capabilities are emitted as `host:port` for socket
     // operations and, depending on URL parser shape, fetch/WebSocket authorities.
     // A policy resource without a port grants that host across ports, but it must
     // not become a generic string prefix (`example.com` must not match
     // `example.com.evil`). Keep this scope-specific so generic capability
     // resources remain exact unless they use `/**`.
-    if pattern.contains(':') {
-        return false;
+    fn split_endpoint(endpoint: &str) -> Option<(&str, Option<&str>)> {
+        if endpoint.starts_with('[') {
+            let end = endpoint.find(']')?;
+            let host = &endpoint[1..end];
+            if host.parse::<std::net::Ipv6Addr>().is_err() {
+                return None;
+            }
+            let remainder = &endpoint[end + 1..];
+            return match remainder {
+                "" => Some((host, None)),
+                suffix if suffix.starts_with(':') => {
+                    let port = &suffix[1..];
+                    port.parse::<u16>().ok().map(|_| (host, Some(port)))
+                }
+                _ => None,
+            };
+        }
+        if endpoint.contains(['[', ']']) || endpoint.is_empty() {
+            return None;
+        }
+        // A whole unbracketed IPv6 literal is a host-only policy resource.
+        // Never reinterpret its final hextet as a decimal port. Concrete
+        // host+port resources emitted by native code are always bracketed.
+        if endpoint.bytes().filter(|byte| *byte == b':').count() > 1 {
+            return endpoint
+                .parse::<std::net::Ipv6Addr>()
+                .ok()
+                .map(|_| (endpoint, None));
+        }
+        match endpoint.rsplit_once(':') {
+            Some((host, port)) if !host.is_empty() && port.parse::<u16>().is_ok() => {
+                Some((host, Some(port)))
+            }
+            Some(_) => None,
+            None => Some((endpoint, None)),
+        }
     }
-    value
-        .strip_prefix(pattern)
-        .is_some_and(|remainder| remainder.starts_with(':'))
+    let Some((pattern_host, pattern_port)) = split_endpoint(pattern) else {
+        return false;
+    };
+    let Some((value_host, value_port)) = split_endpoint(value) else {
+        return false;
+    };
+    pattern_host == value_host && pattern_port.is_none_or(|port| value_port == Some(port))
 }
 
 fn path_prefix_match(pattern: &str, value: &str) -> bool {
@@ -1411,6 +1566,59 @@ fn path_prefix_match(pattern: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conformance_observer_records_every_gate_result_under_the_expected_terminal() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.grant("7", "fs:read:/tmp/allowed", None);
+        manager.begin_conformance_observation("terminal.fs.read");
+        assert!(manager.check("7", "fs:read:/tmp/allowed"));
+        assert!(!manager.check("7", "fs:read:/tmp/denied"));
+        let observations = manager.take_conformance_observations();
+        assert_eq!(observations.len(), 2);
+        assert!(observations.iter().all(|row| {
+            row.terminal_branch_id == "terminal.fs.read"
+                && row.module_id == "7"
+                && row.fence.is_none()
+        }));
+        assert!(observations[0].capability.ends_with("/allowed"));
+        assert_eq!(
+            (observations[0].decision, observations[0].allowed),
+            (true, true)
+        );
+        assert!(observations[1].capability.ends_with("/denied"));
+        assert_eq!(
+            (observations[1].decision, observations[1].allowed),
+            (false, false)
+        );
+        assert!(manager.take_conformance_observations().is_empty());
+    }
+
+    #[test]
+    fn retained_resource_generation_tracks_every_authority_mutation() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.apply_policy(&PolicyFile {
+            ceiling: vec!["sqlite:write".into()],
+            ..Default::default()
+        });
+        let initial = manager.authorization_generation();
+        manager.grant("0", "sqlite:write", None);
+        let granted = manager.authorization_generation();
+        assert!(granted > initial);
+
+        let before_checks = manager.authorization_check_count();
+        assert!(manager.check("0", "sqlite:write"));
+        assert_eq!(manager.authorization_check_count(), before_checks + 1);
+
+        manager.runtime_revoke_root("sqlite:write");
+        let revoked = manager.authorization_generation();
+        assert!(revoked > granted);
+        assert!(!manager.check("0", "sqlite:write"));
+        assert_eq!(manager.authorization_check_count(), before_checks + 2);
+
+        manager.register_module_package("7", "sqlite-client", Some("sqlite-client@1"));
+        assert!(manager.authorization_generation() > revoked);
+    }
 
     // ENG-23876 — the host-boundary fence (`HostConfig.root_dir` /
     // `allowed_hosts`) must deny outside-the-fence operations in EVERY mode,
@@ -1455,7 +1663,7 @@ mod tests {
     }
 
     #[test]
-    fn host_boundary_allowed_hosts_fences_network_in_every_mode() {
+    fn host_boundary_allowed_hosts_fences_outbound_network_in_every_mode() {
         for mode in [
             SecurityMode::Permissive,
             SecurityMode::Audit,
@@ -1473,6 +1681,11 @@ mod tests {
             );
             // Not a generic string prefix.
             assert!(!manager.check("0", "network:fetch:api.example.com.evil"));
+            // `allowed_hosts` is an outbound remote-host compatibility fence,
+            // not a local bind-address fence. Listen authority remains an
+            // independent policy decision for both address families.
+            assert!(manager.check("0", "network:listen:127.0.0.1:8080"));
+            assert!(manager.check("0", "network:listen:[::1]:8080"));
             // Resource-less network capability claims any endpoint: denied.
             assert!(!manager.check("0", "network:fetch"));
             // A blanket grant cannot widen past the fence.
@@ -1485,11 +1698,23 @@ mod tests {
     }
 
     #[test]
-    fn host_boundary_empty_allowed_hosts_denies_all_network() {
+    fn host_boundary_empty_allowed_hosts_denies_all_outbound_network() {
         let mut manager = CapabilityManager::new(SecurityMode::Permissive);
         manager.set_host_boundary(None, Some(&[]));
         assert!(!manager.check("0", "network:fetch:api.example.com"));
-        assert!(!manager.check("0", "network:listen:127.0.0.1:8080"));
+        assert!(!manager.check("0", "network:connect:127.0.0.1:8080"));
+        assert!(!manager.check("0", "network:connect:[::1]:8080"));
+        assert!(manager.check("0", "network:listen:127.0.0.1:8080"));
+        assert!(manager.check("0", "network:listen:[::1]:8080"));
+    }
+
+    #[test]
+    fn host_boundary_allowed_hosts_matches_ipv6_outbound_endpoints() {
+        let mut manager = CapabilityManager::new(SecurityMode::Permissive);
+        manager.set_host_boundary(None, Some(&["::1".to_string()]));
+        assert!(manager.check("0", "network:connect:[::1]:443"));
+        assert!(manager.check("0", "network:fetch:[::1]:443"));
+        assert!(!manager.check("0", "network:connect:[::2]:443"));
     }
 
     // The fence must hold at every checking chokepoint, not just `check`:
@@ -1524,7 +1749,10 @@ mod tests {
         let entry = log.last().expect("fence denial must be recorded");
         assert_eq!(entry.constraint.as_deref(), Some("host-boundary:root_dir"));
         assert!(!entry.decision);
-        assert!(!entry.allowed, "audit mode must not let the fence fail open");
+        assert!(
+            !entry.allowed,
+            "audit mode must not let the fence fail open"
+        );
     }
 
     #[test]
@@ -1557,6 +1785,33 @@ mod tests {
         assert!(!matches_capability(
             "network:fetch:api.example.com",
             "network:fetch:other.example.com"
+        ));
+    }
+
+    #[test]
+    fn network_endpoint_matching_canonicalizes_ipv6_without_suffix_widening() {
+        assert!(network_endpoint_match("::1", "[::1]:443"));
+        assert!(network_endpoint_match("[::1]", "[::1]:443"));
+        assert!(network_endpoint_match("[::1]:443", "[::1]:443"));
+        assert!(!network_endpoint_match("[::1]:80", "[::1]:443"));
+        assert!(!network_endpoint_match("::1", "[::10]:443"));
+        assert!(!network_endpoint_match("[::1]", "[::1].evil:443"));
+        assert!(!network_endpoint_match("[::1]", "[::1]:not-a-port"));
+        assert!(!network_endpoint_match("[::1]", "[::1]:65536"));
+        assert!(!network_endpoint_match("[::1]", "[::1"));
+        assert!(!network_endpoint_match("[not-ipv6]", "[not-ipv6]:443"));
+
+        assert!(matches_capability(
+            "network:connect:::1",
+            "network:connect:[::1]:443"
+        ));
+        assert!(matches_capability(
+            "network:connect:[::1]",
+            "network:connect:[::1]:443"
+        ));
+        assert!(!matches_capability(
+            "network:connect:[::1]:80",
+            "network:connect:[::1]:443"
         ));
     }
 

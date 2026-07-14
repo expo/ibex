@@ -9,12 +9,13 @@ use crate::engine::{self, Engine, EngineFeature};
 use crate::host::{Host, HostConfig};
 use crate::subprocess::{output_with_timeout, timeout_from_env, DEFAULT_BUNDLER_TIMEOUT_MS};
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::env;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Set when bytecode loading fails (e.g. version mismatch between hermesc
 /// and the embedded Hermes runtime). Once set, we skip further bytecode
@@ -22,6 +23,8 @@ use std::sync::Arc;
 static BYTECODE_INCOMPATIBLE: AtomicBool = AtomicBool::new(false);
 
 const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
+  if (g.__exactRuntimeLoaded === true) return;
+
   if (typeof g.TextEncoder !== 'function') {
     g.TextEncoder = function TextEncoder() {};
     g.TextEncoder.prototype.encode = function(value) {
@@ -446,17 +449,29 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
     });
   }
 
-  function ExactEventTarget() {
-    this.__listeners = {};
+  var exactEventTargetStates = new WeakMap();
+  function ExactEventTarget(ownerAssert) {
+    exactEventTargetStates.set(this, {
+      listeners: {},
+      ownerAssert: typeof ownerAssert === 'function' ? ownerAssert : null
+    });
+  }
+  function exactEventTargetState(target) {
+    var state = target && exactEventTargetStates.get(target);
+    if (!state) throw new TypeError('Illegal invocation');
+    if (state.ownerAssert) state.ownerAssert();
+    return state;
   }
   ExactEventTarget.prototype.addEventListener = function(type, listener) {
+    var state = exactEventTargetState(this);
     if (typeof listener !== 'function') return;
     type = String(type);
-    (this.__listeners[type] || (this.__listeners[type] = [])).push(listener);
+    (state.listeners[type] || (state.listeners[type] = [])).push(listener);
   };
   ExactEventTarget.prototype.removeEventListener = function(type, listener) {
+    var state = exactEventTargetState(this);
     type = String(type);
-    var list = this.__listeners[type];
+    var list = state.listeners[type];
     if (!list) return;
     for (var i = 0; i < list.length; i++) {
       if (list[i] === listener) {
@@ -466,13 +481,14 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
     }
   };
   ExactEventTarget.prototype.dispatchEvent = function(event) {
+    var state = exactEventTargetState(this);
     event.target = event.target || this;
     event.currentTarget = this;
     var handler = this['on' + event.type];
     if (typeof handler === 'function') {
       handler.call(this, event);
     }
-    var list = this.__listeners[event.type];
+    var list = state.listeners[event.type];
     if (list) {
       list = list.slice();
       for (var i = 0; i < list.length; i++) {
@@ -482,37 +498,114 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
     return true;
   };
 
-  if (typeof g.WebSocket !== 'function' && typeof g.__exactWsConnect === 'function') {
+  if (typeof g.WebSocket !== 'function' &&
+      typeof g.__exactWsConnect === 'function' &&
+      typeof g.__exactWsSend === 'function' &&
+      typeof g.__exactWsClose === 'function' &&
+      typeof g.__exactNetOwner === 'function') {
+    var exactWebSocketStates = new WeakMap();
+    var exactWsConnect = g.__exactWsConnect;
+    var exactWsSend = g.__exactWsSend;
+    var exactWsClose = g.__exactWsClose;
+    var exactNetOwner = g.__exactNetOwner;
+    var exactEventTargetDispatch = ExactEventTarget.prototype.dispatchEvent;
+
+    function exactWebSocketState(socket) {
+      var state = socket && exactWebSocketStates.get(socket);
+      if (!state) throw new TypeError('Illegal invocation');
+      return state;
+    }
+
+    function exactOwnedWebSocketState(socket) {
+      var state = exactWebSocketState(socket);
+      exactNetOwner('assert', state.ownerStamp);
+      return state;
+    }
+
+    function exactWebSocketHandleOpen(socket, protocol, extensions) {
+      var state = exactOwnedWebSocketState(socket);
+      if (state.readyState !== ExactWebSocket.CONNECTING) return;
+      state.protocol = protocol || '';
+      state.extensions = extensions || '';
+      state.readyState = ExactWebSocket.OPEN;
+      exactEventTargetDispatch.call(socket, { type: 'open' });
+    }
+
+    function exactWebSocketHandleMessage(socket, data) {
+      if (exactOwnedWebSocketState(socket).readyState !== ExactWebSocket.OPEN) return;
+      exactEventTargetDispatch.call(socket, { type: 'message', data: data });
+    }
+
+    function exactWebSocketHandleError(socket, message) {
+      var state = exactOwnedWebSocketState(socket);
+      exactEventTargetDispatch.call(socket, { type: 'error', message: message || 'WebSocket error' });
+      if (state.readyState !== ExactWebSocket.CLOSED) {
+        state.readyState = ExactWebSocket.CLOSED;
+        exactEventTargetDispatch.call(socket, { type: 'close', code: 1006, reason: message || '', wasClean: false });
+      }
+    }
+
+    function exactWebSocketHandleClose(socket, code, reason, wasClean) {
+      exactOwnedWebSocketState(socket).readyState = ExactWebSocket.CLOSED;
+      exactEventTargetDispatch.call(socket, { type: 'close', code: code, reason: reason || '', wasClean: !!wasClean });
+    }
+
+    function exactWebSocketHandleBytesSent(socket, bytes) {
+      var state = exactOwnedWebSocketState(socket);
+      state.bufferedAmount = Math.max(0, state.bufferedAmount - (bytes || 0));
+    }
+
     function ExactWebSocket(url, protocols) {
       if (!(this instanceof ExactWebSocket)) {
         throw new TypeError("Failed to construct 'WebSocket': Please use the 'new' operator");
       }
-      ExactEventTarget.call(this);
-      this.url = String(url);
-      this.protocol = '';
-      this.extensions = '';
-      this.readyState = ExactWebSocket.CONNECTING;
-      this.bufferedAmount = 0;
-      this.binaryType = 'blob';
-      this.onopen = null;
-      this.onmessage = null;
-      this.onerror = null;
-      this.onclose = null;
-      this._handleOpen = ExactWebSocket.prototype._handleOpen.bind(this);
-      this._handleMessage = ExactWebSocket.prototype._handleMessage.bind(this);
-      this._handleError = ExactWebSocket.prototype._handleError.bind(this);
-      this._handleClose = ExactWebSocket.prototype._handleClose.bind(this);
-      this._handleBytesSent = ExactWebSocket.prototype._handleBytesSent.bind(this);
+      var ownerStamp = exactNetOwner('new');
+      ExactEventTarget.call(this, function() {
+        exactNetOwner('assert', ownerStamp);
+      });
+      var state = {
+        url: String(url),
+        protocol: '',
+        extensions: '',
+        readyState: ExactWebSocket.CONNECTING,
+        bufferedAmount: 0,
+        binaryType: 'blob',
+        id: 0,
+        ownerStamp: ownerStamp,
+        onopen: null,
+        onmessage: null,
+        onerror: null,
+        onclose: null
+      };
+      // @ref LLP 0013#delegation-and-authority-flow — a wrapper may cross a
+      // principal boundary, but its native selector remains closure-private.
+      exactWebSocketStates.set(this, state);
+      var socket = this;
+      var bridge = {
+        _handleOpen: function(protocol, extensions) {
+          exactWebSocketHandleOpen(socket, protocol, extensions);
+        },
+        _handleMessage: function(data) {
+          exactWebSocketHandleMessage(socket, data);
+        },
+        _handleError: function(message) {
+          exactWebSocketHandleError(socket, message);
+        },
+        _handleClose: function(code, reason, wasClean) {
+          exactWebSocketHandleClose(socket, code, reason, wasClean);
+        },
+        _handleBytesSent: function(bytes) {
+          exactWebSocketHandleBytesSent(socket, bytes);
+        }
+      };
       var protocolList = [];
       if (Array.isArray(protocols)) {
         protocolList = protocols.map(String);
       } else if (protocols !== undefined) {
         protocolList = [String(protocols)];
       }
-      this.__id = g.__exactWsConnect(this.url, protocolList.join(','), this);
-      if (typeof this.__id !== 'number') {
-        this.__id = 0;
-      }
+      var id = exactWsConnect(state.url, protocolList.join(','), bridge);
+      state.id = typeof id === 'number' ? id : 0;
     }
     ExactWebSocket.CONNECTING = 0;
     ExactWebSocket.OPEN = 1;
@@ -524,10 +617,76 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
     ExactWebSocket.prototype.OPEN = ExactWebSocket.OPEN;
     ExactWebSocket.prototype.CLOSING = ExactWebSocket.CLOSING;
     ExactWebSocket.prototype.CLOSED = ExactWebSocket.CLOSED;
+    Object.defineProperties(ExactWebSocket.prototype, {
+      url: {
+        get: function() { return exactOwnedWebSocketState(this).url; },
+        enumerable: true,
+        configurable: true
+      },
+      protocol: {
+        get: function() { return exactOwnedWebSocketState(this).protocol; },
+        enumerable: true,
+        configurable: true
+      },
+      extensions: {
+        get: function() { return exactOwnedWebSocketState(this).extensions; },
+        enumerable: true,
+        configurable: true
+      },
+      readyState: {
+        get: function() { return exactOwnedWebSocketState(this).readyState; },
+        enumerable: true,
+        configurable: true
+      },
+      bufferedAmount: {
+        get: function() { return exactOwnedWebSocketState(this).bufferedAmount; },
+        enumerable: true,
+        configurable: true
+      },
+      binaryType: {
+        get: function() { return exactOwnedWebSocketState(this).binaryType; },
+        set: function(value) {
+          if (value === 'blob' || value === 'arraybuffer') {
+            exactOwnedWebSocketState(this).binaryType = value;
+          }
+        },
+        enumerable: true,
+        configurable: true
+      },
+      onopen: {
+        get: function() { return exactOwnedWebSocketState(this).onopen; },
+        set: function(value) { exactOwnedWebSocketState(this).onopen = typeof value === 'function' ? value : null; },
+        enumerable: true,
+        configurable: true
+      },
+      onmessage: {
+        get: function() { return exactOwnedWebSocketState(this).onmessage; },
+        set: function(value) { exactOwnedWebSocketState(this).onmessage = typeof value === 'function' ? value : null; },
+        enumerable: true,
+        configurable: true
+      },
+      onerror: {
+        get: function() { return exactOwnedWebSocketState(this).onerror; },
+        set: function(value) { exactOwnedWebSocketState(this).onerror = typeof value === 'function' ? value : null; },
+        enumerable: true,
+        configurable: true
+      },
+      onclose: {
+        get: function() { return exactOwnedWebSocketState(this).onclose; },
+        set: function(value) { exactOwnedWebSocketState(this).onclose = typeof value === 'function' ? value : null; },
+        enumerable: true,
+        configurable: true
+      }
+    });
     ExactWebSocket.prototype.send = function(data) {
-      if (this.readyState !== ExactWebSocket.OPEN) {
+      var state = exactOwnedWebSocketState(this);
+      if (state.readyState !== ExactWebSocket.OPEN) {
         throw new Error('WebSocket is not open');
       }
+      // Authenticate before caller-controlled conversion or bufferedAmount
+      // mutation. The native send boundary ignores this unsupported payload
+      // after performing its strict owner/capability check.
+      exactWsSend(state.id, undefined);
       var payload = data;
       var bytes = 0;
       if (typeof data === 'string') {
@@ -542,38 +701,26 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
         payload = String(data);
         bytes = new TextEncoder().encode(payload).byteLength;
       }
-      this.bufferedAmount += bytes;
-      g.__exactWsSend(this.__id, payload);
+      state.bufferedAmount += bytes;
+      try {
+        exactWsSend(state.id, payload);
+      } catch (error) {
+        state.bufferedAmount = Math.max(0, state.bufferedAmount - bytes);
+        throw error;
+      }
     };
     ExactWebSocket.prototype.close = function(code, reason) {
-      if (this.readyState === ExactWebSocket.CLOSED || this.readyState === ExactWebSocket.CLOSING) return;
-      this.readyState = ExactWebSocket.CLOSING;
-      if (this.__id) {
-        g.__exactWsClose(this.__id, code == null ? 1005 : code, reason == null ? '' : String(reason));
+      var state = exactOwnedWebSocketState(this);
+      if (state.readyState === ExactWebSocket.CLOSED || state.readyState === ExactWebSocket.CLOSING) return;
+      if (state.id) {
+        // __exactWsClose performs the strict native owner check. Only commit
+        // CLOSING after it succeeds so a denied retained-wrapper call cannot
+        // poison the owner's retry.
+        exactWsClose(state.id, code == null ? 1005 : code, reason == null ? '' : String(reason));
       }
-    };
-    ExactWebSocket.prototype._handleOpen = function(protocol, extensions) {
-      this.protocol = protocol || '';
-      this.extensions = extensions || '';
-      this.readyState = ExactWebSocket.OPEN;
-      this.dispatchEvent({ type: 'open' });
-    };
-    ExactWebSocket.prototype._handleMessage = function(data) {
-      this.dispatchEvent({ type: 'message', data: data });
-    };
-    ExactWebSocket.prototype._handleError = function(message) {
-      this.dispatchEvent({ type: 'error', message: message || 'WebSocket error' });
-      if (this.readyState !== ExactWebSocket.CLOSED) {
-        this.readyState = ExactWebSocket.CLOSED;
-        this.dispatchEvent({ type: 'close', code: 1006, reason: message || '', wasClean: false });
+      if (state.readyState !== ExactWebSocket.CLOSED) {
+        state.readyState = ExactWebSocket.CLOSING;
       }
-    };
-    ExactWebSocket.prototype._handleClose = function(code, reason, wasClean) {
-      this.readyState = ExactWebSocket.CLOSED;
-      this.dispatchEvent({ type: 'close', code: code, reason: reason || '', wasClean: !!wasClean });
-    };
-    ExactWebSocket.prototype._handleBytesSent = function(bytes) {
-      this.bufferedAmount = Math.max(0, this.bufferedAmount - (bytes || 0));
     };
     g.WebSocket = ExactWebSocket;
   }
@@ -933,6 +1080,22 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
   g.__exactRuntimeLoaded = true;
 })(globalThis);"#;
 
+const WINDOWS_RUNTIME_LOADED_PROBE: &str =
+    "typeof globalThis === 'object' && globalThis.__exactRuntimeLoaded === true";
+
+async fn load_windows_minimal_runtime(engine: &dyn Engine) -> Result<()> {
+    let loaded = engine
+        .eval_immediate(WINDOWS_RUNTIME_LOADED_PROBE)
+        .await
+        .context("failed to probe the Windows minimal runtime")?;
+    if !matches!(loaded.as_deref().map(str::trim), Some("true")) {
+        engine
+            .eval_immediate(WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP)
+            .await?;
+    }
+    engine::hermes::finalize_compartment_baseline(engine).await
+}
+
 /// Mark bytecode as incompatible with the embedded runtime.
 /// Called from the engine layer when bytecode loading fails.
 pub fn mark_bytecode_incompatible() {
@@ -978,6 +1141,14 @@ fn build_exec_argv(cli: &Cli) -> Vec<String> {
         }
     }
 
+    exec_argv
+}
+
+/// Preserve the explicit foreground-audit entry when child-process shims
+/// reconstruct an Ibex invocation from `process.execArgv`.
+fn build_audit_exec_argv(cli: &Cli) -> Vec<String> {
+    let mut exec_argv = vec!["capsec".to_string(), "audit".to_string()];
+    exec_argv.extend(build_exec_argv(cli));
     exec_argv
 }
 
@@ -1038,16 +1209,18 @@ pub struct Runtime {
 impl Runtime {
     /// Build a runtime from CLI configuration.
     pub fn from_cli(cli: &Cli) -> Result<Self> {
+        let (host, armed_snapshot_digest) = build_host(cli)?;
+
         // Opt-in compat surfaces ride the env contract so the runtime bundle
         // sees them regardless of bootstrap ordering, and child spawns inherit
         // them. `__exactCompatModes` is also seeded in the preload for JS-side
-        // introspection.
+        // introspection. Validate armed startup before this process-global
+        // mutation so a rejected compatibility facade has no side effect.
         if cli.compat.as_deref() == Some("bun") {
             std::env::set_var("EXACT_COMPAT_BUN", "1");
         }
-        let host = Host::new(build_host_config(cli)?);
         crate::host::abi::install_host(host.clone());
-        let engine = engine::create_engine(&cli.engine)?;
+        let engine = engine::create_engine(&cli.engine, armed_snapshot_digest.as_deref())?;
 
         // If the engine doesn't support ESM, fall back to CJS bundling.
         // Hermes evaluateJavaScript() only supports script mode, not ES modules.
@@ -1065,6 +1238,33 @@ impl Runtime {
             bundle_format,
             exec_argv: build_exec_argv(cli),
             compat_modes: cli.compat.iter().cloned().collect(),
+        })
+    }
+
+    pub fn from_audit_cli(cli: &Cli) -> Result<Self> {
+        validate_diagnostic_audit_inputs(cli)?;
+        if cli.policy.is_some() || crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
+            anyhow::bail!("foreground audit does not accept durable policy inputs");
+        }
+        let host = Host::new(HostConfig {
+            mode: crate::host::SecurityMode::Audit,
+            ..Default::default()
+        });
+        crate::host::abi::install_host(host.clone());
+        let engine = engine::create_engine(&cli.engine, None)?;
+        let bundle_format = if cli.bundle_format == BundleFormat::Esm
+            && !engine.supports_feature(EngineFeature::EsmModules)
+        {
+            BundleFormat::Cjs
+        } else {
+            cli.bundle_format
+        };
+        Ok(Self {
+            engine,
+            _host: host,
+            bundle_format,
+            exec_argv: build_audit_exec_argv(cli),
+            compat_modes: Vec::new(),
         })
     }
 
@@ -1105,9 +1305,7 @@ impl Runtime {
         );
         self.engine.eval_immediate(&preload_bootstrap).await?;
         if cfg!(windows) {
-            self.engine
-                .eval_immediate(WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP)
-                .await?;
+            load_windows_minimal_runtime(self.engine.as_ref()).await?;
             return Ok(());
         }
 
@@ -1200,6 +1398,10 @@ impl Runtime {
             }
             _ => absolute_path.clone(),
         };
+        // Hold a shared OS file lock for the entire execution. Quota pruning
+        // takes the exclusive side, so lazy per-package chunk loads remain
+        // safe without PID files (which leaked and were vulnerable to reuse).
+        let _bundle_lease = acquire_bundle_execution_lease(&entry_path).await?;
         let entry_str = entry_path.to_string_lossy();
 
         let mut argv: Vec<String> = vec![exec_path.clone(), path_str.to_string()];
@@ -1307,17 +1509,13 @@ impl Runtime {
         // dir. Tell the loader that dir so it can resolve those requires
         // absolutely, while the entry's own `__dirname`/`__filename` stay mapped
         // to the source (the loader only redirects the `__ibexpkg__` specifiers).
-        let argv_code = if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
-            let chunk_dir = entry_path
-                .parent()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let chunk_dir_json =
-                serde_json::to_string(&chunk_dir).unwrap_or_else(|_| "\"\"".to_string());
-            format!("globalThis.__exactChunkDir = {chunk_dir_json};\n{argv_code}")
-        } else {
-            argv_code
-        };
+        let chunk_dir = entry_path
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let chunk_dir_json =
+            serde_json::to_string(&chunk_dir).unwrap_or_else(|_| "\"\"".to_string());
+        let argv_code = format!("globalThis.__exactChunkDir = {chunk_dir_json};\n{argv_code}");
 
         if cfg!(windows) {
             let source = tokio::fs::read_to_string(&entry_path)
@@ -1334,7 +1532,35 @@ impl Runtime {
         let is_bytecode = entry_path.extension().and_then(|s| s.to_str()) == Some("hbc");
         if is_bytecode {
             self.engine.eval_immediate(&argv_code).await?;
-            match self.engine.run_file(&entry_str).await {
+            let content_dir = entry_path.parent().filter(|parent| {
+                parent
+                    .parent()
+                    .and_then(Path::file_name)
+                    .is_some_and(|name| name == ".bytecode-cache")
+            });
+            // Content-addressed HBC is untrusted cache data. Read and verify it
+            // once, then pass those exact bytes to Hermes. Direct user-supplied
+            // .hbc files retain the normal engine path behavior.
+            let verified = match content_dir {
+                Some(_) => Some(
+                    engine::hermes::load_verified_bytecode_artifact(None, &entry_path)
+                        .await
+                        .context("Bytecode cache changed before execution")?,
+                ),
+                None => None,
+            };
+            let manifest_source = verified
+                .as_ref()
+                .map(|artifact| artifact.source_path.clone());
+            let execution = match verified.as_ref() {
+                Some(artifact) => {
+                    self.engine
+                        .run_bytecode_bytes(&artifact.bytes, &entry_str)
+                        .await
+                }
+                None => self.engine.run_file(&entry_str).await,
+            };
+            match execution {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     // Only a genuine load failure — the bytecode buffer was
@@ -1348,14 +1574,18 @@ impl Runtime {
                     // @ref LLP 0005#bytecode-precompilation-hermesc — entry
                     // bytecode falls back to source on LOAD failure only,
                     // unlike the always-fall-back startup bootstrap.
-                    if !engine::hermes::is_bytecode_load_error(&format!("{e:#}")) {
+                    if !engine::hermes::is_bytecode_load_error(&e) {
                         return Err(e);
                     }
                     // Bytecode failed to load (version mismatch or corrupt).
                     // Mark bytecode as incompatible so we don't re-compile.
                     BYTECODE_INCOMPATIBLE.store(true, Ordering::Relaxed);
                     // Delete the stale .hbc and fall through to require() with JS source.
-                    let _ = tokio::fs::remove_file(&entry_path).await;
+                    if let Some(content_dir) = content_dir {
+                        let _ = tokio::fs::remove_dir_all(content_dir).await;
+                    } else {
+                        let _ = tokio::fs::remove_file(&entry_path).await;
+                    }
                     // Derive the JS source path from bytecode source path.
                     // .hbc files can be produced from either a raw source (.ts)
                     // or a bundled output (.bundle.mjs/.bundle.js), so fallback
@@ -1364,13 +1594,15 @@ impl Runtime {
                     // so reversing that with `.with_extension("js")` etc.
                     // correctly reconstructs the original bundle path
                     // (e.g. foo.bundle.hbc → foo.bundle.js / foo.bundle.mjs).
-                    let fallback_paths: Vec<std::path::PathBuf> = vec![
+                    let mut fallback_paths: Vec<std::path::PathBuf> =
+                        manifest_source.into_iter().collect();
+                    fallback_paths.extend([
                         entry_path.with_extension("js"),
                         entry_path.with_extension("mjs"),
                         entry_path.with_extension("ts"),
                         entry_path.with_extension("tsx"),
                         entry_path.with_extension("jsx"),
-                    ];
+                    ]);
 
                     if let Some(js_path) = fallback_paths.iter().find(|p| p.exists()) {
                         let js_str = js_path.to_string_lossy().to_string();
@@ -1520,135 +1752,1090 @@ impl Runtime {
     }
 }
 
-/// Whether the policy path was explicitly configured (via `--policy` or the
-/// `IBEX_POLICY`/`EXACT_POLICY` env), as opposed to the auto-discovered default.
-/// An explicit-but-missing policy is a hard error; a missing default is not.
-fn policy_is_explicit(cli: &Cli) -> bool {
-    if cli.policy.is_some() {
-        return true;
-    }
-    crate::runtime_env("IBEX_POLICY", "EXACT_POLICY")
-        .map(|v| !v.trim().is_empty())
-        .unwrap_or(false)
+const PRODUCTION_RUN_NONCE_BYTES: usize = 16;
+const CONTRACT_FIXTURE_RUN_NONCE: &str = "AQIDBAUGBwgJCgsMDQ4PEA";
+
+fn production_run_nonce_from_bytes(bytes: &[u8; PRODUCTION_RUN_NONCE_BYTES]) -> Result<String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+
+    let nonce = URL_SAFE_NO_PAD.encode(bytes);
+    anyhow::ensure!(
+        nonce != CONTRACT_FIXTURE_RUN_NONCE,
+        "OS randomness produced the reserved capsec contract-fixture run nonce"
+    );
+    Ok(nonce)
 }
 
-fn build_host_config(cli: &Cli) -> Result<HostConfig> {
-    let policy_path = resolve_policy_path(cli);
-    // Parse the policy artifact exactly ONCE per startup and thread the parsed
-    // struct through mode resolution, readiness, endowments, and (via
-    // HostConfig) Host::new — this path used to read + JSON-parse the same
-    // file four times. (ENG-22644)
-    let policy = load_policy_file(cli, policy_path.as_deref())?;
-    let mode = resolve_security_mode(cli, policy.as_deref(), policy_path.as_deref())?;
+fn fresh_production_run_nonce() -> Result<String> {
+    let mut bytes = [0u8; PRODUCTION_RUN_NONCE_BYTES];
+    getrandom::getrandom(&mut bytes).map_err(|error| {
+        anyhow::anyhow!("OS randomness unavailable for production run nonce: {error}")
+    })?;
+    production_run_nonce_from_bytes(&bytes)
+}
 
-    enable_isolation_prerequisites(mode);
+fn finalize_production_snapshot(value: &mut serde_json::Value) -> Result<()> {
+    value["runNonce"] = serde_json::json!(fresh_production_run_nonce()?);
+    // Production arming must use the frozen digest contract, including its
+    // schema-aware semantic-set canonicalization. The low-level domain helper
+    // hashes the input's current array order and can therefore mint a digest
+    // that ArmedSnapshot::load correctly rejects after freshening the nonce.
+    let digest = capsec_semantics::digest::compute_checked_contract_digest(
+        capsec_semantics::digest::DigestKind::ArmedSnapshot,
+        value,
+    )?;
+    value["armedSnapshotDigest"] = serde_json::json!(digest);
+    Ok(())
+}
+
+/// Authenticate the immutable production snapshot before either the host or
+/// Hermes can observe project code. The independently generated expected
+/// identity is launcher input, not policy authority, and is discarded after
+/// arming. @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
+    use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    use std::sync::Arc;
+
+    validate_production_inputs(cli)?;
+    match (&cli.capsec_armed_snapshot, &cli.capsec_arming_identity) {
+        (None, None) => build_default_armed_host(cli),
+        (Some(_), None) | (None, Some(_)) => anyhow::bail!(
+            "--capsec-armed-snapshot and --capsec-arming-identity must be provided together"
+        ),
+        (Some(snapshot_path), Some(identity_path)) => {
+            if cli.inspect
+                || cli.inspect_wait
+                || cli.inspect_open
+                || cli.inspect_pause
+                || cli.inspect_port.is_some()
+                || cli.inspect_host.is_some()
+            {
+                anyhow::bail!(
+                    "armed capability startup closes inspector activation and configuration"
+                );
+            }
+            if cli.compat.is_some() {
+                anyhow::bail!("armed capability startup closes compatibility facades");
+            }
+            if cli.expose_internals
+                || cli.stack_size.is_some()
+                || cli.max_http_header_size.is_some()
+            {
+                anyhow::bail!(
+                    "armed capability startup closes hidden runtime-fidelity configuration"
+                );
+            }
+            if cli.policy.is_some()
+                || !cli.allow.is_empty()
+                || !cli.deny.is_empty()
+                || cli.allow_all
+                || cli.allow_env_endowments
+                || !matches!(
+                    cli.capsec,
+                    crate::cli::CapSecMode::Auto | crate::cli::CapSecMode::Enforce
+                )
+            {
+                anyhow::bail!(
+                    "armed capability startup cannot be combined with legacy policy, mode, allow, deny, allow-all, or environment-endowment overrides"
+                );
+            }
+            let snapshot_bytes = std::fs::read(snapshot_path).with_context(|| {
+                format!(
+                    "failed to read armed capability snapshot {}",
+                    snapshot_path.display()
+                )
+            })?;
+            let identity_bytes = std::fs::read(identity_path).with_context(|| {
+                format!(
+                    "failed to read capsec arming identity {}",
+                    identity_path.display()
+                )
+            })?;
+            let identity_text = std::str::from_utf8(&identity_bytes)
+                .context("capsec arming identity is not UTF-8")?;
+            let identity_value = capsec_semantics::strict_json::parse_strict(identity_text)
+                .context("invalid strict JSON in capsec arming identity")?;
+            let expected: ExpectedArmingIdentity =
+                serde_json::from_value(identity_value).context("invalid capsec arming identity")?;
+            let mut expected = observed_arming_identity(expected)?;
+            // Authenticate the launcher-supplied document before changing it.
+            // Its nonce is template/test input only: runtime construction owns
+            // the fresh nonce and therefore the final armed digest.
+            let template = ArmedSnapshot::load(&snapshot_bytes, &expected)
+                .context("refused to authenticate capability snapshot template")?;
+            let mut runtime_document = template.document().clone();
+            finalize_production_snapshot(&mut runtime_document)
+                .context("failed to finalize fresh production capability snapshot")?;
+            expected.armed_snapshot_digest = capsec_semantics::model::Digest::new(
+                runtime_document["armedSnapshotDigest"]
+                    .as_str()
+                    .context("finalized capability snapshot has no digest")?,
+            )
+            .map_err(anyhow::Error::msg)?;
+            let snapshot = Arc::new(
+                ArmedSnapshot::load(&serde_json::to_vec(&runtime_document)?, &expected)
+                    .context("refused to arm finalized capability snapshot")?,
+            );
+            let digest = snapshot.digest().as_str().to_owned();
+            let host = Host::new_armed(
+                HostConfig {
+                    mode: crate::host::SecurityMode::Enforce,
+                    ..Default::default()
+                },
+                snapshot,
+            )
+            .context("failed to construct armed capability host")?;
+            Ok((host, Some(digest)))
+        }
+    }
+}
+
+fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
+    use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    use capsec_semantics::digest::{
+        compute_checked_contract_digest, compute_domain_digest, DigestKind,
+    };
+    use capsec_semantics::model::Digest;
+
+    validate_production_inputs(cli)?;
     for line in check_capsec_readiness(
-        mode,
+        crate::host::SecurityMode::Enforce,
         CapsecStage::Run,
-        capsec_readiness(cli, policy.as_deref()),
-        capsec_advisory_allowed(cli),
+        capsec_readiness(cli, None),
+        false,
     )? {
         eprintln!("{line}");
     }
-    apply_policy_endowments(policy.as_deref(), mode, cli.allow_env_endowments);
+    if cli.capsec == crate::cli::CapSecMode::Audit {
+        anyhow::bail!("foreground audit requires its separate diagnostic arming workflow");
+    }
+    let entry = cli.file.as_deref().or(match cli.command.as_ref() {
+        Some(crate::cli::Commands::Run { file, .. })
+        | Some(crate::cli::Commands::Build { file, .. }) => Some(file.as_str()),
+        _ => None,
+    });
+    let project_root = authenticated_project_root(cli, entry)?;
+    let root_object = runtime_object_identity_json(&project_root)?;
+    let components = runtime_path_components_json(&project_root)?;
 
-    Ok(HostConfig {
-        mode,
-        policy_path,
-        policy,
-        allow: cli.allow.clone(),
-        deny: cli.deny.clone(),
-        root_dir: None,
-        allowed_hosts: None,
-    })
+    let engine_identity = crate::engine::hermes::HermesEngine::loaded_engine_identity()?;
+    let engine_digest = engine_identity.binary_digest.clone();
+    let engine_object = serde_json::to_value(&engine_identity.object)?;
+    if crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
+        anyhow::bail!("environment-selected policy paths are forbidden in production");
+    }
+    let current_identity: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/examples/armed-snapshot.canonical.json"
+    )))?;
+    let digest_from_current = |field: &str| -> Result<capsec_semantics::model::Digest> {
+        capsec_semantics::model::Digest::new(
+            current_identity[field]
+                .as_str()
+                .with_context(|| format!("current CapSec identity is missing {field}"))?,
+        )
+        .map_err(anyhow::Error::msg)
+    };
+    let expected_policy_identity = capsec_semantics::policy::ExpectedPolicyIdentity {
+        profile: "ibex/capsec/1".into(),
+        semantic_core: "capsec/semantics/1".into(),
+        vocab_digest: digest_from_current("vocabDigest")?,
+        registry_digest: digest_from_current("registryDigest")?,
+    };
+    let policy_profile = capsec_semantics::registry::ValidatedProfile::from_json(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/capability-definitions.json"
+        )),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/policy-rules.json"
+        )),
+    )?;
+    let policy_path = cli
+        .policy
+        .clone()
+        .unwrap_or_else(|| project_root.join("ibex-policy.json"));
+    let mut policy = serde_json::json!({
+        "policySchema": "ibex/capsec-policy/1",
+        "capsVocab": "ibex/capsec/1",
+        "semanticCore": "capsec/semantics/1",
+        "vocabDigest": expected_policy_identity.vocab_digest.clone(),
+        "registryDigest": expected_policy_identity.registry_digest.clone(),
+        "policyDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "purpose": "production",
+        "mode": "enforce",
+        "principals": [],
+    });
+    let policy_loaded = policy_path.exists();
+    if policy_loaded {
+        let bytes = std::fs::read(&policy_path).with_context(|| {
+            format!("failed to read canonical policy {}", policy_path.display())
+        })?;
+        let text = std::str::from_utf8(&bytes).context("canonical policy is not UTF-8")?;
+        policy = capsec_semantics::strict_json::parse_strict(text)
+            .context("canonical policy is not strict JSON")?;
+    } else if cli.policy.is_some() {
+        anyhow::bail!("canonical policy {} not found", policy_path.display());
+    }
+    for (field, expected) in [
+        ("policySchema", "ibex/capsec-policy/1"),
+        ("capsVocab", "ibex/capsec/1"),
+        ("semanticCore", "capsec/semantics/1"),
+        ("purpose", "production"),
+        ("mode", "enforce"),
+    ] {
+        if policy[field].as_str() != Some(expected) {
+            anyhow::bail!("canonical production policy has invalid {field}");
+        }
+    }
+    let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
+    if policy_loaded && policy["policyDigest"].as_str() != Some(policy_digest.as_str()) {
+        anyhow::bail!("canonical policy digest is stale or tampered");
+    } else {
+        policy["policyDigest"] = serde_json::json!(policy_digest.as_str());
+    }
+    let canonical_policy = capsec_semantics::policy::CanonicalPolicy::load(
+        &serde_json::to_vec(&policy)?,
+        &expected_policy_identity,
+        &policy_profile.definitions,
+    )
+    .context("canonical production policy failed typed validation")?;
+    let policy_digest = canonical_policy.policy_digest.as_str().to_owned();
+    policy = serde_json::to_value(canonical_policy)?;
+    let policy_principals = policy["principals"]
+        .as_array()
+        .context("canonical policy principals must be an array")?;
+    let mut root_builtins = crate::module_loader::RUNTIME_GATED_NODE_BUILTINS
+        .iter()
+        .map(|name| format!("node:{name}"))
+        .collect::<Vec<_>>();
+    root_builtins.sort();
+    let mut root_package_imports = policy_principals
+        .iter()
+        .filter_map(|row| row["principal"]["locator"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    root_package_imports.sort();
+    let mut snapshot_principals = vec![serde_json::json!({
+        "principal": {"kind": "root", "identity": "project-root"},
+        "floor": [],
+        "denials": [],
+        "escalationCeiling": [],
+        "imports": {
+            "builtins": root_builtins,
+            "packages": root_package_imports
+        },
+        "endowments": [],
+    })];
+    let mut graph_nodes = Vec::new();
+    let mut graph_edges = Vec::new();
+    let root_principal = serde_json::json!({"kind": "root", "identity": "project-root"});
+    let mut package_bindings = Vec::new();
+    let installed_packages = authenticated_installed_packages(&project_root, policy_principals)?;
+    for row in policy_principals {
+        let principal = row["principal"].clone();
+        let authority_rows = |field: &str| -> Result<Vec<serde_json::Value>> {
+            row[field]
+                .as_array()
+                .context("canonical authority rows must be arrays")?
+                .iter()
+                .map(|entry| {
+                    entry
+                        .get("authority")
+                        .cloned()
+                        .context("canonical authority row is missing authority")
+                })
+                .collect()
+        };
+        snapshot_principals.push(serde_json::json!({
+            "principal": principal,
+            "floor": authority_rows("floor")?,
+            "denials": authority_rows("denials")?,
+            "escalationCeiling": authority_rows("escalationCeiling")?,
+            "imports": row["imports"].clone(),
+            "endowments": row["endowments"].clone(),
+        }));
+        graph_nodes.push(serde_json::json!({"principal": principal}));
+        graph_edges.push(serde_json::json!({
+            "importer": root_principal,
+            "imported": principal,
+        }));
+        if let (Some(name), Some(locator), Some(integrity)) = (
+            principal["name"].as_str(),
+            principal["locator"].as_str(),
+            principal["integrity"].as_str(),
+        ) {
+            let matches = installed_packages
+                .iter()
+                .filter(|package| {
+                    package.name == name
+                        && package.locator == locator
+                        && package.integrity == integrity
+                })
+                .collect::<Vec<_>>();
+            if matches.len() != 1 {
+                anyhow::bail!(
+                    "authenticated package principal {locator} has {} installed roots",
+                    matches.len()
+                );
+            }
+            let package_root = matches[0].root.clone();
+            let object = runtime_object_identity_json(&package_root)?;
+            let package_components = runtime_path_components_json(&package_root)?;
+            package_bindings.push(serde_json::json!({
+                    "logicalRoot": "package",
+                    "owner": principal,
+                    "hostPath": {"root": "absolute", "components": package_components, "hostBound": true},
+                    "object": object,
+                }));
+        }
+    }
+    let principals_by_locator = policy_principals
+        .iter()
+        .filter_map(|row| {
+            Some((
+                row["principal"]["locator"].as_str()?.to_string(),
+                row["principal"].clone(),
+            ))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for row in policy_principals {
+        let importer = row["principal"].clone();
+        for locator in row["imports"]["packages"]
+            .as_array()
+            .context("canonical package imports must be an array")?
+        {
+            let locator = locator
+                .as_str()
+                .context("canonical package import must be a locator string")?;
+            let imported = principals_by_locator.get(locator).with_context(|| {
+                format!("canonical policy imports unknown package locator {locator}")
+            })?;
+            graph_edges.push(serde_json::json!({
+                "importer": importer,
+                "imported": imported,
+            }));
+        }
+    }
+    let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/examples/armed-snapshot.canonical.json"
+    )))?;
+    value["workflow"] = serde_json::json!("production");
+    value["effectiveMode"] = serde_json::json!("enforce");
+    value["policyDigest"] = serde_json::json!(policy_digest);
+    value["engine"] = serde_json::json!({
+        "target": exact_runtime_target(),
+        "binaryDigest": engine_digest,
+        "features": observed_structural_features(),
+    });
+    value["packageGraph"] = serde_json::json!({
+        "digest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "nodes": graph_nodes,
+        "importEdges": graph_edges,
+    });
+    let graph_digest = compute_domain_digest(
+        "ibex:capsec:package-graph:1",
+        &value["packageGraph"],
+        &["digest".to_string()],
+    )?;
+    value["packageGraph"]["digest"] = serde_json::json!(graph_digest);
+    value["principals"] = serde_json::Value::Array(snapshot_principals);
+    let mut epoch = [0u8; 8];
+    getrandom::getrandom(&mut epoch).context("failed to generate CapSec channel epoch")?;
+    value["channelEpoch"] = serde_json::json!(u64::from_le_bytes(epoch).max(1).to_string());
+    let mut root_bindings = vec![serde_json::json!({
+        "logicalRoot": "project",
+        "hostPath": {"root": "absolute", "components": components, "hostBound": true},
+        "object": root_object,
+    })];
+    let cache_root = runtime_cache_dir()?;
+    std::fs::create_dir_all(&cache_root)?;
+    let cache_root = std::fs::canonicalize(cache_root)?;
+    let cache_components = runtime_path_components_json(&cache_root)?;
+    let cache_object = runtime_object_identity_json(&cache_root)?;
+    root_bindings.push(serde_json::json!({
+        "logicalRoot": "home",
+        "hostPath": {"root": "absolute", "components": cache_components, "hostBound": true},
+        "object": cache_object,
+    }));
+    root_bindings.extend(package_bindings);
+    value["rootBindings"] = serde_json::Value::Array(root_bindings);
+    let policy_bytes = capsec_semantics::canonical::to_jcs_bytes(&policy)?;
+    let graph_bytes = capsec_semantics::canonical::to_jcs_bytes(&value["packageGraph"])?;
+    let registry_record = serde_json::json!({
+        "registryDigest": value["registryDigest"],
+        "capabilityDefinitions": serde_json::from_str::<serde_json::Value>(
+            ibex_runtime::capsec_registry_generated::CAPSEC_CAPABILITY_DEFINITIONS_JSON,
+        )?,
+        "coverageEdges": serde_json::from_str::<serde_json::Value>(
+            ibex_runtime::capsec_registry_generated::CAPSEC_COVERAGE_EDGES_JSON,
+        )?,
+        "targetCells": serde_json::from_str::<serde_json::Value>(
+            ibex_runtime::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
+        )?,
+        "policyRules": serde_json::from_str::<serde_json::Value>(
+            ibex_runtime::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
+        )?,
+    });
+    let registry_bytes = capsec_semantics::canonical::to_jcs_bytes(&registry_record)?;
+    let policy_object = materialize_protected_artifact(
+        &cache_root,
+        "armed-policy",
+        value["policyDigest"]
+            .as_str()
+            .context("policy digest missing")?,
+        &policy_bytes,
+    )?;
+    let graph_object = materialize_protected_artifact(
+        &cache_root,
+        "package-graph",
+        value["packageGraph"]["digest"]
+            .as_str()
+            .context("package graph digest missing")?,
+        &graph_bytes,
+    )?;
+    let registry_object = materialize_protected_artifact(
+        &cache_root,
+        "registry",
+        value["registryDigest"]
+            .as_str()
+            .context("registry digest missing")?,
+        &registry_bytes,
+    )?;
+    value["protectedObjects"] = serde_json::json!([
+        {"role": "armed-policy", "object": policy_object.object, "deniedActions": ["fs:write"]},
+        {"role": "engine-binary", "object": engine_object, "deniedActions": ["fs:write"]},
+        {"role": "package-graph", "object": graph_object.object, "deniedActions": ["fs:write"]},
+        {"role": "registry", "object": registry_object.object, "deniedActions": ["fs:write"]},
+    ]);
+    finalize_production_snapshot(&mut value)?;
+    let digest_at = |path: &[&str]| -> Result<Digest> {
+        let field = path
+            .iter()
+            .fold(&value, |current, segment| &current[*segment]);
+        Digest::new(field.as_str().context("missing default arming digest")?)
+            .map_err(anyhow::Error::msg)
+    };
+    let engine_host_path = serde_json::from_value(serde_json::json!({
+        "root": "absolute",
+        "components": runtime_path_components_json(&engine_identity.engine_artifact_path)?,
+        "hostBound": true,
+    }))?;
+    let expected = ExpectedArmingIdentity {
+        profile: value["capsVocab"].as_str().unwrap().into(),
+        semantic_core: value["semanticCore"].as_str().unwrap().into(),
+        vocab_digest: digest_at(&["vocabDigest"])?,
+        registry_digest: digest_at(&["registryDigest"])?,
+        policy_digest: digest_at(&["policyDigest"])?,
+        armed_snapshot_digest: Digest::new(
+            value["armedSnapshotDigest"]
+                .as_str()
+                .context("missing armed snapshot digest")?,
+        )
+        .map_err(anyhow::Error::msg)?,
+        target: value["engine"]["target"].as_str().unwrap().into(),
+        engine_binary_digest: digest_at(&["engine", "binaryDigest"])?,
+        features: value["engine"]["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|feature| feature.as_str().unwrap().into())
+            .collect(),
+        package_graph_digest: digest_at(&["packageGraph", "digest"])?,
+        protected_artifacts: vec![
+            capsec_semantics::arming::ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy,
+                host_path: policy_object.host_path,
+                object: serde_json::from_value(value["protectedObjects"][0]["object"].clone())?,
+                content_digest: policy_object.content_digest,
+            },
+            capsec_semantics::arming::ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::EngineBinary,
+                host_path: engine_host_path,
+                object: engine_identity.object,
+                content_digest: digest_at(&["engine", "binaryDigest"])?,
+            },
+            capsec_semantics::arming::ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::PackageGraph,
+                host_path: graph_object.host_path,
+                object: serde_json::from_value(value["protectedObjects"][2]["object"].clone())?,
+                content_digest: graph_object.content_digest,
+            },
+            capsec_semantics::arming::ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::Registry,
+                host_path: registry_object.host_path,
+                object: serde_json::from_value(value["protectedObjects"][3]["object"].clone())?,
+                content_digest: registry_object.content_digest,
+            },
+        ],
+    };
+    let snapshot = Arc::new(ArmedSnapshot::load(
+        &serde_json::to_vec(&value)?,
+        &expected,
+    )?);
+    let digest = snapshot.digest().as_str().to_owned();
+    let host = Host::new_armed(
+        HostConfig {
+            mode: crate::host::SecurityMode::Enforce,
+            ..Default::default()
+        },
+        snapshot,
+    )?;
+    Ok((host, Some(digest)))
 }
 
-/// Load + validate the policy artifact once. A configured policy that exists
-/// but cannot be parsed FAILS CLOSED as an error: a malformed committed policy
-/// (which may carry `mode: "enforce"`) must not silently degrade the run to
-/// permissive. An explicitly configured policy that is missing is likewise an
-/// error; only a MISSING auto-discovered default resolves to `None`.
-/// (ENG-22620/ENG-22644)
-fn load_policy_file(
-    cli: &Cli,
-    policy_path: Option<&Path>,
-) -> Result<Option<std::sync::Arc<crate::host::policy::PolicyFile>>> {
-    use crate::host::policy::PolicyFile;
-    match policy_path {
-        Some(p) if p.exists() => {
-            let policy = PolicyFile::load(p)
-                .with_context(|| format!("failed to load capability policy {}", p.display()))?;
-            Ok(Some(std::sync::Arc::new(policy)))
+fn exact_runtime_target() -> String {
+    let architecture = match std::env::consts::ARCH {
+        "aarch64" => "aarch64",
+        "x86_64" => "x86_64",
+        "x86" => "i686",
+        other => other,
+    };
+    let suffix = match std::env::consts::OS {
+        "macos" => "apple-darwin",
+        "ios" => "apple-ios",
+        "linux" => "unknown-linux-gnu",
+        "android" => "linux-android",
+        "windows" => "pc-windows-msvc",
+        other => other,
+    };
+    format!("{architecture}-{suffix}")
+}
+
+fn observed_structural_features() -> Vec<String> {
+    ibex_runtime::engine::loaded_engine_structural_features()
+}
+
+fn observed_arming_identity(
+    mut supplied: capsec_semantics::arming::ExpectedArmingIdentity,
+) -> Result<capsec_semantics::arming::ExpectedArmingIdentity> {
+    use capsec_semantics::model::Digest;
+
+    let compiled: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/examples/armed-snapshot.canonical.json"
+    )))?;
+    supplied.profile = ibex_runtime::capsec_registry_generated::CAPSEC_PROFILE.into();
+    supplied.semantic_core = ibex_runtime::capsec_registry_generated::CAPSEC_SEMANTIC_CORE.into();
+    supplied.vocab_digest = Digest::new(
+        compiled["vocabDigest"]
+            .as_str()
+            .context("compiled vocabulary digest is missing")?,
+    )
+    .map_err(anyhow::Error::msg)?;
+    supplied.registry_digest = Digest::new(
+        compiled["registryDigest"]
+            .as_str()
+            .context("compiled registry digest is missing")?,
+    )
+    .map_err(anyhow::Error::msg)?;
+    supplied.target = exact_runtime_target();
+    supplied.features = observed_structural_features();
+    supplied.engine_binary_digest =
+        Digest::new(crate::engine::hermes::HermesEngine::loaded_engine_identity()?.binary_digest)
+            .map_err(anyhow::Error::msg)?;
+    Ok(supplied)
+}
+
+/// Select the one project root whose object identity will be bound into the
+/// generated armed snapshot. Discovery requires an authenticated manifest
+/// ancestor; package-less layouts need an explicit trusted launcher input.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+fn authenticated_project_root(cli: &Cli, entry: Option<&str>) -> Result<std::path::PathBuf> {
+    let entry_path = entry
+        .map(|entry| {
+            std::fs::canonicalize(entry)
+                .with_context(|| format!("failed to authenticate entry path {entry}"))
+        })
+        .transpose()?;
+    if let Some(explicit) = cli.project_root.as_deref() {
+        let root = std::fs::canonicalize(explicit).with_context(|| {
+            format!("failed to authenticate project root {}", explicit.display())
+        })?;
+        if !root.is_dir() {
+            anyhow::bail!("project root is not a directory: {}", root.display());
         }
-        Some(p) => {
-            if policy_is_explicit(cli) {
-                anyhow::bail!("capability policy {} not found", p.display());
+        if entry_path
+            .as_ref()
+            .is_some_and(|entry| !entry.starts_with(&root))
+        {
+            anyhow::bail!(
+                "entry is outside the explicitly authenticated project root {}",
+                root.display()
+            );
+        }
+        return Ok(root);
+    }
+
+    let start = entry_path
+        .as_deref()
+        .and_then(std::path::Path::parent)
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or(std::env::current_dir()?);
+    let mut cursor = std::fs::canonicalize(&start)
+        .with_context(|| format!("failed to authenticate project path {}", start.display()))?;
+    loop {
+        if cursor.join("package.json").is_file() {
+            return Ok(cursor);
+        }
+        let Some(parent) = cursor.parent() else {
+            break;
+        };
+        cursor = parent.to_path_buf();
+    }
+    anyhow::bail!(
+        "no authenticated project root: pass --project-root or place the entry beneath a package.json"
+    )
+}
+
+#[derive(Clone, Debug)]
+struct InstalledPackageIdentity {
+    name: String,
+    locator: String,
+    integrity: String,
+    root: std::path::PathBuf,
+}
+
+fn authenticated_installed_packages(
+    project_root: &std::path::Path,
+    principals: &[serde_json::Value],
+) -> Result<Vec<InstalledPackageIdentity>> {
+    use std::collections::{BTreeSet, VecDeque};
+
+    let wanted = principals
+        .iter()
+        .map(|row| {
+            let principal = &row["principal"];
+            Ok((
+                principal["name"]
+                    .as_str()
+                    .context("package principal is missing name")?
+                    .to_owned(),
+                principal["locator"]
+                    .as_str()
+                    .context("package principal is missing locator")?
+                    .to_owned(),
+                principal["integrity"]
+                    .as_str()
+                    .context("package principal is missing integrity")?
+                    .to_owned(),
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut queue = VecDeque::from([project_root.join("node_modules")]);
+    let mut visited_node_modules = BTreeSet::new();
+    let mut candidate_roots = BTreeSet::new();
+    while let Some(node_modules) = queue.pop_front() {
+        let canonical_nm = match std::fs::canonicalize(&node_modules) {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+        if !visited_node_modules.insert(canonical_nm.clone()) {
+            continue;
+        }
+        let mut entries = std::fs::read_dir(&canonical_nm)
+            .with_context(|| format!("failed to enumerate {}", canonical_nm.display()))?
+            .collect::<std::io::Result<Vec<_>>>()?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            let name = entry.file_name();
+            let path = entry.path();
+            if name == ".bin" {
+                continue;
             }
-            Ok(None)
+            if name.to_string_lossy().starts_with('@') {
+                let mut scoped = match std::fs::read_dir(&path) {
+                    Ok(entries) => entries.collect::<std::io::Result<Vec<_>>>()?,
+                    Err(_) => continue,
+                };
+                scoped.sort_by_key(std::fs::DirEntry::file_name);
+                for package in scoped {
+                    if package.path().join("package.json").is_file() {
+                        let root = std::fs::canonicalize(package.path())?;
+                        queue.push_back(root.join("node_modules"));
+                        candidate_roots.insert(root);
+                    }
+                }
+                continue;
+            }
+            if name == ".pnpm" {
+                for store_entry in std::fs::read_dir(&path)? {
+                    queue.push_back(store_entry?.path().join("node_modules"));
+                }
+                continue;
+            }
+            if path.join("package.json").is_file() {
+                let root = std::fs::canonicalize(path)?;
+                queue.push_back(root.join("node_modules"));
+                candidate_roots.insert(root);
+            }
         }
-        None => Ok(None),
+    }
+
+    let mut discovered = Vec::new();
+    for root in candidate_roots {
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("package.json"))?)
+                .with_context(|| format!("invalid package manifest in {}", root.display()))?;
+        let Some(name) = manifest.get("name").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let locator = manifest
+            .get("version")
+            .and_then(serde_json::Value::as_str)
+            .map(|version| format!("{name}@{version}"))
+            .unwrap_or_else(|| name.to_owned());
+        let matches_any = wanted.iter().any(|(wanted_name, wanted_locator, _)| {
+            wanted_name == name && wanted_locator == &locator
+        });
+        if !matches_any {
+            continue;
+        }
+        let integrity = crate::module_loader::package_tree_integrity(&root)
+            .with_context(|| format!("failed to authenticate package tree {}", root.display()))?;
+        discovered.push(InstalledPackageIdentity {
+            name: name.to_owned(),
+            locator,
+            integrity,
+            root,
+        });
+    }
+
+    for (name, locator, integrity) in &wanted {
+        let candidates = discovered
+            .iter()
+            .filter(|package| &package.name == name && &package.locator == locator)
+            .collect::<Vec<_>>();
+        if candidates.len() != 1 {
+            anyhow::bail!(
+                "package principal {locator} resolved to {} installed roots; duplicate name+locator roots are ambiguous even when only one integrity matches",
+                candidates.len()
+            );
+        }
+        if &candidates[0].integrity != integrity {
+            anyhow::bail!(
+                "package principal {locator} has installed integrity {}, expected {integrity}",
+                candidates[0].integrity
+            );
+        }
+    }
+    Ok(discovered)
+}
+
+fn runtime_object_identity_json(path: &std::path::Path) -> Result<serde_json::Value> {
+    let metadata = std::fs::metadata(path)
+        .with_context(|| format!("failed to identify {}", path.display()))?;
+    runtime_object_identity_from_metadata(&metadata)
+}
+
+fn runtime_object_identity_from_metadata(
+    metadata: &std::fs::Metadata,
+) -> Result<serde_json::Value> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        return Ok(serde_json::json!({
+            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
+                "apple"
+            } else if cfg!(target_os = "android") {
+                "android"
+            } else {
+                "unix"
+            },
+            "volume": format!("dev:{}", metadata.dev()),
+            "file": format!("ino:{}", metadata.ino()),
+        }));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        Ok(serde_json::json!({
+            "platform": "windows",
+            "volume": format!("volume:{}", metadata.volume_serial_number().unwrap_or(0)),
+            "file": format!("file:{}", metadata.file_index().unwrap_or(0)),
+        }))
     }
 }
 
-/// Resolve the effective `SecurityMode` from the CLI flags and the policy
-/// artifact's declared `mode`. Shared by the run path (`build_host_config`) and
-/// `ibex build` (`apply_build_isolation`) so a built artifact is chunked for
-/// per-package attribution exactly when a run of the same app would enforce —
-/// otherwise `ibex build` under an enforce policy silently emits a flat,
-/// single-principal bundle. (ENG-22760)
-fn resolve_security_mode(
-    cli: &Cli,
-    policy: Option<&crate::host::policy::PolicyFile>,
-    policy_path: Option<&Path>,
-) -> Result<crate::host::SecurityMode> {
-    use crate::cli::CapSecMode;
-    use crate::host::SecurityMode;
+fn runtime_path_components_json(path: &std::path::Path) -> Result<Vec<serde_json::Value>> {
+    use std::path::Component;
 
-    // `policy` is the artifact `load_policy_file` parsed once for this
-    // startup (ENG-22644); loading/parse failures already failed closed there
-    // (ENG-22620). The declared mode reuses `SecurityMode::from_policy_str`
-    // — the single source of truth for mode-string parsing (formerly duplicated
-    // by `policy_declared_mode`). @ref LLP 0014#runtime-and-cli
-    let declared_mode = match policy {
-        Some(policy) => match policy.mode.as_deref() {
-            None => None,
-            Some(raw) => match SecurityMode::from_policy_str(raw) {
-                Some(m) => Some(m),
-                // Present but unrecognized (a typo like "enfore"): fail closed
-                // rather than silently degrading an Auto run to permissive —
-                // the same class ENG-22620 targets. (review follow-up)
-                None => anyhow::bail!(
-                    "capability policy {} declares an unrecognized mode {:?} \
-                     (expected enforce | audit | permissive)",
-                    policy_path
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| "<unknown>".to_string()),
-                    raw
-                ),
-            },
-        },
-        None => None,
-    };
+    path.components()
+        .filter_map(|component| match component {
+            Component::Prefix(prefix) => Some(runtime_path_component_json(prefix.as_os_str())),
+            Component::RootDir | Component::CurDir => None,
+            Component::ParentDir => Some(Err(anyhow::anyhow!(
+                "authenticated runtime path contains an unresolved parent component"
+            ))),
+            Component::Normal(value) => Some(runtime_path_component_json(value)),
+        })
+        .collect()
+}
 
-    // Map CLI mode to host SecurityMode.
-    // --allow-all overrides --capsec for backward compatibility.
-    let mode = if cli.allow_all {
-        SecurityMode::Permissive
+fn runtime_path_component_json(value: &std::ffi::OsStr) -> Result<serde_json::Value> {
+    let component = if let Some(value) = value.to_str() {
+        capsec_semantics::model::PathComponent::utf8(value.to_owned())
     } else {
-        // @ref LLP 0013#phase-1 — Audit maps to the log-but-proceed mode.
-        match cli.capsec {
-            CapSecMode::Permissive => SecurityMode::Permissive,
-            CapSecMode::Audit => SecurityMode::Audit,
-            CapSecMode::Enforce => SecurityMode::Enforce,
-            // Default (no explicit --capsec): honor the policy artifact's declared
-            // `mode` when it has one — the generated policy is the security config,
-            // so `mode: "enforce"` takes effect without a redundant flag. Explicit
-            // `--capsec permissive` (and `--allow-all`) still force Permissive.
-            CapSecMode::Auto => declared_mode.unwrap_or(SecurityMode::Permissive),
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            capsec_semantics::model::PathComponent::binary(value.as_bytes().to_vec())
         }
+        #[cfg(not(unix))]
+        {
+            return Err(anyhow::anyhow!(
+                "non-Unicode runtime path cannot be represented on this target"
+            ));
+        }
+    }
+    .map_err(anyhow::Error::msg)?;
+    serde_json::to_value(component).map_err(Into::into)
+}
+
+#[derive(Debug)]
+struct MaterializedProtectedArtifact {
+    host_path: capsec_semantics::model::LogicalPath,
+    object: serde_json::Value,
+    content_digest: capsec_semantics::model::Digest,
+}
+
+fn materialize_protected_artifact(
+    cache_root: &std::path::Path,
+    role: &str,
+    digest: &str,
+    bytes: &[u8],
+) -> Result<MaterializedProtectedArtifact> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
+    use std::io::{Read as _, Seek as _, Write as _};
+
+    fn validate_pinned_artifact(
+        file: &mut std::fs::File,
+        expected: &[u8],
+        path: &std::path::Path,
+    ) -> Result<serde_json::Value> {
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            anyhow::bail!(
+                "protected artifact is not a regular file: {}",
+                path.display()
+            );
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o222 != 0 {
+                anyhow::bail!("protected artifact is mutable: {}", path.display());
+            }
+        }
+        #[cfg(not(unix))]
+        if !metadata.permissions().readonly() {
+            anyhow::bail!("protected artifact is mutable: {}", path.display());
+        }
+        file.rewind()?;
+        let mut observed = Vec::with_capacity(metadata.len() as usize);
+        file.read_to_end(&mut observed)?;
+        if observed != expected {
+            anyhow::bail!("protected artifact content mismatch at {}", path.display());
+        }
+        runtime_object_identity_from_metadata(&metadata)
+    }
+
+    let directory = cache_root.join("capsec-artifacts");
+    std::fs::create_dir_all(&directory)?;
+    let directory_metadata = std::fs::symlink_metadata(&directory)?;
+    if !directory_metadata.is_dir() || directory_metadata.file_type().is_symlink() {
+        anyhow::bail!(
+            "protected artifact parent is not a stable directory: {}",
+            directory.display()
+        );
+    }
+    let directory = std::fs::canonicalize(directory)?;
+    let filename_digest = digest
+        .strip_prefix("sha256-")
+        .unwrap_or(digest)
+        .replace(|character: char| !character.is_ascii_alphanumeric(), "_");
+    let path = directory.join(format!("{filename_digest}.{role}.json"));
+
+    let open_existing = || -> Result<std::fs::File> {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        }
+        options
+            .open(&path)
+            .with_context(|| format!("failed to pin protected artifact {}", path.display()))
     };
 
-    Ok(mode)
+    let object = if path.exists() {
+        let mut file = open_existing()?;
+        validate_pinned_artifact(&mut file, bytes, &path)?
+    } else {
+        let mut nonce = [0u8; 16];
+        getrandom::getrandom(&mut nonce)
+            .context("failed to name protected artifact staging file")?;
+        let temporary = directory.join(format!(
+            ".{filename_digest}.{role}.{}.tmp",
+            URL_SAFE_NO_PAD.encode(nonce)
+        ));
+        let mut staged = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        let publish_result = (|| -> Result<serde_json::Value> {
+            staged.write_all(bytes)?;
+            staged.sync_all()?;
+            let mut permissions = staged.metadata()?.permissions();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                permissions.set_mode(0o400);
+            }
+            #[cfg(not(unix))]
+            permissions.set_readonly(true);
+            staged.set_permissions(permissions)?;
+            staged.sync_all()?;
+            let identity = validate_pinned_artifact(&mut staged, bytes, &temporary)?;
+
+            match std::fs::hard_link(&temporary, &path) {
+                Ok(()) => {
+                    std::fs::File::open(&directory)?.sync_all()?;
+                    Ok(identity)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let mut existing = open_existing()?;
+                    validate_pinned_artifact(&mut existing, bytes, &path)
+                }
+                Err(error) => Err(error.into()),
+            }
+        })();
+        let _ = std::fs::remove_file(&temporary);
+        publish_result?
+    };
+    let path = std::fs::canonicalize(&path)?;
+    let host_path = serde_json::from_value(serde_json::json!({
+        "root": "absolute",
+        "components": runtime_path_components_json(&path)?,
+        "hostBound": true,
+    }))?;
+    let content_digest = capsec_semantics::model::Digest::new(format!(
+        "sha256-{}",
+        URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+    ))
+    .map_err(anyhow::Error::msg)?;
+    Ok(MaterializedProtectedArtifact {
+        host_path,
+        object,
+        content_digest,
+    })
+}
+
+/// Ad-hoc evaluation and runtime-registry diagnostics are separate diagnostic
+/// workflows, not production entry surfaces. Reject them before arming
+/// artifacts, Hermes allocation, or project code can be observed.
+/// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+pub(crate) fn reject_closed_production_cli(cli: &Cli) -> Result<()> {
+    let closed_command = matches!(
+        cli.command.as_ref(),
+        Some(crate::cli::Commands::Eval { .. })
+            | Some(crate::cli::Commands::Repl)
+            | Some(crate::cli::Commands::Debug { .. })
+    );
+    let implicit_repl = cli.command.is_none()
+        && cli.file.is_none()
+        && cli.eval_code.is_none()
+        && cli.print_eval.is_none();
+    if cli.eval_code.is_some() || cli.print_eval.is_some() || closed_command || implicit_repl {
+        anyhow::bail!(
+            "production capability enforcement closes ad-hoc evaluation, REPL, and debug commands"
+        );
+    }
+    Ok(())
+}
+
+fn validate_runtime_inputs(cli: &Cli, reject_closed_environment: bool) -> Result<()> {
+    reject_closed_production_cli(cli)?;
+    if crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
+        anyhow::bail!("environment-selected policy paths are forbidden in production");
+    }
+    if reject_closed_environment {
+        crate::host::reject_closed_startup_environment()?;
+    }
+    if cli.allow_all
+        || matches!(
+            cli.capsec,
+            crate::cli::CapSecMode::Audit | crate::cli::CapSecMode::Permissive
+        )
+        || !cli.allow.is_empty()
+        || !cli.deny.is_empty()
+        || cli.allow_env_endowments
+        || cli.capsec_allow_advisory
+        || crate::env_flag_enabled("IBEX_CAPSEC_ALLOW_ADVISORY")
+    {
+        anyhow::bail!(
+            "production capability enforcement rejects legacy allow/deny, environment endowment widening, and advisory-attribution overrides"
+        );
+    }
+    let run_inspector = matches!(
+        cli.command.as_ref(),
+        Some(crate::cli::Commands::Run { inspect: true, .. })
+            | Some(crate::cli::Commands::Run {
+                inspect_wait: true,
+                ..
+            })
+            | Some(crate::cli::Commands::Run {
+                inspect_open: true,
+                ..
+            })
+            | Some(crate::cli::Commands::Run {
+                inspect_pause: true,
+                ..
+            })
+            | Some(crate::cli::Commands::Run {
+                inspect_port: Some(_),
+                ..
+            })
+            | Some(crate::cli::Commands::Run {
+                inspect_host: Some(_),
+                ..
+            })
+    );
+    if cli.compat.is_some()
+        || cli.inspect
+        || cli.inspect_wait
+        || cli.inspect_open
+        || cli.inspect_pause
+        || cli.inspect_port.is_some()
+        || cli.inspect_host.is_some()
+        || cli.expose_internals
+        || cli.stack_size.is_some()
+        || cli.max_http_header_size.is_some()
+        || run_inspector
+    {
+        anyhow::bail!(
+            "production capability enforcement closes compatibility, inspector, and runtime-fidelity overrides"
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_production_inputs(cli: &Cli) -> Result<()> {
+    validate_runtime_inputs(cli, true)
+}
+
+/// The separately named foreground audit is the diagnostic channel for
+/// exercising legacy startup branches. It retains every CLI/policy restriction
+/// above, but does not apply the production registry's ambient-control closure.
+/// @ref LLP 0021#default-execution-contract
+fn validate_diagnostic_audit_inputs(cli: &Cli) -> Result<()> {
+    validate_runtime_inputs(cli, false)
 }
 
 /// Apply the enforce/audit isolation prerequisite (per-package chunking) for the
@@ -1659,16 +2846,14 @@ fn resolve_security_mode(
 /// a dependency. Returns the resolved mode (Enforce/Audit imply chunking).
 /// @ref LLP 0013#mechanism-3 — (ENG-22760)
 pub(crate) fn apply_build_isolation(cli: &Cli) -> Result<crate::host::SecurityMode> {
-    let policy_path = resolve_policy_path(cli);
-    let policy = load_policy_file(cli, policy_path.as_deref())?;
-    let mode = resolve_security_mode(cli, policy.as_deref(), policy_path.as_deref())?;
-    enable_isolation_prerequisites(mode);
-    for line in check_capsec_readiness(
-        mode,
-        CapsecStage::Build,
-        capsec_readiness(cli, policy.as_deref()),
-        capsec_advisory_allowed(cli),
-    )? {
+    validate_production_inputs(cli)?;
+    if cli.capsec == crate::cli::CapSecMode::Audit {
+        anyhow::bail!("foreground audit cannot be persisted as a production build posture");
+    }
+    let mode = crate::host::SecurityMode::Enforce;
+    for line in
+        check_capsec_readiness(mode, CapsecStage::Build, capsec_readiness(cli, None), false)?
+    {
         eprintln!("{line}");
     }
     Ok(mode)
@@ -1726,31 +2911,19 @@ pub(crate) enum CapsecStage {
 /// `enable_isolation_prerequisites` so `IBEX_PER_PACKAGE_CHUNKS` reflects the
 /// enforce/audit default; a remaining `0` is an explicit operator opt-out.
 fn capsec_readiness(
-    cli: &Cli,
+    _cli: &Cli,
     policy: Option<&crate::host::policy::PolicyFile>,
 ) -> CapsecReadiness {
-    let package_isolation = match std::env::var("IBEX_PER_PACKAGE_CHUNKS") {
-        Ok(v) if v.trim() == "0" => PackageIsolation::DisabledByOperator,
-        _ => PackageIsolation::Enabled,
-    };
+    let package_isolation = PackageIsolation::Enabled;
     let dynamic_ceiling = policy
         .map(|policy| !policy.ceiling.is_empty())
         .unwrap_or(false);
     CapsecReadiness {
         frame_attribution: cfg!(exact_frame_attribution),
         package_isolation,
-        lockdown: cli.lockdown
-            || crate::env_flag_enabled("IBEX_LOCKDOWN")
-            || crate::env_flag_enabled("IBEX_COMPARTMENTS"),
+        lockdown: true,
         dynamic_ceiling,
     }
-}
-
-/// The operator explicitly accepted advisory attribution under enforce
-/// (`--capsec-allow-advisory`, or `IBEX_CAPSEC_ALLOW_ADVISORY=1` for spawned
-/// children and wrapper scripts).
-fn capsec_advisory_allowed(cli: &Cli) -> bool {
-    cli.capsec_allow_advisory || crate::env_flag_enabled("IBEX_CAPSEC_ALLOW_ADVISORY")
 }
 
 /// ENG-22884 — decide whether the resolved capsec mode may proceed with the
@@ -1762,7 +2935,7 @@ fn check_capsec_readiness(
     mode: crate::host::SecurityMode,
     stage: CapsecStage,
     readiness: CapsecReadiness,
-    allow_advisory: bool,
+    _allow_advisory: bool,
 ) -> Result<Vec<String>> {
     use crate::host::SecurityMode;
     if mode == SecurityMode::Permissive {
@@ -1811,11 +2984,9 @@ fn check_capsec_readiness(
                 .to_string(),
         );
     }
-    if mode == SecurityMode::Enforce && !readiness.lockdown {
-        soft.push(
-            "capsec enforce is running without lockdown: shared intrinsics remain mutable, \
-             so intrinsic-integrity attacks between packages are not defended"
-                .to_string(),
+    if !readiness.lockdown {
+        hard.push(
+            "structural runtime lockdown (shared intrinsics would remain mutable)".to_string(),
         );
     }
 
@@ -1823,12 +2994,11 @@ fn check_capsec_readiness(
         return Ok(vec![report]);
     }
 
-    if mode == SecurityMode::Enforce && !hard.is_empty() && !allow_advisory {
+    if mode == SecurityMode::Enforce && !hard.is_empty() {
         anyhow::bail!(
             "capsec enforce requires attribution prerequisites this {} does not satisfy:\n  - {}\n{}\n\
-             Refusing to present advisory attribution as enforcement. Pass --capsec-allow-advisory \
-             (or hidden alias --allow-advisory-attribution), set IBEX_CAPSEC_ALLOW_ADVISORY=1 \
-             to proceed anyway, or use --capsec audit.",
+             Refusing to present advisory attribution as enforcement; use the separately named \
+             foreground capsec audit workflow for diagnostics.",
             match stage {
                 CapsecStage::Run => "run",
                 CapsecStage::Build => "build",
@@ -1887,168 +3057,28 @@ fn check_capsec_readiness(
 /// attribution footgun this closes — an ungranted package's dangerous op is
 /// already denied at the host boundary once it is attributed to its own
 /// principal. @ref LLP 0013#mechanism-3
-fn enable_isolation_prerequisites(mode: crate::host::SecurityMode) {
-    use crate::host::SecurityMode;
-    if !matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) {
-        return;
-    }
-    // Respect an explicit operator choice here; the readiness gate decides
-    // whether that choice is acceptable for the selected capsec mode.
-    if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_none() {
-        std::env::set_var("IBEX_PER_PACKAGE_CHUNKS", "1");
-        eprintln!(
-            "note: {} enables per-package isolation so bundled dependencies get \
-             their own principal (opt out with IBEX_PER_PACKAGE_CHUNKS=0)",
-            match mode {
-                SecurityMode::Enforce => "capsec enforce",
-                _ => "capsec audit",
-            }
-        );
-    }
-    // @ref LLP 0013 — §self-grant — under enforce the runtime package
-    // self-grant surface (`Exact.setModuleCapabilities`, the `require({needs})`
-    // channel) must not be reachable: grants come from the policy artifact. Audit
-    // mode observes would-deny self-grant attempts while preserving permissive
-    // behavior, so sealing is limited to enforce. (ENG-22695/ENG-22770)
-    if mode == SecurityMode::Enforce {
-        std::env::set_var("IBEX_SEAL_SELF_GRANT", "1");
-    }
-}
-
-/// Compose the compartment endowment map from the policy artifact's
-/// `packages.*.endow` lists into `IBEX_ENDOW` (`pkg:a,b;pkg2:c`) — the channel
-/// the engine's compartment registry reads at boot — so the generated policy
-/// drives Mechanism 2 end-to-end. Applied once per process, before engine boot.
-///
-/// Precedence depends on the effective mode (ENG-22684). The registry's
-/// per-package parse is last-write-wins, so whichever `pkg:` group appears last
-/// in the string wins:
-///
-/// - **Enforce / Audit (fail closed):** the policy artifact is the *sole*
-///   endowment source. A pre-existing (ambient/operator/wrapper-set)
-///   `IBEX_ENDOW` is dropped — never appended — so it cannot widen a package's
-///   globals (`process`, `fetch`, `eval`, …) past what the reviewed artifact
-///   grants. A stale value is cleared even when the policy contributes no
-///   groups. The `--allow-env-endowments` development escape hatch restores the
-///   append-merge. A dropped non-empty value is reported on stderr.
-/// - **Permissive (dev/legacy):** keep the append-merge so `IBEX_ENDOW` stays a
-///   usable ambient override, mirroring how `--capsec permissive`/`--allow-all`
-///   already relax enforcement.
-///
-/// @ref LLP 0014#runtime-and-cli
-fn apply_policy_endowments(
-    policy: Option<&crate::host::policy::PolicyFile>,
-    mode: crate::host::SecurityMode,
-    allow_env: bool,
-) {
-    use crate::host::SecurityMode;
-    static APPLIED: AtomicBool = AtomicBool::new(false);
-    let fail_closed = matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) && !allow_env;
-    // `policy` is the once-parsed artifact from `load_policy_file` (ENG-22644);
-    // an unreadable policy file already failed the run upstream, so there is no
-    // silent-return path to double-report here anymore.
-    let mut groups: Vec<String> = match policy {
-        Some(policy) => policy
-            .packages
-            .iter()
-            .filter_map(|(pkg, package_policy)| {
-                let endow = package_policy.endow.as_ref()?;
-                if endow.is_empty() {
-                    None
-                } else {
-                    Some(format!("{}:{}", pkg, endow.join(",")))
-                }
-            })
-            .collect(),
-        None => Vec::new(),
-    };
-    groups.sort();
-
-    // Under enforce/audit, the policy is the sole endowment source and a stale
-    // ambient IBEX_ENDOW must be cleared even when the policy has no groups —
-    // otherwise an inherited value would survive untouched. In permissive/hatch
-    // mode with no policy groups there is nothing to compose, so leave any
-    // ambient value in place.
-    if groups.is_empty() && !fail_closed {
-        return;
-    }
-    if APPLIED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    let policy_value = groups.join(";");
-    let existing = std::env::var("IBEX_ENDOW")
-        .ok()
-        .filter(|v| !v.trim().is_empty());
-
-    let value = if fail_closed {
-        if let Some(env) = &existing {
-            eprintln!(
-                "warning: IBEX_ENDOW ignored under enforce/audit mode (would widen \
-                 compartment endowments: {env}); pass --allow-env-endowments to override"
-            );
-        }
-        policy_value
-    } else {
-        // Permissive, or the explicit escape hatch: the ambient value keeps
-        // precedence (appended last → wins the registry's per-package parse).
-        match existing {
-            Some(env) if policy_value.is_empty() => env,
-            Some(env) => format!("{};{}", policy_value, env),
-            None => policy_value,
-        }
-    };
-    if value.is_empty() {
-        std::env::remove_var("IBEX_ENDOW");
-    } else {
-        std::env::set_var("IBEX_ENDOW", value);
-    }
-}
-
-fn resolve_policy_path(cli: &Cli) -> Option<PathBuf> {
-    if let Some(path) = &cli.policy {
-        return Some(path.clone());
-    }
-
-    if let Ok(path) =
-        crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").ok_or(std::env::VarError::NotPresent)
-    {
-        if !path.trim().is_empty() {
-            return Some(PathBuf::from(path));
-        }
-    }
-
-    default_policy_path()
-}
-
-fn default_policy_path() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        dirs::home_dir().map(|home| {
-            home.join("Library")
-                .join("Application Support")
-                .join("Ibex")
-                .join("policy.json")
-        })
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(config_dir) = dirs::config_dir() {
-            return Some(config_dir.join("ibex").join("policy.json"));
-        }
-        dirs::home_dir().map(|home| home.join(".config").join("ibex").join("policy.json"))
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        None
-    }
-}
-
 pub async fn prepare_entry_with_format(
     entry: &str,
     bundle_format: BundleFormat,
+) -> Result<PathBuf> {
+    prepare_entry_with_format_and_bytecode(entry, bundle_format, true).await
+}
+
+/// Prepare source for the build command. The build command is itself producing
+/// the requested HBC, so feeding it an entry-cache HBC would ask hermesc to
+/// compile bytecode as JavaScript and would also lose the bundle directory
+/// containing per-package chunks.
+pub async fn prepare_entry_for_bytecode_build(
+    entry: &str,
+    bundle_format: BundleFormat,
+) -> Result<PathBuf> {
+    prepare_entry_with_format_and_bytecode(entry, bundle_format, false).await
+}
+
+async fn prepare_entry_with_format_and_bytecode(
+    entry: &str,
+    bundle_format: BundleFormat,
+    allow_bytecode: bool,
 ) -> Result<PathBuf> {
     let path = PathBuf::from(entry);
     let path = if path.is_absolute() {
@@ -2084,11 +3114,12 @@ pub async fn prepare_entry_with_format(
 
     let cache_dir = runtime_cache_dir()?;
     let cache_key = bundle_cache_key(&path, bundle_format)?;
-    let output = bundle_output_path(&cache_dir, &cache_key, bundle_format);
+    let artifact_root = bundle_artifact_root(&cache_dir, &cache_key);
 
-    if bundle_cache_is_fresh(&output, &path).await {
+    if let Some(output) = find_fresh_bundle(&artifact_root, &path, bundle_format).await {
         // Bundle is cached. Try bytecode if not already known incompatible.
-        if !BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
+        if allow_bytecode
+            && !BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
             && crate::runtime_env("IBEX_NO_BYTECODE", "EX_NO_BYTECODE").is_none()
         {
             if let Ok(bytecode_path) = prepare_bytecode_entry(&output).await {
@@ -2115,24 +3146,35 @@ pub async fn prepare_entry_with_format(
     };
 
     // If format changed, recompute output path
-    let output = if effective_format != bundle_format {
+    let artifact_root = if effective_format != bundle_format {
         let new_key = bundle_cache_key(&path, effective_format)?;
-        bundle_output_path(&cache_dir, &new_key, effective_format)
+        bundle_artifact_root(&cache_dir, &new_key)
     } else {
-        output
+        artifact_root
     };
 
-    let prepared = match run_bundler(&path, &output, effective_format).await {
-        Ok(()) => output,
+    if let Some(output) = find_fresh_bundle(&artifact_root, &path, effective_format).await {
+        return if allow_bytecode
+            && !BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
+            && crate::runtime_env("IBEX_NO_BYTECODE", "EX_NO_BYTECODE").is_none()
+        {
+            prepare_bytecode_entry(&output).await.or(Ok(output))
+        } else {
+            Ok(output)
+        };
+    }
+
+    let prepared = match run_bundler(&path, &artifact_root, effective_format).await {
+        Ok(output) => output,
         Err(err) => {
             let err_msg = format!("{}", err);
             // If rolldown rejects TLA in CJS mode (e.g. await inside for/if/while
             // blocks that our heuristic missed), retry with ESM format.
             if effective_format == BundleFormat::Cjs && err_msg.contains("Top-level await") {
                 let esm_key = bundle_cache_key(&path, BundleFormat::Esm)?;
-                let esm_output = bundle_output_path(&cache_dir, &esm_key, BundleFormat::Esm);
-                match run_bundler(&path, &esm_output, BundleFormat::Esm).await {
-                    Ok(()) => esm_output,
+                let esm_root = bundle_artifact_root(&cache_dir, &esm_key);
+                match run_bundler(&path, &esm_root, BundleFormat::Esm).await {
+                    Ok(output) => output,
                     Err(esm_err) => return Err(esm_err),
                 }
             } else if needs_bundle {
@@ -2178,7 +3220,8 @@ pub async fn prepare_entry_with_format(
     // Try to compile to bytecode for faster startup on subsequent runs.
     // Skip if we've already detected that hermesc produces incompatible bytecode,
     // or if bytecode is explicitly disabled.
-    if BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
+    if !allow_bytecode
+        || BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
         || crate::runtime_env("IBEX_NO_BYTECODE", "EX_NO_BYTECODE").is_some()
     {
         return Ok(prepared);
@@ -2193,72 +3236,603 @@ pub async fn prepare_entry_with_format(
 }
 
 fn deps_manifest_path(output: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.deps.json", output.display()))
+    let mut path = output.as_os_str().to_os_string();
+    path.push(".deps.json");
+    PathBuf::from(path)
 }
 
-/// A cached bundle is fresh only when its dependency manifest exists and no
-/// module in the recorded graph — nor the entry itself — is newer than the
-/// bundle output. Missing or unreadable manifests are stale, so caches
-/// produced before the manifest existed rebuild exactly once.
-async fn bundle_cache_is_fresh(output: &Path, entry: &Path) -> bool {
-    let Ok(out_meta) = tokio::fs::metadata(output).await else {
-        return false;
-    };
-    let Ok(out_time) = out_meta.modified() else {
-        return false;
-    };
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleDigestRecord {
+    path: String,
+    sha256: String,
+}
 
-    match tokio::fs::metadata(entry).await {
-        Ok(meta) => match meta.modified() {
-            Ok(entry_time) if entry_time <= out_time => {}
-            _ => return false,
+#[derive(serde::Deserialize, serde::Serialize)]
+struct BundleResolutionInput {
+    kind: String,
+    path: String,
+    sha256: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleCacheManifest {
+    version: u32,
+    entry: String,
+    resolution_digest: String,
+    graph_digest: String,
+    deps: Vec<BundleDigestRecord>,
+    outputs: Vec<BundleDigestRecord>,
+    resolution_inputs: Vec<BundleResolutionInput>,
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+async fn sha256_file(path: &Path) -> Result<String> {
+    let bytes = tokio::fs::read(path)
+        .await
+        .with_context(|| format!("Failed to hash {}", path.display()))?;
+    Ok(sha256_bytes(&bytes))
+}
+
+async fn read_bundle_manifest(output: &Path) -> Result<BundleCacheManifest> {
+    let raw = tokio::fs::read(deps_manifest_path(output))
+        .await
+        .context("read bundle cache manifest")?;
+    serde_json::from_slice(&raw).context("parse bundle cache manifest")
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn bundle_resolution_input_digest(input: &BundleResolutionInput) -> Option<String> {
+    let path = Path::new(&input.path);
+    match input.kind.as_str() {
+        "file" => std::fs::read(path).ok().map(|bytes| sha256_bytes(&bytes)),
+        "symlink" => std::fs::read_link(path)
+            .ok()
+            .and_then(|target| target.to_str().map(|value| sha256_bytes(value.as_bytes()))),
+        "missing" => match std::fs::symlink_metadata(path) {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                Some(sha256_bytes(b"missing"))
+            }
+            _ => None,
         },
-        Err(_) => return false,
+        "directory" => {
+            let mut entries = std::fs::read_dir(path)
+                .ok()?
+                .collect::<std::io::Result<Vec<_>>>()
+                .ok()?;
+            entries.sort_by(|left, right| {
+                left.file_name()
+                    .to_str()
+                    .unwrap_or("")
+                    .as_bytes()
+                    .cmp(right.file_name().to_str().unwrap_or("").as_bytes())
+            });
+            let mut encoded = Vec::new();
+            for entry in entries {
+                let name = entry.file_name();
+                let name = name.to_str()?;
+                let metadata = std::fs::symlink_metadata(entry.path()).ok()?;
+                let kind = if metadata.file_type().is_symlink() {
+                    b'l'
+                } else if metadata.is_dir() {
+                    b'd'
+                } else if metadata.is_file() {
+                    b'f'
+                } else {
+                    b'o'
+                };
+                encoded.push(kind);
+                encoded.push(0);
+                encoded.extend_from_slice(name.as_bytes());
+                encoded.push(0);
+                if metadata.file_type().is_symlink() {
+                    let target = std::fs::read_link(entry.path()).ok()?;
+                    encoded.extend_from_slice(target.to_str()?.as_bytes());
+                }
+                encoded.push(b'\n');
+            }
+            Some(sha256_bytes(&encoded))
+        }
+        _ => None,
     }
+}
 
-    let Ok(raw) = tokio::fs::read_to_string(deps_manifest_path(output)).await else {
-        return false;
-    };
-    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return false;
-    };
-    let Some(deps) = manifest.get("deps").and_then(|deps| deps.as_array()) else {
-        return false;
-    };
+fn normalized_relative_artifact_path(path: &Path) -> Option<String> {
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    Some(
+        path.components()
+            .filter_map(|component| match component {
+                std::path::Component::Normal(part) => Some(part.to_string_lossy()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
+}
 
-    for dep in deps.iter().filter_map(|dep| dep.as_str()) {
-        // A deleted or unreadable dependency invalidates the cache too.
-        let Ok(meta) = tokio::fs::metadata(dep).await else {
+fn collect_bundle_output_files(root: &Path, current: &Path, files: &mut Vec<String>) -> bool {
+    let Ok(entries) = std::fs::read_dir(current) else {
+        return false;
+    };
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let path = entry.path();
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
             return false;
         };
-        let Ok(dep_time) = meta.modified() else {
+        let Ok(relative) = path.strip_prefix(root) else {
             return false;
         };
-        if dep_time > out_time {
+        let Some(relative_string) = normalized_relative_artifact_path(relative) else {
+            return false;
+        };
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if metadata.file_type().is_symlink() {
+            // Published generated code is immutable regular-file content; a
+            // symlink could retarget after digest verification.
             return false;
         }
+        if metadata.is_dir() {
+            // Derived bytecode/control directories are not bundler outputs.
+            if name.starts_with('.') {
+                continue;
+            }
+            if !collect_bundle_output_files(root, &path, files) {
+                return false;
+            }
+        } else if metadata.is_file() {
+            if name == ".last-used"
+                || name == ".lease"
+                || relative_string.ends_with(".deps.json")
+                || relative_string.ends_with(".hbc")
+                || relative_string.ends_with(".hbc.meta.json")
+            {
+                continue;
+            }
+            files.push(relative_string);
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+/// A cached bundle is fresh only when every dependency and every output still
+/// matches the SHA-256 digest committed by its v2 manifest. File size and mtime
+/// are never source identity (ENG-24257).
+async fn bundle_cache_is_fresh(output: &Path, entry: &Path) -> bool {
+    if !output.is_file() {
+        return false;
+    }
+    let Ok(manifest) = read_bundle_manifest(output).await else {
+        return false;
+    };
+    if manifest.version != 3
+        || !valid_sha256(&manifest.graph_digest)
+        || !valid_sha256(&manifest.resolution_digest)
+    {
+        return false;
+    }
+    let canonical_entry = std::fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf());
+    let manifest_entry =
+        std::fs::canonicalize(&manifest.entry).unwrap_or_else(|_| PathBuf::from(&manifest.entry));
+    if canonical_entry != manifest_entry {
+        return false;
+    }
+
+    if manifest.resolution_inputs.is_empty() {
+        return false;
+    }
+    let mut previous_resolution: Option<(&str, &str)> = None;
+    for input in &manifest.resolution_inputs {
+        if !Path::new(&input.path).is_absolute() || !valid_sha256(&input.sha256) {
+            return false;
+        }
+        let ordering_key = (input.path.as_str(), input.kind.as_str());
+        if previous_resolution.is_some_and(|previous| previous >= ordering_key) {
+            return false;
+        }
+        previous_resolution = Some(ordering_key);
+        if bundle_resolution_input_digest(input).as_deref() != Some(input.sha256.as_str()) {
+            return false;
+        }
+    }
+    let Ok(encoded_resolution) = serde_json::to_vec(&manifest.resolution_inputs) else {
+        return false;
+    };
+    if sha256_bytes(&encoded_resolution) != manifest.resolution_digest {
+        return false;
+    }
+
+    if manifest.deps.is_empty() {
+        return false;
+    }
+    let mut previous_dep: Option<&str> = None;
+    let canonical_entry_string = canonical_entry.to_string_lossy();
+    let mut includes_entry = false;
+    for dep in &manifest.deps {
+        if !valid_sha256(&dep.sha256)
+            || previous_dep.is_some_and(|previous| previous >= dep.path.as_str())
+        {
+            return false;
+        }
+        previous_dep = Some(&dep.path);
+        let path = Path::new(&dep.path);
+        let Ok(canonical_dep) = std::fs::canonicalize(path) else {
+            return false;
+        };
+        if canonical_dep.to_string_lossy() != dep.path {
+            return false;
+        }
+        includes_entry |= dep.path == canonical_entry_string;
+        let Ok(digest) = sha256_file(path).await else {
+            return false;
+        };
+        if digest != dep.sha256 {
+            return false;
+        }
+    }
+    if !includes_entry {
+        return false;
+    }
+    let Ok(encoded_deps) = serde_json::to_vec(&manifest.deps) else {
+        return false;
+    };
+    if sha256_bytes(&encoded_deps) != manifest.graph_digest {
+        return false;
+    }
+
+    let Some(artifact_dir) = output.parent() else {
+        return false;
+    };
+    if manifest.outputs.is_empty() {
+        return false;
+    }
+    let Some(expected_entry_output) = output
+        .strip_prefix(artifact_dir)
+        .ok()
+        .and_then(normalized_relative_artifact_path)
+    else {
+        return false;
+    };
+    let mut previous_output: Option<&str> = None;
+    let mut includes_output = false;
+    let mut expected_files = Vec::with_capacity(manifest.outputs.len());
+    for artifact in &manifest.outputs {
+        let relative = Path::new(&artifact.path);
+        let Some(normalized) = normalized_relative_artifact_path(relative) else {
+            return false;
+        };
+        if normalized != artifact.path
+            || !valid_sha256(&artifact.sha256)
+            || previous_output.is_some_and(|previous| previous >= artifact.path.as_str())
+        {
+            return false;
+        }
+        previous_output = Some(&artifact.path);
+        includes_output |= artifact.path == expected_entry_output;
+        let Ok(digest) = sha256_file(&artifact_dir.join(relative)).await else {
+            return false;
+        };
+        if digest != artifact.sha256 {
+            return false;
+        }
+        expected_files.push(artifact.path.clone());
+    }
+    if !includes_output {
+        return false;
+    }
+    let mut actual_files = Vec::new();
+    if !collect_bundle_output_files(artifact_dir, artifact_dir, &mut actual_files) {
+        return false;
+    }
+    actual_files.sort();
+    if actual_files != expected_files {
+        return false;
     }
 
     true
 }
 
-async fn prepare_bytecode_entry(entry: &Path) -> Result<PathBuf> {
-    let hbc_path = entry.with_extension("hbc");
-    if hbc_path.exists() {
-        let entry_meta = tokio::fs::metadata(entry).await;
-        let hbc_meta = tokio::fs::metadata(&hbc_path).await;
-        if let (Ok(entry_meta), Ok(hbc_meta)) = (entry_meta, hbc_meta) {
-            if let (Ok(entry_modified), Ok(hbc_modified)) =
-                (entry_meta.modified(), hbc_meta.modified())
-            {
-                if hbc_modified > entry_modified {
-                    return Ok(hbc_path);
+#[cfg(test)]
+fn bytecode_manifest_path(bytecode: &Path) -> PathBuf {
+    let mut path = bytecode.as_os_str().to_os_string();
+    path.push(".meta.json");
+    PathBuf::from(path)
+}
+
+async fn bytecode_cache_is_fresh(source: &Path, bytecode: &Path) -> bool {
+    engine::hermes::bytecode_artifact_is_fresh(source, bytecode).await
+}
+
+fn touch_bytecode_artifact(artifact_dir: &Path) {
+    std::fs::write(artifact_dir.join(".last-used"), []).ok();
+}
+
+fn is_bytecode_cache_key(name: &std::ffi::OsStr) -> bool {
+    name.to_str().is_some_and(|name| {
+        name.len() == 64
+            && name
+                .as_bytes()
+                .iter()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+    })
+}
+
+fn ensure_bytecode_cache_root(cache_parent: &Path) -> Result<PathBuf> {
+    let cache_parent = cache_parent.to_path_buf();
+    std::fs::create_dir_all(&cache_parent).with_context(|| {
+        format!(
+            "Failed to create runtime cache directory {}",
+            cache_parent.display()
+        )
+    })?;
+    let cache_parent = std::fs::canonicalize(&cache_parent).with_context(|| {
+        format!(
+            "Failed to authenticate runtime cache directory {}",
+            cache_parent.display()
+        )
+    })?;
+    let cache_root = cache_parent.join(".bytecode-cache");
+    match std::fs::symlink_metadata(&cache_root) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match std::fs::create_dir(&cache_root) {
+                Ok(()) => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        std::fs::set_permissions(
+                            &cache_root,
+                            std::fs::Permissions::from_mode(0o700),
+                        )?;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("Failed to create bytecode cache {}", cache_root.display())
+                    })
                 }
             }
         }
+        Err(error) => return Err(error.into()),
+    }
+    let metadata = std::fs::symlink_metadata(&cache_root)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        anyhow::bail!(
+            "Bytecode cache root must be a real directory, not a symlink or file: {}",
+            cache_root.display()
+        );
+    }
+    let authenticated = std::fs::canonicalize(&cache_root).with_context(|| {
+        format!(
+            "Failed to authenticate bytecode cache {}",
+            cache_root.display()
+        )
+    })?;
+    if authenticated.parent() != Some(cache_parent.as_path()) {
+        anyhow::bail!(
+            "Bytecode cache {} escapes runtime cache {}",
+            authenticated.display(),
+            cache_parent.display()
+        );
+    }
+    Ok(authenticated)
+}
+
+fn bytecode_cache_parent_for_source(source: &Path) -> Result<PathBuf> {
+    let runtime_root = runtime_cache_dir()?;
+    std::fs::create_dir_all(&runtime_root)?;
+    let runtime_root = std::fs::canonicalize(runtime_root)?;
+    let bundles_root = runtime_root.join("bundles");
+    if source.starts_with(&bundles_root) {
+        return source
+            .parent()
+            .map(Path::to_path_buf)
+            .context("bundle cache source has no parent");
+    }
+    Ok(runtime_root)
+}
+
+fn cleanup_abandoned_bytecode_temp_dirs(cache_root: &Path) {
+    let Ok(entries) = std::fs::read_dir(cache_root) else {
+        return;
+    };
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let owner = [".stage-", ".invalid-", ".evict-"]
+            .iter()
+            .find_map(|prefix| {
+                name.strip_prefix(prefix)
+                    .and_then(|rest| rest.split('-').next())
+                    .and_then(|pid| pid.parse::<u32>().ok())
+            });
+        if owner.is_some_and(|pid| !process_is_running(pid)) {
+            std::fs::remove_dir_all(entry.path()).ok();
+        }
+    }
+}
+
+fn prune_bytecode_cache_to_limit(cache_root: &Path, keep: &Path, limit: u64) {
+    cleanup_abandoned_bytecode_temp_dirs(cache_root);
+    let Ok(entries) = std::fs::read_dir(cache_root) else {
+        return;
+    };
+    let mut artifacts = entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            let file_type = entry.file_type().ok()?;
+            if path == keep || !file_type.is_dir() || !is_bytecode_cache_key(&entry.file_name()) {
+                return None;
+            }
+            let metadata = entry.metadata().ok()?;
+            let recency = std::fs::metadata(path.join(".last-used"))
+                .and_then(|marker| marker.modified())
+                .or_else(|_| metadata.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            Some((recency, cached_directory_size(&path), path))
+        })
+        .collect::<Vec<_>>();
+    let mut total = cached_directory_size(cache_root);
+    artifacts.sort_by_key(|(modified, _, _)| *modified);
+    for (_, size, path) in artifacts {
+        if total <= limit {
+            break;
+        }
+        let Ok(Some(gate)) = try_acquire_bundle_artifact_gate(&path) else {
+            continue;
+        };
+        if bundle_artifact_has_live_lease(&path) {
+            drop(gate);
+            continue;
+        }
+        let quarantine = cache_root.join(format!(
+            ".evict-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0),
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("artifact")
+        ));
+        let renamed = std::fs::rename(&path, &quarantine).is_ok();
+        drop(gate);
+        if renamed && std::fs::remove_dir_all(&quarantine).is_ok() {
+            total = total.saturating_sub(size);
+        }
+    }
+}
+
+fn enforce_bytecode_cache_quota(cache_root: &Path, keep: &Path) {
+    const DEFAULT_LIMIT: u64 = 256 * 1024 * 1024;
+    let limit = std::env::var("IBEX_BYTECODE_CACHE_MAX_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_LIMIT);
+    prune_bytecode_cache_to_limit(cache_root, keep, limit);
+}
+
+async fn prepare_bytecode_entry(entry: &Path) -> Result<PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let source_identity = std::fs::canonicalize(entry)
+        .with_context(|| format!("Failed to authenticate bytecode source {}", entry.display()))?;
+    // A bundle-cache source may be evicted by another process. Hold its shared
+    // lease through the single source read, compilation, and HBC publication.
+    let _source_lease = acquire_bundle_execution_lease(&source_identity).await?;
+    let source = tokio::fs::read(&source_identity).await?;
+    let source_digest_before = sha256_bytes(&source);
+    // Generated-code caches fail closed unless the mapped runtime binary can
+    // be attested. Explicit `ibex build` output is not a cache and remains
+    // available on platforms (currently Windows) without mapped-module
+    // identity support; the cache-specific gate belongs here, not in the
+    // generic compiler wrapper.
+    ibex_runtime::engine::loaded_engine_binary_identity()
+        .map_err(anyhow::Error::msg)
+        .context("cannot authenticate the loaded Hermes engine for bytecode cache use")?;
+    let toolchain_identity = engine::hermes::bytecode_cache_identity();
+    let source_path = source_identity
+        .to_str()
+        .context("bytecode cache does not support non-UTF-8 source paths")?;
+    let cache_key = sha256_bytes(
+        format!("bytecode-cache-v3\0{source_path}\0{source_digest_before}\0{toolchain_identity}")
+            .as_bytes(),
+    );
+    let cache_parent = bytecode_cache_parent_for_source(&source_identity)?;
+    let cache_root = ensure_bytecode_cache_root(&cache_parent)?;
+    let final_dir = cache_root.join(&cache_key);
+    let hbc_path = final_dir.join("entry.hbc");
+    if bytecode_cache_is_fresh(&source_identity, &hbc_path).await {
+        touch_bytecode_artifact(&final_dir);
+        return Ok(hbc_path);
     }
 
-    engine::hermes::compile_to_bytecode(&entry.to_string_lossy(), &hbc_path, None).await?;
+    tokio::fs::create_dir_all(&cache_root).await?;
+    let seq = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+    let stage_dir = cache_root.join(format!(
+        ".stage-{}-{seq}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+    tokio::fs::create_dir(&stage_dir).await?;
+    let stage_hbc = stage_dir.join("entry.hbc");
+    if let Err(error) =
+        engine::hermes::compile_source_to_bytecode(&source_identity, &source, &stage_hbc, None)
+            .await
+    {
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
+        return Err(error);
+    }
+    let source_digest_after = sha256_file(&source_identity).await?;
+    if source_digest_before != source_digest_after {
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
+        anyhow::bail!(
+            "Source changed while compiling bytecode for {}",
+            source_identity.display()
+        );
+    }
+
+    let gate = acquire_bundle_artifact_gate(&final_dir).await?;
+    let mut quarantine = None;
+    if final_dir.exists() {
+        if bytecode_cache_is_fresh(&source_identity, &hbc_path).await {
+            tokio::fs::remove_dir_all(&stage_dir).await.ok();
+            touch_bytecode_artifact(&final_dir);
+            return Ok(hbc_path);
+        }
+        let invalid = cache_root.join(format!(
+            ".invalid-{}-{}-{seq}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        tokio::fs::rename(&final_dir, &invalid).await?;
+        quarantine = Some(invalid);
+    }
+    if let Err(error) = tokio::fs::rename(&stage_dir, &final_dir).await {
+        if let Some(invalid) = quarantine.as_ref() {
+            tokio::fs::rename(invalid, &final_dir).await.ok();
+        }
+        return Err(error)
+            .with_context(|| format!("Failed to publish bytecode cache {}", final_dir.display()));
+    }
+    if let Some(invalid) = quarantine {
+        tokio::fs::remove_dir_all(invalid).await.ok();
+    }
+    touch_bytecode_artifact(&final_dir);
+    drop(gate);
+    enforce_bytecode_cache_quota(&cache_root, &final_dir);
 
     Ok(hbc_path)
 }
@@ -2599,67 +4173,200 @@ fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
 
-fn hash_path_metadata<H: Hasher>(hasher: &mut H, path: &Path) {
-    if let Ok(meta) = std::fs::metadata(path) {
-        if let Ok(modified) = meta.modified() {
-            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                duration.as_nanos().hash(hasher);
-            }
-        }
-        meta.len().hash(hasher);
-    }
+fn digest_field(hasher: &mut Sha256, label: &str, bytes: &[u8]) {
+    hasher.update((label.len() as u64).to_le_bytes());
+    hasher.update(label.as_bytes());
+    hasher.update((bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
 }
 
-fn hash_file_contents<H: Hasher>(hasher: &mut H, path: &Path) -> Result<()> {
-    path.hash(hasher);
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("Failed to read bundle cache input {}", path.display()))?;
-    bytes.hash(hasher);
-    Ok(())
-}
-
-fn bundler_cache_input_paths() -> Vec<PathBuf> {
+fn bundler_cache_input_paths() -> Result<Vec<PathBuf>> {
     // Outside a checkout there is no bundler to run and no scripts to hash;
     // the cache key must not require a repo.
     let Ok(root) = repo_root() else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    vec![
-        root.join("packages")
-            .join("ibex-devtools")
-            .join("src")
-            .join("scripts")
-            .join("rolldown-bundle.mjs"),
-        root.join("packages")
-            .join("ibex-devtools")
-            .join("src")
-            .join("scripts")
-            .join("transforms.mjs"),
+    [
+        "packages/ibex-devtools/src/scripts/rolldown-bundle.mjs",
+        "packages/ibex-devtools/src/scripts/transforms.mjs",
         // @ref LLP 0019#consequences — ENG-22987: the canonical Hermes-compat transforms
         // (for-of scoping, exponentiation, BigInt, async generators) moved out
         // of transforms.mjs into hermes-compat.mjs, which transforms.mjs now
         // re-exports. The bundle cache must hash the file the logic actually
         // lives in, or an edit to the transform semantics would not invalidate
         // cached bundles.
-        root.join("packages")
-            .join("ibex-devtools")
-            .join("src")
-            .join("scripts")
-            .join("hermes-compat.mjs"),
+        "packages/ibex-devtools/src/scripts/hermes-compat.mjs",
         // @ref LLP 0014#parse-and-strip — the grant-attribute strip runs in
         // every bundle; its logic changing must invalidate cached bundles.
-        root.join("packages")
-            .join("ibex-devtools")
-            .join("src")
-            .join("scripts")
-            .join("import-grants.mjs"),
+        "packages/ibex-devtools/src/scripts/import-grants.mjs",
     ]
+    .into_iter()
+    .map(|relative| authenticated_repo_file(&root, Path::new(relative)))
+    .collect()
+}
+
+#[derive(Clone)]
+struct BundlerToolchainIdentity {
+    runner: PathBuf,
+    runner_name: &'static str,
+    digest: [u8; 32],
+}
+
+fn collect_authenticated_tool_files(
+    path: &Path,
+    package_store_root: &Path,
+    visited_dirs: &mut std::collections::HashSet<PathBuf>,
+    visited_files: &mut std::collections::HashSet<PathBuf>,
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
+    const MAX_TOOL_FILES: usize = 4096;
+    let canonical = std::fs::canonicalize(path).with_context(|| {
+        format!(
+            "Failed to authenticate bundler dependency {}",
+            path.display()
+        )
+    })?;
+    if !canonical.starts_with(package_store_root) {
+        anyhow::bail!(
+            "Bundler dependency {} escapes authenticated package store {}",
+            canonical.display(),
+            package_store_root.display()
+        );
+    }
+    let metadata = std::fs::metadata(&canonical)?;
+    if metadata.is_file() {
+        if visited_files.insert(canonical.clone()) {
+            if files.len() >= MAX_TOOL_FILES {
+                anyhow::bail!("Bundler dependency tree exceeds {MAX_TOOL_FILES} files");
+            }
+            files.push(canonical);
+        }
+        return Ok(());
+    }
+    if !metadata.is_dir() || !visited_dirs.insert(canonical.clone()) {
+        return Ok(());
+    }
+    let mut entries = std::fs::read_dir(&canonical)?.collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+    for entry in entries {
+        collect_authenticated_tool_files(
+            &entry.path(),
+            package_store_root,
+            visited_dirs,
+            visited_files,
+            files,
+        )?;
+    }
+    Ok(())
+}
+
+fn compute_bundler_toolchain_identity() -> Result<BundlerToolchainIdentity> {
+    const MAX_TOOL_BYTES: u64 = 512 * 1024 * 1024;
+    let root = repo_root()?;
+    let (runner, runner_name) = find_js_runner()?;
+    let runner = std::fs::canonicalize(&runner)
+        .with_context(|| format!("Failed to authenticate JS runner {}", runner.display()))?;
+    let runner_bytes = std::fs::read(&runner)
+        .with_context(|| format!("Failed to read JS runner {}", runner.display()))?;
+    if runner_bytes.len() as u64 > MAX_TOOL_BYTES {
+        anyhow::bail!("JS runner exceeds the authenticated tool size limit");
+    }
+
+    let mut hasher = Sha256::new();
+    digest_field(&mut hasher, "identity-version", b"bundler-toolchain-v1");
+    digest_field(&mut hasher, "runner-name", runner_name.as_bytes());
+    digest_field(
+        &mut hasher,
+        "runner-path",
+        runner.to_string_lossy().as_bytes(),
+    );
+    digest_field(&mut hasher, "runner-content", &runner_bytes);
+
+    let mut inputs = bundler_cache_input_paths()?;
+    for relative in ["package.json", "bun.lock"] {
+        let candidate = root.join(relative);
+        if candidate.is_file() {
+            inputs.push(authenticated_repo_file(&root, Path::new(relative))?);
+        }
+    }
+
+    // Rolldown's JS package loads a platform-specific native binding and
+    // helper packages from the enclosing installation node_modules directory.
+    // Bind that exact resolved tree, not just package.json/lockfile metadata.
+    let package_store_root = std::fs::canonicalize(root.join("node_modules"))
+        .context("Failed to authenticate the installed package store")?;
+    let rolldown = std::fs::canonicalize(root.join("node_modules/rolldown"))
+        .context("Failed to authenticate the installed rolldown package")?;
+    let install_root = rolldown
+        .parent()
+        .context("Installed rolldown package has no dependency root")?;
+    let mut tool_files = Vec::new();
+    collect_authenticated_tool_files(
+        install_root,
+        &package_store_root,
+        &mut std::collections::HashSet::new(),
+        &mut std::collections::HashSet::new(),
+        &mut tool_files,
+    )?;
+    inputs.extend(tool_files);
+    inputs.sort();
+    inputs.dedup();
+
+    let mut total = runner_bytes.len() as u64;
+    for input in inputs {
+        let bytes = std::fs::read(&input)
+            .with_context(|| format!("Failed to read bundler input {}", input.display()))?;
+        total = total
+            .checked_add(bytes.len() as u64)
+            .context("Bundler tooling size overflow")?;
+        if total > MAX_TOOL_BYTES {
+            anyhow::bail!("Bundler dependency tree exceeds the authenticated tool size limit");
+        }
+        digest_field(&mut hasher, "tool-path", input.to_string_lossy().as_bytes());
+        digest_field(&mut hasher, "tool-content", &bytes);
+    }
+
+    Ok(BundlerToolchainIdentity {
+        runner,
+        runner_name,
+        digest: hasher.finalize().into(),
+    })
+}
+
+fn bundler_toolchain_identity() -> Result<BundlerToolchainIdentity> {
+    // Computing this identity authenticates the runner plus thousands of
+    // installed tool files. Serialize the cold path so concurrent bundle
+    // publishers do not all repeat that scan before one of them fills the
+    // cache. Failed scans remain retryable.
+    static CACHED: std::sync::OnceLock<std::sync::Mutex<Option<BundlerToolchainIdentity>>> =
+        std::sync::OnceLock::new();
+    let mut cached = CACHED
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Bundler toolchain identity cache is poisoned"))?;
+    if let Some(identity) = cached.as_ref() {
+        return Ok(identity.clone());
+    }
+    let identity = compute_bundler_toolchain_identity()?;
+    *cached = Some(identity.clone());
+    Ok(identity)
+}
+
+fn verify_bundler_toolchain_identity(expected: &BundlerToolchainIdentity) -> Result<()> {
+    let current = compute_bundler_toolchain_identity()?;
+    if current.runner != expected.runner
+        || current.runner_name != expected.runner_name
+        || current.digest != expected.digest
+    {
+        anyhow::bail!("Bundler runner or dependency tree changed during this process");
+    }
+    Ok(())
 }
 
 fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String> {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    "bundle-cache-v6-deps-manifest".hash(&mut hasher);
-    bundle_format.as_str().hash(&mut hasher);
+    let mut hasher = Sha256::new();
+    digest_field(&mut hasher, "cache-version", b"bundle-cache-v8-sha256");
+    digest_field(&mut hasher, "format", bundle_format.as_str().as_bytes());
     // @ref LLP 0013#mechanism-2 — a compartmentalized bundle references the
     // `__compartments` registry, which only exists under lockdown/compartments.
     // It MUST NOT be reused for a non-compartment run (the reference would throw
@@ -2669,30 +4376,38 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
     // Resolve with the same truthiness parse the engine uses (ENG-22634), and
     // key the cache on that resolved bool so a compartmentalized bundle can never
     // be reused for a non-compartment run (or vice versa).
-    let compartments =
-        crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS");
-    compartments.hash(&mut hasher);
+    digest_field(&mut hasher, "compartments", b"1");
     // @ref LLP 0013#mechanism-3 — per-package chunking changes the output shape
     // (multiple chunk files), so it must key distinctly from a flat bundle. Use
     // the same truthiness parse as the other two read sites so `=0` is a real
     // opt-out and the cache key agrees with what the bundler actually emitted.
-    crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS").hash(&mut hasher);
-    hash_file_contents(&mut hasher, entry)?;
+    digest_field(&mut hasher, "per-package-chunks", b"1");
+    let canonical_entry = std::fs::canonicalize(entry)
+        .with_context(|| format!("Failed to resolve bundle entry {}", entry.display()))?;
+    let canonical_entry_utf8 = canonical_entry.to_str().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Bundle cache does not support a non-UTF-8 entry path: {}",
+            canonical_entry.display()
+        )
+    })?;
+    digest_field(&mut hasher, "entry-path", canonical_entry_utf8.as_bytes());
+    digest_field(
+        &mut hasher,
+        "entry-content",
+        &std::fs::read(&canonical_entry)?,
+    );
 
-    for bundler_input in bundler_cache_input_paths() {
-        hash_file_contents(&mut hasher, &bundler_input)?;
+    // Outside a checkout (or when no runner is installed), bundling is
+    // unavailable and the loader falls back to its in-process path. Preserve
+    // that fallback while ensuring every actually runnable bundler cache key
+    // includes the exact runner, Rolldown JS/native packages, lockfile, and
+    // transform scripts that will produce the artifact.
+    match bundler_toolchain_identity() {
+        Ok(identity) => digest_field(&mut hasher, "bundler-toolchain", &identity.digest),
+        Err(_) => digest_field(&mut hasher, "bundler-toolchain", b"unavailable"),
     }
 
-    if let Some(parent) = entry.parent() {
-        let mut current = Some(parent);
-        let mut depth = 0;
-        while let Some(dir) = current {
-            hash_path_metadata(&mut hasher, dir);
-            depth += 1;
-            current = if depth >= 2 { None } else { dir.parent() };
-        }
-    }
-    Ok(format!("{:x}", hasher.finish()))
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn bundle_file_ext(format: BundleFormat) -> &'static str {
@@ -2710,13 +4425,208 @@ fn bundle_file_ext(format: BundleFormat) -> &'static str {
 /// shared `rolldown-runtime.js` name and corrupt each other's cache (a real
 /// hazard for concurrent `ibex run` of different apps, surfaced once enforce
 /// began auto-enabling chunking — ENG-22681). @ref LLP 0013#mechanism-3
-fn bundle_output_path(cache_dir: &Path, key: &str, format: BundleFormat) -> PathBuf {
-    let ext = bundle_file_ext(format);
-    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
-        cache_dir.join(key).join(format!("bundle.{}", ext))
-    } else {
-        cache_dir.join(format!("{}.bundle.{}", key, ext))
+fn bundle_artifact_root(cache_dir: &Path, key: &str) -> PathBuf {
+    cache_dir.join("bundles").join(key)
+}
+
+fn bundle_entry_path(artifact_dir: &Path, format: BundleFormat) -> PathBuf {
+    artifact_dir.join(format!("bundle.{}", bundle_file_ext(format)))
+}
+
+fn process_is_running(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+        return result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
     }
+    #[cfg(windows)]
+    {
+        type Handle = *mut std::ffi::c_void;
+        extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, process_id: u32) -> Handle;
+            fn CloseHandle(handle: Handle) -> i32;
+        }
+        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { CloseHandle(handle) };
+        return true;
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
+struct BundleArtifactGate {
+    file: std::fs::File,
+}
+
+impl Drop for BundleArtifactGate {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
+fn bundle_gate_path(artifact_dir: &Path) -> PathBuf {
+    let name = artifact_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("artifact");
+    artifact_dir.with_file_name(format!(".{name}.gate"))
+}
+
+fn try_acquire_bundle_artifact_gate(artifact_dir: &Path) -> Result<Option<BundleArtifactGate>> {
+    let gate = bundle_gate_path(artifact_dir);
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&gate)
+        .with_context(|| format!("Failed to open bundle artifact gate {}", gate.display()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(BundleArtifactGate { file })),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(error)) => Err(error)
+            .with_context(|| format!("Failed to lock bundle artifact gate {}", gate.display())),
+    }
+}
+
+async fn acquire_bundle_artifact_gate(artifact_dir: &Path) -> Result<BundleArtifactGate> {
+    for _ in 0..500 {
+        if let Some(gate) = try_acquire_bundle_artifact_gate(artifact_dir)? {
+            return Ok(gate);
+        }
+        // Never park a Tokio worker while another process publishes/prunes.
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let gate = bundle_gate_path(artifact_dir);
+    anyhow::bail!(
+        "Timed out acquiring bundle artifact gate {}",
+        gate.display()
+    )
+}
+
+pub(crate) struct BundleLease {
+    files: Vec<std::fs::File>,
+}
+
+impl Drop for BundleLease {
+    fn drop(&mut self) {
+        for file in &self.files {
+            let _ = file.unlock();
+        }
+    }
+}
+
+fn acquire_bundle_lease(artifact_dir: &Path) -> Result<BundleLease> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(artifact_dir.join(".lease"))
+        .with_context(|| format!("Failed to lease bundle artifact {}", artifact_dir.display()))?;
+    file.lock_shared()
+        .with_context(|| format!("Failed to lock bundle artifact {}", artifact_dir.display()))?;
+    std::fs::write(artifact_dir.join(".last-used"), []).ok();
+    Ok(BundleLease { files: vec![file] })
+}
+
+fn bundle_artifact_has_live_lease(artifact_dir: &Path) -> bool {
+    let Ok(file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(artifact_dir.join(".lease"))
+    else {
+        return false;
+    };
+    match file.try_lock() {
+        Ok(()) => {
+            let _ = file.unlock();
+            false
+        }
+        Err(std::fs::TryLockError::WouldBlock) => true,
+        Err(_) => true,
+    }
+}
+
+pub(crate) async fn acquire_bundle_execution_lease(path: &Path) -> Result<Option<BundleLease>> {
+    let mut retained = None;
+    if let (Some(artifact_dir), Some(cache_root)) =
+        (path.parent(), path.parent().and_then(Path::parent))
+    {
+        if cache_root
+            .file_name()
+            .is_some_and(|name| name == ".bytecode-cache")
+            && artifact_dir.file_name().is_some_and(is_bytecode_cache_key)
+        {
+            let gate = acquire_bundle_artifact_gate(artifact_dir).await?;
+            if !artifact_dir.is_dir() {
+                anyhow::bail!(
+                    "Bytecode cache artifact disappeared before execution: {}",
+                    artifact_dir.display()
+                );
+            }
+            retained = Some(acquire_bundle_lease(artifact_dir)?);
+            drop(gate);
+        }
+    }
+
+    let bundles_root = runtime_cache_dir()?.join("bundles");
+    let mut current = path.parent();
+    while let Some(directory) = current {
+        if directory
+            .parent()
+            .and_then(Path::parent)
+            .is_some_and(|parent| parent == bundles_root)
+        {
+            let gate = acquire_bundle_artifact_gate(directory).await?;
+            if !directory.is_dir() {
+                anyhow::bail!(
+                    "Bundle cache artifact disappeared before execution: {}",
+                    directory.display()
+                );
+            }
+            let mut lease = acquire_bundle_lease(directory)?;
+            drop(gate);
+            if let Some(mut bytecode_lease) = retained {
+                bytecode_lease.files.append(&mut lease.files);
+                return Ok(Some(bytecode_lease));
+            }
+            return Ok(Some(lease));
+        }
+        if !directory.starts_with(&bundles_root) {
+            break;
+        }
+        current = directory.parent();
+    }
+    Ok(retained)
+}
+
+async fn find_fresh_bundle(
+    artifact_root: &Path,
+    entry: &Path,
+    format: BundleFormat,
+) -> Option<PathBuf> {
+    let mut entries = tokio::fs::read_dir(artifact_root).await.ok()?;
+    while let Ok(Some(candidate)) = entries.next_entry().await {
+        let file_type = candidate.file_type().await.ok()?;
+        if !file_type.is_dir() || candidate.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let candidate_path = candidate.path();
+        let _gate = acquire_bundle_artifact_gate(&candidate_path).await.ok()?;
+        let output = bundle_entry_path(&candidate_path, format);
+        if bundle_cache_is_fresh(&output, entry).await {
+            std::fs::write(candidate_path.join(".last-used"), []).ok();
+            return Some(output);
+        }
+    }
+    None
 }
 
 /// Copy the per-package chunk siblings a chunked bundle emitted — the
@@ -2984,17 +4894,161 @@ fn convert_import_as_to_destructure(imports: &str) -> String {
     format!("{{ {} }}", bindings.join(", "))
 }
 
-async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -> Result<()> {
-    let (runner, runner_name) = find_js_runner()?;
+fn unique_bundle_stage_dir(artifact_root: &Path) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+    artifact_root.join(format!(
+        ".stage-{}-{seq}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ))
+}
+
+fn cached_directory_size(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| match entry.file_type() {
+            Ok(file_type) if file_type.is_dir() => cached_directory_size(&entry.path()),
+            Ok(file_type) if file_type.is_file() => {
+                entry.metadata().map(|metadata| metadata.len()).unwrap_or(0)
+            }
+            _ => 0,
+        })
+        .sum()
+}
+
+fn cleanup_abandoned_bundle_temp_dirs(bundles_root: &Path) {
+    let Ok(keys) = std::fs::read_dir(bundles_root) else {
+        return;
+    };
+    for key in keys.filter_map(|entry| entry.ok()) {
+        let Ok(children) = std::fs::read_dir(key.path()) else {
+            continue;
+        };
+        for child in children.filter_map(|entry| entry.ok()) {
+            let name = child.file_name().to_string_lossy().into_owned();
+            let owner = [".stage-", ".invalid-", ".evict-"]
+                .iter()
+                .find_map(|prefix| {
+                    name.strip_prefix(prefix)
+                        .and_then(|rest| rest.split('-').next())
+                        .and_then(|pid| pid.parse::<u32>().ok())
+                });
+            if owner.is_some_and(|pid| !process_is_running(pid)) {
+                std::fs::remove_dir_all(child.path()).ok();
+            }
+        }
+    }
+}
+
+fn prune_bundle_cache_to_limit(bundles_root: &Path, keep: &Path, limit: u64) {
+    cleanup_abandoned_bundle_temp_dirs(bundles_root);
+    let Ok(keys) = std::fs::read_dir(bundles_root) else {
+        return;
+    };
+    let mut artifacts = Vec::new();
+    for key in keys.filter_map(|entry| entry.ok()) {
+        let Ok(children) = std::fs::read_dir(key.path()) else {
+            continue;
+        };
+        for child in children.filter_map(|entry| entry.ok()) {
+            let path = child.path();
+            let Ok(metadata) = child.metadata() else {
+                continue;
+            };
+            if path == keep
+                || !metadata.is_dir()
+                || child.file_name().to_string_lossy().starts_with('.')
+            {
+                continue;
+            }
+            let recency = std::fs::metadata(path.join(".last-used"))
+                .and_then(|marker| marker.modified())
+                .or_else(|_| metadata.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            artifacts.push((recency, cached_directory_size(&path), path));
+        }
+    }
+    // Include active stages/gates/quarantines in accounting even though only
+    // completed, unlocked artifacts are eviction candidates.
+    let mut total = cached_directory_size(bundles_root);
+    artifacts.sort_by_key(|(modified, _, _)| *modified);
+    for (_, size, path) in artifacts {
+        if total <= limit {
+            break;
+        }
+        let Ok(Some(gate)) = try_acquire_bundle_artifact_gate(&path) else {
+            continue;
+        };
+        if bundle_artifact_has_live_lease(&path) {
+            drop(gate);
+            continue;
+        }
+        let quarantine = path.with_file_name(format!(
+            ".evict-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0),
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("artifact")
+        ));
+        let renamed = std::fs::rename(&path, &quarantine).is_ok();
+        drop(gate);
+        if renamed && std::fs::remove_dir_all(&quarantine).is_ok() {
+            total = total.saturating_sub(size);
+        }
+    }
+}
+
+fn enforce_bundle_cache_quota(artifact_root: &Path, keep: &Path) {
+    const DEFAULT_LIMIT: u64 = 512 * 1024 * 1024;
+    let limit = std::env::var("IBEX_BUNDLE_CACHE_MAX_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_LIMIT);
+    if let Some(bundles_root) = artifact_root.parent() {
+        prune_bundle_cache_to_limit(bundles_root, keep, limit);
+    }
+}
+
+async fn run_bundler(
+    entry: &Path,
+    artifact_root: &Path,
+    bundle_format: BundleFormat,
+) -> Result<PathBuf> {
+    if entry.to_str().is_none() || artifact_root.to_str().is_none() {
+        anyhow::bail!(
+            "Bundling/cache publication does not support non-UTF-8 paths: entry={}, cache={}",
+            entry.display(),
+            artifact_root.display()
+        );
+    }
+    let toolchain = bundler_toolchain_identity()?;
+    verify_bundler_toolchain_identity(&toolchain)?;
+    let runner = toolchain.runner.clone();
+    let runner_name = toolchain.runner_name;
     let script = bundler_script_path()?;
     let working_dir = bundler_working_dir()?;
     let timeout = timeout_from_env("EXACT_BUNDLER_TIMEOUT_MS", DEFAULT_BUNDLER_TIMEOUT_MS);
 
-    // The output may live in a per-key subdir (per-package chunking); make sure
-    // it exists before the bundler writes the entry + sibling chunks there.
-    if let Some(parent) = output.parent() {
-        tokio::fs::create_dir_all(parent).await.ok();
-    }
+    tokio::fs::create_dir_all(artifact_root)
+        .await
+        .with_context(|| format!("Failed to create {}", artifact_root.display()))?;
+    let stage_dir = unique_bundle_stage_dir(artifact_root);
+    tokio::fs::create_dir(&stage_dir)
+        .await
+        .with_context(|| format!("Failed to create bundle stage {}", stage_dir.display()))?;
+    let output = bundle_entry_path(&stage_dir, bundle_format);
 
     let mut command = tokio::process::Command::new(&runner);
     command
@@ -3002,31 +5056,40 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
         .arg("--entry")
         .arg(entry)
         .arg("--out")
-        .arg(output)
+        .arg(&output)
         .arg("--format")
         .arg(bundle_format.as_str())
         .arg("--sourcemap")
+        .arg("--cache-manifest")
         .current_dir(&working_dir);
     // @ref LLP 0013#mechanism-2 — when the runtime boots with lockdown, bundle
     // package (node_modules) code through the per-package compartment rewrite so
     // its bare globals resolve against the runtime compartment registry.
-    if crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS") {
-        command.arg("--compartments");
-    }
+    command.arg("--compartments");
     // @ref LLP 0013#mechanism-3 — per-package chunking so a bundled app gets
     // per-package frame attribution (each package chunk loads into its own
     // Domain). Auto-enabled under enforce/audit (see enable_isolation_prereqs);
     // `IBEX_PER_PACKAGE_CHUNKS=0` opts out. iife can't split; the bundler
     // ignores the flag there.
-    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
-        command.arg("--per-package-chunks");
-    }
-    let cmd_output = output_with_timeout(
+    command.arg("--per-package-chunks");
+    let cmd_output = match output_with_timeout(
         &mut command,
         timeout,
         &format!("bundler via {}", runner_name),
     )
-    .await?;
+    .await
+    {
+        Ok(output) => output,
+        Err(error) => {
+            tokio::fs::remove_dir_all(&stage_dir).await.ok();
+            return Err(error);
+        }
+    };
+
+    if let Err(error) = verify_bundler_toolchain_identity(&toolchain) {
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
+        return Err(error).context("Bundler toolchain changed while producing cache output");
+    }
 
     if !cmd_output.status.success() {
         let stderr = String::from_utf8_lossy(&cmd_output.stderr);
@@ -3057,6 +5120,7 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
             ),
             Some(context),
         );
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
         anyhow::bail!(
             "Bundler exited with status {}: {}",
             cmd_output.status,
@@ -3064,21 +5128,77 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
         );
     }
 
-    Ok(())
+    if !bundle_cache_is_fresh(&output, entry).await {
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
+        anyhow::bail!(
+            "Bundler did not produce a complete digest-verified artifact in {}",
+            stage_dir.display()
+        );
+    }
+    let manifest = read_bundle_manifest(&output).await?;
+    let final_dir = artifact_root.join(&manifest.graph_digest);
+    let final_output = bundle_entry_path(&final_dir, bundle_format);
+    let gate = acquire_bundle_artifact_gate(&final_dir).await?;
+    let mut quarantined = None;
+    if final_dir.exists() {
+        if bundle_cache_is_fresh(&final_output, entry).await {
+            tokio::fs::remove_dir_all(&stage_dir).await.ok();
+            std::fs::write(final_dir.join(".last-used"), []).ok();
+            drop(gate);
+            enforce_bundle_cache_quota(artifact_root, &final_dir);
+            return Ok(final_output);
+        }
+        if bundle_artifact_has_live_lease(&final_dir) {
+            tokio::fs::remove_dir_all(&stage_dir).await.ok();
+            anyhow::bail!(
+                "Cannot repair invalid bundle artifact {} while another process holds a live lease",
+                final_dir.display()
+            );
+        }
+        let quarantine = final_dir.with_file_name(format!(
+            ".invalid-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        tokio::fs::rename(&final_dir, &quarantine)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to quarantine invalid bundle artifact {}",
+                    final_dir.display()
+                )
+            })?;
+        quarantined = Some(quarantine);
+    }
+    if let Err(error) = tokio::fs::rename(&stage_dir, &final_dir).await {
+        if let Some(quarantine) = quarantined.as_ref() {
+            let _ = tokio::fs::rename(quarantine, &final_dir).await;
+        }
+        return Err(error).with_context(|| {
+            format!(
+                "Failed to atomically publish bundle cache {}",
+                final_dir.display()
+            )
+        });
+    }
+    if let Some(quarantine) = quarantined {
+        tokio::fs::remove_dir_all(quarantine).await.ok();
+    }
+    std::fs::write(final_dir.join(".last-used"), []).ok();
+    drop(gate);
+    enforce_bundle_cache_quota(artifact_root, &final_dir);
+    Ok(final_output)
 }
 
 fn bundler_script_path() -> Result<PathBuf> {
     let root = repo_root()?;
-    let script = root
-        .join("packages")
-        .join("ibex-devtools")
-        .join("src")
-        .join("scripts")
-        .join("rolldown-bundle.mjs");
-    if !script.exists() {
-        anyhow::bail!("Bundler script not found at {}", script.display());
-    }
-    Ok(script)
+    authenticated_repo_file(
+        &root,
+        Path::new("packages/ibex-devtools/src/scripts/rolldown-bundle.mjs"),
+    )
 }
 
 /// `ibex policy generate|check` — runs the LLP 0014 policy generator with the
@@ -3089,15 +5209,10 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
     use crate::cli::PolicyCommands;
 
     let root = repo_root()?;
-    let script = root
-        .join("packages")
-        .join("ibex-devtools")
-        .join("src")
-        .join("scripts")
-        .join("generate-policy.mjs");
-    if !script.exists() {
-        anyhow::bail!("Policy generator not found at {}", script.display());
-    }
+    let script = authenticated_repo_file(
+        &root,
+        Path::new("packages/ibex-devtools/src/scripts/generate-policy.mjs"),
+    )?;
     let (runner, _runner_name) = find_js_runner()?;
 
     let mut cmd = tokio::process::Command::new(&runner);
@@ -3177,25 +5292,34 @@ fn repo_root() -> Result<PathBuf> {
                     .join("package.json")
                     .is_file()
             {
-                Some(ancestor.to_path_buf())
+                std::fs::canonicalize(ancestor).ok()
             } else {
                 None
             }
         })
     }
 
-    if let Ok(root) = std::env::var("IBEX_REPO_ROOT").or_else(|_| std::env::var("EXACT_REPO_ROOT"))
+    if let Some(raw) =
+        std::env::var_os("IBEX_REPO_ROOT").or_else(|| std::env::var_os("EXACT_REPO_ROOT"))
     {
-        let root = PathBuf::from(root);
-        if let Some(found) = find_from(&root) {
-            return Ok(found);
+        let root = PathBuf::from(raw);
+        if !root.is_absolute() {
+            anyhow::bail!("IBEX_REPO_ROOT must be an absolute authenticated directory");
         }
+        return find_from(&root).ok_or_else(|| {
+            anyhow::anyhow!(
+                "IBEX_REPO_ROOT does not identify an Ibex checkout: {}",
+                root.display()
+            )
+        });
     }
 
-    if let Ok(current_dir) = std::env::current_dir() {
-        if let Some(found) = find_from(&current_dir) {
-            return Ok(found);
-        }
+    // The compile-time checkout is authenticated by the build. Never inspect
+    // the application cwd or its ancestors: an app can create a lookalike
+    // packages/ tree and otherwise select executable bundler code (the same
+    // confused-tool-discovery class as ENG-24254's fake Hermes compiler).
+    if let Some(found) = find_from(Path::new(env!("CARGO_MANIFEST_DIR"))) {
+        return Ok(found);
     }
 
     if let Ok(exe_path) = std::env::current_exe() {
@@ -3204,7 +5328,29 @@ fn repo_root() -> Result<PathBuf> {
         }
     }
 
-    anyhow::bail!("Failed to resolve repo root. Run from an Ibex checkout or set IBEX_REPO_ROOT")
+    anyhow::bail!(
+        "Failed to resolve an authenticated Ibex tooling root. Set IBEX_REPO_ROOT to an absolute trusted checkout"
+    )
+}
+
+fn authenticated_repo_file(root: &Path, relative: &Path) -> Result<PathBuf> {
+    let canonical_root = std::fs::canonicalize(root).with_context(|| {
+        format!(
+            "Failed to authenticate Ibex tooling root {}",
+            root.display()
+        )
+    })?;
+    let candidate = canonical_root.join(relative);
+    let canonical = std::fs::canonicalize(&candidate)
+        .with_context(|| format!("Ibex tooling file not found at {}", candidate.display()))?;
+    if !canonical.starts_with(&canonical_root) || !canonical.is_file() {
+        anyhow::bail!(
+            "Ibex tooling file {} escapes authenticated root {}",
+            canonical.display(),
+            canonical_root.display()
+        );
+    }
+    Ok(canonical)
 }
 
 /// Determine runtime cache directory.
@@ -3262,10 +5408,676 @@ mod tests {
     use clap::Parser;
     use tempfile::tempdir;
 
-    fn file_hash(path: &Path) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        hash_file_contents(&mut hasher, path).expect("hashing file contents should succeed");
-        hasher.finish()
+    #[derive(Default)]
+    struct WindowsMinimalBootstrapEngine {
+        evaluated: std::sync::Mutex<Vec<String>>,
+        runtime_loaded: AtomicBool,
+    }
+
+    #[async_trait::async_trait]
+    impl Engine for WindowsMinimalBootstrapEngine {
+        fn name(&self) -> &str {
+            "windows-minimal-bootstrap-test"
+        }
+
+        fn version(&self) -> Result<String> {
+            Ok("test".to_string())
+        }
+
+        async fn load_runtime(&self) -> Result<()> {
+            anyhow::bail!("the Windows minimal bootstrap must not load the full runtime")
+        }
+
+        async fn eval(&self, _code: &str) -> Result<Option<String>> {
+            anyhow::bail!("the Windows minimal bootstrap must use immediate evaluation")
+        }
+
+        async fn eval_immediate(&self, code: &str) -> Result<Option<String>> {
+            self.evaluated.lock().unwrap().push(code.to_string());
+            if code == WINDOWS_RUNTIME_LOADED_PROBE {
+                Ok(Some(self.runtime_loaded.load(Ordering::SeqCst).to_string()))
+            } else if code == WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP {
+                self.runtime_loaded.store(true, Ordering::SeqCst);
+                Ok(None)
+            } else if code == crate::engine::hermes::FINALIZE_COMPARTMENT_BASELINE {
+                Ok(Some("true".to_string()))
+            } else {
+                anyhow::bail!("unexpected bootstrap script")
+            }
+        }
+
+        async fn run_file(&self, _path: &str) -> Result<Option<String>> {
+            anyhow::bail!("unexpected file evaluation")
+        }
+
+        async fn start_inspector(&self, _host: &str, _port: u16) -> Result<()> {
+            anyhow::bail!("unexpected inspector start")
+        }
+
+        async fn stop_inspector(&self) -> Result<()> {
+            anyhow::bail!("unexpected inspector stop")
+        }
+
+        fn supports_feature(&self, _feature: EngineFeature) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn windows_minimal_bootstrap_runs_once_and_finalizes_each_load() {
+        let engine = WindowsMinimalBootstrapEngine::default();
+
+        load_windows_minimal_runtime(&engine).await.unwrap();
+        load_windows_minimal_runtime(&engine).await.unwrap();
+
+        let evaluated = engine.evaluated.lock().unwrap();
+        assert_eq!(evaluated.len(), 5);
+        assert_eq!(evaluated[0], WINDOWS_RUNTIME_LOADED_PROBE);
+        assert_eq!(evaluated[1], WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP);
+        assert_eq!(
+            evaluated[2],
+            crate::engine::hermes::FINALIZE_COMPARTMENT_BASELINE
+        );
+        assert_eq!(evaluated[3], WINDOWS_RUNTIME_LOADED_PROBE);
+        assert_eq!(
+            evaluated[4],
+            crate::engine::hermes::FINALIZE_COMPARTMENT_BASELINE
+        );
+    }
+
+    struct ProductionEnvGuard(Vec<(&'static str, Option<std::ffi::OsString>)>);
+
+    impl ProductionEnvGuard {
+        fn capture() -> Self {
+            Self(
+                [
+                    "IBEX_LOCKDOWN",
+                    "IBEX_PER_PACKAGE_CHUNKS",
+                    "IBEX_SEAL_SELF_GRANT",
+                    "IBEX_ENDOW",
+                    "IBEX_REPO_ROOT",
+                    "EXACT_REPO_ROOT",
+                ]
+                .into_iter()
+                .map(|key| (key, std::env::var_os(key)))
+                .collect(),
+            )
+        }
+    }
+
+    impl Drop for ProductionEnvGuard {
+        fn drop(&mut self) {
+            for (key, value) in &self.0 {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn authenticated_project_root_requires_explicit_or_manifest_backed_root() {
+        let manifestless = tempdir().unwrap();
+        let entry = manifestless.path().join("src/app.js");
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(&entry, "console.log('manifestless');\n").unwrap();
+        let implicit = Cli::parse_from(["ibex", entry.to_str().unwrap()]);
+        let error = authenticated_project_root(&implicit, implicit.file.as_deref()).unwrap_err();
+        assert!(
+            error.to_string().contains("no authenticated project root"),
+            "unexpected refusal: {error:#}"
+        );
+
+        let explicit = Cli::parse_from([
+            "ibex",
+            "--project-root",
+            manifestless.path().to_str().unwrap(),
+            entry.to_str().unwrap(),
+        ]);
+        assert_eq!(
+            authenticated_project_root(&explicit, explicit.file.as_deref()).unwrap(),
+            std::fs::canonicalize(manifestless.path()).unwrap()
+        );
+    }
+
+    #[test]
+    fn authenticated_project_root_discovers_manifest_above_src_entry() {
+        let project = tempdir().unwrap();
+        let entry = project.path().join("src/app.js");
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(project.path().join("package.json"), "{\"name\":\"app\"}\n").unwrap();
+        std::fs::write(&entry, "console.log('src entry');\n").unwrap();
+        let cli = Cli::parse_from(["ibex", entry.to_str().unwrap()]);
+        assert_eq!(
+            authenticated_project_root(&cli, cli.file.as_deref()).unwrap(),
+            std::fs::canonicalize(project.path()).unwrap()
+        );
+    }
+
+    #[test]
+    fn authenticated_packages_reject_duplicate_locator_with_one_drifted_copy() {
+        let project = tempdir().unwrap();
+        let first = project.path().join("node_modules/dup");
+        let parent = project.path().join("node_modules/parent");
+        let second = parent.join("node_modules/dup");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        std::fs::write(
+            first.join("package.json"),
+            r#"{"name":"dup","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(first.join("index.js"), "module.exports = 'valid';").unwrap();
+        std::fs::write(
+            parent.join("package.json"),
+            r#"{"name":"parent","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            second.join("package.json"),
+            r#"{"name":"dup","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(second.join("index.js"), "module.exports = 'drifted';").unwrap();
+        let expected = crate::module_loader::package_tree_integrity(&first).unwrap();
+        let principals = vec![serde_json::json!({
+            "principal": {
+                "kind": "package",
+                "name": "dup",
+                "locator": "dup@1.0.0",
+                "integrity": expected,
+            }
+        })];
+
+        let error = authenticated_installed_packages(project.path(), &principals).unwrap_err();
+        assert!(
+            error.to_string().contains("duplicate name+locator roots"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn protected_artifacts_are_distinct_pinned_and_reject_mutable_reuse() {
+        let cache = tempdir().unwrap();
+        let roles = ["armed-policy", "engine-binary", "package-graph", "registry"];
+        let mut identities = std::collections::BTreeSet::new();
+        for role in roles {
+            let bytes = format!("protected:{role}");
+            let identity = materialize_protected_artifact(
+                cache.path(),
+                role,
+                "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                bytes.as_bytes(),
+            )
+            .unwrap();
+            assert!(identities.insert(identity.object.to_string()));
+        }
+        assert_eq!(identities.len(), 4);
+
+        let directory = cache.path().join("capsec-artifacts");
+        let policy = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.to_string_lossy().contains("armed-policy"))
+            .unwrap();
+        let mut permissions = std::fs::metadata(&policy).unwrap().permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            permissions.set_mode(0o600);
+        }
+        #[cfg(not(unix))]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&policy, permissions).unwrap();
+        let error = materialize_protected_artifact(
+            cache.path(),
+            "armed-policy",
+            "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            b"protected:armed-policy",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("mutable"), "{error:#}");
+    }
+
+    fn write_arming_fixture(directory: &Path) -> (PathBuf, PathBuf, String) {
+        use capsec_semantics::arming::ExpectedArmingIdentity;
+        use capsec_semantics::model::Digest;
+
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/examples/armed-snapshot.canonical.json"
+        )))
+        .unwrap();
+        value["workflow"] = serde_json::Value::String("production".into());
+        value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        let engine = crate::engine::hermes::HermesEngine::loaded_engine_identity()
+            .expect("arming fixture requires the authenticated loaded engine");
+        value["engine"]["target"] = serde_json::Value::String(exact_runtime_target());
+        value["engine"]["binaryDigest"] = serde_json::Value::String(engine.binary_digest.clone());
+        value["engine"]["features"] = serde_json::to_value(observed_structural_features()).unwrap();
+        let protected_engine = value["protectedObjects"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|row| row["role"] == "engine-binary")
+            .unwrap();
+        protected_engine["object"] = serde_json::to_value(&engine.object).unwrap();
+        let policy_artifact = materialize_protected_artifact(
+            directory,
+            "armed-policy",
+            value["policyDigest"].as_str().unwrap(),
+            b"authenticated canonical policy fixture",
+        )
+        .unwrap();
+        let graph_artifact = materialize_protected_artifact(
+            directory,
+            "package-graph",
+            value["packageGraph"]["digest"].as_str().unwrap(),
+            b"authenticated package graph fixture",
+        )
+        .unwrap();
+        let registry_artifact = materialize_protected_artifact(
+            directory,
+            "registry",
+            value["registryDigest"].as_str().unwrap(),
+            b"authenticated registry fixture",
+        )
+        .unwrap();
+        for (role, object) in [
+            ("armed-policy", &policy_artifact.object),
+            ("package-graph", &graph_artifact.object),
+            ("registry", &registry_artifact.object),
+        ] {
+            value["protectedObjects"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|row| row["role"] == role)
+                .unwrap()["object"] = object.clone();
+        }
+        let digest = capsec_semantics::digest::compute_checked_contract_digest(
+            capsec_semantics::digest::DigestKind::ArmedSnapshot,
+            &value,
+        )
+        .unwrap();
+        value["armedSnapshotDigest"] = serde_json::Value::String(digest.clone());
+        let digest_at = |path: &[&str]| {
+            let field = path
+                .iter()
+                .fold(&value, |current, segment| &current[*segment]);
+            Digest::new(field.as_str().unwrap()).unwrap()
+        };
+        let expected = ExpectedArmingIdentity {
+            profile: value["capsVocab"].as_str().unwrap().into(),
+            semantic_core: value["semanticCore"].as_str().unwrap().into(),
+            vocab_digest: digest_at(&["vocabDigest"]),
+            registry_digest: digest_at(&["registryDigest"]),
+            policy_digest: digest_at(&["policyDigest"]),
+            armed_snapshot_digest: digest_at(&["armedSnapshotDigest"]),
+            target: value["engine"]["target"].as_str().unwrap().into(),
+            engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
+            features: value["engine"]["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|feature| feature.as_str().unwrap().into())
+                .collect(),
+            package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            protected_artifacts: vec![
+                capsec_semantics::arming::ExpectedProtectedArtifact {
+                    role: capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy,
+                    host_path: policy_artifact.host_path,
+                    object: serde_json::from_value(value["protectedObjects"][0]["object"].clone())
+                        .unwrap(),
+                    content_digest: policy_artifact.content_digest,
+                },
+                capsec_semantics::arming::ExpectedProtectedArtifact {
+                    role: capsec_semantics::arming::ProtectedArtifactRole::EngineBinary,
+                    host_path: serde_json::from_value(serde_json::json!({
+                        "root": "absolute",
+                        "components": runtime_path_components_json(&engine.engine_artifact_path)
+                            .unwrap(),
+                        "hostBound": true,
+                    }))
+                    .unwrap(),
+                    object: engine.object,
+                    content_digest: digest_at(&["engine", "binaryDigest"]),
+                },
+                capsec_semantics::arming::ExpectedProtectedArtifact {
+                    role: capsec_semantics::arming::ProtectedArtifactRole::PackageGraph,
+                    host_path: graph_artifact.host_path,
+                    object: serde_json::from_value(value["protectedObjects"][2]["object"].clone())
+                        .unwrap(),
+                    content_digest: graph_artifact.content_digest,
+                },
+                capsec_semantics::arming::ExpectedProtectedArtifact {
+                    role: capsec_semantics::arming::ProtectedArtifactRole::Registry,
+                    host_path: registry_artifact.host_path,
+                    object: serde_json::from_value(value["protectedObjects"][3]["object"].clone())
+                        .unwrap(),
+                    content_digest: registry_artifact.content_digest,
+                },
+            ],
+        };
+        let snapshot_path = directory.join("armed.json");
+        let identity_path = directory.join("identity.json");
+        std::fs::write(&snapshot_path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+        std::fs::write(
+            &identity_path,
+            serde_json::to_vec_pretty(&expected).unwrap(),
+        )
+        .unwrap();
+        (snapshot_path, identity_path, digest)
+    }
+
+    #[test]
+    fn armed_startup_requires_paired_artifacts() {
+        let cli = Cli::parse_from(["ibex", "--capsec-armed-snapshot", "snapshot.json", "app.ts"]);
+        let error = build_host(&cli)
+            .err()
+            .expect("must reject unpaired artifacts")
+            .to_string();
+        assert!(error.contains("must be provided together"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn production_entry_closes_eval_repl_and_debug_before_artifact_io() {
+        let _env = ProductionEnvGuard::capture();
+        let vectors = [
+            vec!["--eval", "globalThis.__closedEval = true"],
+            vec!["--print", "globalThis.__closedPrint = true"],
+            vec!["eval", "globalThis.__closedCommandEval = true"],
+            vec!["repl"],
+            vec!["debug", "modules"],
+            vec![
+                "--eval",
+                "globalThis.__closedSmuggledEval = true",
+                "debug",
+                "modules",
+            ],
+            vec![],
+        ];
+        for vector in vectors {
+            let mut argv = vec![
+                "ibex",
+                "--capsec-armed-snapshot",
+                "missing-snapshot.json",
+                "--capsec-arming-identity",
+                "missing-identity.json",
+            ];
+            argv.extend(vector);
+            let cli = Cli::parse_from(argv);
+            let error = crate::run(cli)
+                .await
+                .expect_err("production diagnostic entry must be closed");
+            let error = format!("{error:#}");
+            assert!(
+                error.contains("closes ad-hoc evaluation, REPL, and debug commands"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("failed to read") && !error.contains("__closed"),
+                "diagnostic input reached artifact or evaluator I/O: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn foreground_audit_remains_open_and_propagates_its_entry_to_children() {
+        let cli = Cli::parse_from(["ibex", "capsec", "audit", "fixture.js"]);
+        reject_closed_production_cli(&cli).expect("explicit foreground audit remains open");
+        let exec_argv = build_audit_exec_argv(&cli);
+        assert_eq!(exec_argv.get(0).map(String::as_str), Some("capsec"));
+        assert_eq!(exec_argv.get(1).map(String::as_str), Some("audit"));
+    }
+
+    #[test]
+    fn armed_startup_rejects_legacy_authority_overrides_before_io() {
+        let cli = Cli::parse_from([
+            "ibex",
+            "--capsec-armed-snapshot",
+            "missing-snapshot.json",
+            "--capsec-arming-identity",
+            "missing-identity.json",
+            "--allow",
+            "fs:read:/tmp",
+            "app.ts",
+        ]);
+        let error = build_host(&cli)
+            .err()
+            .expect("must reject legacy overrides")
+            .to_string();
+        assert!(
+            error.contains("rejects legacy allow/deny")
+                && error.contains("environment endowment widening"),
+            "{error}"
+        );
+        assert!(
+            !error.contains("failed to read"),
+            "override must fail before artifact I/O: {error}"
+        );
+    }
+
+    #[test]
+    fn armed_startup_closes_every_inspector_activation_before_io() {
+        for inspector_args in [
+            vec!["--inspect"],
+            vec!["--inspect-wait"],
+            vec!["--inspect-open"],
+            vec!["--inspect-pause"],
+            vec!["--inspect-port", "9230"],
+            vec!["--inspect-host", "127.0.0.1"],
+        ] {
+            let mut args = vec![
+                "ibex",
+                "--capsec-armed-snapshot",
+                "missing-snapshot.json",
+                "--capsec-arming-identity",
+                "missing-identity.json",
+            ];
+            args.extend(inspector_args);
+            args.push("app.ts");
+            let cli = Cli::parse_from(args);
+            let error = build_host(&cli)
+                .err()
+                .expect("armed inspector configuration must be closed")
+                .to_string();
+            assert!(
+                error.contains("closes compatibility, inspector")
+                    && error.contains("runtime-fidelity overrides"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("failed to read"),
+                "inspector closure must precede artifact I/O: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn armed_startup_closes_compatibility_facades_before_io() {
+        let cli = Cli::parse_from([
+            "ibex",
+            "--capsec-armed-snapshot",
+            "missing-snapshot.json",
+            "--capsec-arming-identity",
+            "missing-identity.json",
+            "--compat",
+            "bun",
+            "app.ts",
+        ]);
+        let error = build_host(&cli)
+            .err()
+            .expect("armed compatibility facade must be closed")
+            .to_string();
+        assert!(error.contains("closes compatibility"), "{error}");
+        assert!(
+            !error.contains("failed to read"),
+            "compatibility closure must precede artifact I/O: {error}"
+        );
+    }
+
+    #[test]
+    fn armed_startup_closes_hidden_runtime_fidelity_flags_before_io() {
+        for fidelity_args in [
+            vec!["--expose-internals"],
+            vec!["--stack-size", "2048"],
+            vec!["--max-http-header-size", "32768"],
+        ] {
+            let mut args = vec![
+                "ibex",
+                "--capsec-armed-snapshot",
+                "missing-snapshot.json",
+                "--capsec-arming-identity",
+                "missing-identity.json",
+            ];
+            args.extend(fidelity_args);
+            args.push("app.ts");
+            let cli = Cli::parse_from(args);
+            let error = build_host(&cli)
+                .err()
+                .expect("armed hidden runtime configuration must be closed")
+                .to_string();
+            assert!(error.contains("runtime-fidelity"), "{error}");
+            assert!(
+                !error.contains("failed to read"),
+                "runtime configuration closure must precede artifact I/O: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn production_run_nonce_is_canonical_and_rejects_the_contract_vector() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+
+        let nonce = production_run_nonce_from_bytes(&[0; PRODUCTION_RUN_NONCE_BYTES]).unwrap();
+        assert_eq!(URL_SAFE_NO_PAD.decode(&nonce).unwrap().len(), 16);
+        assert!(!nonce.contains('='));
+
+        let contract_bytes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let error = production_run_nonce_from_bytes(&contract_bytes)
+            .expect_err("the committed contract nonce must never arm production")
+            .to_string();
+        assert!(
+            error.contains("reserved capsec contract-fixture"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn armed_startup_authenticates_engine_before_refusing_unadvertised_target() {
+        let directory = tempdir().unwrap();
+        let (snapshot, identity, _) = write_arming_fixture(directory.path());
+        let cli = Cli::parse_from([
+            "ibex".into(),
+            "--capsec-armed-snapshot".into(),
+            snapshot.into_os_string(),
+            "--capsec-arming-identity".into(),
+            identity.into_os_string(),
+            "app.ts".into(),
+        ]);
+        let default_error = build_host(&cli)
+            .err()
+            .expect("unadvertised target must not arm");
+        let default_error = format!("{default_error:#}");
+        assert!(
+            default_error.contains("no unique verified advertisement"),
+            "{default_error}"
+        );
+        assert!(!default_error.contains("engine object"), "{default_error}");
+        let (snapshot, identity, _) = write_arming_fixture(directory.path());
+        let explicit = Cli::parse_from([
+            "ibex".into(),
+            "--capsec".into(),
+            "enforce".into(),
+            "--capsec-armed-snapshot".into(),
+            snapshot.into_os_string(),
+            "--capsec-arming-identity".into(),
+            identity.into_os_string(),
+            "app.ts".into(),
+        ]);
+        let explicit_error = build_host(&explicit)
+            .err()
+            .expect("explicit enforce cannot bypass target advertisements");
+        let explicit_error = format!("{explicit_error:#}");
+        assert_eq!(explicit_error, default_error);
+    }
+
+    #[test]
+    fn armed_startup_rejects_tampered_template_before_freshening() {
+        let directory = tempdir().unwrap();
+        let (snapshot, identity, _) = write_arming_fixture(directory.path());
+        let mut tampered: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&snapshot).unwrap()).unwrap();
+        tampered["runNonce"] = serde_json::json!("AAAAAAAAAAAAAAAAAAAAAA");
+        std::fs::write(&snapshot, serde_json::to_vec_pretty(&tampered).unwrap()).unwrap();
+        let cli = Cli::parse_from([
+            "ibex".into(),
+            "--capsec-armed-snapshot".into(),
+            snapshot.into_os_string(),
+            "--capsec-arming-identity".into(),
+            identity.into_os_string(),
+            "app.ts".into(),
+        ]);
+        let error = build_host(&cli)
+            .err()
+            .expect("freshening must not repair an unauthenticated template");
+        let message = format!("{error:#}");
+        assert!(message.contains("digest is stale or tampered"), "{message}");
+    }
+
+    #[test]
+    fn external_snapshot_refuses_mismatched_protected_artifact_identity_and_content() {
+        let directory = tempdir().unwrap();
+        let (snapshot, identity, _) = write_arming_fixture(directory.path());
+        let original_identity = std::fs::read(&identity).unwrap();
+
+        let mut mismatched_object: serde_json::Value =
+            serde_json::from_slice(&original_identity).unwrap();
+        let first = mismatched_object["protectedArtifacts"][0]["object"].clone();
+        mismatched_object["protectedArtifacts"][0]["object"] =
+            mismatched_object["protectedArtifacts"][1]["object"].clone();
+        mismatched_object["protectedArtifacts"][1]["object"] = first;
+        std::fs::write(&identity, serde_json::to_vec(&mismatched_object).unwrap()).unwrap();
+        let cli = Cli::parse_from([
+            "ibex".into(),
+            "--capsec-armed-snapshot".into(),
+            snapshot.clone().into_os_string(),
+            "--capsec-arming-identity".into(),
+            identity.clone().into_os_string(),
+            "app.ts".into(),
+        ]);
+        let error = format!(
+            "{:#}",
+            build_host(&cli).err().expect("object mismatch must refuse")
+        );
+        assert!(
+            error.contains("independently authenticated artifact role"),
+            "{error}"
+        );
+
+        let mut mismatched_content: serde_json::Value =
+            serde_json::from_slice(&original_identity).unwrap();
+        mismatched_content["protectedArtifacts"][0]["contentDigest"] =
+            serde_json::json!("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        std::fs::write(&identity, serde_json::to_vec(&mismatched_content).unwrap()).unwrap();
+        let error = format!(
+            "{:#}",
+            build_host(&cli)
+                .err()
+                .expect("content mismatch must refuse")
+        );
+        assert!(error.contains("content digest changed"), "{error}");
+        assert!(
+            !error.contains("no unique verified advertisement"),
+            "artifact mismatch must refuse before target promotion: {error}"
+        );
+    }
+
+    fn file_hash(path: &Path) -> String {
+        sha256_bytes(&std::fs::read(path).expect("read file for digest"))
     }
 
     // ENG-22760 — `ibex build` under enforce/audit must ship the per-package
@@ -3308,68 +6120,133 @@ mod tests {
         assert_eq!(ship_chunk_siblings(&entry, src.path()).unwrap(), 0);
     }
 
-    // ENG-22760 — `ibex build` under an enforce policy must NOT emit a flat,
-    // single-principal bundle. The build path (`apply_build_isolation`) turns on
-    // per-package chunking exactly when `resolve_security_mode` reports
-    // Enforce/Audit, so this guards that resolution: a committed policy declaring
-    // `mode: "enforce"` yields Enforce under the default (Auto) CLI mode — the
-    // signal that drives `enable_isolation_prerequisites` for the build and run
-    // paths alike. Platform-independent cover for the wiring the run-path
-    // integration tests can't reach on the unpatched checked-in Hermes (they
-    // skip vacuously). @ref LLP 0013#mechanism-3
-    #[test]
-    fn resolve_security_mode_honors_committed_enforce_policy() {
+    #[tokio::test]
+    async fn production_build_isolation_is_always_enforce_and_rejects_weakening() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
         use crate::host::SecurityMode;
-
-        let dir = tempdir().unwrap();
-        let write_policy = |mode: &str| {
-            let p = dir.path().join(format!("ibex-policy.{mode}.json"));
-            std::fs::write(&p, format!(r#"{{"mode":"{mode}"}}"#)).unwrap();
-            p
-        };
-        let enforce = write_policy("enforce");
-        let audit = write_policy("audit");
-        let permissive = write_policy("permissive");
-
-        // Load once + resolve, mirroring the production single-parse flow
-        // (build_host_config / apply_build_isolation). (ENG-22644)
-        let resolve = |cli: &Cli, path: Option<&Path>| {
-            let policy = load_policy_file(cli, path).unwrap();
-            resolve_security_mode(cli, policy.as_deref(), path).unwrap()
-        };
-
-        // Default CLI (capsec = Auto): the committed policy's declared mode wins,
-        // so an enforce policy resolves to Enforce — the build path then enables
-        // per-package chunking instead of emitting a flat, single-principal bundle.
         let cli = Cli::parse_from(["ibex", "app.ts"]);
-        assert_eq!(
-            resolve(&cli, Some(enforce.as_path())),
-            SecurityMode::Enforce,
-        );
-        // Audit likewise implies per-package attribution.
-        assert_eq!(resolve(&cli, Some(audit.as_path())), SecurityMode::Audit);
-        assert_eq!(
-            resolve(&cli, Some(permissive.as_path())),
-            SecurityMode::Permissive,
-        );
-
-        // No policy under Auto stays Permissive: an absent auto-discovered default
-        // must not silently flip a build to chunked/enforced.
-        assert_eq!(resolve(&cli, None), SecurityMode::Permissive);
-
-        // The documented operator opt-outs override a committed enforce policy, so
-        // a build under either stays flat: explicit `--capsec permissive` ...
+        assert_eq!(apply_build_isolation(&cli).unwrap(), SecurityMode::Enforce);
         let forced = Cli::parse_from(["ibex", "--capsec", "permissive", "app.ts"]);
-        assert_eq!(
-            resolve(&forced, Some(enforce.as_path())),
-            SecurityMode::Permissive,
-        );
-        // ... and `--allow-all` (back-compat legacy escape hatch).
+        assert!(apply_build_isolation(&forced).is_err());
         let allow_all = Cli::parse_from(["ibex", "--allow-all", "app.ts"]);
-        assert_eq!(
-            resolve(&allow_all, Some(enforce.as_path())),
-            SecurityMode::Permissive,
+        assert!(apply_build_isolation(&allow_all).is_err());
+        let audit = Cli::parse_from(["ibex", "--capsec", "audit", "app.ts"]);
+        assert!(apply_build_isolation(&audit).is_err());
+    }
+
+    #[tokio::test]
+    async fn default_and_explicit_enforce_refuse_the_same_unadvertised_target() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        let project = tempdir().unwrap();
+        let entry = project.path().join("app.ts");
+        std::fs::write(project.path().join("package.json"), "{\"name\":\"app\"}\n").unwrap();
+        std::fs::write(&entry, "1 + 1\n").unwrap();
+        let auto = Cli::parse_from(["ibex", entry.to_str().unwrap()]);
+        let explicit = Cli::parse_from(["ibex", "--capsec", "enforce", entry.to_str().unwrap()]);
+        let auto_error = build_host(&auto)
+            .err()
+            .expect("default enforce must refuse an unadvertised target");
+        let explicit_error = build_host(&explicit)
+            .err()
+            .expect("explicit enforce cannot bypass target advertisements");
+        let auto_error = format!("{auto_error:#}");
+        let explicit_error = format!("{explicit_error:#}");
+        assert_eq!(auto_error, explicit_error);
+        assert!(
+            auto_error.contains("no unique verified advertisement"),
+            "{auto_error}"
         );
+    }
+
+    #[tokio::test]
+    async fn default_arming_ingests_only_digest_valid_canonical_policy() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        let directory = tempdir().unwrap();
+        let entry = directory.path().join("app.ts");
+        std::fs::write(
+            directory.path().join("package.json"),
+            "{\"name\":\"test-app\"}\n",
+        )
+        .unwrap();
+        std::fs::write(&entry, "1 + 1").unwrap();
+        let package_root = directory.path().join("node_modules/image-lib");
+        std::fs::create_dir_all(&package_root).unwrap();
+        std::fs::write(
+            package_root.join("package.json"),
+            r#"{"name":"image-lib","version":"2.4.1"}"#,
+        )
+        .unwrap();
+        std::fs::write(package_root.join("index.js"), "module.exports = {};\n").unwrap();
+        let package_integrity =
+            crate::module_loader::package_tree_integrity(&package_root).unwrap();
+        let mut policy: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/examples/canonical-policy.canonical.json"
+        )))
+        .unwrap();
+        policy["principals"][0]["principal"]["integrity"] = serde_json::json!(package_integrity);
+        let policy_digest = capsec_semantics::digest::compute_checked_contract_digest(
+            capsec_semantics::digest::DigestKind::Policy,
+            &policy,
+        )
+        .unwrap();
+        policy["policyDigest"] = serde_json::json!(policy_digest);
+        std::fs::write(
+            directory.path().join("ibex-policy.json"),
+            capsec_semantics::canonical::to_jcs_bytes(&policy).unwrap(),
+        )
+        .unwrap();
+        let cli = Cli::parse_from(["ibex", entry.to_str().unwrap()]);
+        let error = build_host(&cli)
+            .err()
+            .expect("valid policy and package root must reach the promotion gate");
+        let error = format!("{error:#}");
+        assert!(
+            error.contains("no unique verified advertisement"),
+            "{error}"
+        );
+
+        let mut tampered = policy.clone();
+        tampered["principals"][0]["floor"] = serde_json::json!([]);
+        std::fs::write(
+            directory.path().join("ibex-policy.json"),
+            serde_json::to_vec(&tampered).unwrap(),
+        )
+        .unwrap();
+        let error = build_host(&cli).err().expect("tampered policy must fail");
+        let error = format!("{error:#}");
+        assert!(error.contains("digest is stale or tampered"), "{error}");
+
+        for field in ["vocabDigest", "registryDigest"] {
+            let mut stale = policy.clone();
+            stale[field] = serde_json::json!("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+            let digest = capsec_semantics::digest::compute_domain_digest(
+                capsec_semantics::digest::POLICY_DOMAIN,
+                &stale,
+                &["policyDigest".to_string()],
+            )
+            .unwrap();
+            stale["policyDigest"] = serde_json::json!(digest);
+            std::fs::write(
+                directory.path().join("ibex-policy.json"),
+                serde_json::to_vec(&stale).unwrap(),
+            )
+            .unwrap();
+            let error = build_host(&cli)
+                .err()
+                .expect("stale semantic identity must fail");
+            let error = format!("{error:#}");
+            assert!(error.contains("failed typed validation"), "{error}");
+        }
     }
 
     // ENG-22884 — enforce must not silently proceed as full-strength capsec when
@@ -3395,26 +6272,19 @@ mod tests {
         assert!(lines[0].contains("frame-attribution=present"));
         assert!(lines[0].contains("package-isolation=per-package"));
 
-        // Enforce without lockdown is allowed for compatibility, but it must not
-        // silently imply full shared-intrinsics integrity.
+        // Lockdown is a structural prerequisite, not an optional claim ceiling.
         let enforce_without_lockdown = CapsecReadiness {
             lockdown: false,
             ..ready
         };
-        let lines = check_capsec_readiness(
+        let error = check_capsec_readiness(
             SecurityMode::Enforce,
             CapsecStage::Run,
             enforce_without_lockdown,
             false,
         )
-        .unwrap();
-        assert!(
-            lines.iter().any(|line| line.contains("without lockdown"))
-                && lines
-                    .iter()
-                    .any(|line| line.contains("intrinsic-integrity attacks")),
-            "enforce without lockdown must state the claim ceiling: {lines:?}"
-        );
+        .unwrap_err();
+        assert!(error.to_string().contains("structural runtime lockdown"));
 
         // Missing frame attribution (an engine built without
         // EXACT_HAVE_FRAME_ATTRIBUTION): an enforce run fails closed with the
@@ -3427,16 +6297,13 @@ mod tests {
             .unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("frame-derived attribution"));
-        assert!(msg.contains("--capsec-allow-advisory"));
+        assert!(msg.contains("foreground capsec audit"));
 
-        // ...unless the operator explicitly opts into advisory attribution, which
-        // still reports loudly.
-        let lines = check_capsec_readiness(SecurityMode::Enforce, CapsecStage::Run, advisory, true)
-            .unwrap();
-        assert!(lines.iter().any(|l| l.contains("ADVISORY")));
-        assert!(lines
-            .iter()
-            .any(|l| l.contains("frame-attribution=missing")));
+        // The removed advisory override cannot weaken enforce.
+        assert!(
+            check_capsec_readiness(SecurityMode::Enforce, CapsecStage::Run, advisory, true)
+                .is_err()
+        );
 
         // An explicit IBEX_PER_PACKAGE_CHUNKS=0 collapses bundled dependencies
         // into the root principal — hard prerequisite at run AND build stage
@@ -3483,40 +6350,706 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bundle_cache_freshness_tracks_dep_mtimes() {
+    async fn bundle_cache_freshness_tracks_dependency_and_output_digests() {
         let dir = tempdir().expect("tempdir");
+        let artifact_dir = tempdir().expect("artifact tempdir");
         let entry = dir.path().join("entry.ts");
         let dep = dir.path().join("dep.ts");
-        let output = dir.path().join("entry.bundle.js");
+        let output = artifact_dir.path().join("entry.bundle.js");
         std::fs::write(&entry, "import './dep.ts';").expect("write entry");
         std::fs::write(&dep, "export const v = 1;").expect("write dep");
         std::fs::write(&output, "bundled").expect("write output");
+        let canonical_entry = std::fs::canonicalize(&entry).unwrap();
+        let canonical_dep = std::fs::canonicalize(&dep).unwrap();
 
         // No dependency manifest → stale (pre-manifest caches rebuild once).
         assert!(!bundle_cache_is_fresh(&output, &entry).await);
 
-        let manifest = serde_json::json!({
-            "version": 1,
-            "deps": [entry.to_string_lossy(), dep.to_string_lossy()],
-        });
-        std::fs::write(deps_manifest_path(&output), manifest.to_string()).expect("write manifest");
-        // Re-write the output so it is the newest file in the set.
-        std::thread::sleep(std::time::Duration::from_millis(15));
-        std::fs::write(&output, "bundled-2").expect("rewrite output");
+        let mut deps = vec![
+            BundleDigestRecord {
+                path: canonical_entry.to_string_lossy().into_owned(),
+                sha256: sha256_file(&entry).await.unwrap(),
+            },
+            BundleDigestRecord {
+                path: canonical_dep.to_string_lossy().into_owned(),
+                sha256: sha256_file(&dep).await.unwrap(),
+            },
+        ];
+        deps.sort_by(|left, right| left.path.cmp(&right.path));
+        let graph_digest = sha256_bytes(&serde_json::to_vec(&deps).unwrap());
+        let mut resolution_inputs = vec![BundleResolutionInput {
+            kind: "directory".into(),
+            path: dir.path().to_string_lossy().into_owned(),
+            sha256: String::new(),
+        }];
+        resolution_inputs[0].sha256 =
+            bundle_resolution_input_digest(&resolution_inputs[0]).unwrap();
+        let resolution_digest = sha256_bytes(&serde_json::to_vec(&resolution_inputs).unwrap());
+        let mut manifest = BundleCacheManifest {
+            version: 3,
+            entry: canonical_entry.to_string_lossy().into_owned(),
+            resolution_digest,
+            graph_digest,
+            deps,
+            outputs: vec![BundleDigestRecord {
+                path: output.file_name().unwrap().to_string_lossy().into_owned(),
+                sha256: sha256_file(&output).await.unwrap(),
+            }],
+            resolution_inputs,
+        };
+        std::fs::write(
+            deps_manifest_path(&output),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .expect("write manifest");
         assert!(bundle_cache_is_fresh(&output, &entry).await);
 
-        // Editing an *imported* dependency (not the entry) must invalidate —
-        // the entry-mtime-only check missed exactly this (ledger item 2).
-        std::thread::sleep(std::time::Duration::from_millis(15));
-        std::fs::write(&dep, "export const v = 2;").expect("edit dep");
+        // A newly-added resolution candidate can retarget an import even when
+        // every old positive dependency still exists unchanged.
+        let candidate = dir.path().join("dep.js");
+        std::fs::write(&candidate, "export const v = 'new candidate';").unwrap();
         assert!(!bundle_cache_is_fresh(&output, &entry).await);
+        std::fs::remove_file(&candidate).unwrap();
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        // The manifest is a closed inventory: unbound emitted files are never
+        // allowed to sit beside executable chunks/maps.
+        let unbound_output = artifact_dir.path().join("unbound.js");
+        std::fs::write(&unbound_output, "tampered").unwrap();
+        assert!(!bundle_cache_is_fresh(&output, &entry).await);
+        std::fs::remove_file(&unbound_output).unwrap();
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        let correct_graph_digest = manifest.graph_digest.clone();
+        manifest.graph_digest = "0".repeat(64);
+        std::fs::write(
+            deps_manifest_path(&output),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(!bundle_cache_is_fresh(&output, &entry).await);
+        manifest.graph_digest = correct_graph_digest;
+        std::fs::write(
+            deps_manifest_path(&output),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        // Same-length edits invalidate even when an attacker restores the old
+        // timestamp, so a coarse filesystem clock cannot preserve stale code.
+        let original_modified = std::fs::metadata(&dep).unwrap().modified().unwrap();
+        std::fs::write(&dep, "export const v = 2;").expect("edit dep");
+        std::fs::File::options()
+            .write(true)
+            .open(&dep)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(original_modified))
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(&dep).unwrap().modified().unwrap(),
+            original_modified
+        );
+        assert!(!bundle_cache_is_fresh(&output, &entry).await);
+
+        std::fs::write(&dep, "export const v = 1;").expect("restore dep");
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        // Clock skew alone is not content identity either: an unchanged file
+        // remains valid even when its mtime jumps into the future.
+        std::fs::File::options()
+            .write(true)
+            .open(&dep)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(
+                std::time::SystemTime::now() + std::time::Duration::from_secs(86_400),
+            ))
+            .unwrap();
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        // Output tampering is rejected before execution too.
+        std::fs::write(&output, "tampered").expect("tamper output");
+        assert!(!bundle_cache_is_fresh(&output, &entry).await);
+        std::fs::write(&output, "bundled").expect("restore output");
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
 
         // A deleted dependency invalidates too.
-        std::thread::sleep(std::time::Duration::from_millis(15));
-        std::fs::write(&output, "bundled-3").expect("rewrite output");
-        assert!(bundle_cache_is_fresh(&output, &entry).await);
         std::fs::remove_file(&dep).expect("remove dep");
         assert!(!bundle_cache_is_fresh(&output, &entry).await);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bundle_resolution_witness_tracks_symlink_retargets() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let entry = dir.path().join("entry.js");
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        std::fs::write(first.join("index.js"), "one").unwrap();
+        std::fs::write(second.join("index.js"), "two").unwrap();
+        std::fs::write(&entry, "require('./selected')").unwrap();
+        let selected = dir.path().join("selected");
+        symlink(&first, &selected).unwrap();
+        let before = BundleResolutionInput {
+            kind: "symlink".into(),
+            path: selected.to_string_lossy().into_owned(),
+            sha256: String::new(),
+        };
+        let before_digest = bundle_resolution_input_digest(&before).unwrap();
+        std::fs::remove_file(&selected).unwrap();
+        symlink(&second, &selected).unwrap();
+        let after_digest = bundle_resolution_input_digest(&before).unwrap();
+        assert_ne!(before_digest, after_digest);
+    }
+
+    #[test]
+    fn bundle_resolution_witness_treats_a_child_of_a_file_as_missing() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("entry.js");
+        std::fs::write(&file, "module.exports = 1;").unwrap();
+        let impossible_child = file.join("index.js");
+        let witness = BundleResolutionInput {
+            kind: "missing".into(),
+            path: impossible_child.to_string_lossy().into_owned(),
+            sha256: sha256_bytes(b"missing"),
+        };
+
+        assert_eq!(
+            bundle_resolution_input_digest(&witness),
+            Some(witness.sha256.clone())
+        );
+    }
+
+    #[tokio::test]
+    async fn bytecode_cache_rejects_same_length_source_and_output_tampering() {
+        let dir = tempdir().expect("tempdir");
+        let source = dir.path().join("entry.js");
+        let bytecode = dir.path().join("entry.hbc");
+        std::fs::write(&source, "module.exports = 1").unwrap();
+        std::fs::write(&bytecode, b"valid-looking-bytecode").unwrap();
+        let manifest = serde_json::json!({
+            "version": 2,
+            "sourcePath": std::fs::canonicalize(&source).unwrap().to_string_lossy(),
+            "sourceSha256": sha256_file(&source).await.unwrap(),
+            "bytecodeSha256": sha256_file(&bytecode).await.unwrap(),
+            "sourceMapPath": null,
+            "sourceMapSha256": null,
+            "toolchainIdentity": engine::hermes::bytecode_cache_identity(),
+        });
+        std::fs::write(
+            bytecode_manifest_path(&bytecode),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(bytecode_cache_is_fresh(&source, &bytecode).await);
+
+        std::fs::write(&source, "module.exports = 2").unwrap();
+        assert!(!bytecode_cache_is_fresh(&source, &bytecode).await);
+        std::fs::write(&source, "module.exports = 1").unwrap();
+        std::fs::write(&bytecode, b"tampered-bytecode---").unwrap();
+        assert!(!bytecode_cache_is_fresh(&source, &bytecode).await);
+    }
+
+    #[tokio::test]
+    async fn content_addressed_bytecode_cache_repairs_corrupt_existing_unit() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("entry.js");
+        std::fs::write(&source, "globalThis.__bytecodeRepair = 1;\n").unwrap();
+        let first = match prepare_bytecode_entry(&source).await {
+            Ok(path) => path,
+            Err(_) => return, // checked-in hermesc is optional in minimal dev envs
+        };
+        assert!(bytecode_cache_is_fresh(&source, &first).await);
+        std::fs::write(&first, b"corrupt-bytecode").unwrap();
+        assert!(!bytecode_cache_is_fresh(&source, &first).await);
+        let repaired = prepare_bytecode_entry(&source).await.unwrap();
+        assert_eq!(repaired, first);
+        assert!(bytecode_cache_is_fresh(&source, &repaired).await);
+        assert!(repaired
+            .components()
+            .any(|component| component.as_os_str() == ".bytecode-cache"));
+        std::fs::remove_dir_all(repaired.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn bytecode_cache_quota_evicts_lru_units_and_skips_locked_publishers() {
+        let dir = tempdir().unwrap();
+        let old = dir.path().join("a".repeat(64));
+        let locked = dir.path().join("b".repeat(64));
+        let leased = dir.path().join("c".repeat(64));
+        let current = dir.path().join("d".repeat(64));
+        for artifact in [&old, &locked, &leased, &current] {
+            std::fs::create_dir(artifact).unwrap();
+            std::fs::write(artifact.join("entry.hbc"), vec![0u8; 64]).unwrap();
+            touch_bytecode_artifact(artifact);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let mut dead_pid = std::process::id().saturating_add(1_000_000);
+        while process_is_running(dead_pid) {
+            dead_pid = dead_pid.saturating_add(1);
+        }
+        let abandoned = dir.path().join(format!(".stage-{dead_pid}-1-dead"));
+        let live = dir
+            .path()
+            .join(format!(".stage-{}-1-live", std::process::id()));
+        std::fs::create_dir(&abandoned).unwrap();
+        std::fs::create_dir(&live).unwrap();
+        let locked_gate = try_acquire_bundle_artifact_gate(&locked)
+            .unwrap()
+            .expect("test owns publisher gate");
+        let execution_lease = acquire_bundle_lease(&leased).unwrap();
+
+        prune_bytecode_cache_to_limit(dir.path(), &current, 64);
+        assert!(!old.exists(), "oldest unlocked HBC unit should be evicted");
+        assert!(
+            locked.exists(),
+            "a live publisher gate must prevent eviction"
+        );
+        assert!(
+            leased.exists(),
+            "a live execution lease must prevent eviction"
+        );
+        assert!(current.exists(), "the current HBC unit must be retained");
+        assert!(
+            !abandoned.exists(),
+            "dead publisher stages must be reclaimed"
+        );
+        assert!(live.exists(), "live publisher stages must not be reclaimed");
+        drop(execution_lease);
+        drop(locked_gate);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_bundle_publishers_converge_on_one_complete_artifact() {
+        let dir = tempdir().expect("tempdir");
+        let artifact_dir = tempdir().expect("artifact tempdir");
+        let entry = dir.path().join("entry.js");
+        let artifact_root = artifact_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = { answer: 42 };\n").unwrap();
+
+        let mut tasks = Vec::new();
+        for _ in 0..4 {
+            let entry = entry.clone();
+            let artifact_root = artifact_root.clone();
+            tasks.push(tokio::spawn(async move {
+                run_bundler(&entry, &artifact_root, BundleFormat::Cjs).await
+            }));
+        }
+        let mut outputs = Vec::new();
+        for task in tasks {
+            outputs.push(task.await.unwrap().unwrap());
+        }
+        assert!(outputs.iter().all(|output| output == &outputs[0]));
+        assert!(bundle_cache_is_fresh(&outputs[0], &entry).await);
+        assert_eq!(
+            std::fs::read_dir(&artifact_root)
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with(".stage-"))
+                .count(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn corrupt_existing_bundle_graph_is_quarantined_and_repaired() {
+        let source_dir = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let entry = source_dir.path().join("entry.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = 42;\n").unwrap();
+        let first = run_bundler(&entry, &artifact_root, BundleFormat::Cjs)
+            .await
+            .unwrap();
+        std::fs::write(&first, "tampered output").unwrap();
+        assert!(!bundle_cache_is_fresh(&first, &entry).await);
+
+        let repaired = run_bundler(&entry, &artifact_root, BundleFormat::Cjs)
+            .await
+            .unwrap();
+        assert_eq!(repaired, first);
+        assert!(bundle_cache_is_fresh(&repaired, &entry).await);
+        assert_eq!(
+            std::fs::read_dir(&artifact_root)
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with(".invalid-"))
+                .count(),
+            0
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_rejects_source_mutation_after_rolldown_capture() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
+        let source_dir = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let entry = source_dir.path().join("entry.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = 'before';\n").unwrap();
+        // The shared test lock owns these process-global hook variables until
+        // the child has exited and they have been removed.
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &entry);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let reached_barrier = captured.exists();
+        if reached_barrier {
+            std::fs::write(&entry, "module.exports = 'after!';\n").unwrap();
+        }
+        // Always unblock and join the child before asserting so a timeout
+        // cannot strand a subprocess or leak the process-global test hook.
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(
+            reached_barrier,
+            "bundler never reached source capture barrier: {result:?}"
+        );
+        assert!(result.is_err(), "mixed-version bundle must not publish");
+        assert!(
+            std::fs::read_dir(&artifact_root)
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .all(|entry| entry.file_name().to_string_lossy().starts_with('.')),
+            "no completed graph may survive a mid-build source edit"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_rejects_resolution_candidate_added_after_resolver_decision() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
+        let source_dir = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let entry = source_dir.path().join("entry.js");
+        let selected = source_dir.path().join("dep.ts");
+        let higher_precedence = source_dir.path().join("dep.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = require('./dep').value;\n").unwrap();
+        std::fs::write(&selected, "exports.value = 'typescript';\n").unwrap();
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let reached_barrier = captured.exists();
+        if reached_barrier {
+            std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        }
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(
+            reached_barrier,
+            "bundler never resolved/captured dep.ts: {result:?}"
+        );
+        assert!(
+            result.is_err(),
+            "a build whose resolution precedence changed must not publish"
+        );
+        assert!(std::fs::read_dir(&artifact_root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_witnesses_hoisted_packages_above_nested_project_boundaries() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
+        let workspace = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let project = workspace.path().join("apps/project");
+        let selected_package = workspace.path().join("node_modules/pkg");
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        std::fs::create_dir_all(&selected_package).unwrap();
+        let entry = project.join("entry.js");
+        let selected = selected_package.join("index.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = require('pkg').value;\n").unwrap();
+        std::fs::write(
+            selected_package.join("package.json"),
+            r#"{"name":"pkg","main":"index.js"}"#,
+        )
+        .unwrap();
+        std::fs::write(&selected, "exports.value = 'workspace';\n").unwrap();
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let reached_barrier = captured.exists();
+
+        // Node lookup ignores the nested .git boundary. This newly-created
+        // package is closer to the importer than the package selected above,
+        // so publication must fail even though the selected source is intact.
+        let closer_package = workspace.path().join("apps/node_modules/pkg");
+        if reached_barrier {
+            std::fs::create_dir_all(&closer_package).unwrap();
+            std::fs::write(
+                closer_package.join("package.json"),
+                r#"{"name":"pkg","main":"index.js"}"#,
+            )
+            .unwrap();
+            std::fs::write(
+                closer_package.join("index.js"),
+                "exports.value = 'closer';\n",
+            )
+            .unwrap();
+        }
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(
+            reached_barrier,
+            "bundler never resolved hoisted package: {result:?}"
+        );
+        assert!(
+            result.is_err(),
+            "a closer hoisted package added mid-build must prevent publication"
+        );
+        assert!(std::fs::read_dir(&artifact_root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_witnesses_bare_package_subpath_extension_precedence() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
+        let project = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let package = project.path().join("node_modules/pkg");
+        let nested = package.join("lib");
+        std::fs::create_dir_all(&nested).unwrap();
+        let entry = project.path().join("entry.js");
+        let selected = nested.join("value.ts");
+        let higher_precedence = nested.join("value.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(&entry, "module.exports = require('pkg/lib/value').value;\n").unwrap();
+        std::fs::write(&selected, "exports.value = 'typescript';\n").unwrap();
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let reached_barrier = captured.exists();
+        if reached_barrier {
+            std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        }
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(
+            reached_barrier,
+            "bundler never resolved package subpath: {result:?}"
+        );
+        assert!(
+            result.is_err(),
+            "adding a higher-precedence package subpath candidate must prevent publication"
+        );
+        assert!(std::fs::read_dir(&artifact_root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_witnesses_package_main_target_extension_precedence() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
+        let project = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let package = project.path().join("node_modules/pkg");
+        let nested = package.join("lib");
+        std::fs::create_dir_all(&nested).unwrap();
+        let entry = project.path().join("entry.js");
+        let selected = nested.join("value.json");
+        let higher_precedence = nested.join("value.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0","main":"lib/value"}"#,
+        )
+        .unwrap();
+        std::fs::write(&entry, "module.exports = require('pkg').value;\n").unwrap();
+        std::fs::write(&selected, r#"{"value":"json"}"#).unwrap();
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let reached_barrier = captured.exists();
+        if reached_barrier {
+            std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        }
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(
+            reached_barrier,
+            "bundler never resolved package main target: {result:?}"
+        );
+        assert!(
+            result.is_err(),
+            "adding a higher-precedence package main candidate must prevent publication"
+        );
+        assert!(std::fs::read_dir(&artifact_root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
+    }
+
+    #[test]
+    fn bundle_cache_quota_evicts_old_graphs_but_keeps_current() {
+        let dir = tempdir().unwrap();
+        let old = dir.path().join("key-a/graph-old");
+        let keep = dir.path().join("key-b/graph-current");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("bundle.js"), vec![0u8; 64]).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::create_dir_all(&keep).unwrap();
+        std::fs::write(keep.join("bundle.js"), vec![0u8; 64]).unwrap();
+
+        prune_bundle_cache_to_limit(dir.path(), &keep, 64);
+        assert!(!old.exists());
+        assert!(keep.exists());
+    }
+
+    #[test]
+    fn bundle_cache_quota_respects_raii_file_lock_lease() {
+        let dir = tempdir().unwrap();
+        let keep = dir.path().join("key-new").join("graph-new");
+        let leased = dir.path().join("key-old").join("graph-old");
+        std::fs::create_dir_all(&keep).unwrap();
+        std::fs::create_dir_all(&leased).unwrap();
+        std::fs::write(keep.join("bundle.js"), vec![0u8; 64]).unwrap();
+        std::fs::write(leased.join("bundle.js"), vec![0u8; 64]).unwrap();
+        let lease = acquire_bundle_lease(&leased).unwrap();
+
+        prune_bundle_cache_to_limit(dir.path(), &keep, 64);
+        assert!(leased.exists(), "live shared lease must prevent eviction");
+        drop(lease);
+        prune_bundle_cache_to_limit(dir.path(), &keep, 64);
+        assert!(
+            !leased.exists(),
+            "RAII drop must make the artifact evictable"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_bundle_publish_cleans_incomplete_stage() {
+        let dir = tempdir().unwrap();
+        let artifact_dir = tempdir().expect("artifact tempdir");
+        let entry = dir.path().join("invalid.js");
+        let artifact_root = artifact_dir.path().join("cache-key");
+        std::fs::write(&entry, "function broken( {\n").unwrap();
+        assert!(run_bundler(&entry, &artifact_root, BundleFormat::Cjs)
+            .await
+            .is_err());
+        let stage_count = std::fs::read_dir(&artifact_root)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".stage-"))
+            .count();
+        assert_eq!(stage_count, 0);
     }
 
     #[test]
@@ -3581,7 +7114,7 @@ mod tests {
     fn bundler_cache_input_paths_cover_shared_bundler_sources() {
         // In-repo runs hash both bundler scripts; outside a checkout the list
         // is empty by design.
-        let paths = bundler_cache_input_paths();
+        let paths = bundler_cache_input_paths().unwrap();
 
         assert_eq!(paths.len(), 4);
         assert!(paths
@@ -3598,6 +7131,62 @@ mod tests {
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/import-grants.mjs")));
         assert!(paths.iter().all(|path| path.exists()));
+    }
+
+    #[test]
+    fn bundler_toolchain_identity_authenticates_selected_runner_and_install() {
+        if find_js_runner().is_err() {
+            return;
+        }
+        let identity = compute_bundler_toolchain_identity().unwrap();
+        assert!(identity.runner.is_absolute());
+        assert!(identity.runner.is_file());
+        assert_ne!(identity.digest, [0; 32]);
+        assert_eq!(
+            identity.digest,
+            bundler_toolchain_identity().unwrap().digest,
+            "the cached identity must describe the same captured toolchain"
+        );
+    }
+
+    #[tokio::test]
+    async fn application_cwd_cannot_select_lookalike_bundler_tooling() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::remove_var("IBEX_REPO_ROOT");
+        std::env::remove_var("EXACT_REPO_ROOT");
+
+        let fake = tempdir().unwrap();
+        std::fs::create_dir_all(fake.path().join("vendored-generated")).unwrap();
+        std::fs::create_dir_all(fake.path().join("packages/ibex-runtime-js")).unwrap();
+        std::fs::create_dir_all(fake.path().join("packages/ibex-devtools/src/scripts")).unwrap();
+        std::fs::write(
+            fake.path().join("packages/ibex-runtime-js/package.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            fake.path().join("packages/ibex-devtools/package.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            fake.path()
+                .join("packages/ibex-devtools/src/scripts/rolldown-bundle.mjs"),
+            "throw new Error('application-controlled bundler executed');",
+        )
+        .unwrap();
+
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(fake.path()).unwrap();
+        let selected = bundler_script_path();
+        std::env::set_current_dir(original).unwrap();
+
+        let selected = selected.unwrap();
+        assert!(selected.starts_with(std::fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap()));
+        assert!(!selected.starts_with(fake.path()));
     }
 
     #[test]
@@ -3714,6 +7303,10 @@ console.log("kept");
 
     #[tokio::test]
     async fn runtime_executes_hashbang_entry_files() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
         let dir = tempdir().expect("temp dir");
         let module_file = dir.path().join("module.js");
         let entry_file = dir.path().join("entry.js");
@@ -3730,7 +7323,7 @@ console.log("kept");
         .expect("write shebang entry");
 
         let cli = Cli::parse_from(["ibex".to_string(), entry_file.to_string_lossy().to_string()]);
-        let runtime = Runtime::from_cli(&cli).expect("runtime");
+        let runtime = Runtime::from_audit_cli(&cli).expect("diagnostic runtime");
         runtime.load_runtime().await.expect("load runtime");
 
         let module_json = serde_json::to_string(&module_file.to_string_lossy().to_string())
@@ -3760,6 +7353,10 @@ console.log("kept");
 
     #[tokio::test]
     async fn module_loader_preserves_nested_syntax_error_after_partial_exports() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
         let dir = tempdir().expect("temp dir");
         let parent_file = dir.path().join("parent.mjs");
         let child_file = dir.path().join("child.js");
@@ -3788,7 +7385,7 @@ require("./child.js");
             "ibex".to_string(),
             parent_file.to_string_lossy().to_string(),
         ]);
-        let runtime = Runtime::from_cli(&cli).expect("runtime");
+        let runtime = Runtime::from_audit_cli(&cli).expect("diagnostic runtime");
         runtime.load_runtime().await.expect("load runtime");
 
         let parent_json = serde_json::to_string(&parent_file.to_string_lossy().to_string())
@@ -3812,6 +7409,10 @@ require("./child.js");
 
     #[tokio::test]
     async fn module_loader_async_fn_await_import_stays_on_direct_path() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
         // Guard against over-broad await-fallback routing (ENG-22811 review):
         // a module whose only `await import()` lives inside an ordinary async
         // function must load on the direct path — its top-level throws stay
@@ -3847,7 +7448,7 @@ throw new Error("sync-throw-marker");
         .expect("write throwing module");
 
         let cli = Cli::parse_from(["ibex".to_string(), ok_file.to_string_lossy().to_string()]);
-        let runtime = Runtime::from_cli(&cli).expect("runtime");
+        let runtime = Runtime::from_audit_cli(&cli).expect("diagnostic runtime");
         runtime.load_runtime().await.expect("load runtime");
 
         let ok_json = serde_json::to_string(&ok_file.to_string_lossy().to_string())

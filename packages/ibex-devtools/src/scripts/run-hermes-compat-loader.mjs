@@ -170,12 +170,16 @@ function runIbexFixture(ibexBin, id, source) {
       'globalThis.print = function (v) { console.log(String(v)); };\n' +
         'require("./fixture.js");\n',
     );
-    const result = spawnSync(ibexBin, [path.join(dir, 'entry.js')], {
-      encoding: 'utf8',
-      timeout: 120000,
-      cwd: dir,
-      env: { ...process.env, EXACT_COMPAT_TEST: '1' },
-    });
+    const result = spawnSync(
+      ibexBin,
+      ['capsec', 'audit', path.join(dir, 'entry.js')],
+      {
+        encoding: 'utf8',
+        timeout: 120000,
+        cwd: dir,
+        env: { ...process.env, EXACT_COMPAT_TEST: '1' },
+      },
+    );
     return {
       stdout: (result.stdout ?? '').trim(),
       stderr: (result.stderr ?? '').trim(),

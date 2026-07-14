@@ -967,6 +967,25 @@ function _asyncFsError(err, syscall, path, dest) {
   return _makeFsError(err, resolvedSyscall, path, dest);
 }
 
+function _asyncFdOp(native, op, fd, x, y) {
+  return native(op, fd, x, y).then(undefined, function(err) {
+    throw _asyncFsError(err, op === 'futimes' ? 'futime' : op);
+  });
+}
+
+function _asyncOpen(native, path, flags, mode) {
+  _validatePath(path);
+  var p = _pathToString(path);
+  return native(p, _normalizeOpenFlagsValue(flags), _normalizeOpenModeValue(mode)).then(
+    function(fd) { return fd; },
+    function(err) { throw _asyncFsError(err, 'open', p); });
+}
+
+function _asyncClose(native, fd) {
+  _validateFd(fd);
+  return native(fd).then(undefined, function(err) { throw _asyncFsError(err, 'close'); });
+}
+
 // Wrap bytes we exclusively own (fresh from an async native — no other JS
 // reference exists) as a Buffer without copying: Buffer.from(TypedArray)
 // copies the contents (which for a multi-hundred-MB readFile result would
@@ -1176,10 +1195,84 @@ function _readdirEntriesFromNativePayload(payload, options) {
 
 function _asyncReaddirSimple(native, path, options) {
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
-  if (opts.withFileTypes || opts.recursive) return null;
   var p = _pathToString(path);
+  if (opts.withFileTypes || opts.recursive) {
+    return _asyncBuildDirEntries(native, p, opts).then(function(entries) {
+      if (opts.withFileTypes) return entries;
+      var traversalRoot = p.replace(/[\\/]+$/, '') || p;
+      return entries.map(function(entry) {
+        var relativeParent = entry.path === traversalRoot
+          ? ''
+          : entry.path.slice(traversalRoot.length).replace(/^[\\/]+/, '');
+        var base = relativeParent ? relativeParent + '/' : '';
+        return base + entry.name;
+      });
+    });
+  }
   return _asyncFsPathOp(native, 'readdir', [p], 'scandir', p).then(function(payload) {
     return _readdirEntriesFromNativePayload(payload, opts);
+  });
+}
+
+function _withTraversalSlot(limiter, work) {
+  return new Promise(function(resolve, reject) {
+    function start() {
+      limiter.active += 1;
+      Promise.resolve().then(work).then(resolve, reject).finally(function() {
+        limiter.active -= 1;
+        if (limiter.queue.length) limiter.queue.shift()();
+      });
+    }
+    if (limiter.active < limiter.limit) start(); else limiter.queue.push(start);
+  });
+}
+
+function _boundedAsyncMap(items, limit, mapper) {
+  var results = new Array(items.length), next = 0;
+  function worker() {
+    var index = next++;
+    if (index >= items.length) return Promise.resolve();
+    return Promise.resolve(mapper(items[index], index)).then(function(value) {
+      results[index] = value;
+      return worker();
+    });
+  }
+  var workers = [];
+  for (var i = 0; i < Math.min(limit, items.length); i++) workers.push(worker());
+  return Promise.all(workers).then(function() { return results; });
+}
+
+function _asyncBuildDirEntries(native, path, options, limiter) {
+  limiter = limiter || { active: 0, limit: 32, queue: [] };
+  var statNative = _fsAsyncNative('__exactFsStatAsync');
+  return _withTraversalSlot(limiter, function() {
+    return _asyncFsPathOp(native, 'readdir', [path], 'scandir', path);
+  }).then(function(payload) {
+    var names = _readdirEntriesFromNativePayload(payload, options);
+    return _boundedAsyncMap(names, 32, function(name) {
+      var fullPath = pathJoin(path, name);
+      var statPromise = statNative
+        ? _withTraversalSlot(limiter, function() { return _asyncStatImpl(statNative, fullPath, 'lstat', {}); })
+        : Promise.resolve().then(function() { try { return lstatSync(fullPath); } catch (_) { return null; } });
+      return statPromise.then(function(stat) {
+        var entry = new Dirent(_normalizeDirEntryName(name, options && options.encoding), path, stat);
+        entry.path = path;
+        if (options && options.recursive && stat && stat.isDirectory()) {
+          return _asyncBuildDirEntries(native, fullPath, options, limiter).then(function(nested) {
+            return [entry].concat(nested);
+          });
+        }
+        return [entry];
+      }, function() {
+        var entry = new Dirent(_normalizeDirEntryName(name, options && options.encoding), path, null);
+        entry.path = path;
+        return [entry];
+      });
+    }).then(function(groups) {
+      var result = [];
+      for (var i = 0; i < groups.length; i++) result = result.concat(groups[i]);
+      return result;
+    });
   });
 }
 
@@ -1187,7 +1280,6 @@ function _asyncMkdirSimple(native, path, options) {
   var p = _pathToString(path);
   var recursive = false;
   var mode;
-  var firstCreatedPath;
   if (typeof options === 'object' && options !== null) {
     _validateMkdirRecursiveOption(options);
     recursive = options.recursive === true;
@@ -1198,22 +1290,10 @@ function _asyncMkdirSimple(native, path, options) {
   if (mode !== undefined) {
     mode = _coerceMode(mode) & 0o777;
   }
-  if (recursive) {
-    firstCreatedPath = _getFirstMissingPath(p);
-  }
-  if (typeof path === 'string' && path.charAt(0) !== '/') {
-    try {
-      statSync(_currentProcessCwd());
-    } catch (cwdErr) {
-      if (cwdErr && cwdErr.code === 'ENOENT') {
-        throw cwdErr;
-      }
-    }
-  }
-  var result = recursive ? firstCreatedPath : undefined;
   return _asyncFsPathOp(
       native, 'mkdir', [_nativeMkdirPath(p), null, recursive ? 1 : 0], 'mkdir', p)
-    .then(function() {
+    .then(function(createdPath) {
+      var result = recursive && createdPath ? createdPath : undefined;
       if (mode === undefined) return result;
       return _asyncFsPathOp(native, 'chmod', [p, null, mode], 'chmod', p).then(
           function() { return result; },
@@ -1225,13 +1305,8 @@ function _asyncMkdtempResult(native, prefix, options) {
   _validatePath(prefix, 'prefix');
   _validateEncodingOption(options);
   var prefixPath = _pathToString(prefix);
-  var parent = _dirnamePath(prefixPath);
   var rawPrefix = typeof prefix === 'string' ? prefix :
     (typeof Buffer !== 'undefined' && Buffer.isBuffer(prefix) ? prefix.toString() : null);
-  if (!existsSync(parent)) {
-    var err = new Error("ENOENT: no such file or directory, mkdtemp '" + prefix + "'");
-    throw _makeFsError(err, 'mkdtemp', prefix);
-  }
   return _asyncFsPathOp(native, 'mkdtemp', [prefixPath], 'mkdtemp', prefix).then(function(createdPath) {
     return {
       actualPath: createdPath,
@@ -2173,6 +2248,18 @@ function Dir(path, options) {
   this._closeCallbacks = [];
 }
 
+function _dirFromEntries(path, entries) {
+  var dir = Object.create(Dir.prototype);
+  dir._path = path;
+  dir._entries = entries;
+  dir._index = 0;
+  dir._closed = false;
+  dir._closing = false;
+  dir._asyncReads = 0;
+  dir._closeCallbacks = [];
+  return dir;
+}
+
 Object.defineProperty(Dir.prototype, 'path', {
   get: function() {
     if (!(this instanceof Dir)) throw _makeFsThisError('path');
@@ -2373,6 +2460,14 @@ function opendir(path, options, cb) {
   else { opts = options; callback = cb; }
   _validateCallback(callback);
   _validatePath(path);
+  var native = _fsAsyncNative('__exactFsPathAsync');
+  if (native) {
+    var p = _pathToString(path);
+    return _deferFsPromiseCallback(
+      _asyncBuildDirEntries(native, p, opts || {}).then(function(entries) {
+        return _dirFromEntries(path, entries);
+      }), callback);
+  }
   wrapCallback(function() { return opendirSync(path, opts); }, callback, 'opendir', _pathToString(path));
 }
 
@@ -2604,7 +2699,50 @@ function cpSync(src, dest, options) {
 function cp(src, dest, options, cb) {
   if (typeof options === 'function') { cb = options; options = {}; }
   _validateCallback(cb);
-  wrapCallback(function() { cpSync(src, dest, options); }, cb, 'copyfile', _pathToString(src));
+  _deferFsPromiseCallback(_asyncCp(src, dest, options || {}), cb);
+}
+
+function _asyncCp(src, dest, options) {
+  _validatePath(src, 'src'); _validatePath(dest, 'dest');
+  var source = _pathToString(src), destination = _pathToString(dest);
+  var filter = options.filter;
+  if (filter !== undefined && typeof filter !== 'function') throw _fsInvalidArgType('filter', 'function', filter);
+  function allowed(s, d) { return filter ? Promise.resolve(filter(s, d)).then(function(v) { return v !== false; }) : Promise.resolve(true); }
+  function copyOne(s, d) {
+    return allowed(s, d).then(function(ok) {
+      if (!ok) return;
+      return promises.lstat(s).then(function(st) {
+        if (st.isSymbolicLink()) {
+          if (options.dereference) return promises.realpath(s).then(function(real) { return copyOne(real, d); });
+          return promises.readlink(s).then(function(target) { return promises.symlink(target, d); });
+        }
+        if (st.isDirectory()) {
+          if (!options.recursive) {
+            var e = new Error("EISDIR: illegal operation on a directory, copyfile '" + s + "' -> '" + d + "'"); e.code = 'EISDIR'; throw e;
+          }
+          return promises.mkdir(d, { recursive: true }).then(function() {
+            return promises.readdir(s).then(function(names) {
+              return names.reduce(function(chain, name) {
+                return chain.then(function() { return copyOne(pathJoin(s, name), pathJoin(d, name)); });
+              }, Promise.resolve());
+            });
+          });
+        }
+        return promises.stat(d).then(function() { return true; }, function() { return false; }).then(function(exists) {
+          if (exists && options.force === false) {
+            if (options.errorOnExist) { var e = new Error('EEXIST: file already exists'); e.code = 'EEXIST'; throw e; }
+            return;
+          }
+          return promises.copyFile(s, d, options.mode).then(function() {
+            return promises.chmod(d, st.mode & 0o7777).then(function() {
+              return options.preserveTimestamps ? promises.utimes(d, st.atime, st.mtime) : undefined;
+            });
+          });
+        });
+      });
+    });
+  }
+  return copyOne(source, destination);
 }
 
 function statfsSync(path, options) {
@@ -2779,7 +2917,33 @@ function glob(pattern, options, callback) {
   if (typeof options === 'string') {
     options = { pattern: options };
   }
-  wrapCallback(function() { return globSync(pattern, options); }, callback, 'glob', _pathToString(cwd));
+  _deferFsPromiseCallback(_asyncGlob(pattern, options || {}), callback);
+}
+
+function _asyncGlob(pattern, options) {
+  var cwd = options.cwd || _currentProcessCwd();
+  _validatePath(cwd, 'cwd'); _validatePath(pattern, 'pattern'); _validateEncodingOption(options);
+  var regex = _patternToRegex(pattern), out = [];
+  function walk(root, prefix) {
+    return promises.readdir(root, { withFileTypes: true }).then(function(entries) {
+      return entries.reduce(function(chain, entry) {
+        return chain.then(function() {
+          var candidate = prefix ? prefix + '/' + entry.name : String(entry.name);
+          var value = options.withFileTypes ? entry : candidate;
+          var excluded = options.exclude && (Array.isArray(options.exclude)
+            ? options.exclude.indexOf(candidate) !== -1 : options.exclude(value) === true);
+          if (excluded) return;
+          if (regex.test(candidate)) out.push(value);
+          return entry.isDirectory() ? walk(pathJoin(root, entry.name), candidate) : undefined;
+        });
+      }, Promise.resolve());
+    });
+  }
+  return walk(_pathToString(cwd), '').then(function() {
+    if (!options.withFileTypes) out.sort();
+    if (options.encoding === 'buffer') return out.map(function(v) { return Buffer.from(v); });
+    return out;
+  });
 }
 
 function mkdirSync(path, options) {
@@ -2900,7 +3064,7 @@ function copyFileSync(src, dest, mode) {
       }
     }
   }
-  try { g.__exactCopyFile(s, d); } catch(e) { throw _makeFsError(e, 'copyfile', s, d); }
+  try { g.__exactCopyFile(s, d, mode || 0); } catch(e) { throw _makeFsError(e, 'copyfile', s, d); }
 }
 function accessSync(path, mode) {
   _validatePath(path); ensureExactFs();
@@ -3151,7 +3315,11 @@ function _routeAsyncWriteFileCallback(target, data, writeOptions, defaultFlag, c
     _deferFsCallback(function() { callback(error); });
     return true;
   }
-  writePromise.then(function() { callback(null); }, function(err) { callback(err); });
+  writePromise.then(function() {
+    _deferFsCallback(function() { callback(null); });
+  }, function(err) {
+    _deferFsCallback(function() { callback(err); });
+  });
   return true;
 }
 
@@ -3198,12 +3366,16 @@ function _routeAsyncStatCallback(path, opts, kind, callback) {
     _deferFsCallback(function() { callback(error); });
     return true;
   }
-  statPromise.then(function(stats) { callback(null, stats); }, function(err) {
-    if (statOptions.throwIfNoEntry === false && err && err.code === 'ENOENT') {
-      callback(null);
-      return;
-    }
-    callback(err);
+  statPromise.then(function(stats) {
+    _deferFsCallback(function() { callback(null, stats); });
+  }, function(err) {
+    _deferFsCallback(function() {
+      if (statOptions.throwIfNoEntry === false && err && err.code === 'ENOENT') {
+        callback(null);
+        return;
+      }
+      callback(err);
+    });
   });
   return true;
 }
@@ -3295,10 +3467,9 @@ function copyFile(s, d, modeOrCb, cb) {
   var native = _fsAsyncNative('__exactFsPathAsync');
   if (native) {
     var sp = _pathToString(s); var dp = _pathToString(d);
-    if ((mode & 1) !== 1) {
-      return _deferFsPromiseCallback(
-          _asyncFsPathOp(native, 'copyfile', [sp, dp], 'copyfile', sp, dp), callback);
-    }
+    var opName = (mode & constants.COPYFILE_EXCL) === constants.COPYFILE_EXCL ? 'copyfile_excl' : 'copyfile';
+    return _deferFsPromiseCallback(
+        _asyncFsPathOp(native, opName, [sp, dp], 'copyfile', sp, dp), callback);
   }
   wrapCallback(function() { copyFileSync(s, d, mode); }, callback, 'copyfile', _pathToString(s));
 }
@@ -3387,6 +3558,16 @@ function mkdtempDisposable(prefix, optOrCb, cb) {
 }
 function exists(path, cb) {
   _validateCallback(cb);
+  var native = _fsAsyncNative('__exactFsPathAsync');
+  if (native) {
+    try {
+      _validatePath(path); var p = _pathToString(path);
+      _asyncFsPathOp(native, 'access', [p, null, 0], 'access', p).then(
+        function() { _deferFsCallback(function() { cb(true); }); },
+        function() { _deferFsCallback(function() { cb(false); }); });
+    } catch (_) { _deferFsCallback(function() { cb(false); }); }
+    return;
+  }
   _deferFsCallback(function() { try { cb(existsSync(path)); } catch(e) {} });
 }
 
@@ -3770,11 +3951,15 @@ function open(path, flagsOrCb, modeOrCb, cb) {
       throw _fsInvalidArgType('mode', 'number', mode);
     }
   }
+  var native = _fsAsyncNative('__exactFsOpenAsync');
+  if (native) return _deferFsPromiseCallback(_asyncOpen(native, path, flags, mode), callback);
   wrapCallback(function() { return openSync(path, flags, mode); }, callback, 'open', _pathToString(path));
 }
 
 function close(fd, cb) {
   if (typeof cb === 'function') {
+    var native = _fsAsyncNative('__exactFsCloseAsync');
+    if (native) return _deferFsPromiseCallback(_asyncClose(native, fd), cb);
     wrapCallback(function() { closeSync(fd); }, cb, 'close');
   } else if (cb !== undefined) {
     _validateCallback(cb);
@@ -5127,6 +5312,42 @@ function buildWatchFileState(filename) {
     return null;
   }
 }
+function buildWatchFileStateAsync(filename) {
+  return promises.stat(filename).then(function(stat) {
+    return {
+      mtime: stat.mtimeMs || 0,
+      ctime: stat.ctimeMs || 0,
+      size: stat.size || 0,
+      ino: Number(stat.ino) || 0
+    };
+  }, function() { return null; });
+}
+function buildWatchDirStateAsync(dirname, recursive, prefix) {
+  return Promise.all([promises.stat(dirname), promises.readdir(dirname)]).then(function(values) {
+    var dirStat = values[0];
+    var files = values[1];
+    var entries = { __meta: { mtime: dirStat.mtimeMs || 0 } };
+    return _boundedAsyncMap(files, 32, function(file) {
+      var fullPath = pathJoin(dirname, file);
+      var key = prefix ? prefix + '/' + file : file;
+      return promises.lstat(fullPath).then(function(stat) {
+        var row = {
+          isDirectory: typeof stat.isDirectory === 'function' && stat.isDirectory(),
+          mtime: stat.mtimeMs || 0,
+          size: stat.size || 0
+        };
+        entries[key] = row;
+        if (!recursive || !row.isDirectory) return;
+        return buildWatchDirStateAsync(fullPath, true, key).then(function(children) {
+          if (!children) return;
+          for (var child in children) {
+            if (child !== '__meta') entries[child] = children[child];
+          }
+        });
+      }, function() {});
+    }).then(function() { return entries; });
+  }, function() { return null; });
+}
 function emitWatchDirectoryChanges(watcher, encoding, prevState, nextState) {
   var changed = false;
   if (!prevState) prevState = {};
@@ -5233,22 +5454,34 @@ function watch(filename, options, listener) {
   if (targetIsDirectory) {
     watcher._isDirectory = true;
     watcher._recursive = !!options.recursive;
-    watcher._prevState = buildWatchDirState(watcher._filename, watcher._recursive);
+    watcher._prevState = null;
+    watcher._polling = false;
     var directoryInterval = options.interval || 25;
     watcher._poll = function() {
-      if (watcher._closed || watcher._stopped) return;
-      var nextState = buildWatchDirState(watcher._filename, watcher._recursive);
-      if (!nextState) {
-        watcher.emit('change', 'rename', watchFilename(pathBasename(watcher._filename), encoding));
-        watcher._prevState = {};
-        return;
-      }
-      var changed = emitWatchDirectoryChanges(watcher, encoding, watcher._prevState, nextState);
-      if (!changed && watcher._prevState && nextState.__meta && watcher._prevState.__meta &&
-          nextState.__meta.mtime !== watcher._prevState.__meta.mtime) {
-        watcher.emit('change', 'rename', null);
-      }
-      watcher._prevState = nextState;
+      if (watcher._closed || watcher._stopped || watcher._polling) return;
+      watcher._polling = true;
+      buildWatchDirStateAsync(watcher._filename, watcher._recursive).then(function(nextState) {
+        if (watcher._closed || watcher._stopped) return;
+        if (!nextState) {
+          watcher.emit('change', 'rename', watchFilename(pathBasename(watcher._filename), encoding));
+          watcher._prevState = {};
+          return;
+        }
+        // The first successful snapshot establishes the baseline. Treating a
+        // null predecessor as an empty directory reports every pre-existing
+        // entry as a fresh rename and can trigger watch/rebuild loops without
+        // any filesystem mutation.
+        if (watcher._prevState === null) {
+          watcher._prevState = nextState;
+          return;
+        }
+        var changed = emitWatchDirectoryChanges(watcher, encoding, watcher._prevState, nextState);
+        if (!changed && watcher._prevState && nextState.__meta && watcher._prevState.__meta &&
+            nextState.__meta.mtime !== watcher._prevState.__meta.mtime) {
+          watcher.emit('change', 'rename', null);
+        }
+        watcher._prevState = nextState;
+      }).finally(function() { watcher._polling = false; });
     };
     watcher._pollInterval = directoryInterval;
     watcher._start = function() {
@@ -5265,27 +5498,34 @@ function watch(filename, options, listener) {
       }
     };
     watcher._start();
+    watcher._poll();
   } else {
-    var lastFileState = buildWatchFileState(watcher._filename);
+    var lastFileState = null;
+    watcher._polling = false;
     var fileInterval = options.interval || 25;
     watcher._poll = function() {
-      if (watcher._closed) return;
-      var nextFileState = buildWatchFileState(watcher._filename);
-      if (!nextFileState) {
-        if (lastFileState) {
-          lastFileState = null;
-          watcher.emit('change', 'rename', watchFilename(pathBasename(watcher._filename), encoding));
+      if (watcher._closed || watcher._polling) return;
+      watcher._polling = true;
+      buildWatchFileStateAsync(watcher._filename).then(function(nextFileState) {
+        if (watcher._closed) return;
+        if (!nextFileState) {
+          if (lastFileState) {
+            lastFileState = null;
+            watcher.emit('change', 'rename', watchFilename(pathBasename(watcher._filename), encoding));
+          }
+          return;
         }
-        return;
-      }
-      if (!lastFileState ||
-          nextFileState.mtime !== lastFileState.mtime ||
-          nextFileState.ctime !== lastFileState.ctime ||
-          nextFileState.size !== lastFileState.size ||
-          nextFileState.ino !== lastFileState.ino) {
-        lastFileState = nextFileState;
-        watcher.emit('change', 'change', watchFilename(pathBasename(watcher._filename), encoding));
-      }
+        if (!lastFileState ||
+            nextFileState.mtime !== lastFileState.mtime ||
+            nextFileState.ctime !== lastFileState.ctime ||
+            nextFileState.size !== lastFileState.size ||
+            nextFileState.ino !== lastFileState.ino) {
+          if (lastFileState) {
+            watcher.emit('change', 'change', watchFilename(pathBasename(watcher._filename), encoding));
+          }
+          lastFileState = nextFileState;
+        }
+      }).finally(function() { watcher._polling = false; });
     };
     watcher._pollInterval = fileInterval;
     watcher._start = function() {
@@ -5302,6 +5542,7 @@ function watch(filename, options, listener) {
       }
     };
     watcher._start();
+    watcher._poll();
   }
 
   if (options.persistent === false) watcher.unref();
@@ -5409,36 +5650,36 @@ function watchFile(filename, options, listener) {
     watcher._statOptions = statOptions;
     watcher._prevExists = false;
     watcher._prev = makeZeroStats(watcher._statOptions.bigint);
-    try {
-      // statSync already honors {bigint} — re-wrapping its Stats result with
-      // _makeBigIntStats read absent raw fields (safe.is_file etc.), so every
-      // isFile()/isDirectory() on curr/prev became false (ENG-23480 #15).
-      watcher._prev = statSync(resolvedFilename, watcher._statOptions);
-      watcher._prevExists = true;
-      watcher._hadInitialStat = true;
-    } catch(e) {
-      watcher._prevExists = false;
+    watcher._polling = false;
+    var statNative = _fsAsyncNative('__exactFsStatAsync');
+    function asyncWatchStat() {
+      return statNative
+        ? _asyncStatImpl(statNative, resolvedFilename, 'stat', _extractStatOptions(watcher._statOptions))
+        : Promise.resolve().then(function() { return statSync(resolvedFilename, watcher._statOptions); });
     }
+    asyncWatchStat().then(function(initial) {
+      watcher._prev = initial; watcher._prevExists = true; watcher._hadInitialStat = true;
+    }, function() {
+      watcher._prevExists = false;
+      if (!watcher._closed) watcher.emit('change', watcher._prev, watcher._prev);
+    });
     var watchFileInterval = options.interval || 5007;
     watcher._poll = function() {
       if (watcher._closed || watcher._stopped) return;
-      var curr;
-      var currExists = false;
-      try {
-        curr = statSync(resolvedFilename, watcher._statOptions);
-        currExists = true;
-      } catch(e) {
-        curr = makeZeroStats(watcher._statOptions.bigint);
-        currExists = false;
+      if (watcher._polling) return;
+      watcher._polling = true;
+      asyncWatchStat().then(function(curr) {
+        finish(curr, true);
+      }, function() { finish(makeZeroStats(watcher._statOptions.bigint), false); });
+      function finish(curr, currExists) {
+        watcher._polling = false;
+        if (watcher._closed || watcher._stopped) return;
+        if (!watcher._initialized) watcher._initialized = true;
+        if (watcher._prevExists !== currExists ||
+            (curr.mtimeMs || 0) !== (watcher._prev.mtimeMs || 0) ||
+            (curr.size || 0) !== (watcher._prev.size || 0)) watcher.emit('change', curr, watcher._prev);
+        watcher._prev = curr; watcher._prevExists = currExists;
       }
-      if (!watcher._initialized) watcher._initialized = true;
-      if (watcher._prevExists !== currExists ||
-          (curr.mtimeMs || 0) !== (watcher._prev.mtimeMs || 0) ||
-          (curr.size || 0) !== (watcher._prev.size || 0)) {
-        watcher.emit('change', curr, watcher._prev);
-      }
-      watcher._prev = curr;
-      watcher._prevExists = currExists;
     };
     watcher._pollInterval = watchFileInterval;
     watcher._start = function() {
@@ -5457,13 +5698,6 @@ function watchFile(filename, options, listener) {
     watcher._start();
     if (options.persistent === false) watcher.unref();
     _watchedFiles[resolvedFilename] = watcher;
-    if (!watcher._prevExists) {
-      _deferFsCallback(function() {
-        if (!watcher._closed) {
-          watcher.emit('change', watcher._prev, watcher._prev);
-        }
-      });
-    }
   }
 
   if (listener) {
@@ -5803,14 +6037,55 @@ function rm(path, options, cb) {
   if (typeof options === 'function') { cb = options; options = {}; }
   _validateCallback(cb);
   _validatePath(path, 'path');
-  wrapCallback(function() { rmSync(path, options); }, cb, 'rm', _pathToString(path));
+  _deferFsPromiseCallback(_asyncRm(path, options || {}), cb);
+}
+
+function _asyncRm(path, options) {
+  _validatePath(path, 'path');
+  if (typeof options === 'boolean') options = { recursive: true, force: true };
+  options = options || {};
+  var p = _pathToString(path), force = options.force === true, recursive = options.recursive === true;
+  var maxRetries = typeof options.maxRetries === 'number' && options.maxRetries > 0 ? Math.floor(options.maxRetries) : 0;
+  var retryDelay = typeof options.retryDelay === 'number' && options.retryDelay >= 0 ? options.retryDelay : 100;
+  function removeOne(target) {
+    return promises.lstat(target).then(function(st) {
+      if (!st.isDirectory() || st.isSymbolicLink()) return promises.unlink(target);
+      if (!recursive) throw _makeRmDirError(target);
+      return promises.readdir(target).then(function(names) {
+        return names.reduce(function(chain, name) {
+          return chain.then(function() { return removeOne(pathJoin(target, name)); });
+        }, Promise.resolve());
+      }).then(function() { return promises.rmdir(target); });
+    }, function(err) {
+      if (force && err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) return;
+      throw err;
+    });
+  }
+  function attempt(n) {
+    return removeOne(p).catch(function(err) {
+      if (force && err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) return;
+      var retryable = err && (err.code === 'EBUSY' || err.code === 'EMFILE' || err.code === 'ENFILE' || err.code === 'ENOTEMPTY' || err.code === 'EPERM');
+      if (!retryable || n >= maxRetries) throw _normalizeRmError(err, p, recursive);
+      return new Promise(function(resolve) { setTimeout(resolve, retryDelay * (n + 1)); }).then(function() { return attempt(n + 1); });
+    });
+  }
+  return attempt(0);
 }
 
 function _resolveAsync(value) {
   return function() {
-    return Promise.resolve().then(function() {
-      return value();
-    });
+    // Invoke the native boundary while the caller's authenticated frame is
+    // still live. Deferring the call into a runtime-authored Promise reaction
+    // erases the user principal, causing descriptor ownership and typed effect
+    // checks to fail closed after an `await`. Converting the result (or a
+    // synchronous throw) to a Promise preserves the public asynchronous error
+    // contract without losing attribution.
+    // @ref LLP 0021#decision-staging-and-principal-semantics — async effects retain their authenticated actor/deputy set
+    try {
+      return Promise.resolve(value());
+    } catch (err) {
+      return Promise.reject(err);
+    }
   };
 }
 function _fileHandleErrorFromClosed() {
@@ -5819,24 +6094,82 @@ function _fileHandleErrorFromClosed() {
   return err;
 }
 
+// File descriptors are principal-bound native selectors. Keep the authoritative
+// selector and terminal state out of writable JavaScript properties so a
+// retained FileHandle cannot be retargeted or poisoned after a foreign close
+// is rejected by the native owner check.
+var _fileHandlePromiseStates = typeof WeakMap === 'function' ? new WeakMap() : null;
+
+function _fileHandlePromiseState(handle) {
+  var state = _fileHandlePromiseStates && _fileHandlePromiseStates.get(handle);
+  if (!state) {
+    var err = new TypeError('Illegal FileHandle receiver');
+    err.code = 'ERR_INVALID_THIS';
+    throw err;
+  }
+  return state;
+}
+
+function _fileHandlePromiseOpenFd(handle) {
+  var state = _fileHandlePromiseState(handle);
+  if (state.closed || state.fd === null) throw _fileHandleErrorFromClosed();
+  return state.fd;
+}
+
 function FileHandlePromise(fd, path, flags) {
-  this.fd = (typeof fd === 'number') ? fd : null;
+  if (!_fileHandlePromiseStates || typeof Object.defineProperty !== 'function') {
+    throw new Error('FileHandle requires WeakMap-backed private state');
+  }
+  var state = {
+    fd: (typeof fd === 'number') ? fd : null,
+    closed: false,
+    closing: null
+  };
+  _fileHandlePromiseStates.set(this, state);
+  Object.defineProperty(this, 'fd', {
+    enumerable: true,
+    configurable: false,
+    get: function() { return state.fd; },
+    set: function() { throw new TypeError('FileHandle.fd is read-only'); }
+  });
+  Object.defineProperty(this, '_closed', {
+    enumerable: false,
+    configurable: false,
+    get: function() { return state.closed; },
+    set: function() { throw new TypeError('FileHandle close state is private'); }
+  });
   this.path = path;
   this.flags = flags || 'r';
-  this._closed = false;
 }
 FileHandlePromise.prototype._ensureOpen = function() {
-  if (this._closed || this.fd === null) throw _fileHandleErrorFromClosed();
+  _fileHandlePromiseOpenFd(this);
 };
 FileHandlePromise.prototype.close = function() {
   var handle = this;
-  return _resolveAsync(function() {
-    handle._ensureOpen();
-    var fd = handle.fd;
-    handle._closed = true;
-    handle.fd = null;
-    return closeSync(fd);
+  var state = _fileHandlePromiseState(handle);
+  if (state.closed || state.fd === null) {
+    return Promise.reject(_fileHandleErrorFromClosed());
+  }
+  if (state.closing) return state.closing;
+  var closeResult = _resolveAsync(function() {
+    var native = _fsAsyncNative('__exactFsCloseAsync');
+    return native ? _asyncClose(native, state.fd) : closeSync(state.fd);
   })();
+  var closing = Promise.resolve(closeResult).then(function(result) {
+    if (state.closing === closing) {
+      state.closed = true;
+      state.fd = null;
+      state.closing = null;
+    }
+    return result;
+  }, function(err) {
+    // Native owner rejection (and every other close failure) leaves the
+    // descriptor live and retryable by its real owner.
+    if (state.closing === closing) state.closing = null;
+    throw err;
+  });
+  state.closing = closing;
+  return closing;
 };
 
 if (typeof Symbol !== 'undefined' && typeof Symbol.asyncDispose === 'symbol') {
@@ -5852,18 +6185,18 @@ if (typeof Symbol !== 'undefined' && typeof Symbol.asyncDispose === 'symbol') {
 FileHandlePromise.prototype.read = function(buffer, offset, length, position) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
+    var fd = _fileHandlePromiseOpenFd(handle);
     if (typeof buffer === 'object' && buffer !== null && buffer.length !== undefined) {
       var off = (typeof offset === 'number') ? offset : 0;
       var len = (typeof length === 'number') ? length : (buffer.length - off);
       var pos = (position === undefined || position === null) ? -1 : position;
       var native = _fsAsyncNative('__exactFsReadAsync');
       if (native) {
-        return _asyncReadIntoBuffer(native, handle.fd, buffer, off, len, pos).then(function(bytesRead) {
+        return _asyncReadIntoBuffer(native, fd, buffer, off, len, pos).then(function(bytesRead) {
           return { bytesRead: bytesRead, buffer: buffer };
         });
       }
-      var bytesRead = readSync(handle.fd, buffer, off, len, pos);
+      var bytesRead = readSync(fd, buffer, off, len, pos);
       return { bytesRead: bytesRead, buffer: buffer };
     }
     throw _fsInvalidArgType('buffer', 'string or an instance of Buffer or Uint8Array', buffer);
@@ -5872,149 +6205,158 @@ FileHandlePromise.prototype.read = function(buffer, offset, length, position) {
 FileHandlePromise.prototype.write = function(buffer, offset, length, position) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
+    var fd = _fileHandlePromiseOpenFd(handle);
     var off = (typeof offset === 'number') ? offset : 0;
     var len = (typeof length === 'number') ? length : (buffer.length - off);
     var pos = (position === undefined || position === null) ? -1 : position;
     var native = _fsAsyncNative('__exactFsWriteAsync');
     if (native) {
-      return _asyncWriteFromArgs(native, handle.fd, buffer, off, len, pos).then(function(bytesWritten) {
+      return _asyncWriteFromArgs(native, fd, buffer, off, len, pos).then(function(bytesWritten) {
         return { bytesWritten: bytesWritten, buffer: buffer };
       });
     }
-    var bytesWritten = writeSync(handle.fd, buffer, off, len, pos);
+    var bytesWritten = writeSync(fd, buffer, off, len, pos);
     return { bytesWritten: bytesWritten, buffer: buffer };
   })();
 };
 FileHandlePromise.prototype.readv = function(buffers, position) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
+    var fd = _fileHandlePromiseOpenFd(handle);
     var native = _fsAsyncNative('__exactFsReadvAsync');
     if (native) {
-      return _asyncReadvIntoBuffers(native, handle.fd, buffers, position).then(function(bytesRead) {
+      return _asyncReadvIntoBuffers(native, fd, buffers, position).then(function(bytesRead) {
         return { bytesRead: bytesRead, buffers: buffers };
       });
     }
-    return { bytesRead: readvSync(handle.fd, buffers, position), buffers: buffers };
+    return { bytesRead: readvSync(fd, buffers, position), buffers: buffers };
   })();
 };
 FileHandlePromise.prototype.writev = function(buffers, position) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
+    var fd = _fileHandlePromiseOpenFd(handle);
     var native = _fsAsyncNative('__exactFsWritevAsync');
     if (native) {
-      return _asyncWritevFromBuffers(native, handle.fd, buffers, position).then(function(bytesWritten) {
+      return _asyncWritevFromBuffers(native, fd, buffers, position).then(function(bytesWritten) {
         return { bytesWritten: bytesWritten, buffers: buffers };
       });
     }
-    return { bytesWritten: writevSync(handle.fd, buffers, position), buffers: buffers };
+    return { bytesWritten: writevSync(fd, buffers, position), buffers: buffers };
   })();
 };
 FileHandlePromise.prototype.readFile = function(options) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
-    return _promisesReadFileWithSignal(handle.fd, options);
+    return _promisesReadFileWithSignal(_fileHandlePromiseOpenFd(handle), options);
   })();
 };
 FileHandlePromise.prototype.writeFile = function(data, options) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
-    return _promisesWriteFile(handle.fd, data, options);
+    return _promisesWriteFile(_fileHandlePromiseOpenFd(handle), data, options);
   })();
 };
 FileHandlePromise.prototype.appendFile = function(data, options) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
+    var fd = _fileHandlePromiseOpenFd(handle);
     // Resolves with undefined, matching Node (ENG-23480 #13).
     var native = _fsAsyncNative('__exactFsWriteFileAsync');
     if (native) {
       _validateWriteData(data);
       var writeOptions = _normalizeWriteOptions(options);
       return _asyncWriteFileImpl(
-          native, { fd: handle.fd, path: handle.path }, data, writeOptions, 'a').then(function() {});
+          native, { fd: fd, path: handle.path }, data, writeOptions, 'a').then(function() {});
     }
-    appendFileSync(handle.fd, data, options);
+    appendFileSync(fd, data, options);
   })();
 };
 FileHandlePromise.prototype.createReadStream = function(options) {
-  this._ensureOpen();
+  _fileHandlePromiseOpenFd(this);
   var fileOptions = options ? _extend(options, { fd: this, autoClose: false }) : { fd: this, autoClose: false };
   return createReadStream(this.path, fileOptions);
 };
 FileHandlePromise.prototype.createWriteStream = function(options) {
-  this._ensureOpen();
+  _fileHandlePromiseOpenFd(this);
   var fileOptions = options ? _extend(options, { fd: this, autoClose: false }) : { fd: this, autoClose: false };
   return createWriteStream(this.path, fileOptions);
 };
 FileHandlePromise.prototype.truncate = function(len) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
-    ftruncateSync(handle.fd, len);
+    var fd = _fileHandlePromiseOpenFd(handle);
+    len = _normalizeTruncateLen(len);
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'ftruncate', fd, len) : ftruncateSync(fd, len);
   })();
 };
 FileHandlePromise.prototype.sync = function() {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
-    _callFsyncSync(handle.fd);
+    var fd = _fileHandlePromiseOpenFd(handle);
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'fsync', fd) : _callFsyncSync(fd);
   })();
 };
 FileHandlePromise.prototype.datasync = function() {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
-    fdatasyncSync(handle.fd);
+    var fd = _fileHandlePromiseOpenFd(handle);
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'fdatasync', fd) : fdatasyncSync(fd);
   })();
 };
 FileHandlePromise.prototype.readLines = function() {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
-    var contents = readFileSync(handle.fd, 'utf8');
-    var lines = contents.split('\n');
-    if (lines.length > 0 && lines[lines.length - 1] === '') {
-      lines.pop();
-    }
-    return _makeAsyncIteratorFromArray(lines);
+    var fd = _fileHandlePromiseOpenFd(handle);
+    var native = _fsAsyncNative('__exactFsReadFileAsync');
+    var contents = native ? _asyncReadFileImpl(native, fd, { encoding: 'utf8' }) : readFileSync(fd, 'utf8');
+    return Promise.resolve(contents).then(function(text) {
+      var lines = text.split('\n');
+      if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+      return _makeAsyncIteratorFromArray(lines);
+    });
   })();
 };
 FileHandlePromise.prototype.stat = function(options) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
+    var fd = _fileHandlePromiseOpenFd(handle);
     var native = _fsAsyncNative('__exactFsStatAsync');
     if (native) {
       _coerceStatOptions(options);
-      return _asyncStatImpl(native, handle.fd, 'fstat', _extractStatOptions(options));
+      return _asyncStatImpl(native, fd, 'fstat', _extractStatOptions(options));
     }
-    return fstatSync(handle.fd, options);
+    return fstatSync(fd, options);
   })();
 };
 FileHandlePromise.prototype.chmod = function(mode) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
-    fchmodSync(handle.fd, mode);
+    var fd = _fileHandlePromiseOpenFd(handle);
+    mode = _coerceMode(mode); _validateUint32('mode', mode);
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'fchmod', fd, mode) : fchmodSync(fd, mode);
   })();
 };
 FileHandlePromise.prototype.chown = function(uid, gid) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
-    fchownSync(handle.fd, uid, gid);
+    var fd = _fileHandlePromiseOpenFd(handle);
+    _validateUidOrGid('uid', uid); _validateUidOrGid('gid', gid);
+    if (uid === -1 && gid === -1) return;
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'fchown', fd, uid, gid) : fchownSync(fd, uid, gid);
   })();
 };
 FileHandlePromise.prototype.utimes = function(atime, mtime) {
   var handle = this;
   return _resolveAsync(function() {
-    handle._ensureOpen();
-    futimesSync(handle.fd, atime, mtime);
+    var fd = _fileHandlePromiseOpenFd(handle);
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'futimes', fd, _toUnixTimestamp(atime), _toUnixTimestamp(mtime)) : futimesSync(fd, atime, mtime);
   })();
 };
 function _makeAsyncIteratorFromArray(values) {
@@ -6026,6 +6368,14 @@ function _makeAsyncIteratorFromArray(values) {
       return Promise.resolve({ done: false, value: value });
     },
     return: function() { return { done: true }; },
+    [Symbol.asyncIterator]: function() { return this; }
+  };
+}
+function _makeAsyncIteratorFromPromise(valuesPromise) {
+  var iteratorPromise = Promise.resolve(valuesPromise).then(_makeAsyncIteratorFromArray);
+  return {
+    next: function() { return iteratorPromise.then(function(it) { return it.next(); }); },
+    return: function() { return iteratorPromise.then(function(it) { return it.return(); }); },
     [Symbol.asyncIterator]: function() { return this; }
   };
 }
@@ -6157,9 +6507,10 @@ var promises = {
       _validatePath(s, 'src'); _validatePath(d, 'dest');
       if (m !== undefined && m !== null) _validateCopyFileMode(m);
       var native = _fsAsyncNative('__exactFsPathAsync');
-      if (native && (m & 1) !== 1) {
+      if (native) {
         var sp = _pathToString(s); var dp = _pathToString(d);
-        return _asyncFsPathOp(native, 'copyfile', [sp, dp], 'copyfile', sp, dp);
+        var opName = (m & constants.COPYFILE_EXCL) === constants.COPYFILE_EXCL ? 'copyfile_excl' : 'copyfile';
+        return _asyncFsPathOp(native, opName, [sp, dp], 'copyfile', sp, dp);
       }
       copyFileSync(s, d, m);
     })();
@@ -6213,10 +6564,10 @@ var promises = {
       return mkdtempSync(p, o);
     })();
   },
-  rm: function(p, o) { return _resolveAsync(function() { rmSync(p, o); })(); },
-  cp: function(s, d, o) { return _resolveAsync(function() { cpSync(s, d, o); })(); },
+  rm: function(p, o) { return _resolveAsync(function() { return _asyncRm(p, o || {}); })(); },
+  cp: function(s, d, o) { return _resolveAsync(function() { return _asyncCp(s, d, o || {}); })(); },
   glob: function(pattern, o) {
-    return _makeAsyncIteratorFromArray(globSync(pattern, o));
+    return _makeAsyncIteratorFromPromise(_asyncGlob(pattern, o || {}));
   },
   statfs: function(path, o) {
     return _resolveAsync(function() {
@@ -6255,8 +6606,16 @@ var promises = {
       return { bytesWritten: writevSync(fd, buffers, position), buffers: buffers };
     })();
   },
-  fdatasync: function(fd) { return _resolveAsync(function() { fdatasyncSync(fd); })(); },
-  fsync: function(fd) { return _resolveAsync(function() { fsyncSync(fd); })(); },
+  fdatasync: function(fd) { return _resolveAsync(function() {
+    _validateFd(fd);
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'fdatasync', fd) : fdatasyncSync(fd);
+  })(); },
+  fsync: function(fd) { return _resolveAsync(function() {
+    _validateFd(fd);
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'fsync', fd) : fsyncSync(fd);
+  })(); },
   fstat: function(fd) {
     return _resolveAsync(function() {
       var native = _fsAsyncNative('__exactFsStatAsync');
@@ -6295,7 +6654,12 @@ var promises = {
     })();
   },
   open: function(p, f, m) {
-    return _resolveAsync(function() { return new FileHandlePromise(openSync(p, f, m), _pathToString(p), f); })();
+    return _resolveAsync(function() {
+      var native = _fsAsyncNative('__exactFsOpenAsync');
+      return native
+        ? _asyncOpen(native, p, f, m).then(function(fd) { return new FileHandlePromise(fd, _pathToString(p), f); })
+        : new FileHandlePromise(openSync(p, f, m), _pathToString(p), f);
+    })();
   },
   truncate: function(p, l) {
     return _resolveAsync(function() {
@@ -6354,10 +6718,26 @@ var promises = {
       utimesSync(p, a, m);
     })();
   },
-  lutimes: function(p, a, m) { return _resolveAsync(function() { lutimesSync(p, a, m); })(); },
-  lchmod: function(p, m) { return _resolveAsync(function() { lchmodSync(p, m); })(); },
-  opendir: function(p, o) { return _resolveAsync(function() { return opendirSync(p, o); })(); },
-  close: function(fd) { return _resolveAsync(function() { closeSync(fd); })(); },
+  lutimes: function(p, a, m) { return _resolveAsync(function() {
+    _validatePath(p); var native = _fsAsyncNative('__exactFsPathAsync'); var pathString = _pathToString(p);
+    return native ? _asyncFsPathOp(native, 'lutime', [pathString, null, _toUnixTimestamp(a), _toUnixTimestamp(m)], 'lutimes', pathString) : lutimesSync(p, a, m);
+  })(); },
+  lchmod: function(p, m) { return _resolveAsync(function() {
+    _validatePath(p); m = _coerceMode(m); _validateUint32('mode', m); var native = _fsAsyncNative('__exactFsPathAsync'); var pathString = _pathToString(p);
+    return native ? _asyncFsPathOp(native, 'lchmod', [pathString, null, m], 'lchmod', pathString) : lchmodSync(p, m);
+  })(); },
+  opendir: function(p, o) { return _resolveAsync(function() {
+    _validatePath(p);
+    var native = _fsAsyncNative('__exactFsPathAsync');
+    var pathString = _pathToString(p);
+    return native
+      ? _asyncBuildDirEntries(native, pathString, o || {}).then(function(entries) { return _dirFromEntries(p, entries); })
+      : opendirSync(p, o);
+  })(); },
+  close: function(fd) { return _resolveAsync(function() {
+    var native = _fsAsyncNative('__exactFsCloseAsync');
+    return native ? _asyncClose(native, fd) : closeSync(fd);
+  })(); },
   symlink: function(t, p, ty) {
     return _resolveAsync(function() {
       var target = _coercePathFromURL(t, 'target');
@@ -6399,9 +6779,22 @@ var promises = {
       return readlinkSync(p, o);
     })();
   },
-  fchmod: function(fd, m) { return _resolveAsync(function() { fchmodSync(fd, m); })(); },
-  fchown: function(fd, u, g) { return _resolveAsync(function() { fchownSync(fd, u, g); })(); },
-  ftruncate: function(fd, l) { return _resolveAsync(function() { ftruncateSync(fd, l); })(); },
+  fchmod: function(fd, m) { return _resolveAsync(function() {
+    _validateFdNonNegative(fd); m = _coerceMode(m); _validateUint32('mode', m);
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'fchmod', fd, m) : fchmodSync(fd, m);
+  })(); },
+  fchown: function(fd, u, g) { return _resolveAsync(function() {
+    _validateFdNonNegative(fd); _validateUidOrGid('uid', u); _validateUidOrGid('gid', g);
+    if (u === -1 && g === -1) return;
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'fchown', fd, u, g) : fchownSync(fd, u, g);
+  })(); },
+  ftruncate: function(fd, l) { return _resolveAsync(function() {
+    _validateFd(fd); l = _normalizeTruncateLen(l);
+    var native = _fsAsyncNative('__exactFsFdAsync');
+    return native ? _asyncFdOp(native, 'ftruncate', fd, l) : ftruncateSync(fd, l);
+  })(); },
   FileHandle: FileHandlePromise,
   constants: constants
 };
@@ -6508,6 +6901,10 @@ function fchmod(fd, mode, callback) {
   if (callback !== undefined && typeof callback !== 'function') _validateCallback(callback);
   ensureExactFs();
   if (typeof callback === 'function') {
+    var asyncNative = _fsAsyncNative('__exactFsFdAsync');
+    if (asyncNative) {
+      return _deferFsPromiseCallback(_asyncFdOp(asyncNative, 'fchmod', fd, mode), callback);
+    }
     if (typeof g.__exactFsFchmod === 'function') {
       g.__exactFsFchmod(fd, mode, function(err) {
         _deferFsCallback(function() {
@@ -6556,6 +6953,10 @@ function fchown(fd, uid, gid, callback) {
   }
   ensureExactFs();
   if (typeof callback === 'function') {
+    var asyncNative = _fsAsyncNative('__exactFsFdAsync');
+    if (asyncNative) {
+      return _deferFsPromiseCallback(_asyncFdOp(asyncNative, 'fchown', fd, uid, gid), callback);
+    }
     if (typeof g.__exactFsFchown === 'function') {
       g.__exactFsFchown(fd, uid, gid, function(err) {
         _deferFsCallback(function() {
@@ -6605,6 +7006,8 @@ function ftruncate(fd, len, callback) {
   len = _normalizeTruncateLen(len);
   _validateCallback(callback);
   ensureExactFs();
+  var native = _fsAsyncNative('__exactFsFdAsync');
+  if (native) return _deferFsPromiseCallback(_asyncFdOp(native, 'ftruncate', fd, len), callback);
   try {
     ftruncateSync(fd, len);
     _deferFsCallback(function() { callback(null); });
@@ -6630,6 +7033,8 @@ function fdatasync(fd, callback) {
   _validateFd(fd);
   _validateCallback(callback);
   ensureExactFs();
+  var native = _fsAsyncNative('__exactFsFdAsync');
+  if (native) return _deferFsPromiseCallback(_asyncFdOp(native, 'fdatasync', fd), callback);
   try {
     fdatasyncSync(fd);
     _deferFsCallback(function() { callback(null); });
@@ -6652,6 +7057,8 @@ function fsync(fd, callback) {
   _validateFd(fd);
   _validateCallback(callback);
   ensureExactFs();
+  var native = _fsAsyncNative('__exactFsFdAsync');
+  if (native) return _deferFsPromiseCallback(_asyncFdOp(native, 'fsync', fd), callback);
   try {
     fsyncSync(fd);
     _deferFsCallback(function() { callback(null); });
@@ -6686,8 +7093,9 @@ function fstat(fd, opts, callback) {
       _deferFsCallback(function() { callback(error); });
       return;
     }
-    statPromise.then(function(stats) { callback(null, stats); },
-                     function(err) { callback(err); });
+    statPromise.then(
+      function(stats) { _deferFsCallback(function() { callback(null, stats); }); },
+      function(err) { _deferFsCallback(function() { callback(err); }); });
     return;
   }
   try {
@@ -6719,6 +7127,12 @@ function futimes(fd, atime, mtime, callback) {
   _validateFdNonNegative(fd);
   _validateCallback(callback);
   ensureExactFs();
+  var native = _fsAsyncNative('__exactFsFdAsync');
+  if (native) {
+    return _deferFsPromiseCallback(
+        _asyncFdOp(native, 'futimes', fd, _toUnixTimestamp(atime), _toUnixTimestamp(mtime)),
+        callback);
+  }
   try {
     futimesSync(fd, atime, mtime);
     _deferFsCallback(function() { callback(null); });
@@ -6756,7 +7170,10 @@ function lchmod(path, mode, callback) {
   mode = _coerceMode(mode);
   _validateUint32('mode', mode);
   _validateCallback(callback);
-  return wrapCallback(function() { lchmodSync(path, mode); }, callback, 'lchmod', _pathToString(path));
+  var native = _fsAsyncNative('__exactFsPathAsync');
+  var p = _pathToString(path);
+  if (native) return _deferFsPromiseCallback(_asyncFsPathOp(native, 'lchmod', [p, null, mode], 'lchmod', p), callback);
+  return wrapCallback(function() { lchmodSync(path, mode); }, callback, 'lchmod', p);
 }
 function lchmodSync(path, mode) {
   _validatePath(path);
@@ -6806,7 +7223,10 @@ function lchown(path, uid, gid, callback) {
 function lutimes(path, atime, mtime, callback) {
   _validatePath(path);
   _validateCallback(callback);
-  wrapCallback(function() { lutimesSync(path, atime, mtime); }, callback, 'lutimes', _pathToString(path));
+  var native = _fsAsyncNative('__exactFsPathAsync');
+  var p = _pathToString(path), at = _toUnixTimestamp(atime), mt = _toUnixTimestamp(mtime);
+  if (native) return _deferFsPromiseCallback(_asyncFsPathOp(native, 'lutime', [p, null, at, mt], 'lutimes', p), callback);
+  wrapCallback(function() { lutimesSync(path, atime, mtime); }, callback, 'lutimes', p);
 }
 function lutimesSync(path, atime, mtime) {
   _validatePath(path);

@@ -305,10 +305,16 @@ export function replaceModuleDirnameBindings(source, id) {
 export const defaultCompartmentGlobals = Object.freeze([
   'process',
   'globalThis',
-  // `global`/`self` alias the real global; if not routed through the compartment
-  // they are a one-hop leak to every withheld capability. (ENG-22625)
+  // The root registry is runtime control-plane state, not a package endowment.
+  // Free authored reads are routed through the package compartment, whose
+  // reserved `__compartments` property exposes only that exact package key.
+  '__compartments',
+  // `global`/`self`/`window` can alias the real global; if not routed through the
+  // compartment they are a one-hop leak to every withheld capability.
+  // (ENG-22625/ENG-24463)
   'global',
   'self',
+  'window',
   // `Ibex` exposes the dynamic-permission surface (broker/request); withhold it
   // from package code so a dependency can't self-approve prompts. (ENG-22636)
   'Ibex',
@@ -722,6 +728,51 @@ function freshCompartmentBindingName(source, compartmentRef) {
   return name;
 }
 
+function insertAfterDirectivePrologue(source, statement) {
+  const ast = parseModuleOrScript(source);
+  let insertAt = ast ? directivePrologueEnd(ast) : 0;
+  // Preserve a package binary's hashbang as the first line. It is not an AST
+  // directive, but inserting an import before it makes the transformed module
+  // unparsable.
+  if (source.startsWith('#!')) {
+    const newline = source.indexOf('\n');
+    insertAt = Math.max(insertAt, newline === -1 ? source.length : newline + 1);
+  }
+  const before = source.slice(0, insertAt);
+  const after = source.slice(insertAt);
+  const beforeSeparator = before && !before.endsWith('\n') ? '\n' : '';
+  const afterSeparator = after && !after.startsWith('\n') ? '\n' : '';
+  return `${before}${beforeSeparator}${statement}${afterSeparator}${after}`;
+}
+
+function ensureStrictChunk(code) {
+  // Keep a generated executable's hashbang byte-for-byte first and make the
+  // directive an unmistakable prologue statement. This adds one generated line;
+  // like the module-level compartment rewrite above, this hook currently emits
+  // no composed map, so sourcemap builds retain Rolldown's explicit
+  // SOURCEMAP_BROKEN warning until the transform pipeline grows map support.
+  if (code.startsWith('#!')) {
+    const newline = code.indexOf('\n');
+    if (newline === -1) return `${code}\n"use strict";`;
+    const head = code.slice(0, newline + 1);
+    const body = code.slice(newline + 1);
+    if (/^[\t ]*["']use strict["']\s*;/.test(body)) return code;
+    return `${head}"use strict";\n${body}`;
+  }
+  if (/^[\t ]*["']use strict["']\s*;/.test(code)) return code;
+  return `"use strict";\n${code}`;
+}
+
+const compartmentScopePublicPrefix = 'ibex:compartment-scope/';
+const compartmentScopeInternalPrefix = `\0${compartmentScopePublicPrefix}`;
+
+function compartmentScopeSpecifier(pkg, importer) {
+  // Encode the complete package identity and importer id rather than hashing
+  // them: the mapping is deterministic and collision-free, and resolver-time
+  // authorization can bind the generated capability to one exact importer.
+  return `${compartmentScopePublicPrefix}${encodeURIComponent(pkg)}/${encodeURIComponent(importer)}`;
+}
+
 /**
  * A Rolldown-style plugin that rewrites free globals per package. `resolvePackage`
  * maps a module id to its package selector (or null for first-party/root code,
@@ -734,28 +785,119 @@ export function createCompartmentGlobalsPlugin({
   resolvePackage,
   endowmentsFor,
 } = {}) {
+  // A source-visible import specifier is not itself authority. Every generated
+  // specifier is registered to the exact module id that received it, and the
+  // resolver refuses unknown, copied, or cross-module uses. The internal module
+  // exports only the caller's already-scoped compartment, never the root
+  // registry. This gives Rolldown a real lexical binding which package source
+  // cannot shadow, while still letting native per-package chunks resolve the
+  // same binding through their Domain-scoped registry. (ENG-24463/ENG-24526)
+  const scopesByPublicId = new Map();
+  const scopesByInternalId = new Map();
+  const packageModuleIds = new Set();
+  const packageFor = (id) =>
+    resolvePackage ? resolvePackage(id) : packageIdentityOfModuleId(id);
+
+  const registerScope = (importer, pkg) => {
+    const publicId = compartmentScopeSpecifier(pkg, importer);
+    const internalId = `${compartmentScopeInternalPrefix}${encodeURIComponent(pkg)}/${encodeURIComponent(importer)}`;
+    const scope = { importer, pkg, publicId, internalId };
+    const existing = scopesByPublicId.get(publicId);
+    if (existing && (existing.importer !== importer || existing.pkg !== pkg)) {
+      throw new Error(`Compartment scope id collision for ${importer}`);
+    }
+    scopesByPublicId.set(publicId, scope);
+    scopesByInternalId.set(internalId, scope);
+    return scope;
+  };
+
   return {
     name,
+    resolveId(source, importer) {
+      if (typeof source !== 'string' || !source.startsWith(compartmentScopePublicPrefix)) {
+        if (typeof source === 'string' && source.startsWith(compartmentScopeInternalPrefix)) {
+          throw new Error('Internal Ibex compartment scope modules cannot be imported by source');
+        }
+        return null;
+      }
+      const scope = scopesByPublicId.get(source);
+      if (!scope) {
+        throw new Error(`Refusing unrecognized Ibex compartment scope import from ${importer || '<entry>'}`);
+      }
+      if (importer !== scope.importer) {
+        throw new Error(
+          `Refusing Ibex compartment scope import for ${scope.pkg} from ${importer || '<entry>'}`,
+        );
+      }
+      return scope.internalId;
+    },
+    load(id) {
+      const scope = scopesByInternalId.get(id);
+      if (!scope) return null;
+      // This module is generated by the trusted bundler plugin. In a flat root
+      // Domain it extracts exactly one package compartment from the private
+      // root registry; in a native package Domain `__compartments` is already a
+      // read-only registry view scoped to this same key. Only the compartment
+      // value is exported into package code.
+      return `
+const __ibexRegistry = (${registry});
+const __ibexPackageCompartment = __ibexRegistry && __ibexRegistry[${JSON.stringify(scope.pkg)}];
+if (!__ibexPackageCompartment ||
+    (typeof __ibexPackageCompartment !== "object" &&
+     typeof __ibexPackageCompartment !== "function")) {
+  throw new Error(${JSON.stringify(`No valid compartment for package ${scope.pkg}`)});
+}
+export default __ibexPackageCompartment;
+`;
+    },
+    renderChunk(code, chunk) {
+      // Rolldown removes a package source's own directive while lowering CJS,
+      // so strictifying the input module is not sufficient to close the
+      // sloppy-function `this` escape. Strictify every chunk that contains
+      // package code, including modules that needed no finite-list rewrite and
+      // therefore have no virtual scope module. A flat bundle necessarily makes
+      // its combined root/package chunk strict; split output leaves a root-only
+      // chunk unchanged and strictifies the package chunks. (ENG-24463)
+      const moduleIds = Object.keys((chunk && chunk.modules) || {});
+      const containsPackageCode = moduleIds.some((id) =>
+        scopesByInternalId.has(id) || packageModuleIds.has(id));
+      if (!containsPackageCode) return null;
+      return { code: ensureStrictChunk(code) };
+    },
     transform(code, id) {
       // Key by the version-qualified identity (`name@version`) so coexisting
       // versions never share a mutable compartment object, matching the runtime
       // loader's identity. Endowment lookup still falls back to the bare name in
       // the registry (isEndowed). @ref LLP 0013#resolved-questions — (ENG-22621)
-      const pkg = resolvePackage ? resolvePackage(id) : packageIdentityOfModuleId(id);
+      const pkg = packageFor(id);
       if (!pkg) return null; // first-party / root — trusted, not compartmentalized
+      // Strict emission is required even when this particular module mentions
+      // none of the finite transform's routed names and therefore needs no
+      // virtual scope import.
+      packageModuleIds.add(id);
       // Endowment names are authored against the bare package name, so resolve
       // them by the bare selector even though the compartment key is versioned.
       const bareName = packageOfModuleId(id);
-      const globalNames = endowmentsFor
+      const configuredGlobalNames = endowmentsFor
         ? endowmentsFor(bareName || pkg)
         : defaultCompartmentGlobals;
-      const compartmentRef = `${registry}[${JSON.stringify(pkg)}]`;
-      // Hoist the registry lookup once per module: every rewritten access then
-      // costs one compartment trap hop instead of registry-get + compartment-get.
-      // (ENG-22644)
-      const rewritten = rewriteFreeGlobals(code, { compartmentRef, globalNames, hoistRef: true });
+      const globalNames = new Set(configuredGlobalNames || []);
+      // `endowmentsFor` may intentionally narrow the normal global set, but it
+      // can never make the raw runtime registry an authored package binding.
+      globalNames.add('__compartments');
+      if (/^[A-Za-z_$][\w$]*$/.test(registry)) globalNames.add(registry);
+
+      const scope = registerScope(id, pkg);
+      const compartmentRef = freshCompartmentBindingName(code, scope.publicId);
+      const rewritten = rewriteFreeGlobals(code, {
+        compartmentRef,
+        globalNames,
+        hoistRef: false,
+      });
       if (rewritten === code) return null;
-      return { code: rewritten };
+      const importDeclaration =
+        `import ${compartmentRef} from ${JSON.stringify(scope.publicId)};`;
+      return { code: insertAfterDirectivePrologue(rewritten, importDeclaration) };
     },
   };
 }

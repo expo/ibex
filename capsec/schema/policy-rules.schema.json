@@ -159,7 +159,14 @@
     "classifierRules": { "$ref": "#/$defs/classifierRules" },
     "initialProfile": {
       "type": "object",
-      "required": ["advertisedTargets", "targetRule", "deviceActions", "defaultFlipGate"],
+      "required": [
+        "advertisedTargets",
+        "candidateTargets",
+        "targetFeatureMeaning",
+        "targetRule",
+        "deviceActions",
+        "defaultFlipGate"
+      ],
       "properties": {
         "advertisedTargets": {
           "type": "array",
@@ -179,6 +186,15 @@
             },
             "additionalProperties": false
           }
+        },
+        "candidateTargets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/target" }
+        },
+        "targetFeatureMeaning": {
+          "const": "structural-security-properties-required-by-the-exact-capsec-profile-not-cargo-feature-names"
         },
         "targetRule": { "const": "claim-only-exact-targets-with-complete-generated-report" },
         "deviceActions": {
@@ -202,6 +218,21 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": { "type": "string", "minLength": 1 }
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": { "type": "string", "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$" },
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          }
+        }
+      },
+      "additionalProperties": false
     },
     "decisionId": {
       "enum": [

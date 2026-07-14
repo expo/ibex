@@ -6,6 +6,10 @@ description = "Ibex runtime - Hermes JS engine, module loader, and host ABI"
 authors = ["Ibex Runtime Team"]
 license = "MIT"
 
+[workspace]
+members = ["crates/capsec-semantics", "crates/windows-dll-staging"]
+resolver = "2"
+
 [lib]
 name = "ibex_runtime"
 crate-type = ["staticlib", "rlib"]
@@ -15,6 +19,7 @@ name = "ibex"
 path = "src/bin/ibex/main.rs"
 
 [dependencies]
+capsec-semantics = { path = "crates/capsec-semantics" }
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
@@ -52,6 +57,7 @@ async-trait = "0.1"
 
 # Base64 for source maps
 base64 = "0.22"
+sha2 = "0.10"
 
 # HTTP server host bridge
 hyper = { version = "1.1", features = ["server", "http1", "http2"] }
@@ -87,7 +93,7 @@ libc = "0.2"
 # roots. @ref LLP 0004#the-tls-builtin — native bridge dependency choice
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "0.26"
-rustls-pemfile = "2"
+rustls-pki-types = { version = "1", features = ["std"] }
 
 swc_common = "23.0.1"
 swc_ecma_ast = "25.0.0"
@@ -107,13 +113,24 @@ app-host = []
 # `ibex` CLI profile enable this; without it build.rs compiles no-op stubs
 # instead. @ref LLP 0005#c-compilation
 host-http-server = []
+# Enables the observer consumed only by the exact-target CapSec executable
+# recipe harness. The production decision path is unchanged; the observer is
+# inert until a test explicitly scopes one terminal branch.
+capsec-conformance-observer = []
 openssl-crypto = ["dep:openssl-sys"]
-# When enabled, skips the default ex_hermes_notify_callback implementation.
-# The `ibex` binary provides its own tokio-based version.
+# Retained as a CLI scheduling profile switch. The callback symbol itself is
+# always supplied by the library; the CLI registers a wake hook at runtime so
+# library and integration-test link units never depend on a second symbol.
 cli-notify = []
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
+# rustls remains the wire TLS implementation. OpenSSL is used only to decode
+# the PKCS#12 and encrypted-PKCS#8 identity formats required by Node's `pfx`
+# and `passphrase` client options; vendoring keeps that parser hermetic across
+# desktop targets.
+# @ref LLP 0004#the-tls-builtin — scoped identity decoding, not wire TLS/trust.
+openssl = { version = "0.10.81", features = ["vendored"] }
 
 [target.'cfg(windows)'.dependencies]
 # Windows does not ship a C zlib development package. Build zlib from source so
@@ -122,6 +139,7 @@ libz-sys = { version = "1.1", features = ["static"] }
 
 [build-dependencies]
 cc = "1.0"
+ibex-windows-dll-staging = { path = "crates/windows-dll-staging" }
 
 [dev-dependencies]
 libc = "0.2"
@@ -134,4 +152,16 @@ tempfile = "3"
 # criterion. @ref LLP 0013#goals
 [[bench]]
 name = "compartment_overhead"
+harness = false
+
+# Broad subprocess wall-clock comparison for local Hermes shell vs Ibex CLI
+# variants. Complements `compartment_overhead`: this captures startup/bootstrap
+# and user-visible CLI mode costs for plain JS workloads, while that bench
+# isolates the LLP 0013 hot interpreter-path guard.
+[[bench]]
+name = "runtime_compare"
+harness = false
+
+[[bench]]
+name = "capsec_descriptor_authorization"
 harness = false

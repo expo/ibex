@@ -148,6 +148,14 @@ test('setting a host on a previously host-less special URL emits "//"', () => {
   expect(u.href).toBe('file://h/a');
 });
 
+test('WebSocket special URLs retain their authority and explicit port', () => {
+  const href = 'ws://127.0.0.1:50139/';
+  const u = new URL(href);
+  expect(u.href).toBe(href);
+  expect(u.hostname).toBe('127.0.0.1');
+  expect(u.port).toBe('50139');
+});
+
 // ---------------------------------------------------------------------------
 // ENG-23138 §4 — fallback parser (compartments without a host URL parser).
 // The public URL class delegates to the host implementation when one exists
@@ -179,6 +187,12 @@ test('fallback: file: URLs parse with an empty host', () => {
   expect(fallbackHref('file:')).toBe('file:///');
   expect(fallbackHref('file://localhost/x')).toBe('file:///x');
   expect(fallbackHref('file:////share/x')).toBe('file:////share/x');
+});
+
+test('fallback: WebSocket special URLs retain their authority', () => {
+  expect(fallbackHref('ws://127.0.0.1:50139/')).toBe(
+    'ws://127.0.0.1:50139/',
+  );
 });
 
 test('fallback: special hosts are lowercased', () => {

@@ -31,12 +31,43 @@ typedef struct ExactHermesRuntime ExactHermesRuntime;
 // Runtime Lifecycle
 // =============================================================================
 
-/// Create a new Hermes runtime with all host functions installed.
-/// This includes: timers, console, crypto, compression, fetch, WebSocket,
-/// module loader, and all Node.js-compatible builtins.
-/// @return Pointer to runtime, or NULL on failure
+/// Legacy lifecycle symbol retained for ABI compatibility. It is deliberately
+/// non-executable and always returns NULL. Production callers must use
+/// ex_hermes_create_armed; isolated tests and foreground diagnostics may use
+/// ex_hermes_create_diagnostic explicitly.
 ExactHermesRuntime* ex_hermes_create(void);
 
+/// Explicit non-production constructor for isolated tests and foreground
+/// diagnostic audit. Never use this for project execution.
+ExactHermesRuntime* ex_hermes_create_diagnostic(void);
+
+/// Create a runtime only when the installed host carries this exact immutable
+/// armed-snapshot identity. Returns NULL on absence or mismatch.
+ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
+
+/// Copy the filesystem path of the loaded artifact that contains Hermes'
+/// runtime factory. Returns the byte length, or -1 on failure.
+int32_t ex_hermes_engine_binary_path(char* out, size_t out_len);
+
+/// Return the device/inode identity of the mapped Hermes factory image when
+/// the platform can attest it (currently macOS). Returns 1 or -1.
+int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
+                                      uint64_t* out_inode);
+
+/// Bytecode version accepted by the loaded Hermes engine. This is runtime
+/// truth from the mapped engine's root API, not a sibling CLI executable.
+/// Returns zero when the root API is unavailable.
+uint32_t ex_hermes_bytecode_version(void);
+
+/// Runtime nonce selected by the active engine entry-point scope. Zero means
+/// no runtime is active on this thread. Native registries use this as an owner
+/// namespace; it is not a user-visible identifier.
+uint64_t ex_hermes_current_runtime_nonce(void);
+
+/// Principal selected by exact frame attribution for the active engine entry
+/// point. Consumers must pair it with a nonzero runtime nonce; zero is also the
+/// legitimate root principal.
+uint64_t ex_hermes_current_principal_id(void);
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);
 
@@ -52,7 +83,9 @@ void ex_hermes_destroy(ExactHermesRuntime* runtime);
 /// @param is_bytecode 1 if data is Hermes bytecode, 0 if JavaScript source
 /// @param out_value On success, points to malloc'd result string (caller frees
 ///                  with ex_hermes_free_string). NULL if result is undefined.
-/// @return 0 on success, non-zero on error (out_value contains error message)
+/// @return 0 on success; 1 on a program/evaluation error; 2 only when a
+///         bytecode buffer was rejected before execution. out_value contains
+///         the diagnostic for either error status.
 int ex_hermes_eval(
     ExactHermesRuntime* runtime,
     const uint8_t* data,
@@ -115,6 +148,12 @@ int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
 /// Get the current number of queued cross-thread callbacks waiting to run.
 uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime);
 
+/// Snapshot the generation nonce for a live runtime handle. Hosts that retain
+/// a handle for asynchronous work must capture this while they own the live
+/// runtime and carry it with every later completion; never recover a nonce
+/// from a possibly stale pointer when the completion fires.
+uint64_t ex_hermes_runtime_nonce(ExactHermesRuntime* runtime);
+
 /// Wake the event loop when a callback is pushed from a background thread.
 /// Called automatically by the runtime when async operations complete.
 void ex_hermes_notify_callback(void);
@@ -128,10 +167,29 @@ void ex_hermes_set_host_wake_hook(
     void (*hook)(void* context),
     void* context);
 
-/// Queue a lightweight watchdog callback onto the cross-thread callback queue.
-/// The callback executes during the next poll on the runtime-owning thread.
+/// Deprecated raw-pointer-only watchdog ABI. This function fails closed and
+/// does not invoke `callback`: a raw address cannot identify a runtime after
+/// allocator reuse. Use the generation-bearing variant below.
+#if defined(__clang__) || defined(__GNUC__)
+__attribute__((deprecated(
+    "use ex_hermes_schedule_watchdog_heartbeat_for_generation")))
+#elif defined(_MSC_VER)
+__declspec(deprecated(
+    "use ex_hermes_schedule_watchdog_heartbeat_for_generation"))
+#endif
 void ex_hermes_schedule_watchdog_heartbeat(
     ExactHermesRuntime* runtime,
+    void (*callback)(void* context),
+    void* context);
+
+/// Queue a lightweight watchdog callback onto the cross-thread callback queue.
+/// `runtime_nonce` must be the value captured for this exact handle generation
+/// with `ex_hermes_runtime_nonce` while the runtime was live. A stale pointer
+/// paired with an old nonce is rejected even if its address has been reused.
+/// The callback executes during the next poll on the runtime-owning thread.
+void ex_hermes_schedule_watchdog_heartbeat_for_generation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
     void (*callback)(void* context),
     void* context);
 
@@ -188,7 +246,10 @@ void ex_hermes_set_module_sync_callback(
 
 /// Install the generic `__hostCall(op, argsJson)` bridge in JavaScript.
 /// The callback should return a malloc'd C string. Prefix with `+` for a JSON
-/// success payload or `-` for an error message.
+/// success payload or `-` for an error message. This bridge is available only
+/// to unarmed diagnostic/embedder runtimes. For an armed runtime this void
+/// function is a silent no-op: it neither stores the callback nor changes the
+/// JavaScript global object.
 void ex_hermes_set_host_call(
     ExactHermesRuntime* runtime,
     char* (*callback)(const char* op, const char* args_json));
@@ -198,7 +259,9 @@ void ex_hermes_set_host_call(
 /// the owning runtime, a call id, and the op/args, and must eventually
 /// complete the call with ex_hermes_resolve_host_call — synchronously inline
 /// or later from any thread. Payload sigils match `__hostCall`: `+json`
-/// resolves with the parsed JSON, `-message` rejects with an Error.
+/// resolves with the parsed JSON, `-message` rejects with an Error. This bridge
+/// is available only to unarmed diagnostic/embedder runtimes. For an armed
+/// runtime this void function is a silent no-op.
 void ex_hermes_set_host_call_async(
     ExactHermesRuntime* runtime,
     void (*callback)(ExactHermesRuntime* runtime,
@@ -208,7 +271,9 @@ void ex_hermes_set_host_call_async(
 
 /// Complete a pending `__hostCallAsync` call. Safe to invoke from any thread;
 /// resolution is delivered on the runtime's thread via the callback queue.
-/// Unknown / already-completed call ids and dead runtimes are ignored.
+/// Unknown / already-completed call ids, dead runtimes, and all armed runtimes
+/// are silently ignored. This is a void ABI; rejection does not add a return
+/// status or change the function signature.
 void ex_hermes_resolve_host_call(
     ExactHermesRuntime* runtime,
     uint64_t call_id,
@@ -276,6 +341,68 @@ int ex_hermes_dispatch_event(
 /// Install the host singleton. Must be called before creating a runtime.
 /// On iOS, this is called from Swift during app initialization.
 void ex_host_install(void);
+
+/// Authenticate and install an immutable armed snapshot. Both buffers are
+/// copied during the call. Returns 0 on success, non-zero on refusal.
+int ex_host_install_armed(const uint8_t* snapshot,
+                          size_t snapshot_len,
+                          const uint8_t* expected_identity,
+                          size_t expected_identity_len);
+
+/// Return 1 only when the installed host has the exact snapshot digest.
+int ex_host_matches_armed_snapshot_digest(const char* digest);
+int ex_host_is_armed(void);
+
+/// Evaluate a strict typed decision-set JSON document and its effect-gate JSON
+/// array against the installed armed context. Returns a heap-owned JSON
+/// decision/evidence or error envelope; free it with ex_host_free_string.
+char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
+                                      size_t decision_set_len,
+                                      const uint8_t* gates,
+                                      size_t gates_len);
+
+/// Authorize requested (stage=0), retained-fd commit (stage=1), repeated
+/// descriptor use (stage=2), path disclosure (stage=3), or pre-open effects
+/// (stage=4), or repeated descriptor metadata disclosure (stage=5) for
+/// fs.open. Stages after requested require `parent_fd`.
+int ex_host_authorize_typed_fs_stack(uint64_t module_id,
+                                    const uint64_t* module_ids,
+                                    size_t module_ids_len,
+                                    const char* path,
+                                    uint32_t stage,
+                                    uint32_t surface,
+                                    int32_t parent_fd,
+                                    int32_t fd,
+                                    int32_t needs_read,
+                                    int32_t needs_write,
+                                    const char* presented_handle_id);
+
+/// Publish or revoke ceiling-bounded typed dynamic authority. Grant input is a
+/// strict JSON request object; revoke input is a strict JSON string grant ID.
+/// Returns 1 when changed, 0 when unchanged, and -1 on refusal.
+int ex_host_typed_dynamic_grant(uint64_t module_id,
+                                const uint8_t* request,
+                                size_t request_len);
+int ex_host_typed_dynamic_revoke(uint64_t module_id,
+                                 const uint8_t* request,
+                                 size_t request_len);
+
+/// Mint/re-attenuate and revoke typed bearer handles. Mint returns a heap-owned
+/// JSON handle/error envelope; revoke returns 1/0/-1 like dynamic revocation.
+char* ex_host_typed_handle_mint(uint64_t module_id,
+                                const uint64_t* module_ids,
+                                size_t module_ids_len,
+                                const uint8_t* request,
+                                size_t request_len);
+int ex_host_typed_handle_revoke(uint64_t module_id,
+                                const uint8_t* request,
+                                size_t request_len);
+
+/// Read the current authenticated negative/dynamic/handle generations.
+/// Returns 1 for an armed host and 0 otherwise.
+int ex_host_typed_generations(uint64_t* negative,
+                              uint64_t* dynamic,
+                              uint64_t* handle);
 
 /// Console log output from JS
 void ex_host_console_log(int32_t level, const char* message);

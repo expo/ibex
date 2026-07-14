@@ -25,6 +25,12 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      - name: Install Java for Android bridge behavior tests
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
@@ -38,6 +44,27 @@ jobs:
       # tracks the full matrix; this job stays on hermetic preflight checks.
       - name: Validate Cargo metadata
         run: cargo metadata --no-deps --format-version 1 > /tmp/ibex-cargo-metadata.json
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Audit Rust dependencies
+        run: cargo audit --deny warnings
+
+      # The product-neutral semantic core has no Hermes dependency, so its
+      # security contract can and should run in hermetic preflight CI.
+      # @ref LLP 0021#wp2--implement-the-typed-policy-and-decision-core
+      - name: Test CapSec semantic core
+        run: cargo test -p capsec-semantics
+
+      - name: Lint CapSec semantic core
+        run: cargo clippy -p capsec-semantics --all-targets -- -D warnings
+
+      - name: Test Windows DLL publication core
+        run: cargo test -p ibex-windows-dll-staging
+
+      - name: Test Android WebSocket flow controller
+        run: bun run test:android-java
 
       # Hermes-gated cases inside the suite skip themselves when no hermes
       # binary is present (transforms.test.mjs probes IBEX_HERMES_BIN and the
@@ -54,3 +81,23 @@ jobs:
 
       - name: Check generated example policy
         run: bun run check:example-policy
+
+  windows-staging:
+    name: Windows Hermes DLL staging behavior
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal
+          rustup default 1.93.1
+
+      # This package has no Hermes dependency. On Windows it additionally
+      # exercises an exclusive destination handle, proving a stale loaded DLL
+      # makes publication fail rather than falling through to old code.
+      - name: Test locked, tampered, clock-skewed, and concurrent staging
+        run: cargo test -p ibex-windows-dll-staging -- --test-threads=1

@@ -45,6 +45,176 @@ export interface UnderlyingByteSource {
   autoAllocateChunkSize?: number;
 }
 
+// Authority-bearing adapters can require a live caller check before reads or
+// cancellation touch stream state. Keep the hooks outside the publicly mutable
+// compatibility fields and require them even on saved reader/base methods.
+interface InternalReadableStreamAdmissions {
+  read?: () => void;
+  transformChunk?: (chunk: unknown) => unknown;
+  cancel?: (reason: unknown) => void;
+}
+
+const readableStreamAdmissions = new WeakMap<object, InternalReadableStreamAdmissions>();
+const readableStreamCancelAdmissionKey = {};
+
+function admitReadableStreamCancel(stream: object, reason: unknown): void {
+  readableStreamAdmissions.get(stream)?.cancel?.(reason);
+}
+
+function admitReadableStreamRead(stream: object): void {
+  readableStreamAdmissions.get(stream)?.read?.();
+}
+
+function transformReadableStreamChunk(stream: object, chunk: unknown): unknown {
+  const transformChunk = readableStreamAdmissions.get(stream)?.transformChunk;
+  return transformChunk ? transformChunk(chunk) : chunk;
+}
+
+/**
+ * The compatibility implementation exposes its ordinary stream bookkeeping as
+ * `_` fields. For an authority-bearing readable, projecting those fields
+ * directly would reveal the controller (and therefore its queue) and would let
+ * a retained foreign wrapper rewrite the stream state without going through a
+ * read/cancel admission. Replace the instance fields with owner-authenticated
+ * projections while keeping the values closure-private for stream internals.
+ */
+function sealReadableStreamCompatibilityState(stream: any): void {
+  // @ref LLP 0004#retained-native-wrapper-invariant — authority-bearing
+  // compatibility fields are authenticated projections, never state storage.
+  const admission = readableStreamAdmissions.get(stream);
+  if (typeof admission?.read !== 'function') {
+    return;
+  }
+
+  const state = {
+    streamState: stream._state,
+    storedError: stream._storedError,
+    reader: stream._reader,
+    isByteStream: stream._isByteStream,
+    isOwningStream: stream._isOwningStream,
+    disturbed: stream._disturbed,
+    controller: stream._controller,
+    closeStream: stream._closeStream,
+    errorStream: stream._errorStream,
+    cancelStream: stream._cancelStream,
+  };
+  const admit = admission.read;
+
+  Object.defineProperties(stream, {
+    _state: {
+      get() { admit(); return state.streamState; },
+      set(value) { admit(); state.streamState = value; },
+      enumerable: true,
+      configurable: false,
+    },
+    _storedError: {
+      get() { admit(); return state.storedError; },
+      set(value) { admit(); state.storedError = value; },
+      enumerable: true,
+      configurable: false,
+    },
+    _reader: {
+      get() { admit(); return state.reader; },
+      set(value) { admit(); state.reader = value; },
+      enumerable: true,
+      configurable: false,
+    },
+    _isByteStream: {
+      get() { admit(); return state.isByteStream; },
+      set(value) { admit(); state.isByteStream = value; },
+      enumerable: true,
+      configurable: false,
+    },
+    _isOwningStream: {
+      get() { admit(); return state.isOwningStream; },
+      set(value) { admit(); state.isOwningStream = value; },
+      enumerable: true,
+      configurable: false,
+    },
+    _disturbed: {
+      get() { admit(); return state.disturbed; },
+      set(value) { admit(); state.disturbed = value; },
+      enumerable: true,
+      configurable: false,
+    },
+    _controller: {
+      get() { admit(); return state.controller; },
+      set(value) { admit(); state.controller = value; },
+      enumerable: true,
+      configurable: false,
+    },
+    _closeStream: {
+      get() { admit(); return state.closeStream; },
+      set(value) { admit(); state.closeStream = value; },
+      enumerable: false,
+      configurable: false,
+    },
+    _errorStream: {
+      get() { admit(); return state.errorStream; },
+      set(value) { admit(); state.errorStream = value; },
+      enumerable: false,
+      configurable: false,
+    },
+    _cancelStream: {
+      get() { admit(); return state.cancelStream; },
+      set(value) { admit(); state.cancelStream = value; },
+      enumerable: false,
+      configurable: false,
+    },
+  });
+}
+
+/**
+ * A retained reader is as sensitive as its stream: its public `_stream` and
+ * request arrays otherwise let a foreign caller detach the real stream,
+ * replace it with an unguarded one, or inject a resolver that receives the
+ * next queued entry. Keep those compatibility projections owner-authenticated
+ * for readers created from an authority-bearing stream.
+ */
+function sealReadableStreamReaderCompatibilityState(
+  reader: any,
+  stream: object,
+  requestField: '_readRequests' | '_readIntoRequests'
+): void {
+  // @ref LLP 0004#retained-native-wrapper-invariant — saved reader methods and
+  // request arrays cannot bypass the wrapper-lifetime owner admission.
+  const admission = readableStreamAdmissions.get(stream);
+  if (typeof admission?.read !== 'function') {
+    return;
+  }
+
+  const state: Record<string, any> = {
+    stream: reader._stream,
+    requests: reader[requestField],
+    closedPromise: reader._closedPromise,
+    closedResolve: reader._closedResolve,
+    closedReject: reader._closedReject,
+    initializeClosedPromise: reader._initializeClosedPromise,
+  };
+  if (requestField === '_readRequests') {
+    state.processReadRequests = reader._processReadRequests;
+  }
+  const admit = admission.read;
+  const projection = (key: string, enumerable = true): PropertyDescriptor => ({
+    get() { admit(); return state[key]; },
+    set(value) { admit(); state[key] = value; },
+    enumerable,
+    configurable: false,
+  });
+
+  Object.defineProperties(reader, {
+    _stream: projection('stream'),
+    _closedPromise: projection('closedPromise'),
+    _closedResolve: projection('closedResolve'),
+    _closedReject: projection('closedReject'),
+    _initializeClosedPromise: projection('initializeClosedPromise', false),
+  });
+  Object.defineProperty(reader, requestField, projection('requests'));
+  if (requestField === '_readRequests') {
+    Object.defineProperty(reader, '_processReadRequests', projection('processReadRequests', false));
+  }
+}
+
 function isBunCompatReadableStreamTest(): boolean {
   return readRuntimeEnv('EXACT_COMPAT_TEST') === '1' && readRuntimeEnv('EXACT_TEST_SECTION') === 'bun';
 }
@@ -652,8 +822,12 @@ type PullIntoDescriptor = {
   pendingRequest: PullIntoRequest | null;
 };
 
-const countSizeTarget: () => number = (new Function("return (() => 1)"))();
-const byteLengthSizeTarget: (chunk: ArrayBufferView) => number = (new Function("return ((chunk) => chunk.byteLength)"))();
+// Arrow functions already have the required non-constructible shape. Creating
+// them through the ambient Function constructor made a late diagnostic bundle
+// load fail after structural lockdown had correctly tamed dynamic evaluators.
+// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+const countSizeTarget: () => number = () => 1;
+const byteLengthSizeTarget: (chunk: ArrayBufferView) => number = (chunk) => chunk.byteLength;
 
 Object.defineProperty(countSizeTarget, "name", { value: "size", configurable: true });
 Object.defineProperty(byteLengthSizeTarget, "name", { value: "size", configurable: true });
@@ -2586,6 +2760,9 @@ export class ReadableStreamDefaultReader<R = any> {
     if (!(stream instanceof ReadableStream)) {
       throw new TypeError('ReadableStreamDefaultReader constructor only accepts a ReadableStream');
     }
+    // Authenticate before observing or changing the stream's lock state. This
+    // also covers callers that saved the reader constructor/base prototype.
+    admitReadableStreamRead(stream);
     if (stream._reader !== undefined) {
       throw new TypeError(getReadableStreamLockedMessage());
     }
@@ -2600,32 +2777,46 @@ export class ReadableStreamDefaultReader<R = any> {
     } else {
       this._initializeClosedPromise("pending");
     }
+    sealReadableStreamReaderCompatibilityState(this, stream, '_readRequests');
   }
 
   get closed(): Promise<undefined> {
+    if (this._stream !== undefined) {
+      admitReadableStreamRead(this._stream);
+    }
     return this._closedPromise;
   }
 
   read(): Promise<ReadableStreamReadResult<R>> {
-    if (this._stream === undefined) {
-      return originalPromiseReject(new TypeError('Reader has been released'));
+    let stream: ReadableStream<R> | undefined;
+    try {
+      stream = this._stream;
+      if (stream === undefined) {
+        return originalPromiseReject(new TypeError('Reader has been released'));
+      }
+      // Admission precedes disturbed/queue/controller observation. The result
+      // transform runs only for this already-admitted read, so opaque adapter
+      // entries never become visible through compatibility request arrays.
+      admitReadableStreamRead(stream);
+    } catch (error) {
+      return originalPromiseReject(error);
     }
 
     // Per spec: reading from a stream marks it as disturbed
-    this._stream._disturbed = true;
+    stream._disturbed = true;
 
     const p = new Promise<ReadableStreamReadResult<R>>((resolve, reject) => {
       const request = { resolve, reject };
       this._readRequests.push(request);
       this._processReadRequests();
       if (this._readRequests.includes(request)) {
-        const controller = this._stream!._controller;
+        const controller = stream._controller;
         if (controller instanceof ReadableByteStreamController) {
           if (!attachDefaultReadRequestToPendingPullInto(controller, request)) {
             ensureAutoAllocatePullInto(controller);
           }
         }
-        this._stream!._controller!._pullIfNeeded();
+        stream._controller!._pullIfNeeded();
       }
     });
     // Suppress unhandled rejection tracking for stream-internal error propagation.
@@ -2634,11 +2825,16 @@ export class ReadableStreamDefaultReader<R = any> {
     // the stream). This pre-catch marks the promise as handled in our tracking
     // without affecting the caller's ability to catch/await the rejection.
     markPromiseHandled(p);
-    return p;
+    const admittedResult = promiseThen(p, (result) => result.done
+      ? result
+      : createReadResult(false, transformReadableStreamChunk(stream, result.value) as R));
+    markPromiseHandled(admittedResult);
+    return admittedResult;
   }
 
   releaseLock(): void {
     if (this._stream === undefined) return;
+    admitReadableStreamRead(this._stream);
 
     const releaseError = new TypeError('Reader was released');
     const controller = this._stream._controller;
@@ -2660,13 +2856,20 @@ export class ReadableStreamDefaultReader<R = any> {
   }
 
   cancel(reason?: any): Promise<void> {
-    if (this._stream === undefined) {
-      return originalPromiseReject(new TypeError('Reader has been released'));
+    let stream: ReadableStream<R> | undefined;
+    try {
+      stream = this._stream;
+      if (stream === undefined) {
+        return originalPromiseReject(new TypeError('Reader has been released'));
+      }
+      admitReadableStreamCancel(stream, reason);
+    } catch (error) {
+      return originalPromiseReject(error);
     }
     // Per spec: reader.cancel() should cancel the stream even though it's locked
     // We bypass the locked check by calling _cancelStream directly
-    this._stream._disturbed = true;
-    return this._stream._cancelStream(reason, this);
+    stream._disturbed = true;
+    return stream._cancelStream(reason, this, readableStreamCancelAdmissionKey);
   }
 
   /** @internal */
@@ -2751,6 +2954,9 @@ export class ReadableStreamBYOBReader {
   }
 
   constructor(stream: ReadableStream<Uint8Array>) {
+    // Admission precedes lock/type/state observation, including direct saved
+    // BYOB-reader construction.
+    admitReadableStreamRead(stream);
     if (stream._reader !== undefined) {
       throw new TypeError(getReadableStreamLockedMessage());
     }
@@ -2768,9 +2974,13 @@ export class ReadableStreamBYOBReader {
     } else {
       this._initializeClosedPromise("pending");
     }
+    sealReadableStreamReaderCompatibilityState(this, stream, '_readIntoRequests');
   }
 
   get closed(): Promise<undefined> {
+    if (this._stream !== undefined) {
+      admitReadableStreamRead(this._stream);
+    }
     return this._closedPromise;
   }
 
@@ -2781,6 +2991,9 @@ export class ReadableStreamBYOBReader {
     if (this._stream === undefined) {
       throw new TypeError('Reader has been released');
     }
+    const stream = this._stream;
+    // Authenticate before touching options/view getters or stream state.
+    admitReadableStreamRead(stream);
     if (options === null) {
       throw new TypeError('Cannot read properties of null (reading options)');
     }
@@ -2814,7 +3027,6 @@ export class ReadableStreamBYOBReader {
     if (normalizedMin > viewLength) {
       throw new RangeError('The \'min\' option cannot be greater than view.byteLength');
     }
-    const stream = this._stream;
     // Per spec: reading from a stream marks it as disturbed
     stream._disturbed = true;
     if (normalizedMin > 0 && stream._state === 'closed') {
@@ -2845,11 +3057,16 @@ export class ReadableStreamBYOBReader {
     // Match default-reader semantics so internal stream errors do not surface
     // as transient unhandled rejections before user code awaits the read().
     markPromiseHandled(p);
-    return p;
+    const admittedResult = promiseThen(p, (result) => result.done
+      ? result
+      : createReadResult(false, transformReadableStreamChunk(stream, result.value)) as ReadableStreamBYOBReadResult<T>);
+    markPromiseHandled(admittedResult);
+    return admittedResult;
   }
 
   releaseLock(): void {
     if (this._stream === undefined) return;
+    admitReadableStreamRead(this._stream);
 
     const releaseError = new TypeError('Reader was released');
     const controller = this._stream._controller;
@@ -2871,11 +3088,18 @@ export class ReadableStreamBYOBReader {
   }
 
   cancel(reason?: any): Promise<void> {
-    if (this._stream === undefined) {
-      return originalPromiseReject(new TypeError('Reader has been released'));
+    let stream: ReadableStream<Uint8Array> | undefined;
+    try {
+      stream = this._stream;
+      if (stream === undefined) {
+        return originalPromiseReject(new TypeError('Reader has been released'));
+      }
+      admitReadableStreamCancel(stream, reason);
+    } catch (error) {
+      return originalPromiseReject(error);
     }
-    this._stream._disturbed = true;
-    return this._stream._cancelStream(reason, this);
+    stream._disturbed = true;
+    return stream._cancelStream(reason, this, readableStreamCancelAdmissionKey);
   }
 
   get [Symbol.toStringTag](): string {
@@ -3091,7 +3315,8 @@ export class ReadableStream<R = any> {
 
   constructor(
     underlyingSource?: UnderlyingSource<R> | UnderlyingByteSource | UnderlyingDirectSource<R>,
-    strategy?: QueuingStrategy<R>
+    strategy?: QueuingStrategy<R>,
+    ...internalAdmissions: Array<InternalReadableStreamAdmissions>
   ) {
     if (originalReadableStreamGetReader === null) {
       originalReadableStreamGetReader = ReadableStream.prototype.getReader;
@@ -3103,6 +3328,20 @@ export class ReadableStream<R = any> {
       ? ({} as UnderlyingSource<R>)
       : Object(underlyingSource) as UnderlyingSource<R>;
     const strat = strategy === undefined ? {} : Object(strategy);
+
+    const admission = internalAdmissions[0];
+    if (admission !== undefined) {
+      if (!admission || typeof admission !== 'object') {
+        throw new TypeError('Internal stream admission must be an object');
+      }
+      for (const method of ['read', 'transformChunk', 'cancel']) {
+        const candidate = (admission as any)[method];
+        if (candidate !== undefined && typeof candidate !== 'function') {
+          throw new TypeError(`Internal ${method} admission must be a function`);
+        }
+      }
+      readableStreamAdmissions.set(this, admission);
+    }
 
     const strategyHasSize = hasPropertyWithoutObjectPrototype(strat, "size");
     const strategyHasHighWaterMark = hasPropertyWithoutObjectPrototype(strat, "highWaterMark");
@@ -3237,6 +3476,8 @@ export class ReadableStream<R = any> {
         isOwningStream
       );
     }
+
+    sealReadableStreamCompatibilityState(this);
   }
 
   get locked(): boolean {
@@ -3246,11 +3487,18 @@ export class ReadableStream<R = any> {
   cancel(reason?: any): Promise<void> {
     // Per ReadableStream.cancel() spec, a locked stream yields a *rejected
     // promise* (so .catch chains observe it), never a synchronous throw.
+    try {
+      // Admission comes before the lock projection, so a retained foreign
+      // caller cannot use cancel() to probe whether the owner holds a reader.
+      admitReadableStreamCancel(this, reason);
+    } catch (error) {
+      return originalPromiseReject(error);
+    }
     if (this.locked) {
       return originalPromiseReject(new TypeError('Cannot cancel a locked stream'));
     }
     this._disturbed = true;
-    return this._cancelStream(reason);
+    return this._cancelStream(reason, undefined, readableStreamCancelAdmissionKey);
   }
 
   getReader(options?: { mode?: 'byob' | undefined }): ReadableStreamDefaultReader<R>;
@@ -3258,6 +3506,9 @@ export class ReadableStream<R = any> {
   getReader(
     options?: { mode?: 'byob' | undefined }
   ): ReadableStreamDefaultReader<R> | ReadableStreamBYOBReader {
+    // Authenticate before option getters, byte-stream mode, or lock state are
+    // observed. Reader constructors repeat the check for direct/saved calls.
+    admitReadableStreamRead(this);
     if (options === null) {
       throw new TypeError('Cannot read properties of null (reading \'mode\')');
     }
@@ -3995,7 +4246,8 @@ export class ReadableStream<R = any> {
   /** @internal */
   async _cancelStream(
     reason?: any,
-    reader?: ReadableStreamReaderType
+    reader?: ReadableStreamReaderType,
+    admissionKey?: unknown
   ): Promise<void> {
     // ReadableStreamCancel: cancelling an errored stream rejects with the
     // stored error (resolving would mask it); a closed stream resolves.
@@ -4004,6 +4256,10 @@ export class ReadableStream<R = any> {
     }
     if (this._state !== 'readable') {
       return;
+    }
+
+    if (admissionKey !== readableStreamCancelAdmissionKey) {
+      admitReadableStreamCancel(this, reason);
     }
 
     this._state = 'closed';

@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <dirent.h>
@@ -18,8 +19,10 @@
 #include <fcntl.h>
 #include <iomanip>
 #include <mutex>
+#include <new>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <sys/poll.h>
 #include <sys/resource.h>
@@ -51,12 +54,30 @@ extern "C" int32_t ex_host_fs_rmdir(const char* path);
 extern "C" int32_t ex_host_fs_unlink(const char* path);
 extern "C" int32_t ex_host_fs_rename(const char* from, const char* to);
 extern "C" int32_t ex_host_fs_copy(const char* from, const char* to);
+extern "C" int32_t ex_host_fs_copy_exclusive(const char* from, const char* to);
 extern "C" char* ex_host_fs_realpath(const char* path);
 extern "C" int32_t ex_host_fs_access(const char* path, int32_t mode);
 extern "C" int32_t ex_host_fs_chmod(const char* path, uint32_t mode);
 extern "C" char* ex_host_fs_mkdtemp(const char* prefix, uint64_t module_id);
 extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint32_t len);
 extern "C" void ex_host_free_string(char* value);
+extern "C" int32_t ex_host_is_armed(void);
+extern "C" int32_t ex_host_typed_generations(
+    uint64_t* negative,
+    uint64_t* dynamic,
+    uint64_t* handle);
+extern "C" int32_t ex_host_authorize_typed_fs_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    const char* path,
+    uint32_t stage,
+    uint32_t surface,
+    int32_t parent_fd,
+    int32_t fd,
+    int32_t needs_read,
+    int32_t needs_write,
+    const char* presented_handle_id);
 
 constexpr uint32_t EXACT_FS_WRITE = 1u << 1;
 constexpr uint32_t EXACT_FS_CREATE = 1u << 2;
@@ -70,18 +91,259 @@ struct IoVecMetadata {
 };
 
 struct FdEntry {
+  uint64_t runtimeNonce;
   uint64_t owner;
   std::string path;
   bool canRead;
   bool canWrite;
   bool processIpc;
+  std::string presentedHandleId;
+  std::shared_ptr<int> retainedParent;
+  uint64_t objectDevice = 0;
+  uint64_t objectInode = 0;
+  bool objectIdentityKnown = false;
 };
 
 static std::mutex g_fd_registry_mutex;
 static std::unordered_map<int, FdEntry> g_fd_registry;
-static std::unordered_map<int, uint64_t> g_transferable_fds;
+static std::mutex g_parent_fd_cache_mutex;
+static std::unordered_map<std::string, std::weak_ptr<int>> g_parent_fd_cache;
+struct TransferableFdOwner {
+  uint64_t runtimeNonce;
+  uint64_t principal;
+  uint64_t objectDevice;
+  uint64_t objectInode;
+  bool objectIdentityKnown;
+};
+static std::unordered_map<int, TransferableFdOwner> g_transferable_fds;
+static thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
 
-static bool principalMayUseUnknownFd(uint64_t principal) {
+static std::string fsErrorMessage(
+    int errn,
+    const char* syscall,
+    const std::string& path,
+    const std::string& dest);
+
+void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce) {
+  {
+    std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+    for (auto it = g_fd_registry.begin(); it != g_fd_registry.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        if (!it->second.processIpc) {
+          struct stat sb = {};
+          const bool sameObject =
+              it->second.objectIdentityKnown &&
+              ::fstat(it->first, &sb) == 0 &&
+              it->second.objectDevice == static_cast<uint64_t>(sb.st_dev) &&
+              it->second.objectInode == static_cast<uint64_t>(sb.st_ino);
+          // Keep the registry mutex across the final identity check and close:
+          // another runtime cannot register a reused integer in the gap. A
+          // descriptor closed/reused outside this registry is simply revoked,
+          // never closed as though it were still the old runtime's object.
+          if (sameObject) ::close(it->first);
+        }
+        g_transferable_fds.erase(it->first);
+        it = g_fd_registry.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    for (auto it = g_transferable_fds.begin(); it != g_transferable_fds.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        it = g_transferable_fds.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(g_parent_fd_cache_mutex);
+    const auto prefix = std::to_string(runtimeNonce) + ":";
+    for (auto it = g_parent_fd_cache.begin(); it != g_parent_fd_cache.end();) {
+      if (it->first.rfind(prefix, 0) == 0 || it->second.expired()) {
+        it = g_parent_fd_cache.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+}
+
+constexpr size_t kMaxTypedPrincipalStack = 256;
+
+static std::vector<uint64_t> normalizeTypedPrincipalStack(
+    const std::vector<uint64_t>& collected) {
+#ifndef EXACT_HAVE_FRAME_ATTRIBUTION
+  return collected;
+#else
+  // kNoUserPrincipal is an absence marker, not an additional authority
+  // dimension, when the same walk also recovered a real user/scheduler
+  // principal. This is the native-resolution shape covered by Hermes patch
+  // 0008: a real callback frame supplies attribution and a no-user scheduler is
+  // not evidence of laundering. Sentinel-only attribution must still deny.
+  // A live collection that filled the bounded buffer appends a 257th no-user
+  // sentinel below; preserve that explicit truncation witness in full.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
+  if (collected.size() > kMaxTypedPrincipalStack) return collected;
+  bool hasRealPrincipal = std::any_of(
+      collected.begin(), collected.end(), [](uint64_t principal) {
+        return principal != static_cast<uint64_t>(kNoUserPrincipalId)
+            && principal != static_cast<uint64_t>(kRuntimePrincipalId);
+      });
+  if (!hasRealPrincipal) return collected;
+
+  std::vector<uint64_t> normalized;
+  normalized.reserve(collected.size());
+  for (uint64_t principal : collected) {
+    if (principal != static_cast<uint64_t>(kNoUserPrincipalId)) {
+      normalized.push_back(principal);
+    }
+  }
+  return normalized;
+#endif
+}
+
+std::vector<uint64_t> exactCollectTypedPrincipalStack() {
+  std::vector<uint64_t> principals;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (g_vm_runtime != nullptr) {
+    uint32_t ids[kMaxTypedPrincipalStack];
+    size_t count = ex_hermes_vm_collect_package_ids(
+        g_vm_runtime, ids, kMaxTypedPrincipalStack);
+    principals.reserve(count + 1);
+    for (size_t index = 0; index < count; ++index) {
+      auto id = static_cast<uint64_t>(ids[index]);
+      // VM/runtime-only frames are not authority principals. Preserve the
+      // explicit truncation sentinel appended below, but do not let a normal
+      // Promise/internal frame make an otherwise attributed callback fail as
+      // an unknown principal. This matches the Windows stack walker.
+      if (id == static_cast<uint64_t>(kRuntimePrincipalId) ||
+          id == static_cast<uint64_t>(kNoUserPrincipalId)) {
+        continue;
+      }
+      if (principals.empty() || principals.back() != id) principals.push_back(id);
+    }
+    if (count == kMaxTypedPrincipalStack) {
+      principals.push_back(static_cast<uint64_t>(kNoUserPrincipalId));
+    }
+  }
+#endif
+  // A captured scheduler/owner stack is an additional constrained dimension,
+  // not a replacement for live callback frames. On a worker thread
+  // g_vm_runtime is null, so this safely restores only the captured stack; on
+  // the runtime thread a callback authored by B and scheduled by A becomes
+  // [B, A] and the Rust boundary intersects both.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
+  if (g_typed_principal_stack) {
+    for (auto id : *g_typed_principal_stack) {
+      if (std::find(principals.begin(), principals.end(), id) == principals.end()) {
+        principals.push_back(id);
+      }
+    }
+  }
+  auto scheduler = g_native_callback_principal_id;
+  if (scheduler != kNoNativePrincipalOverride
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+      && scheduler != static_cast<uint64_t>(kRuntimePrincipalId)
+      && scheduler != static_cast<uint64_t>(kNoUserPrincipalId)
+#endif
+      && std::find(principals.begin(), principals.end(), scheduler) == principals.end()) {
+    principals.push_back(scheduler);
+  }
+  if (principals.empty()) principals.push_back(currentPrincipalId());
+  return normalizeTypedPrincipalStack(principals);
+}
+
+ScopedTypedPrincipalStack::ScopedTypedPrincipalStack(
+    const std::vector<uint64_t>& principals)
+    : principals_(principals), previous_(g_typed_principal_stack) {
+  // Scheduler records (notably repeating timers) may be erased by their own
+  // callback. Keep the constrained principal set alive for the full dynamic
+  // scope instead of pointing into the scheduler container.
+  g_typed_principal_stack = &principals_;
+}
+
+ScopedTypedPrincipalStack::~ScopedTypedPrincipalStack() {
+  g_typed_principal_stack = previous_;
+}
+
+static int32_t ex_host_authorize_typed_fs_open(
+    uint64_t module_id,
+    const char* path,
+    uint32_t stage,
+    uint32_t surface,
+    int32_t parent_fd,
+    int32_t fd,
+    int32_t needs_read,
+    int32_t needs_write,
+    const char* presented_handle_id) {
+  auto principals = exactCollectTypedPrincipalStack();
+  return ex_host_authorize_typed_fs_stack(
+      module_id, principals.data(), principals.size(), path, stage, surface,
+      parent_fd, fd, needs_read, needs_write, presented_handle_id);
+}
+
+struct FsAuthorizationGenerations {
+  uint64_t negative = 0;
+  uint64_t dynamic = 0;
+  uint64_t handle = 0;
+
+  bool operator==(const FsAuthorizationGenerations& other) const {
+    return negative == other.negative && dynamic == other.dynamic &&
+        handle == other.handle;
+  }
+};
+
+struct RepeatedFsAuthorizationLease {
+  bool active = false;
+  FsAuthorizationGenerations generations;
+};
+
+static bool readAuthorizationGenerations(FsAuthorizationGenerations& value) {
+  return ex_host_typed_generations(
+             &value.negative, &value.dynamic, &value.handle) == 1;
+}
+
+// A lease is local to one retained descriptor operation, so its operation,
+// principal stack, gate, path, object identities, and presented handle cannot
+// vary. Only the three mutable authority generations need a cheap per-chunk
+// recheck. A changed generation performs a full repeat-stage decision before
+// any more bytes are observed; a concurrent publication during evaluation
+// fails closed rather than caching a result across generations.
+// @ref LLP 0021#handles-dynamic-authority-and-generations
+static int32_t authorizeRepeatedFsWithLease(
+    RepeatedFsAuthorizationLease& lease,
+    uint64_t moduleId,
+    const char* path,
+    uint32_t surface,
+    uint32_t fullStage,
+    int32_t parentFd,
+    int32_t fd,
+    int32_t needsRead,
+    int32_t needsWrite,
+    const char* presentedHandleId) {
+  FsAuthorizationGenerations current;
+  if (!readAuthorizationGenerations(current)) return 0;
+  if (lease.active && current == lease.generations) return 1;
+
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    FsAuthorizationGenerations before;
+    FsAuthorizationGenerations after;
+    if (!readAuthorizationGenerations(before)) return 0;
+    auto decision = ex_host_authorize_typed_fs_open(
+        moduleId, path, fullStage, surface, parentFd, fd, needsRead, needsWrite,
+        presentedHandleId);
+    if (decision != 1 || !readAuthorizationGenerations(after)) return decision;
+    if (before == after) {
+      lease.active = true;
+      lease.generations = after;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static bool principalMayUseProcessStdio(uint64_t principal) {
   if (principal == 0) {
     return true;
   }
@@ -93,25 +355,43 @@ static bool principalMayUseUnknownFd(uint64_t principal) {
   return false;
 }
 
-static void registerFd(int fd, const std::string& path, bool canRead, bool canWrite) {
-  if (fd < 0 || isAllowAll()) {
+static void registerFd(
+    int fd,
+    const std::string& path,
+    bool canRead,
+    bool canWrite,
+    uint64_t owner,
+    const std::string& presentedHandleId = "",
+    std::shared_ptr<int> retainedParent = nullptr) {
+  if (fd < 0) {
     return;
   }
+  struct stat sb = {};
+  bool identified = ::fstat(fd, &sb) == 0;
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
-  g_fd_registry[fd] = FdEntry{currentPrincipalId(), path, canRead, canWrite, false};
+  g_fd_registry[fd] =
+      FdEntry{exactCurrentRuntimeNonce(), owner, path, canRead, canWrite, false,
+              presentedHandleId, std::move(retainedParent),
+              static_cast<uint64_t>(sb.st_dev),
+              static_cast<uint64_t>(sb.st_ino), identified};
 }
 
 void exactRegisterProcessIpcFd(int fd) {
-  if (fd < 0 || isAllowAll()) {
+  if (fd < 0) {
     return;
   }
   uint64_t owner = 0;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   owner = static_cast<uint64_t>(kRuntimePrincipalId);
 #endif
+  struct stat sb = {};
+  bool identified = ::fstat(fd, &sb) == 0;
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   g_fd_registry[fd] =
-      FdEntry{owner, std::string("/dev/fd/") + std::to_string(fd), true, true, true};
+      FdEntry{exactCurrentRuntimeNonce(), owner,
+              std::string("/dev/fd/") + std::to_string(fd), true, true, true,
+              "", nullptr, static_cast<uint64_t>(sb.st_dev),
+              static_cast<uint64_t>(sb.st_ino), identified};
 }
 
 static void unregisterFd(int fd) {
@@ -120,10 +400,33 @@ static void unregisterFd(int fd) {
   g_transferable_fds.erase(fd);
 }
 
-static std::optional<FdEntry> lookupFdEntry(int fd) {
+static void restoreFdEntry(int fd, const std::optional<FdEntry>& entry) {
+  if (!entry) return;
+  struct stat sb = {};
+  if (::fstat(fd, &sb) != 0 ||
+      (entry->objectIdentityKnown &&
+       (entry->objectDevice != static_cast<uint64_t>(sb.st_dev) ||
+        entry->objectInode != static_cast<uint64_t>(sb.st_ino)))) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  g_fd_registry.emplace(fd, *entry);
+}
+
+static std::optional<FdEntry> lookupFdEntry(int fd, bool* stale = nullptr) {
+  if (stale) *stale = false;
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   auto it = g_fd_registry.find(fd);
   if (it == g_fd_registry.end()) {
+    return std::nullopt;
+  }
+  struct stat sb = {};
+  if (!it->second.objectIdentityKnown || ::fstat(fd, &sb) != 0 ||
+      it->second.objectDevice != static_cast<uint64_t>(sb.st_dev) ||
+      it->second.objectInode != static_cast<uint64_t>(sb.st_ino)) {
+    g_fd_registry.erase(it);
+    g_transferable_fds.erase(fd);
+    if (stale) *stale = true;
     return std::nullopt;
   }
   return it->second;
@@ -131,61 +434,105 @@ static std::optional<FdEntry> lookupFdEntry(int fd) {
 
 static FdEntry requireOwnedFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
   auto principal = currentPrincipalId();
-  auto entry = lookupFdEntry(fd);
+  bool stale = false;
+  auto entry = lookupFdEntry(fd, &stale);
   if (!entry) {
-    if (principalMayUseUnknownFd(principal) || isAllowAll()) {
-      return FdEntry{principal, std::string("/dev/fd/") + std::to_string(fd), true, true, false};
+    if (!stale && fd >= STDIN_FILENO && fd <= STDERR_FILENO &&
+        (principalMayUseProcessStdio(principal) || isAllowAll())) {
+      return FdEntry{
+          exactCurrentRuntimeNonce(), principal, std::string("/dev/fd/") + std::to_string(fd), true, true, false, "", nullptr};
     }
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
   }
-  if (entry->owner != principal) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+  // Resource identity is posture-independent: allow-all bypasses capability
+  // grants, not the runtime/principal ownership of a forgeable numeric fd.
+  if (entry->runtimeNonce != exactCurrentRuntimeNonce() || entry->owner != principal) {
+    throw facebook::jsi::JSError(
+        runtime, fsErrorMessage(EACCES, syscall, entry->path, ""));
   }
   return *entry;
 }
 
 static void requireFdRead(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
-  if (isAllowAll()) {
-    return;
-  }
   auto entry = requireOwnedFd(runtime, fd, syscall);
+  if (isAllowAll()) return;
   if (!entry.canRead) {
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": fd not opened for reading");
   }
-  if (!checkCapability("fs:read:" + entry.path)) {
+  // Standard streams are process-owned stdio capabilities, not path-open
+  // capabilities. All other descriptors require an identity-bound registry
+  // entry; do not manufacture a missing retained filesystem parent.
+  if (fd >= STDIN_FILENO && fd <= STDERR_FILENO && !entry.retainedParent) return;
+  if (ex_host_is_armed() == 1) {
+    const char* handle = entry.presentedHandleId.empty()
+        ? nullptr
+        : entry.presentedHandleId.c_str();
+    if (ex_host_authorize_typed_fs_open(
+            entry.owner, entry.path.c_str(), 2, 0,
+            entry.retainedParent ? *entry.retainedParent : -1, fd, 1, 0, handle) != 1) {
+      throw facebook::jsi::JSError(
+          runtime, fsErrorMessage(EACCES, syscall, entry.path, ""));
+    }
+  } else if (!checkCapability("fs:read:" + entry.path)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
 }
 
 static void requireFdWrite(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
-  if (isAllowAll()) {
-    return;
-  }
   auto entry = requireOwnedFd(runtime, fd, syscall);
+  if (isAllowAll()) return;
   if (!entry.canWrite) {
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": fd not opened for writing");
   }
-  if (!checkCapability("fs:write:" + entry.path)) {
+  if (fd >= STDIN_FILENO && fd <= STDERR_FILENO && !entry.retainedParent) return;
+  if (ex_host_is_armed() == 1) {
+    const char* handle = entry.presentedHandleId.empty()
+        ? nullptr
+        : entry.presentedHandleId.c_str();
+    if (ex_host_authorize_typed_fs_open(
+            entry.owner, entry.path.c_str(), 2, 0,
+            entry.retainedParent ? *entry.retainedParent : -1, fd, 0, 1, handle) != 1) {
+      throw facebook::jsi::JSError(
+          runtime, fsErrorMessage(EACCES, syscall, entry.path, ""));
+    }
+  } else if (!checkCapability("fs:write:" + entry.path)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
 }
 
 static void requireFdMetadataWrite(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
-  if (isAllowAll()) {
-    return;
-  }
+  requireFdWrite(runtime, fd, syscall);
+}
+
+static void requireFdList(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
   auto entry = requireOwnedFd(runtime, fd, syscall);
-  if (!checkCapability("fs:write:" + entry.path)) {
+  if (isAllowAll()) return;
+  if (fd >= STDIN_FILENO && fd <= STDERR_FILENO && !entry.retainedParent) return;
+  if (ex_host_is_armed() == 1) {
+    const char* handle = entry.presentedHandleId.empty()
+        ? nullptr
+        : entry.presentedHandleId.c_str();
+    if (ex_host_authorize_typed_fs_open(
+            entry.owner, entry.path.c_str(), 5, 0,
+            entry.retainedParent ? *entry.retainedParent : -1, fd, 0, 0, handle) != 1) {
+      throw facebook::jsi::JSError(
+          runtime, fsErrorMessage(EACCES, syscall, entry.path, ""));
+    }
+  } else if (!checkCapability("fs:list:" + entry.path)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
 }
 
 void exactRegisterTransferableFd(int fd, uint64_t owner) {
-  if (fd < 0 || isAllowAll()) {
+  if (fd < 0) {
     return;
   }
+  struct stat sb = {};
+  bool identified = ::fstat(fd, &sb) == 0;
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
-  g_transferable_fds[fd] = owner;
+  g_transferable_fds[fd] = TransferableFdOwner{
+      exactCurrentRuntimeNonce(), owner, static_cast<uint64_t>(sb.st_dev),
+      static_cast<uint64_t>(sb.st_ino), identified};
 }
 
 void exactRegisterReceivedFdForCurrentPrincipal(int fd) {
@@ -196,13 +543,19 @@ bool exactConsumeTransferableFdForCurrentPrincipal(int fd) {
   if (fd < 0) {
     return false;
   }
-  if (isAllowAll()) {
-    return true;
-  }
   auto principal = currentPrincipalId();
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   auto it = g_transferable_fds.find(fd);
-  if (it == g_transferable_fds.end() || it->second != principal) {
+  if (it == g_transferable_fds.end() ||
+      it->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+      it->second.principal != principal) {
+    return false;
+  }
+  struct stat sb = {};
+  if (!it->second.objectIdentityKnown || ::fstat(fd, &sb) != 0 ||
+      it->second.objectDevice != static_cast<uint64_t>(sb.st_dev) ||
+      it->second.objectInode != static_cast<uint64_t>(sb.st_ino)) {
+    g_transferable_fds.erase(it);
     return false;
   }
   g_transferable_fds.erase(it);
@@ -210,9 +563,6 @@ bool exactConsumeTransferableFdForCurrentPrincipal(int fd) {
 }
 
 void exactRequireOwnedIpcFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
-  if (isAllowAll()) {
-    return;
-  }
   struct stat st = {};
   if (::fstat(fd, &st) != 0 || !S_ISSOCK(st.st_mode)) {
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
@@ -221,15 +571,12 @@ void exactRequireOwnedIpcFd(facebook::jsi::Runtime& runtime, int fd, const char*
   if (!entry) {
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
   }
-  if (!entry->processIpc) {
+  if (entry->runtimeNonce != exactCurrentRuntimeNonce() || !entry->processIpc) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
 }
 
 void exactRequireTransferableFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
-  if (isAllowAll()) {
-    return;
-  }
   if (!exactConsumeTransferableFdForCurrentPrincipal(fd)) {
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": Permission denied");
   }
@@ -248,7 +595,8 @@ static bool parseIoVecArguments(
     const facebook::jsi::Value& value,
     std::vector<std::vector<uint8_t>>& buffers,
     std::vector<struct iovec>& iovecs,
-    std::vector<IoVecMetadata>* metadata) {
+    std::vector<IoVecMetadata>* metadata,
+    bool copyInput = true) {
   if (!value.isObject()) {
     return false;
   }
@@ -284,7 +632,10 @@ static bool parseIoVecArguments(
     if (byteLength > 0 && !source) {
       return false;
     }
-    auto bytes = source ? std::vector<uint8_t>(source, source + byteLength) : std::vector<uint8_t>();
+    std::vector<uint8_t> bytes(byteLength);
+    if (copyInput && source && byteLength > 0) {
+      std::copy(source, source + byteLength, bytes.begin());
+    }
     buffers.push_back(std::move(bytes));
     auto& bytesRef = buffers.back();
     struct iovec iov {
@@ -322,6 +673,7 @@ static void fsErrnoCodeAndDescription(
     case ENOSYS: code = "ENOSYS"; description = "function not implemented"; break;
     case ENOTDIR: code = "ENOTDIR"; description = "not a directory"; break;
     case ENOTEMPTY: code = "ENOTEMPTY"; description = "directory not empty"; break;
+    case ENXIO: code = "ENXIO"; description = "no such device or address"; break;
     case EPERM: code = "EPERM"; description = "operation not permitted"; break;
     case EROFS: code = "EROFS"; description = "read-only file system"; break;
     case ESPIPE: code = "ESPIPE"; description = "invalid seek"; break;
@@ -375,6 +727,460 @@ static void normalizeWriteErrno(int fd) {
     errno = EFBIG;
   }
 #endif
+}
+
+static std::pair<std::string, std::string> splitParentAndName(
+    const std::string& path) {
+  // Find the separator before the final component, not a trailing separator.
+  // Keep trailing separators in the name so openat preserves ENOTDIR for
+  // `file/`, while directory paths remain valid. Root is represented as `.`
+  // relative to a retained `/` descriptor.
+  auto end = path.find_last_not_of('/');
+  if (end == std::string::npos) return {"/", "."};
+  auto slash = path.rfind('/', end);
+  if (slash == std::string::npos) return {".", path};
+  if (slash == 0) return {"/", path.substr(1)};
+  return {path.substr(0, slash), path.substr(slash + 1)};
+}
+
+static std::shared_ptr<int> retainedFd(int fd) {
+  return std::shared_ptr<int>(new int(fd), [](int* retained) {
+    if (*retained >= 0) ::close(*retained);
+    delete retained;
+  });
+}
+
+static std::shared_ptr<int> retainedParentFd(int fd) {
+  constexpr size_t kMaxParentFdCacheKeys = 4096;
+  struct stat sb = {};
+  if (fd < 0 || ::fstat(fd, &sb) != 0) return retainedFd(fd);
+  std::string key = std::to_string(exactCurrentRuntimeNonce()) + ":" +
+      std::to_string(static_cast<uint64_t>(sb.st_dev)) + ":" +
+      std::to_string(static_cast<uint64_t>(sb.st_ino));
+  std::lock_guard<std::mutex> lock(g_parent_fd_cache_mutex);
+  if (auto it = g_parent_fd_cache.find(key); it != g_parent_fd_cache.end()) {
+    if (auto existing = it->second.lock()) {
+      ::close(fd);
+      return existing;
+    }
+    g_parent_fd_cache.erase(it);
+  }
+  if (g_parent_fd_cache.size() >= kMaxParentFdCacheKeys) {
+    for (auto it = g_parent_fd_cache.begin(); it != g_parent_fd_cache.end();) {
+      if (it->second.expired()) {
+        it = g_parent_fd_cache.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    // A live entry remains owned by its open child fds even if its weak lookup
+    // key is evicted. Bound process-global metadata under workloads that keep
+    // thousands of directories active; a later lookup simply opens another
+    // retained parent for the evicted directory.
+    while (g_parent_fd_cache.size() >= kMaxParentFdCacheKeys) {
+      g_parent_fd_cache.erase(g_parent_fd_cache.begin());
+    }
+  }
+  auto retained = retainedFd(fd);
+  g_parent_fd_cache[key] = retained;
+  return retained;
+}
+
+static std::optional<bool> targetAbsentAt(int parentFd, const std::string& name) {
+  struct stat sb = {};
+  if (::fstatat(parentFd, name.c_str(), &sb, AT_SYMLINK_NOFOLLOW) == 0) {
+    return false;
+  }
+  if (errno == ENOENT) return true;
+  return std::nullopt;
+}
+
+struct ArmedOpenResult {
+  int fd = -1;
+  bool created = false;
+};
+
+static void pauseBeforeArmedExclusiveCreateForTest() {
+  const char* value = std::getenv("IBEX_TEST_ARMED_CREATE_PAUSE_MS");
+  if (!value || !*value) return;
+  char* end = nullptr;
+  auto milliseconds = std::strtoull(value, &end, 10);
+  if (end == value || *end != '\0') return;
+  milliseconds = std::min<unsigned long long>(milliseconds, 5000);
+  std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+}
+
+static bool denyArmedOpenCommitForTest() {
+  return env_flag_enabled("IBEX_TEST_ARMED_DENY_OPEN_COMMIT");
+}
+
+// Open an already-parent-bound target without ever inferring ownership of a
+// newly created name from a racy precheck. Every rollback-eligible creation is
+// established by a successful O_CREAT|O_EXCL syscall. If a non-exclusive
+// O_CREAT races between absent/existing states, rediscover and reauthorize the
+// new state, then retry either an existing-only open or an exclusive create.
+static ArmedOpenResult openArmedTargetAtomically(
+    uint64_t principal,
+    const std::string& path,
+    const std::string& name,
+    uint32_t surface,
+    int parentFd,
+    int flags,
+    int extraFlags,
+    int mode,
+    bool canRead,
+    bool canWrite,
+    const char* presented) {
+  constexpr size_t kMaxStateRaces = 64;
+  const bool mayCreate = (flags & O_CREAT) != 0;
+  const bool exclusive = (flags & O_EXCL) != 0;
+  const int baseFlags = (flags & ~O_TRUNC) | extraFlags;
+  for (size_t attempt = 0; attempt < kMaxStateRaces; ++attempt) {
+    auto absent = targetAbsentAt(parentFd, name);
+    if (!absent) return {};
+    if (ex_host_authorize_typed_fs_open(
+            principal, path.c_str(), 4, surface, parentFd, -1,
+            canRead ? 1 : 0, canWrite ? 1 : 0, presented) != 1) {
+      errno = EACCES;
+      return {};
+    }
+    if (!mayCreate) {
+      return ArmedOpenResult{
+          ::openat(parentFd, name.c_str(), baseFlags, mode), false};
+    }
+    if (exclusive) {
+      if (!*absent) {
+        errno = EEXIST;
+        return {};
+      }
+      int fd = ::openat(parentFd, name.c_str(), baseFlags, mode);
+      return ArmedOpenResult{fd, fd >= 0};
+    }
+    if (*absent) {
+      pauseBeforeArmedExclusiveCreateForTest();
+      int fd = ::openat(
+          parentFd, name.c_str(), baseFlags | O_CREAT | O_EXCL, mode);
+      if (fd >= 0) return ArmedOpenResult{fd, true};
+      if (errno == EEXIST) continue;
+      return {};
+    }
+    int fd = ::openat(
+        parentFd, name.c_str(), baseFlags & ~(O_CREAT | O_EXCL), mode);
+    if (fd >= 0) return ArmedOpenResult{fd, false};
+    if (errno != ENOENT) return {};
+  }
+  errno = EAGAIN;
+  return {};
+}
+
+static bool sameObjectAt(int parentFd, const std::string& name, int fd) {
+  struct stat opened = {};
+  struct stat named = {};
+  return ::fstat(fd, &opened) == 0 &&
+      ::fstatat(parentFd, name.c_str(), &named, AT_SYMLINK_NOFOLLOW) == 0 &&
+      opened.st_dev == named.st_dev && opened.st_ino == named.st_ino;
+}
+
+static bool rollbackCreatedFile(int parentFd, const std::string& name, int fd) {
+  if (!sameObjectAt(parentFd, name, fd)) {
+    errno = EBUSY;
+    return false;
+  }
+  return ::unlinkat(parentFd, name.c_str(), 0) == 0;
+}
+
+static bool rollbackCreatedDirectory(int parentFd, const std::string& name, int fd) {
+  if (!sameObjectAt(parentFd, name, fd)) {
+    errno = EBUSY;
+    return false;
+  }
+  return ::unlinkat(parentFd, name.c_str(), AT_REMOVEDIR) == 0;
+}
+
+static int metadataOpenFlags() {
+#if defined(__APPLE__)
+  return O_EVTONLY | O_NONBLOCK;
+#elif defined(O_PATH)
+  return O_PATH | O_NONBLOCK;
+#else
+  return O_RDONLY | O_NONBLOCK;
+#endif
+}
+
+static std::optional<std::string> resolvedPathForFd(int fd) {
+#if defined(__APPLE__)
+  std::array<char, PATH_MAX> path = {};
+  if (::fcntl(fd, F_GETPATH, path.data()) != 0) return std::nullopt;
+  return std::string(path.data());
+#else
+  std::array<char, PATH_MAX> path = {};
+  auto link = std::string("/proc/self/fd/") + std::to_string(fd);
+  ssize_t length = ::readlink(link.c_str(), path.data(), path.size() - 1);
+  if (length < 0) return std::nullopt;
+  path[static_cast<size_t>(length)] = '\0';
+  return std::string(path.data(), static_cast<size_t>(length));
+#endif
+}
+
+struct TypedPathDescriptors {
+  std::shared_ptr<int> parent;
+  std::shared_ptr<int> target;
+};
+
+static std::pair<std::shared_ptr<int>, std::string> prepareArmedReadTarget(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    uint32_t surface,
+    const std::string& presentedHandle) {
+  uint64_t principal = currentPrincipalId();
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 0, surface, -1, -1, 1, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto parentAndName = splitParentAndName(path);
+  auto parentPath = std::move(parentAndName.first);
+  auto name = std::move(parentAndName.second);
+  int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (parentRaw < 0) throwFsError(runtime, "open", path);
+  auto parent = retainedParentFd(parentRaw);
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 3, surface, *parent, -1, 1, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  // A missing read target must reach openat so callers receive ENOENT. There
+  // is no fs:read effect for an absent-create object to authorize. For an
+  // existing target, opening a private retained descriptor discloses no file
+  // bytes; the actual object is authorized at commit before the first read and
+  // then rechecked at repeat.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
+  auto absent = targetAbsentAt(*parent, name);
+  if (!absent) throwFsError(runtime, "open", path);
+  return {std::move(parent), std::move(name)};
+}
+
+static TypedPathDescriptors openArmedListTarget(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    uint32_t surface,
+    int targetFlags,
+    const std::string& presentedHandle) {
+  uint64_t principal = currentPrincipalId();
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 0, surface, -1, -1, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto parentAndName = splitParentAndName(path);
+  auto parentPath = std::move(parentAndName.first);
+  auto name = std::move(parentAndName.second);
+  int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (parentRaw < 0) throwFsError(runtime, "open", path);
+  auto parent = retainedParentFd(parentRaw);
+  if (name.empty() ||
+      ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 3, surface, *parent, -1, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  int targetRaw = ::openat(
+      *parent, name.c_str(), targetFlags | O_NOFOLLOW | O_CLOEXEC);
+  if (targetRaw < 0) throwFsError(runtime, "open", path);
+  auto target = retainedFd(targetRaw);
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 5, surface, *parent, targetRaw, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  return TypedPathDescriptors{std::move(parent), std::move(target)};
+}
+
+static TypedPathDescriptors openArmedLinkTarget(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    uint32_t surface,
+    const std::string& presentedHandle) {
+  uint64_t principal = currentPrincipalId();
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 0, surface, -1, -1, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto parentAndName = splitParentAndName(path);
+  auto parentPath = std::move(parentAndName.first);
+  auto name = std::move(parentAndName.second);
+  int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (parentRaw < 0) throwFsError(runtime, "open", path);
+  auto parent = retainedParentFd(parentRaw);
+  if (name.empty() ||
+      ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 3, surface, *parent, -1, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+#if defined(__APPLE__)
+  int targetRaw = ::openat(
+      *parent, name.c_str(), O_RDONLY | O_SYMLINK | O_NONBLOCK | O_CLOEXEC);
+#elif defined(O_PATH)
+  int targetRaw = ::openat(*parent, name.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC);
+#else
+  int targetRaw = -1;
+  errno = ENOTSUP;
+#endif
+  if (targetRaw < 0) throwFsError(runtime, "lstat", path);
+  auto target = retainedFd(targetRaw);
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 5, surface, *parent, targetRaw, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  return TypedPathDescriptors{std::move(parent), std::move(target)};
+}
+
+static TypedPathDescriptors openArmedWriteTarget(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    uint32_t surface,
+    int targetFlags,
+    int mode,
+    bool authorizeList,
+    const std::string& presentedHandle) {
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Preauthorize creation and delay truncation until the retained target commits.
+  uint64_t principal = currentPrincipalId();
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  if (authorizeList && ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 0, surface, -1, -1, 0, 1,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto parentAndName = splitParentAndName(path);
+  auto parentPath = std::move(parentAndName.first);
+  auto name = std::move(parentAndName.second);
+  int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (parentRaw < 0) throwFsError(runtime, "open", path);
+  auto parent = retainedParentFd(parentRaw);
+  if (name.empty() ||
+      (authorizeList && ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 3, surface, *parent, -1, 0, 1,
+          presented) != 1)) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto opened = openArmedTargetAtomically(
+      principal, path, name, surface, *parent, targetFlags,
+      O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC, mode, false, true, presented);
+  int targetRaw = opened.fd;
+  const bool created = opened.created;
+  if (targetRaw < 0) throwFsError(runtime, "open", path);
+  auto target = retainedFd(targetRaw);
+  struct stat sb = {};
+  if (::fstat(targetRaw, &sb) != 0 || !S_ISREG(sb.st_mode)) {
+    if (created) rollbackCreatedFile(*parent, name, targetRaw);
+    errno = EACCES;
+    throwFsError(runtime, "open", path);
+  }
+  if (denyArmedOpenCommitForTest() || ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 1, surface, *parent, targetRaw, 0, 1,
+          presented) != 1) {
+    if (created) rollbackCreatedFile(*parent, name, targetRaw);
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  if ((targetFlags & O_TRUNC) != 0 && ::ftruncate(targetRaw, 0) != 0) {
+    int saved = errno;
+    if (created) rollbackCreatedFile(*parent, name, targetRaw);
+    errno = saved;
+    throwFsError(runtime, "open", path);
+  }
+  return TypedPathDescriptors{std::move(parent), std::move(target)};
+}
+
+static void writeArmedBytes(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    uint32_t surface,
+    const std::string& presentedHandle,
+    const TypedPathDescriptors& descriptors,
+    const std::vector<uint8_t>& data) {
+  size_t offset = 0;
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  while (offset < data.size()) {
+    if (ex_host_authorize_typed_fs_open(
+            currentPrincipalId(), path.c_str(), 2, surface,
+            *descriptors.parent, *descriptors.target, 0, 1,
+            presented) != 1) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    ssize_t amount;
+    do {
+      amount = ::write(
+          *descriptors.target, data.data() + offset, data.size() - offset);
+    } while (amount < 0 && errno == EINTR);
+    if (amount < 0) {
+      normalizeWriteErrno(*descriptors.target);
+      throwFsError(runtime, "write", path);
+    }
+    if (amount == 0) {
+      errno = EIO;
+      throwFsError(runtime, "write", path);
+    }
+    offset += static_cast<size_t>(amount);
+  }
+}
+
+static void createArmedDirectory(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    int mode) {
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Directory creation is authorized against a retained parent, then commits the actual created directory identity.
+  constexpr uint32_t kMkdirSurface = 12;
+  uint64_t principal = currentPrincipalId();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 0, kMkdirSurface, -1, -1, 0, 1,
+          nullptr) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto parentAndName = splitParentAndName(path);
+  auto parentPath = std::move(parentAndName.first);
+  auto name = std::move(parentAndName.second);
+  int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (parentRaw < 0) throwFsError(runtime, "mkdir", path);
+  auto parent = retainedParentFd(parentRaw);
+  if (name.empty() ||
+      ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 3, kMkdirSurface, *parent, -1, 0, 1,
+          nullptr) != 1 ||
+      ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 4, kMkdirSurface, *parent, -1, 0, 1,
+          nullptr) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  if (::mkdirat(*parent, name.c_str(), static_cast<mode_t>(mode)) != 0) {
+    throwFsError(runtime, "mkdir", path);
+  }
+  int directoryRaw = ::openat(
+      *parent, name.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (directoryRaw < 0) {
+    int saved = errno;
+    ::unlinkat(*parent, name.c_str(), AT_REMOVEDIR);
+    errno = saved;
+    throwFsError(runtime, "mkdir", path);
+  }
+  auto directory = retainedFd(directoryRaw);
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 1, kMkdirSurface, *parent, directoryRaw,
+          0, 1, nullptr) != 1) {
+    if (!rollbackCreatedDirectory(*parent, name, directoryRaw)) {
+      int saved = errno;
+      throw facebook::jsi::JSError(
+          runtime,
+          "Permission denied; mkdir rollback failed: " +
+              fsErrorMessage(saved, "rmdir", path));
+    }
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
 }
 
 // Parse a Node open() flags argument (a string like "r"/"w+"/"ax", or numeric
@@ -449,9 +1255,7 @@ static int parseOpenFlagsArg(
 // O_APPEND) requires fs:write, not merely fs:read. Runs on the JS thread
 // (capability checks must never move to a worker: the deputy stack that
 // checkCapability consults is thread-local to the JS thread). (ENG-22639)
-static void requireOpenCapability(
-    facebook::jsi::Runtime& runtime,
-    const std::string& path,
+static void classifyOpenAccess(
     int posixFlags,
     bool& needsRead,
     bool& needsWrite) {
@@ -466,6 +1270,15 @@ static void requireOpenCapability(
   if (!needsWrite && !needsRead) {
     needsRead = true;
   }
+}
+
+static void requireOpenCapability(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    int posixFlags,
+    bool& needsRead,
+    bool& needsWrite) {
+  classifyOpenAccess(posixFlags, needsRead, needsWrite);
   if (!isAllowAll()) {
     if (needsWrite && !checkCapability("fs:write:" + path)) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -552,6 +1365,16 @@ struct FsAsyncResult {
   std::vector<uint8_t> bytes;
   std::string json;
   double number = 0;
+  // Async open publishes ownership metadata on the JS thread before the fd
+  // is resolved to user code. Workers never mutate the capability registry.
+  bool registerOpenedFd = false;
+  std::shared_ptr<int> openedFdGuard;
+  std::string openedPath;
+  bool openedCanRead = false;
+  bool openedCanWrite = false;
+  uint64_t openedOwner = 0;
+  std::string openedPresentedHandle;
+  std::shared_ptr<int> openedRetainedParent;
   int errnoValue = 0;
   std::string syscall;
   std::string path;
@@ -559,6 +1382,21 @@ struct FsAsyncResult {
   // ERR_FS_FILE_TOO_LARGE (a RangeError, not an errno error).
   bool tooLarge = false;
   double tooLargeSize = 0;
+};
+
+class FsAsyncLifetime {
+ public:
+  explicit FsAsyncLifetime(RuntimeCallbackTarget target) : target_(target) {}
+  void activate() noexcept { active_ = true; }
+  ~FsAsyncLifetime() {
+    if (!active_) return;
+    target_.runtime->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
+    exactUnpinRuntimeNativeWorker(target_);
+  }
+
+ private:
+  RuntimeCallbackTarget target_;
+  bool active_{false};
 };
 
 static FsAsyncResult fsAsyncOk(FsAsyncResult::Kind kind = FsAsyncResult::Kind::Undefined) {
@@ -594,10 +1432,17 @@ class FsWorkerPool {
     return *pool;
   }
 
-  bool enqueue(std::function<void()> job, std::string& error) {
+  bool enqueue(
+      std::function<void()> job,
+      std::string& error,
+      const std::function<void()>& onAccepted = {}) {
+    if (const char* fail = std::getenv("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
+        fail && std::strcmp(fail, "1") == 0) {
+      throw std::runtime_error("injected FS worker enqueue failure");
+    }
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (queue_.size() >= kMaxQueue) {
+      if (queue_.size() >= maxQueue()) {
         // Fail loudly rather than growing without bound.
         // @ref LLP 0006#degrade-diagnostics-never-the-caller
         error = "FS worker queue full";
@@ -605,6 +1450,12 @@ class FsWorkerPool {
       }
       spawnWorkerIfNeededLocked();
       queue_.push_back(std::move(job));
+      // Some operations must mutate process state only after queue admission
+      // is irrevocable, but before a worker can observe the job. Running the
+      // commit hook under the queue mutex provides exactly that boundary:
+      // allocation/capacity failures leave the caller's state untouched, and
+      // workers cannot pop the accepted job until the hook has completed.
+      if (onAccepted) onAccepted();
     }
     cv_.notify_one();
     return true;
@@ -619,25 +1470,40 @@ class FsWorkerPool {
   size_t idle_ = 0;
   size_t total_ = 0;
 
+  static size_t maxQueue() {
+    // Deterministic failure injection for native resource-safety tests. The
+    // production default remains bounded at 1024.
+    const char* value = std::getenv("IBEX_TEST_FS_WORKER_MAX_QUEUE");
+    if (!value || !*value) return kMaxQueue;
+    char* end = nullptr;
+    auto parsed = std::strtoull(value, &end, 10);
+    return end && *end == '\0' ? static_cast<size_t>(parsed) : kMaxQueue;
+  }
+
   void spawnWorkerIfNeededLocked() {
-    if (idle_ > 0 || total_ >= kMaxWorkers) {
+    if (idle_ > queue_.size() || total_ >= kMaxWorkers) {
       return;
     }
     total_ += 1;
-    std::thread([this]() {
-      for (;;) {
-        std::function<void()> job;
-        {
-          std::unique_lock<std::mutex> lock(mutex_);
-          idle_ += 1;
-          cv_.wait(lock, [this] { return !queue_.empty(); });
-          idle_ -= 1;
-          job = std::move(queue_.front());
-          queue_.pop_front();
+    try {
+      std::thread([this]() {
+        for (;;) {
+          std::function<void()> job;
+          {
+            std::unique_lock<std::mutex> lock(mutex_);
+            idle_ += 1;
+            cv_.wait(lock, [this] { return !queue_.empty(); });
+            idle_ -= 1;
+            job = std::move(queue_.front());
+            queue_.pop_front();
+          }
+          job();
         }
-        job();
-      }
-    }).detach();
+      }).detach();
+    } catch (...) {
+      total_ -= 1;
+      throw;
+    }
   }
 };
 
@@ -679,6 +1545,20 @@ static facebook::jsi::Value makeFsAsyncErrorValue(
   return err;
 }
 
+static facebook::jsi::Value makeFsWorkerQueueErrorValue(
+    facebook::jsi::Runtime& rt,
+    const std::string& message) {
+  facebook::jsi::JSError jsError(rt, message);
+  auto value = facebook::jsi::Value(rt, jsError.value());
+  if (value.isObject()) {
+    value.asObject(rt).setProperty(
+        rt, "code",
+        facebook::jsi::String::createFromUtf8(
+            rt, "ERR_FS_WORKER_QUEUE_FULL"));
+  }
+  return value;
+}
+
 // Build a Promise whose `work` runs on an fs worker thread and whose
 // resolution runs on the JS thread via pushRuntimeCallback. The caller must
 // have already validated arguments and enforced capabilities on the JS
@@ -687,17 +1567,22 @@ static facebook::jsi::Value makeFsAsyncErrorValue(
 static facebook::jsi::Value startFsAsync(
     ExactHermesRuntime* handle,
     facebook::jsi::Runtime& runtime,
-    std::function<FsAsyncResult()> work) {
+    std::function<FsAsyncResult()> work,
+    std::function<void()> onEnqueueFailure = {},
+    std::function<void()> onEnqueueAccepted = {}) {
   // Capture the scheduling principal on the JS thread so the resolved
   // continuation is attributed to the caller, not a bare native frame.
   uint64_t principal = currentPrincipalId();
+  auto principalStack =
+      std::make_shared<std::vector<uint64_t>>(exactCollectTypedPrincipalStack());
   auto workPtr = std::make_shared<std::function<FsAsyncResult()>>(std::move(work));
   auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
   auto executor = facebook::jsi::Function::createFromHostFunction(
       runtime,
       facebook::jsi::PropNameID::forAscii(runtime, "executor"),
       2,
-      [handle, principal, workPtr](
+      [handle, principal, principalStack, workPtr, onEnqueueFailure,
+       onEnqueueAccepted](
           facebook::jsi::Runtime& rt,
           const facebook::jsi::Value&,
           const facebook::jsi::Value* args,
@@ -710,29 +1595,60 @@ static facebook::jsi::Value startFsAsync(
         auto reject =
             std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
 
-        // Mark the op in flight before dispatching so the event loop stays
-        // alive across the worker call even with no other pending work.
-        handle->pending_fs_ops.fetch_add(1, std::memory_order_relaxed);
-
         std::string enqueueError;
-        bool queued = FsWorkerPool::instance().enqueue(
-            [handle, principal, workPtr, resolve = std::move(resolve),
-             reject = std::move(reject)]() mutable {
+        auto resultPtr = std::make_shared<FsAsyncResult>();
+        auto target = exactRuntimeCallbackTarget(handle);
+        auto lifetime = std::make_shared<FsAsyncLifetime>(target);
+        std::function<void()> worker =
+            [handle, target, principal, principalStack, workPtr, resolve, reject,
+             resultPtr, lifetime]() mutable {
+              try {
+                exactTestDelayRuntimeProducer();
               // shared_ptr wrapper: std::function requires a copyable callable,
               // and a readFile result can be hundreds of MB — share it instead
               // of copying, and move the bytes into the JS heap at delivery.
-              auto resultPtr = std::make_shared<FsAsyncResult>((*workPtr)());
+              ScopedRuntimeSecurityContext securityContext(handle);
+              ScopedTypedPrincipalStack typedStack(*principalStack);
+              try {
+                *resultPtr = (*workPtr)();
+              } catch (const std::bad_alloc&) {
+                *resultPtr = fsAsyncError(ENOMEM, "fs-worker");
+              } catch (const std::exception&) {
+                *resultPtr = fsAsyncError(EIO, "fs-worker");
+              } catch (...) {
+                *resultPtr = fsAsyncError(EIO, "fs-worker");
+              }
+              if (resultPtr->registerOpenedFd) {
+                // The worker has no ambient JS principal. Carry the principal
+                // captured at scheduling time with the result so delivery can
+                // publish the fd under the correct owner explicitly.
+                resultPtr->openedOwner = principal;
+              }
+              // The Promise executor host function may live until GC. Drop
+              // the completed work closure now so dup'd and retained fds are
+              // released at completion rather than at some later collection.
+              *workPtr = {};
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);
+              bool delivered = false;
               pushRuntimeCallback(
-                  handle,
+                  target,
                   [handle, principal, resolve = std::move(runtimeResolve),
                    reject = std::move(runtimeReject), resultPtr](
                       facebook::jsi::Runtime& rt) {
                     ScopedNativePrincipal nativePrincipal(principal);
-                    handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
                     try {
                       if (resultPtr->ok) {
+                        if (resultPtr->registerOpenedFd) {
+                          registerFd(
+                              static_cast<int>(resultPtr->number),
+                              resultPtr->openedPath,
+                              resultPtr->openedCanRead, resultPtr->openedCanWrite,
+                              resultPtr->openedOwner,
+                              resultPtr->openedPresentedHandle,
+                              std::move(resultPtr->openedRetainedParent));
+                          if (resultPtr->openedFdGuard) *resultPtr->openedFdGuard = -1;
+                        }
                         switch (resultPtr->kind) {
                           case FsAsyncResult::Kind::Bytes:
                             resolve->call(
@@ -753,14 +1669,65 @@ static facebook::jsi::Value startFsAsync(
                       } else {
                         reject->call(rt, makeFsAsyncErrorValue(rt, *resultPtr));
                       }
+                    } catch (const facebook::jsi::JSError& deliveryError) {
+                      try {
+                        reject->call(rt, deliveryError.value());
+                      } catch (const facebook::jsi::JSError& rejectionError) {
+                        disposeAsyncCallbackError(handle, rejectionError);
+                      }
+                    } catch (const std::exception& deliveryError) {
+                      try {
+                        facebook::jsi::JSError jsError(rt, deliveryError.what());
+                        reject->call(rt, jsError.value());
+                      } catch (const facebook::jsi::JSError& rejectionError) {
+                        disposeAsyncCallbackError(handle, rejectionError);
+                      }
                     } catch (...) {
+                      try {
+                        facebook::jsi::JSError jsError(
+                            rt, "filesystem result delivery failed");
+                        reject->call(rt, jsError.value());
+                      } catch (const facebook::jsi::JSError& rejectionError) {
+                        disposeAsyncCallbackError(handle, rejectionError);
+                      }
                     }
-                  });
-            },
-            enqueueError);
+                  }, &delivered);
+              if (!delivered && resultPtr->ok && resultPtr->registerOpenedFd) {
+                ::close(static_cast<int>(resultPtr->number));
+                if (resultPtr->openedFdGuard) *resultPtr->openedFdGuard = -1;
+              }
+              } catch (...) {
+                // No exception may escape an immortal detached worker. The
+                // result's openedFdGuard closes any unpublished descriptor,
+                // while FsAsyncLifetime releases keepalive + runtime pin.
+                *workPtr = {};
+              }
+            };
+
+        if (!exactPinRuntimeNativeWorker(target)) {
+          throw facebook::jsi::JSError(rt, "FS async: runtime is shutting down");
+        }
+        // Activate the noexcept shared guard immediately after the pin/count.
+        // Any later allocation, queue insertion, or exception releases both.
+        handle->pending_fs_ops.fetch_add(1, std::memory_order_relaxed);
+        lifetime->activate();
+
+        bool queued = false;
+        try {
+          queued = FsWorkerPool::instance().enqueue(
+              std::move(worker), enqueueError, onEnqueueAccepted);
+        } catch (const std::exception& error) {
+          enqueueError = error.what();
+        } catch (...) {
+          enqueueError = "FS worker enqueue failed";
+        }
         if (!queued) {
-          handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
-          reject->call(rt, facebook::jsi::JSError(rt, enqueueError).value());
+          if (onEnqueueFailure) onEnqueueFailure();
+          // The Promise may retain its executor (and therefore workPtr) after
+          // synchronous rejection. No worker owns this callable because
+          // enqueue failed, so clear it now to release RAII fd captures.
+          *workPtr = {};
+          reject->call(rt, makeFsWorkerQueueErrorValue(rt, enqueueError));
         }
         return facebook::jsi::Value::undefined();
       });
@@ -844,6 +1811,51 @@ static FsAsyncResult fsReadFilePathWork(
   return fsReadWholeFdWork(fd, true, path);
 }
 
+static FsAsyncResult fsReadFileArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::string& presentedHandle,
+    const std::shared_ptr<int>& parent,
+    int fd) {
+  struct stat sb = {};
+  if (::fstat(fd, &sb) != 0) return fsAsyncError(errno, "fstat", path);
+  if (!S_ISREG(sb.st_mode)) return fsAsyncError(EACCES, "open", path);
+  if (static_cast<double>(sb.st_size) > kMaxReadFileBytes) {
+    FsAsyncResult result;
+    result.tooLarge = true;
+    result.tooLargeSize = static_cast<double>(sb.st_size);
+    return result;
+  }
+  std::vector<uint8_t> data;
+  if (sb.st_size > 0) data.reserve(static_cast<size_t>(sb.st_size));
+  std::array<uint8_t, 64 * 1024> chunk = {};
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  RepeatedFsAuthorizationLease authorizationLease;
+  while (true) {
+    if (authorizeRepeatedFsWithLease(
+            authorizationLease, principal, path.c_str(), 2, 2, *parent, fd, 1,
+            0, presented) != 1) {
+      return fsAsyncError(EACCES, "read", path);
+    }
+    ssize_t amount;
+    do {
+      amount = ::read(fd, chunk.data(), chunk.size());
+    } while (amount < 0 && errno == EINTR);
+    if (amount < 0) return fsAsyncError(errno, "read", path);
+    if (amount == 0) break;
+    data.insert(data.end(), chunk.begin(), chunk.begin() + amount);
+    if (static_cast<double>(data.size()) > kMaxReadFileBytes) {
+      FsAsyncResult result;
+      result.tooLarge = true;
+      result.tooLargeSize = static_cast<double>(data.size());
+      return result;
+    }
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  result.bytes = std::move(data);
+  return result;
+}
+
 // Write all bytes to an already-open fd at its current position. Mirrors
 // _writeAllSync + __exactFsWrite: EINTR retries, RLIMIT_FSIZE errno
 // normalization, zero-byte write treated as EIO.
@@ -909,6 +1921,48 @@ static FsAsyncResult fsWriteFilePathWork(
     return fsAsyncError(errno, "open", path);
   }
   return fsWriteAllFdWork(fd, bytes, flush, true, path);
+}
+
+static FsAsyncResult fsWriteFileArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::string& presentedHandle,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& fd,
+    const std::vector<uint8_t>& bytes,
+    bool flush) {
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  size_t offset = 0;
+  while (offset < bytes.size()) {
+    if (ex_host_authorize_typed_fs_open(
+            principal, path.c_str(), 2, 7, *parent, *fd, 0, 1,
+            presented) != 1) {
+      return fsAsyncError(EACCES, "write", path);
+    }
+    ssize_t amount;
+    do {
+      amount = ::write(*fd, bytes.data() + offset, bytes.size() - offset);
+    } while (amount < 0 && errno == EINTR);
+    if (amount < 0) {
+      normalizeWriteErrno(*fd);
+      return fsAsyncError(errno, "write", path);
+    }
+    if (amount == 0) return fsAsyncError(EIO, "write", path);
+    offset += static_cast<size_t>(amount);
+  }
+  if (flush) {
+    if (ex_host_authorize_typed_fs_open(
+            principal, path.c_str(), 2, 7, *parent, *fd, 0, 1,
+            presented) != 1) {
+      return fsAsyncError(EACCES, "fsync", path);
+    }
+    int rc;
+    do {
+      rc = ::fsync(*fd);
+    } while (rc != 0 && errno == EINTR);
+    if (rc != 0) return fsAsyncError(errno, "fsync", path);
+  }
+  return fsAsyncOk();
 }
 
 // Single chunk read, mirroring __exactFsRead: positional reads use pread (fd
@@ -1103,10 +2157,75 @@ static FsAsyncResult fsPathOpWork(
     return fsAsyncString(std::move(out));
   }
   if (op == "mkdir") {
+    if (ex_host_is_armed() == 1) {
+      constexpr uint32_t kMkdirSurface = 12;
+      if (x != 0) {
+        return fsAsyncError(ENOTSUP, "mkdir", a);
+      }
+      if (ex_host_authorize_typed_fs_open(
+              principal, a.c_str(), 0, kMkdirSurface, -1, -1, 0, 1,
+              nullptr) != 1) {
+        return fsAsyncError(EACCES, "mkdir", a);
+      }
+      auto parentAndName = splitParentAndName(a);
+      const auto& parentPath = parentAndName.first;
+      const auto& name = parentAndName.second;
+      int parentRaw = ::open(
+          parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+      if (parentRaw < 0) return fsAsyncError(errno, "mkdir", a);
+      auto parent = retainedParentFd(parentRaw);
+      if (name.empty() ||
+          ex_host_authorize_typed_fs_open(
+              principal, a.c_str(), 3, kMkdirSurface, *parent, -1, 0, 1,
+              nullptr) != 1 ||
+          ex_host_authorize_typed_fs_open(
+              principal, a.c_str(), 4, kMkdirSurface, *parent, -1, 0, 1,
+              nullptr) != 1) {
+        return fsAsyncError(EACCES, "mkdir", a);
+      }
+      if (::mkdirat(*parent, name.c_str(), 0777) != 0) {
+        return fsAsyncError(errno, "mkdir", a);
+      }
+      int directoryRaw = ::openat(
+          *parent, name.c_str(),
+          O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+      if (directoryRaw < 0) {
+        int saved = errno;
+        ::unlinkat(*parent, name.c_str(), AT_REMOVEDIR);
+        return fsAsyncError(saved, "mkdir", a);
+      }
+      auto directory = retainedFd(directoryRaw);
+      if (ex_host_authorize_typed_fs_open(
+              principal, a.c_str(), 1, kMkdirSurface, *parent,
+              directoryRaw, 0, 1, nullptr) != 1) {
+        if (!rollbackCreatedDirectory(*parent, name, directoryRaw)) {
+          return fsAsyncError(errno, "rmdir", a);
+        }
+        return fsAsyncError(EACCES, "mkdir", a);
+      }
+      return fsAsyncOk();
+    }
+    std::string firstMissing;
+    if (x != 0) {
+      std::string prefix = !a.empty() && a[0] == '/' ? "/" : "";
+      size_t start = prefix.empty() ? 0 : 1;
+      while (start <= a.size()) {
+        size_t slash = a.find('/', start);
+        std::string part = a.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+        if (!part.empty()) {
+          if (!prefix.empty() && prefix.back() != '/') prefix += '/';
+          prefix += part;
+          struct stat sb = {};
+          if (::lstat(prefix.c_str(), &sb) != 0 && errno == ENOENT) { firstMissing = prefix; break; }
+        }
+        if (slash == std::string::npos) break;
+        start = slash + 1;
+      }
+    }
     if (ex_host_fs_mkdir(a.c_str(), x != 0 ? 1 : 0) != 0) {
       return fsAsyncError(errno, "mkdir", a);
     }
-    return fsAsyncOk();
+    return x != 0 ? fsAsyncString(std::move(firstMissing)) : fsAsyncOk();
   }
   if (op == "rmdir") {
     if (ex_host_fs_rmdir(a.c_str()) != 0) {
@@ -1130,6 +2249,34 @@ static FsAsyncResult fsPathOpWork(
     if (ex_host_fs_copy(a.c_str(), b.c_str()) != 0) {
       return fsAsyncError(errno, "copyfile", a);
     }
+    return fsAsyncOk();
+  }
+  if (op == "copyfile_excl") {
+    int source = ::open(a.c_str(), O_RDONLY);
+    if (source < 0) return fsAsyncError(errno, "copyfile", a);
+    struct stat st = {};
+    if (::fstat(source, &st) != 0) { int e = errno; ::close(source); return fsAsyncError(e, "copyfile", a); }
+    int dest = ::open(b.c_str(), O_WRONLY | O_CREAT | O_EXCL, st.st_mode & 07777);
+    if (dest < 0) { int e = errno; ::close(source); return fsAsyncError(e, "copyfile", b); }
+    std::vector<uint8_t> buffer(64 * 1024);
+    bool failed = false; int saved = 0;
+    for (;;) {
+      ssize_t n = ::read(source, buffer.data(), buffer.size());
+      if (n < 0 && errno == EINTR) continue;
+      if (n < 0) { failed = true; saved = errno; break; }
+      if (n == 0) break;
+      ssize_t off = 0;
+      while (off < n) {
+        ssize_t written = ::write(dest, buffer.data() + off, static_cast<size_t>(n - off));
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) { failed = true; saved = written < 0 ? errno : EIO; break; }
+        off += written;
+      }
+      if (failed) break;
+    }
+    ::close(source);
+    if (::close(dest) != 0 && !failed) { failed = true; saved = errno; }
+    if (failed) { ::unlink(b.c_str()); return fsAsyncError(saved, "copyfile", a); }
     return fsAsyncOk();
   }
   if (op == "realpath") {
@@ -1201,6 +2348,14 @@ static FsAsyncResult fsPathOpWork(
     }
     return fsAsyncOk();
   }
+  if (op == "lchmod") {
+#if defined(__APPLE__)
+    if (::lchmod(a.c_str(), static_cast<mode_t>(x)) != 0) return fsAsyncError(errno, "lchmod", a);
+    return fsAsyncOk();
+#else
+    return fsAsyncError(ENOSYS, "lchmod", a);
+#endif
+  }
   if (op == "utime") {
     struct timeval times[2] = {fsTimevalFromDouble(x), fsTimevalFromDouble(y)};
     if (::utimes(a.c_str(), times) != 0) {
@@ -1208,10 +2363,109 @@ static FsAsyncResult fsPathOpWork(
     }
     return fsAsyncOk();
   }
+  if (op == "lutime") {
+    struct timeval times[2] = {fsTimevalFromDouble(x), fsTimevalFromDouble(y)};
+    if (::lutimes(a.c_str(), times) != 0) return fsAsyncError(errno, "lutimes", a);
+    return fsAsyncOk();
+  }
   if (op == "statfs") {
     return fsStatfsPathWork(a);
   }
   return fsAsyncError(EINVAL, op.c_str(), a);
+}
+
+static void appendJsonString(std::ostringstream& out, const std::string& value) {
+  out << '"';
+  for (unsigned char ch : value) {
+    switch (ch) {
+      case '"': out << "\\\""; break;
+      case '\\': out << "\\\\"; break;
+      case '\b': out << "\\b"; break;
+      case '\f': out << "\\f"; break;
+      case '\n': out << "\\n"; break;
+      case '\r': out << "\\r"; break;
+      case '\t': out << "\\t"; break;
+      default:
+        if (ch < 0x20) {
+          out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+              << static_cast<int>(ch) << std::dec << std::setfill(' ');
+        } else {
+          out << static_cast<char>(ch);
+        }
+    }
+  }
+  out << '"';
+}
+
+static FsAsyncResult fsReaddirArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& target) {
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 5, 4, *parent, *target, 0, 0,
+          nullptr) != 1) {
+    return fsAsyncError(EACCES, "scandir", path);
+  }
+  int directoryFd = ::dup(*target);
+  if (directoryFd < 0) return fsAsyncError(errno, "scandir", path);
+  DIR* directory = ::fdopendir(directoryFd);
+  if (!directory) {
+    int saved = errno;
+    ::close(directoryFd);
+    return fsAsyncError(saved, "scandir", path);
+  }
+  std::vector<std::string> names;
+  errno = 0;
+  while (auto* entry = ::readdir(directory)) {
+    if (std::strcmp(entry->d_name, ".") != 0 &&
+        std::strcmp(entry->d_name, "..") != 0) {
+      names.emplace_back(entry->d_name);
+    }
+  }
+  int saved = errno;
+  ::closedir(directory);
+  if (saved != 0) return fsAsyncError(saved, "scandir", path);
+  std::sort(names.begin(), names.end());
+  std::ostringstream json;
+  json << '[';
+  for (size_t index = 0; index < names.size(); ++index) {
+    if (index != 0) json << ',';
+    appendJsonString(json, names[index]);
+  }
+  json << ']';
+  return fsAsyncString(json.str());
+}
+
+static FsAsyncResult fsRealpathArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& target) {
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 5, 9, *parent, *target, 0, 0,
+          nullptr) != 1) {
+    return fsAsyncError(EACCES, "realpath", path);
+  }
+  auto resolved = resolvedPathForFd(*target);
+  return resolved ? fsAsyncString(std::move(*resolved))
+                  : fsAsyncError(errno ? errno : EIO, "realpath", path);
+}
+
+static FsAsyncResult fsMkdtempArmedWork(
+    uint64_t principal,
+    const std::string& prefix) {
+  static std::atomic<uint64_t> sequence{1};
+  for (size_t attempt = 0; attempt < 128; ++attempt) {
+    uint64_t token = sequence.fetch_add(1, std::memory_order_relaxed) ^ nowMs();
+    std::ostringstream suffix;
+    suffix << std::hex << std::setw(12) << std::setfill('0') << token;
+    auto candidate = prefix + suffix.str();
+    auto result = fsPathOpWork("mkdir", candidate, "", 0, 0, 0, principal);
+    if (result.ok) return fsAsyncString(std::move(candidate));
+    if (result.errnoValue != EEXIST) return result;
+  }
+  return fsAsyncError(EEXIST, "mkdtemp", prefix);
 }
 
 static FsAsyncResult fsStatPathWork(const std::string& path, bool isLstat) {
@@ -1235,12 +2489,163 @@ static FsAsyncResult fsFstatWork(int fd) {
   return result;
 }
 
+static FsAsyncResult fsStatArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    uint32_t surface,
+    const std::string& presentedHandle,
+    const std::shared_ptr<int>& parent,
+    int targetFd) {
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 5, surface, *parent, targetFd, 0, 0,
+          presented) != 1) {
+    return fsAsyncError(EACCES, "fstat", path);
+  }
+  struct stat sb = {};
+  if (::fstat(targetFd, &sb) != 0) return fsAsyncError(errno, "fstat", path);
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Json);
+  result.json = statJsonFromStat(sb);
+  return result;
+}
+
+// Run descriptor metadata/durability operations on a duplicate descriptor.
+// dup() is intentionally performed on the JS thread before dispatch: it pins
+// the open file description while a concurrent close() removes the public fd,
+// without changing shared cursor semantics. The worker always owns/ closes it.
+static FsAsyncResult fsFdOpWork(
+    const std::string& op, int workerFd, double x, double y) {
+  int rc = -1;
+  const char* syscall = op.c_str();
+  if (op == "fchmod") {
+    rc = ::fchmod(workerFd, static_cast<mode_t>(x));
+  } else if (op == "fchown") {
+    rc = ::fchown(workerFd, static_cast<uid_t>(x), static_cast<gid_t>(y));
+  } else if (op == "ftruncate") {
+    rc = ::ftruncate(workerFd, static_cast<off_t>(x));
+  } else if (op == "futimes") {
+    struct timeval times[2] = {fsTimevalFromDouble(x), fsTimevalFromDouble(y)};
+#if defined(EXACT_PLATFORM_ANDROID)
+    struct timespec ts[2] = {
+        {times[0].tv_sec, static_cast<long>(times[0].tv_usec) * 1000},
+        {times[1].tv_sec, static_cast<long>(times[1].tv_usec) * 1000},
+    };
+    syscall = "futimens";
+    rc = ::futimens(workerFd, ts);
+#else
+    rc = ::futimes(workerFd, times);
+#endif
+  } else if (op == "fsync") {
+    rc = ::fsync(workerFd);
+  } else if (op == "fdatasync") {
+#if defined(__APPLE__)
+    rc = ::fsync(workerFd);
+#else
+    rc = ::fdatasync(workerFd);
+#endif
+  } else {
+    return fsAsyncError(EINVAL, op.c_str());
+  }
+  int saved = errno;
+  return rc == 0 ? fsAsyncOk() : fsAsyncError(saved, syscall);
+}
+
+static FsAsyncResult fsOpenWork(
+    uint64_t owner,
+    const std::string& path, int flags, int mode, bool canRead, bool canWrite) {
+  int fd = ::open(path.c_str(), flags, mode);
+  if (fd < 0) return fsAsyncError(errno, "open", path);
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+  result.number = fd;
+  result.registerOpenedFd = true;
+  result.openedFdGuard = std::shared_ptr<int>(new int(fd), [](int* guardedFd) {
+    if (*guardedFd >= 0) ::close(*guardedFd);
+    delete guardedFd;
+  });
+  result.openedPath = path;
+  result.openedCanRead = canRead;
+  result.openedCanWrite = canWrite;
+  result.openedOwner = owner;
+  return result;
+}
+
+static FsAsyncResult fsOpenWorkArmed(
+    uint64_t principal,
+    const std::string& path,
+    const std::string& name,
+    int flags,
+    int mode,
+    bool canRead,
+    bool canWrite,
+    const std::string& presentedHandle,
+    std::shared_ptr<int> parent) {
+  const char* handle = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  auto opened = openArmedTargetAtomically(
+      principal, path, name, 0, *parent, flags, O_NOFOLLOW, mode,
+      canRead, canWrite, handle);
+  int fd = opened.fd;
+  const bool created = opened.created;
+  if (fd < 0) return fsAsyncError(errno, "open", path);
+  auto fdGuard = retainedFd(fd);
+  if (denyArmedOpenCommitForTest() || ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 1, 0, *parent, fd,
+          canRead ? 1 : 0, canWrite ? 1 : 0, handle) != 1) {
+    if (created) rollbackCreatedFile(*parent, name, fd);
+    return fsAsyncError(EACCES, "open", path);
+  }
+  if ((flags & O_TRUNC) != 0 && ::ftruncate(fd, 0) != 0) {
+    int saved = errno;
+    if (created) rollbackCreatedFile(*parent, name, fd);
+    return fsAsyncError(saved, "open", path);
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+  result.number = fd;
+  result.registerOpenedFd = true;
+  result.openedFdGuard = std::move(fdGuard);
+  result.openedPath = path;
+  result.openedCanRead = canRead;
+  result.openedCanWrite = canWrite;
+  result.openedOwner = principal;
+  result.openedPresentedHandle = presentedHandle;
+  result.openedRetainedParent = std::move(parent);
+  return result;
+}
+
+static FsAsyncResult fsCloseWork(int fd) {
+  if (::close(fd) != 0) return fsAsyncError(errno, "close");
+  return fsAsyncOk();
+}
+
+class OwnedFd {
+ public:
+  explicit OwnedFd(int fd) : fd_(fd) {}
+  ~OwnedFd() { if (fd_ >= 0) ::close(fd_); }
+  OwnedFd(const OwnedFd&) = delete;
+  OwnedFd& operator=(const OwnedFd&) = delete;
+  int get() const { return fd_; }
+ private:
+  int fd_;
+};
+
+static std::shared_ptr<OwnedFd> duplicateFdForAsync(
+    facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  int workerFd = ::dup(fd);
+  if (workerFd < 0) throwFsError(runtime, syscall, "");
+  return std::make_shared<OwnedFd>(workerFd);
+}
+
+static FsAsyncResult fsRunOwnedFd(
+    const std::shared_ptr<OwnedFd>& workerFd,
+    const std::function<FsAsyncResult(int)>& work) {
+  return work(workerFd->get());
+}
+
 void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   auto readFileFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactReadFile"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1249,6 +2654,60 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Whole-file reads retain and recheck the actual object for every chunk.
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactReadFile: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+          auto prepared = prepareArmedReadTarget(
+              runtime, path, 1, presentedHandle);
+          auto parent = std::move(prepared.first);
+          auto name = std::move(prepared.second);
+          int fdRaw = ::openat(
+              *parent, name.c_str(),
+              O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+          if (fdRaw < 0) throwFsError(runtime, "open", path);
+          auto fd = retainedFd(fdRaw);
+          struct stat sb = {};
+          if (::fstat(fdRaw, &sb) != 0) throwFsError(runtime, "fstat", path);
+          if (!S_ISREG(sb.st_mode)) {
+            errno = EACCES;
+            throwFsError(runtime, "open", path);
+          }
+          uint64_t principal = currentPrincipalId();
+          if (ex_host_authorize_typed_fs_open(
+                  principal, path.c_str(), 1, 1, *parent, fdRaw, 1, 0,
+                  presented) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          std::vector<uint8_t> data;
+          if (sb.st_size > 0 && static_cast<uint64_t>(sb.st_size) <= data.max_size()) {
+            data.reserve(static_cast<size_t>(sb.st_size));
+          }
+          std::array<uint8_t, 64 * 1024> chunk = {};
+          RepeatedFsAuthorizationLease authorizationLease;
+          while (true) {
+            if (authorizeRepeatedFsWithLease(
+                    authorizationLease, principal, path.c_str(), 1, 2, *parent,
+                    fdRaw, 1, 0, presented) != 1) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+            ssize_t amount;
+            do {
+              amount = ::read(fdRaw, chunk.data(), chunk.size());
+            } while (amount < 0 && errno == EINTR);
+            if (amount < 0) throwFsError(runtime, "read", path);
+            if (amount == 0) break;
+            data.insert(data.end(), chunk.begin(), chunk.begin() + amount);
+          }
+          return makeUint8Array(runtime, std::move(data));
+        }
         if (!isAllowAll()) {
           std::string cap = "fs:read:" + path;
           if (!checkCapability(cap)) {
@@ -1278,7 +2737,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto writeFileFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactWriteFile"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1287,6 +2746,23 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactWriteFile: path and data required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
+            if (!args[2].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactWriteFile: typed handleId must be a string");
+            }
+            presentedHandle = args[2].asString(runtime).utf8(runtime);
+          }
+          auto data = extractBytes(runtime, args[1]);
+          auto descriptors = openArmedWriteTarget(
+              runtime, path, 5, O_WRONLY | O_CREAT | O_TRUNC, 0666, true,
+              presentedHandle);
+          writeArmedBytes(
+              runtime, path, 5, presentedHandle, descriptors, data);
+          return facebook::jsi::Value::undefined();
+        }
         std::string cap = "fs:write:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -1351,7 +2827,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto appendFileFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactAppendFile"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1360,6 +2836,23 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactAppendFile: path and data required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
+            if (!args[2].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactAppendFile: typed handleId must be a string");
+            }
+            presentedHandle = args[2].asString(runtime).utf8(runtime);
+          }
+          auto data = extractBytes(runtime, args[1]);
+          auto descriptors = openArmedWriteTarget(
+              runtime, path, 6, O_WRONLY | O_CREAT | O_APPEND, 0666, true,
+              presentedHandle);
+          writeArmedBytes(
+              runtime, path, 6, presentedHandle, descriptors, data);
+          return facebook::jsi::Value::undefined();
+        }
         std::string cap = "fs:write:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -1404,7 +2897,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto statFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactStat"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1413,6 +2906,23 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactStat: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactStat: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedListTarget(
+              runtime, path, 3, metadataOpenFlags(), presentedHandle);
+          struct stat sb = {};
+          if (::fstat(*descriptors.target, &sb) != 0) {
+            throwFsError(runtime, "fstat", path);
+          }
+          return facebook::jsi::String::createFromUtf8(runtime, statJsonFromStat(sb));
+        }
         std::string cap = "fs:read:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -1431,7 +2941,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto lstatFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactLstat"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1440,6 +2950,22 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactLstat: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactLstat: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedLinkTarget(runtime, path, 10, presentedHandle);
+          struct stat sb = {};
+          if (::fstat(*descriptors.target, &sb) != 0) {
+            throwFsError(runtime, "fstat", path);
+          }
+          return facebook::jsi::String::createFromUtf8(runtime, statJsonFromStat(sb));
+        }
         std::string cap = "fs:read:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -1458,7 +2984,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto readdirFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactReaddir"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1467,6 +2993,60 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactReaddir: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactReaddir: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedListTarget(
+              runtime, path, 4, O_RDONLY | O_DIRECTORY, presentedHandle);
+          int directoryFd = ::dup(*descriptors.target);
+          if (directoryFd < 0) throwFsError(runtime, "dup", path);
+          DIR* directory = ::fdopendir(directoryFd);
+          if (!directory) {
+            int savedErrno = errno;
+            ::close(directoryFd);
+            errno = savedErrno;
+            throwFsError(runtime, "scandir", path);
+          }
+          std::vector<std::string> names;
+          RepeatedFsAuthorizationLease authorizationLease;
+          while (true) {
+            const char* presented = presentedHandle.empty()
+                ? nullptr
+                : presentedHandle.c_str();
+            if (authorizeRepeatedFsWithLease(
+                    authorizationLease, currentPrincipalId(), path.c_str(), 4,
+                    5, *descriptors.parent, *descriptors.target, 0, 0,
+                    presented) != 1) {
+              ::closedir(directory);
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+            errno = 0;
+            auto* entry = ::readdir(directory);
+            if (!entry) break;
+            std::string name(entry->d_name);
+            if (name != "." && name != "..") names.push_back(std::move(name));
+          }
+          int readErrno = errno;
+          ::closedir(directory);
+          if (readErrno != 0) {
+            errno = readErrno;
+            throwFsError(runtime, "scandir", path);
+          }
+          facebook::jsi::Array array(runtime, names.size());
+          for (size_t index = 0; index < names.size(); ++index) {
+            array.setValueAtIndex(
+                runtime, index,
+                facebook::jsi::String::createFromUtf8(runtime, names[index]));
+          }
+          auto json = runtime.global().getPropertyAsObject(runtime, "JSON");
+          return json.getPropertyAsFunction(runtime, "stringify").call(runtime, array);
+        }
         std::string cap = "fs:read:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -1494,15 +3074,24 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactMkdir: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
         int32_t recursive = 0;
         if (count > 1 && args[1].isBool()) {
           recursive = args[1].getBool() ? 1 : 0;
         } else if (count > 1 && args[1].isNumber()) {
           recursive = args[1].asNumber() != 0 ? 1 : 0;
+        }
+        if (ex_host_is_armed() == 1) {
+          if (recursive != 0) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "recursive mkdir is closed under armed capability startup");
+          }
+          createArmedDirectory(runtime, path, 0777);
+          return facebook::jsi::Value::undefined();
+        }
+        std::string cap = "fs:write:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         if (ex_host_fs_mkdir(path.c_str(), recursive) != 0) {
           throwFsError(runtime, "mkdir", path);
@@ -1593,7 +3182,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto copyFileFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactCopyFile"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1611,7 +3200,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (!checkCapability(wcap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
-        if (ex_host_fs_copy(from.c_str(), to.c_str()) != 0) {
+        bool exclusive = count > 2 && args[2].isNumber() &&
+            (static_cast<int>(args[2].asNumber()) & 1) != 0;
+        auto copy = exclusive ? ex_host_fs_copy_exclusive : ex_host_fs_copy;
+        if (copy(from.c_str(), to.c_str()) != 0) {
           throwFsError(runtime, "copyfile", from, to);
         }
         return facebook::jsi::Value::undefined();
@@ -1622,7 +3214,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto realpathFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactRealpath"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1631,6 +3223,21 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactRealpath: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactRealpath: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedListTarget(
+              runtime, path, 9, metadataOpenFlags(), presentedHandle);
+          auto resolved = resolvedPathForFd(*descriptors.target);
+          if (!resolved) throwFsError(runtime, "realpath", path);
+          return facebook::jsi::String::createFromUtf8(runtime, *resolved);
+        }
         std::string cap = "fs:read:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -1731,7 +3338,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto fsOpenFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpen"),
-      3,
+      4,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1744,21 +3351,93 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int posixFlags = parseOpenFlagsArg(runtime, args, count, 1);
         bool needsRead = false;
         bool needsWrite = false;
-        requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
+        const bool armed = ex_host_is_armed() == 1;
+        const uint64_t owner = currentPrincipalId();
+        std::string presentedHandle;
+        const char* presentedHandlePtr = nullptr;
+        if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+          if (!args[3].isString()) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactFsOpen: typed handleId must be a string");
+          }
+          presentedHandle = args[3].asString(runtime).utf8(runtime);
+          presentedHandlePtr = presentedHandle.c_str();
+        }
+        if (armed) {
+          classifyOpenAccess(posixFlags, needsRead, needsWrite);
+          if (ex_host_authorize_typed_fs_open(
+                  owner, path.c_str(), 0, 0, -1, -1,
+                  needsRead ? 1 : 0, needsWrite ? 1 : 0,
+                  presentedHandlePtr) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else {
+          requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
+        }
 
         int mode = 0666;
         if (count > 2 && args[2].isNumber()) {
           mode = static_cast<int>(args[2].asNumber());
         }
 
-        int fd = ::open(path.c_str(), posixFlags, mode);
+        std::shared_ptr<int> retainedParent;
+        int fd = -1;
+        bool created = false;
+        if (armed) {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Retain the parent and commit the actual fd before truncation or later I/O.
+          auto [parentPath, name] = splitParentAndName(path);
+          int parentFd = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+          if (parentFd < 0) throwFsError(runtime, "open", path);
+          retainedParent = retainedParentFd(parentFd);
+          if (ex_host_authorize_typed_fs_open(
+                  owner, path.c_str(), 3, 0, *retainedParent, -1,
+                  needsRead ? 1 : 0, needsWrite ? 1 : 0,
+                  presentedHandlePtr) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          // O_TRUNC mutates during open. Delay it until the actual descriptor
+          // identity has passed commit authorization.
+          auto opened = openArmedTargetAtomically(
+              owner, path, name, 0, *retainedParent, posixFlags, O_NOFOLLOW,
+              mode, needsRead, needsWrite, presentedHandlePtr);
+          fd = opened.fd;
+          created = opened.created;
+        } else {
+          fd = ::open(path.c_str(), posixFlags, mode);
+        }
         if (fd < 0) {
+          throwFsError(runtime, "open", path);
+        }
+        if (armed && (denyArmedOpenCommitForTest() || ex_host_authorize_typed_fs_open(
+                         owner, path.c_str(), 1, 0,
+                         *retainedParent, fd,
+                         needsRead ? 1 : 0, needsWrite ? 1 : 0,
+                         presentedHandlePtr) != 1)) {
+          if ((posixFlags & O_CREAT) != 0) {
+            auto parentAndName = splitParentAndName(path);
+            // Only remove the name if this open created the exact object.
+            // Existing files are never rollback candidates.
+            if (created) rollbackCreatedFile(*retainedParent, parentAndName.second, fd);
+          }
+          ::close(fd);
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        if (armed && (posixFlags & O_TRUNC) != 0 && ::ftruncate(fd, 0) != 0) {
+          int savedErrno = errno;
+          if (created) {
+            auto parentAndName = splitParentAndName(path);
+            rollbackCreatedFile(*retainedParent, parentAndName.second, fd);
+          }
+          ::close(fd);
+          errno = savedErrno;
           throwFsError(runtime, "open", path);
         }
         // @ref LLP 0013#policy — raw POSIX fds are forgeable integers, so the
         // host records the owner/path/access class at open and later fd ops
         // recheck both ownership and the current capability grant. (ENG-22707)
-        registerFd(fd, path, needsRead, needsWrite);
+        registerFd(
+            fd, path, needsRead, needsWrite, owner, presentedHandle,
+            std::move(retainedParent));
         return facebook::jsi::Value(fd);
       });
   rt.global().setProperty(rt, "__exactFsOpen", std::move(fsOpenFn));
@@ -1776,9 +3455,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsClose: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        if (!isAllowAll()) {
-          (void)requireOwnedFd(runtime, fd, "close");
-        }
+        (void)requireOwnedFd(runtime, fd, "close");
         if (::close(fd) < 0) {
           throwFsError(runtime, "close", "");
         }
@@ -1855,9 +3532,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value(false);
         }
         int fd = static_cast<int>(args[0].asNumber());
-        if (!isAllowAll()) {
-          (void)requireOwnedFd(runtime, fd, "poll");
-        }
+        (void)requireOwnedFd(runtime, fd, "poll");
         struct pollfd pfd;
         pfd.fd = fd;
         pfd.events = POLLIN;
@@ -2071,7 +3746,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
         std::vector<IoVecMetadata> targetMetadata;
-        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, &targetMetadata)) {
+        if (!parseIoVecArguments(
+                runtime, args[1], buffers, iovecs, &targetMetadata, false)) {
           throw facebook::jsi::JSError(runtime, "__exactFsReadv: buffers must be Uint8Array-like objects");
         }
         auto listObj = args[1].asObject(runtime);
@@ -2633,7 +4309,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFstatSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        requireFdRead(runtime, fd, "fstat");
+        requireFdList(runtime, fd, "fstat");
         struct stat sb;
         if (::fstat(fd, &sb) != 0) {
           throwFsError(runtime, "fstat", "");
@@ -2651,16 +4327,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFsyncSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        if (!isAllowAll()) {
-          auto entry = requireOwnedFd(runtime, fd, "fsync");
-          if (entry.canWrite) {
-            if (!checkCapability("fs:write:" + entry.path)) {
-              throw facebook::jsi::JSError(runtime, "Permission denied");
-            }
-          } else if (!checkCapability("fs:read:" + entry.path)) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-        }
+        requireFdMetadataWrite(runtime, fd, "fsync");
         if (::fsync(fd) != 0) {
           throwFsError(runtime, "fsync", "");
         }
@@ -2677,16 +4344,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFdatasyncSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        if (!isAllowAll()) {
-          auto entry = requireOwnedFd(runtime, fd, "fdatasync");
-          if (entry.canWrite) {
-            if (!checkCapability("fs:write:" + entry.path)) {
-              throw facebook::jsi::JSError(runtime, "Permission denied");
-            }
-          } else if (!checkCapability("fs:read:" + entry.path)) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-        }
+        requireFdMetadataWrite(runtime, fd, "fdatasync");
 #if defined(__APPLE__)
         // macOS doesn't have fdatasync, use fsync instead
         if (::fsync(fd) != 0) {
@@ -2862,8 +4520,91 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   // fd form reads from the fd's current position to EOF without closing it
   // (mirroring readFileSync's fd branch); path form opens/reads/closes on the
   // worker thread.
+  auto openAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpenAsync"), 4,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsOpenAsync: path and flags required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        int flags = parseOpenFlagsArg(runtime, args, count, 1);
+        int mode = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : 0666;
+        bool canRead = false, canWrite = false;
+        const bool armed = ex_host_is_armed() == 1;
+        uint64_t principal = currentPrincipalId();
+        std::string presentedHandle;
+        if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+          if (!args[3].isString()) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactFsOpenAsync: typed handleId must be a string");
+          }
+          presentedHandle = args[3].asString(runtime).utf8(runtime);
+        }
+        if (!armed) {
+          requireOpenCapability(runtime, path, flags, canRead, canWrite);
+          return startFsAsync(handle, runtime, [principal, path, flags, mode, canRead, canWrite]() {
+            return fsOpenWork(principal, path, flags, mode, canRead, canWrite);
+          });
+        }
+        classifyOpenAccess(flags, canRead, canWrite);
+        const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+        if (ex_host_authorize_typed_fs_open(
+                principal, path.c_str(), 0, 0, -1, -1,
+                canRead ? 1 : 0, canWrite ? 1 : 0, presented) != 1) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        auto parentAndName = splitParentAndName(path);
+        auto parentPath = std::move(parentAndName.first);
+        auto name = std::move(parentAndName.second);
+        int parentFd = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (parentFd < 0) throwFsError(runtime, "open", path);
+        auto parent = retainedParentFd(parentFd);
+        if (ex_host_authorize_typed_fs_open(
+                principal, path.c_str(), 3, 0, *parent, -1,
+                canRead ? 1 : 0, canWrite ? 1 : 0, presented) != 1) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        return startFsAsync(
+            handle, runtime,
+            [principal, path, name, flags, mode, canRead, canWrite,
+             presentedHandle, parent = std::move(parent)]() mutable {
+          return fsOpenWorkArmed(
+              principal, path, name, flags, mode, canRead, canWrite,
+              presentedHandle, std::move(parent));
+        });
+      });
+  rt.global().setProperty(rt, "__exactFsOpenAsync", std::move(openAsyncFn));
+
+  auto closeAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsCloseAsync"), 1,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsCloseAsync: fd required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        std::optional<FdEntry> entry = requireOwnedFd(runtime, fd, "close");
+        auto closeResult = std::make_shared<FsAsyncResult>();
+        return startFsAsync(
+            handle, runtime,
+            [closeResult]() mutable { return std::move(*closeResult); },
+            {},
+            [fd, entry = std::move(entry), closeResult]() mutable {
+              // Queue admission happens before this commit hook and the pool
+              // mutex prevents the worker from running it early. Therefore a
+              // rejected enqueue leaves both descriptor and authority intact,
+              // while an accepted close publishes revocation before any later
+              // JS operation can race fd-number reuse.
+              unregisterFd(fd);
+              *closeResult = fsCloseWork(fd);
+              if (!closeResult->ok) restoreFdEntry(fd, entry);
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsCloseAsync", std::move(closeAsyncFn));
+
   auto readFileAsyncFn = facebook::jsi::Function::createFromHostFunction(
-      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadFileAsync"), 3,
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadFileAsync"), 4,
       [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
                const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
         if (count == 0 || (!args[0].isString() && !args[0].isNumber())) {
@@ -2873,14 +4614,75 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (args[0].isNumber()) {
           int fd = static_cast<int>(args[0].asNumber());
           requireFdRead(runtime, fd, "read");
-          return startFsAsync(handle, runtime, [fd]() -> FsAsyncResult {
-            return fsReadWholeFdWork(fd, false, "");
+          auto entry = requireOwnedFd(runtime, fd, "read");
+          auto workerFd = duplicateFdForAsync(runtime, fd, "read");
+          if (ex_host_is_armed() == 1) {
+            if (!entry.retainedParent) {
+              throw facebook::jsi::JSError(
+                  runtime, "readFile: armed fd has no retained parent");
+            }
+            return startFsAsync(
+                handle, runtime,
+                [workerFd, principal = entry.owner, path = entry.path,
+                 presentedHandle = entry.presentedHandleId,
+                 parent = entry.retainedParent]() -> FsAsyncResult {
+                  return fsReadFileArmedWork(
+                      principal, path, presentedHandle, parent,
+                      workerFd->get());
+                });
+          }
+          return startFsAsync(handle, runtime, [workerFd]() -> FsAsyncResult {
+            return fsRunOwnedFd(workerFd, [](int owned) {
+              return fsReadWholeFdWork(owned, false, "");
+            });
           });
         }
         auto path = args[0].toString(runtime).utf8(runtime);
         int posixFlags = parseOpenFlagsArg(runtime, args, count, 1);
         bool needsRead = false;
         bool needsWrite = false;
+        if (ex_host_is_armed() == 1) {
+          classifyOpenAccess(posixFlags, needsRead, needsWrite);
+          if (!needsRead || needsWrite) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          std::string presentedHandle;
+          if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+            if (!args[3].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactFsReadFileAsync: typed handleId must be a string");
+            }
+            presentedHandle = args[3].asString(runtime).utf8(runtime);
+          }
+          auto prepared = prepareArmedReadTarget(
+              runtime, path, 2, presentedHandle);
+          auto parent = std::move(prepared.first);
+          auto name = std::move(prepared.second);
+          int fdRaw = ::openat(
+              *parent, name.c_str(),
+              O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+          if (fdRaw < 0) throwFsError(runtime, "open", path);
+          auto fd = retainedFd(fdRaw);
+          struct stat sb = {};
+          if (::fstat(fdRaw, &sb) != 0 || !S_ISREG(sb.st_mode)) {
+            errno = EACCES;
+            throwFsError(runtime, "open", path);
+          }
+          uint64_t principal = currentPrincipalId();
+          const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+          if (ex_host_authorize_typed_fs_open(
+                  principal, path.c_str(), 1, 2, *parent, fdRaw, 1, 0,
+                  presented) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          return startFsAsync(
+              handle, runtime,
+              [principal, path, presentedHandle, parent = std::move(parent),
+               fd = std::move(fd)]() {
+                return fsReadFileArmedWork(
+                    principal, path, presentedHandle, parent, *fd);
+              });
+        }
         requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
         int mode = 0666;
         if (count > 2 && args[2].isNumber()) {
@@ -2897,7 +4699,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   // Promise<undefined>. fd form writes at the fd's current position without
   // closing it; path form opens/writes/(fsyncs)/closes on the worker thread.
   auto writeFileAsyncFn = facebook::jsi::Function::createFromHostFunction(
-      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsWriteFileAsync"), 5,
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsWriteFileAsync"), 6,
       [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
                const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
         if (count < 2 || (!args[0].isString() && !args[0].isNumber())) {
@@ -2912,8 +4714,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (args[0].isNumber()) {
           int fd = static_cast<int>(args[0].asNumber());
           requireFdWrite(runtime, fd, "write");
-          return startFsAsync(handle, runtime, [fd, dataBytes, flush]() -> FsAsyncResult {
-            return fsWriteAllFdWork(fd, *dataBytes, flush, false, "");
+          auto workerFd = duplicateFdForAsync(runtime, fd, "write");
+          return startFsAsync(handle, runtime, [workerFd, dataBytes, flush]() -> FsAsyncResult {
+            return fsRunOwnedFd(workerFd, [dataBytes, flush](int owned) { return fsWriteAllFdWork(owned, *dataBytes, flush, false, ""); });
           });
         }
         auto path = args[0].toString(runtime).utf8(runtime);
@@ -2923,11 +4726,37 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         bool needsRead = false;
         bool needsWrite = false;
-        requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
         int mode = 0666;
         if (count > 3 && args[3].isNumber()) {
           mode = static_cast<int>(args[3].asNumber());
         }
+        if (ex_host_is_armed() == 1) {
+          classifyOpenAccess(posixFlags, needsRead, needsWrite);
+          if (!needsWrite) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          std::string presentedHandle;
+          if (count > 5 && !args[5].isUndefined() && !args[5].isNull()) {
+            if (!args[5].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactFsWriteFileAsync: typed handleId must be a string");
+            }
+            presentedHandle = args[5].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedWriteTarget(
+              runtime, path, 7, posixFlags, mode, true, presentedHandle);
+          uint64_t principal = currentPrincipalId();
+          return startFsAsync(
+              handle, runtime,
+              [principal, path, presentedHandle,
+               parent = std::move(descriptors.parent),
+               fd = std::move(descriptors.target), dataBytes, flush]() {
+                return fsWriteFileArmedWork(
+                    principal, path, presentedHandle, parent, fd,
+                    *dataBytes, flush);
+              });
+        }
+        requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
         return startFsAsync(
             handle, runtime,
             [path, dataBytes, posixFlags, mode, flush]() -> FsAsyncResult {
@@ -2949,11 +4778,12 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int fd = static_cast<int>(args[0].asNumber());
         size_t length = static_cast<size_t>(args[1].asNumber());
         requireFdRead(runtime, fd, "read");
+        auto workerFd = duplicateFdForAsync(runtime, fd, "read");
         bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
         return startFsAsync(
-            handle, runtime, [fd, length, positioned, position]() -> FsAsyncResult {
-              return fsReadChunkWork(fd, length, positioned, position);
+            handle, runtime, [workerFd, length, positioned, position]() -> FsAsyncResult {
+              return fsRunOwnedFd(workerFd, [length, positioned, position](int owned) { return fsReadChunkWork(owned, length, positioned, position); });
             });
       });
   rt.global().setProperty(rt, "__exactFsReadAsync", std::move(fsReadAsyncFn));
@@ -2970,13 +4800,14 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         requireFdWrite(runtime, fd, "write");
+        auto workerFd = duplicateFdForAsync(runtime, fd, "write");
         auto dataBytes = std::make_shared<std::vector<uint8_t>>(
             extractBytes(runtime, args[1]));
         bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
         return startFsAsync(
-            handle, runtime, [fd, dataBytes, positioned, position]() -> FsAsyncResult {
-              return fsWriteChunkWork(fd, *dataBytes, positioned, position);
+            handle, runtime, [workerFd, dataBytes, positioned, position]() -> FsAsyncResult {
+              return fsRunOwnedFd(workerFd, [dataBytes, positioned, position](int owned) { return fsWriteChunkWork(owned, *dataBytes, positioned, position); });
             });
       });
   rt.global().setProperty(rt, "__exactFsWriteAsync", std::move(fsWriteAsyncFn));
@@ -2996,9 +4827,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         requireFdRead(runtime, fd, "readv");
+        auto workerFd = duplicateFdForAsync(runtime, fd, "readv");
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
-        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
+        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr, false)) {
           throw facebook::jsi::JSError(
               runtime, "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
         }
@@ -3007,8 +4839,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(
             std::move(buffers));
         return startFsAsync(
-            handle, runtime, [fd, buffersPtr, positioned, position]() -> FsAsyncResult {
-              return fsReadvWork(fd, *buffersPtr, positioned, position);
+            handle, runtime, [workerFd, buffersPtr, positioned, position]() -> FsAsyncResult {
+              return fsRunOwnedFd(workerFd, [buffersPtr, positioned, position](int owned) { return fsReadvWork(owned, *buffersPtr, positioned, position); });
             });
       });
   rt.global().setProperty(rt, "__exactFsReadvAsync", std::move(fsReadvAsyncFn));
@@ -3025,6 +4857,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         requireFdWrite(runtime, fd, "writev");
+        auto workerFd = duplicateFdForAsync(runtime, fd, "writev");
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
         if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
@@ -3036,8 +4869,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(
             std::move(buffers));
         return startFsAsync(
-            handle, runtime, [fd, buffersPtr, positioned, position]() -> FsAsyncResult {
-              return fsWritevWork(fd, *buffersPtr, positioned, position);
+            handle, runtime, [workerFd, buffersPtr, positioned, position]() -> FsAsyncResult {
+              return fsRunOwnedFd(workerFd, [buffersPtr, positioned, position](int owned) { return fsWritevWork(owned, *buffersPtr, positioned, position); });
             });
       });
   rt.global().setProperty(rt, "__exactFsWritevAsync", std::move(fsWritevAsyncFn));
@@ -3065,6 +4898,32 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         double z = (count > 5 && args[5].isNumber()) ? args[5].asNumber() : 0;
         uint64_t principal = currentPrincipalId();
 
+        if (ex_host_is_armed() == 1 && op == "readdir") {
+          auto descriptors = openArmedListTarget(
+              runtime, a, 4, O_RDONLY | O_DIRECTORY, "");
+          return startFsAsync(
+              handle, runtime,
+              [principal, path = a, parent = std::move(descriptors.parent),
+               target = std::move(descriptors.target)]() {
+                return fsReaddirArmedWork(principal, path, parent, target);
+              });
+        }
+        if (ex_host_is_armed() == 1 && op == "realpath") {
+          auto descriptors = openArmedListTarget(
+              runtime, a, 9, metadataOpenFlags(), "");
+          return startFsAsync(
+              handle, runtime,
+              [principal, path = a, parent = std::move(descriptors.parent),
+               target = std::move(descriptors.target)]() {
+                return fsRealpathArmedWork(principal, path, parent, target);
+              });
+        }
+        if (ex_host_is_armed() == 1 && op == "mkdtemp") {
+          return startFsAsync(handle, runtime, [principal, prefix = a]() {
+            return fsMkdtempArmedWork(principal, prefix);
+          });
+        }
+
         if (op == "readdir" || op == "realpath" || op == "readlink" ||
             op == "statfs") {
           if (!checkCapability("fs:read:" + a)) {
@@ -3073,10 +4932,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         } else if (op == "mkdir" || op == "rmdir" || op == "unlink" ||
                    op == "chmod" || op == "truncate" || op == "chown" ||
                    op == "utime") {
-          if (!checkCapability("fs:write:" + a)) {
+          if (!(op == "mkdir" && ex_host_is_armed() == 1) &&
+              !checkCapability("fs:write:" + a)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
-        } else if (op == "lchown") {
+        } else if (op == "lchown" || op == "lchmod" || op == "lutime") {
           if (!checkCapabilityNoFollowFinal("fs:write:" + a)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
@@ -3096,7 +4956,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           if (!checkCapability("fs:write:" + a) || !checkCapability("fs:write:" + b)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
-        } else if (op == "copyfile") {
+        } else if (op == "copyfile" || op == "copyfile_excl") {
           if (b.empty()) {
             throw facebook::jsi::JSError(
                 runtime, "__exactFsPathAsync: copy destination required");
@@ -3143,11 +5003,39 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactFsPathAsync", std::move(fsPathAsyncFn));
 
+  // __exactFsFdAsync(op, fd, x, y) -> Promise<void>. Capability/ownership
+  // validation and dup() happen before dispatch; only the blocking syscall is
+  // performed by the worker. @ref LLP 0003#blocking-work-worker-pools
+  auto fsFdAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFdAsync"), 4,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFdAsync: op and fd required");
+        }
+        auto op = args[0].toString(runtime).utf8(runtime);
+        int fd = static_cast<int>(args[1].asNumber());
+        double x = count > 2 && args[2].isNumber() ? args[2].asNumber() : 0;
+        double y = count > 3 && args[3].isNumber() ? args[3].asNumber() : 0;
+        if (op == "fchmod" || op == "fchown" || op == "ftruncate" || op == "futimes") {
+          requireFdMetadataWrite(runtime, fd, op.c_str());
+        } else if (op == "fsync" || op == "fdatasync") {
+          requireFdMetadataWrite(runtime, fd, op.c_str());
+        } else {
+          throw facebook::jsi::JSError(runtime, "__exactFsFdAsync: unsupported op");
+        }
+        auto workerFd = duplicateFdForAsync(runtime, fd, op.c_str());
+        return startFsAsync(handle, runtime, [op, workerFd, x, y]() -> FsAsyncResult {
+          return fsRunOwnedFd(workerFd, [op, x, y](int owned) { return fsFdOpWork(op, owned, x, y); });
+        });
+      });
+  rt.global().setProperty(rt, "__exactFsFdAsync", std::move(fsFdAsyncFn));
+
   // __exactFsStatAsync(pathOrFd, kind) -> Promise<JSON string>
   // kind is "stat" | "lstat" (path form) | "fstat" (fd form). Payload shape is
   // identical to __exactStat / __exactLstat / __exactFsFstatSync.
   auto fsStatAsyncFn = facebook::jsi::Function::createFromHostFunction(
-      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsStatAsync"), 2,
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsStatAsync"), 3,
       [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
                const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
         if (count < 2 || !args[1].isString()) {
@@ -3160,9 +5048,28 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactFsStatAsync: fd required");
           }
           int fd = static_cast<int>(args[0].asNumber());
+          if (ex_host_is_armed() == 1) {
+            auto entry = requireOwnedFd(runtime, fd, "fstat");
+            if (!entry.retainedParent) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+            auto workerFd = duplicateFdForAsync(runtime, fd, "fstat");
+            auto parent = entry.retainedParent;
+            auto principal = entry.owner;
+            auto path = entry.path;
+            auto presentedHandle = entry.presentedHandleId;
+            return startFsAsync(
+                handle, runtime,
+                [workerFd, parent, principal, path, presentedHandle]() {
+                  return fsStatArmedWork(
+                      principal, path, 8, presentedHandle, parent,
+                      workerFd->get());
+                });
+          }
           requireFdRead(runtime, fd, "fstat");
-          return startFsAsync(handle, runtime, [fd]() -> FsAsyncResult {
-            return fsFstatWork(fd);
+          auto workerFd = duplicateFdForAsync(runtime, fd, "fstat");
+          return startFsAsync(handle, runtime, [workerFd]() -> FsAsyncResult {
+            return fsRunOwnedFd(workerFd, [](int owned) { return fsFstatWork(owned); });
           });
         }
         if (!args[0].isString() || (kind != "stat" && kind != "lstat")) {
@@ -3170,6 +5077,31 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               runtime, "__exactFsStatAsync: path and stat/lstat kind required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
+            if (!args[2].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactFsStatAsync: typed handleId must be a string");
+            }
+            presentedHandle = args[2].asString(runtime).utf8(runtime);
+          }
+          uint32_t surface = kind == "lstat" ? 11 : 8;
+          auto descriptors = kind == "lstat"
+              ? openArmedLinkTarget(runtime, path, surface, presentedHandle)
+              : openArmedListTarget(
+                    runtime, path, surface, metadataOpenFlags(),
+                    presentedHandle);
+          uint64_t principal = currentPrincipalId();
+          auto targetFd = descriptors.target;
+          return startFsAsync(
+              handle, runtime,
+              [principal, path, surface, presentedHandle,
+               parent = std::move(descriptors.parent), targetFd]() {
+                return fsStatArmedWork(
+                    principal, path, surface, presentedHandle, parent, *targetFd);
+              });
+        }
         // Same gate as __exactStat / __exactLstat.
         if (!checkCapability("fs:read:" + path)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");

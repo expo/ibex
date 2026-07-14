@@ -4,7 +4,6 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 typedef void (*NativeWsOpenCallback)(
@@ -28,48 +27,68 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
 extern "C" void native_ws_pause(uint32_t ws_id);
 extern "C" void native_ws_resume(uint32_t ws_id);
 extern "C" void native_ws_set_flow_controlled(uint32_t ws_id, int enabled);
+extern "C" void native_ws_destroy(uint32_t ws_id);
+extern "C" uint64_t ex_hermes_current_runtime_nonce();
 
 namespace {
 
 struct WebSocketEntry {
+  uint64_t runtime_nonce;
   uint64_t owner;
   std::string capability;
+  NativeWebSocketCallbackContext* context;
+  bool closing;
 };
 
 static std::mutex g_websocket_mutex;
+static std::condition_variable g_websocket_cv;
 static std::unordered_map<uint32_t, WebSocketEntry> g_websockets;
-// Connect handshakes run asynchronously (ENG-23469), so a fast failure can
-// fire the close/error callbacks -- whose unregisterWebSocket runs on the io
-// thread -- before the JS thread reaches registerWebSocket after
-// native_ws_connect returns. ws_ids increase monotonically and are never
-// reused, and registrations happen on the JS thread in id order, so an
-// unregister for an id above the registration high-water mark can only be
-// such an early death: remember it and drop the late registration instead of
-// leaking a ghost entry.
-static std::unordered_set<uint32_t> g_early_unregistered;
-static uint32_t g_max_registered_ws_id = 0;
 
-void registerWebSocket(uint32_t ws_id, uint64_t owner, const std::string& capability) {
-  if (ws_id == 0 || isAllowAll()) {
-    return;
+bool registerWebSocket(
+    NativeWebSocketCallbackContext* context,
+    uint32_t ws_id,
+    uint64_t owner,
+    const std::string& capability) {
+  if (ws_id == 0 || !context || context->runtime_nonce == 0) {
+    return false;
   }
   std::lock_guard<std::mutex> lock(g_websocket_mutex);
-  if (ws_id > g_max_registered_ws_id) {
-    g_max_registered_ws_id = ws_id;
+  // The native connect callback can fail on an I/O thread before
+  // native_ws_connect returns to the runtime thread. The terminal callback
+  // and this registration serialize on the same mutex and share the exact
+  // per-connect context, so neither interleaving can leave a ghost entry.
+  if (context && context->websocket_terminal) {
+    context->websocket_registered = true;
+    g_websocket_cv.notify_all();
+    return false;
   }
-  if (g_early_unregistered.erase(ws_id) > 0) {
-    return;  // the socket already died; nothing to track
+  bool inserted = false;
+  try {
+    inserted = g_websockets
+                   .emplace(
+                       ws_id,
+                       WebSocketEntry{
+                           context->runtime_nonce, owner, capability, context, false})
+                   .second;
+  } catch (...) {
+    // A native callback may already be waiting for registration. Publish a
+    // terminal state before unwinding so it cannot retain the context (and the
+    // runtime teardown pin) forever after an allocation failure.
+    context->websocket_registered = true;
+    context->websocket_terminal = true;
+    g_websocket_cv.notify_all();
+    throw;
   }
-  g_websockets[ws_id] = WebSocketEntry{owner, capability};
+  context->websocket_registered = true;
+  g_websocket_cv.notify_all();
+  return inserted;
 }
 
 WebSocketEntry requireWebSocketOwner(
     facebook::jsi::Runtime& runtime,
     uint32_t ws_id,
-    const char* syscall) {
-  if (isAllowAll()) {
-    return WebSocketEntry{currentPrincipalId(), ""};
-  }
+    const char* syscall,
+    bool requireLiveAuthority = true) {
   WebSocketEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_websocket_mutex);
@@ -79,32 +98,112 @@ WebSocketEntry requireWebSocketOwner(
     }
     entry = it->second;
   }
+  if (entry.runtime_nonce != ex_hermes_current_runtime_nonce()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(syscall) + ": WebSocket belongs to a different runtime");
+  }
+  // Allow-all controls capability policy, not handle ownership. Principal and
+  // runtime identity remain mandatory in permissive mode; otherwise any
+  // package that guesses a small numeric id can operate another package's
+  // socket whenever the host policy is permissive.
   if (entry.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": WebSocket belongs to a different principal");
   }
-  if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+  if (requireLiveAuthority && !entry.capability.empty() &&
+      !checkCapability(entry.capability)) {
     throw facebook::jsi::JSError(runtime, std::string("Permission denied: ") + syscall);
+  }
+  if (entry.closing) {
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": WebSocket is closing");
   }
   return entry;
 }
 
-void unregisterWebSocket(uint32_t ws_id) {
-  if (ws_id == 0 || isAllowAll()) {
-    return;
-  }
+bool markWebSocketClosing(uint32_t ws_id, uint64_t runtimeNonce) {
   std::lock_guard<std::mutex> lock(g_websocket_mutex);
-  if (g_websockets.erase(ws_id) > 0) {
-    return;
+  auto it = g_websockets.find(ws_id);
+  if (it == g_websockets.end() || it->second.runtime_nonce != runtimeNonce ||
+      it->second.closing) {
+    return false;
   }
-  if (ws_id > g_max_registered_ws_id) {
-    // Died before the JS thread could register it (see comment above); the
-    // marker is consumed by the upcoming registerWebSocket for this id.
-    g_early_unregistered.insert(ws_id);
+  it->second.closing = true;
+  return true;
+}
+
+bool unregisterWebSocket(
+    uint32_t ws_id,
+    NativeWebSocketCallbackContext* context = nullptr) {
+  std::lock_guard<std::mutex> lock(g_websocket_mutex);
+  if (ws_id == 0) {
+    if (!context || context->websocket_terminal) return false;
+    context->websocket_terminal = true;
+    g_websocket_cv.notify_all();
+    return true;
   }
+  auto it = g_websockets.find(ws_id);
+  if (context) {
+    if (context->websocket_terminal) return false;
+    context->websocket_terminal = true;
+    g_websocket_cv.notify_all();
+    if (it != g_websockets.end() &&
+        (it->second.runtime_nonce != context->runtime_nonce ||
+         it->second.context != context)) {
+      return false;
+    }
+  }
+  // Idempotent for error+close, duplicate close, and explicit JS close. A
+  // missing id is never retained, so terminal churn has bounded memory.
+  if (it != g_websockets.end()) g_websockets.erase(it);
+  return true;
+}
+
+bool webSocketCallbackIsCurrent(
+    uint32_t ws_id,
+    NativeWebSocketCallbackContext* context) {
+  if (ws_id == 0 || !context) return false;
+  std::unique_lock<std::mutex> lock(g_websocket_mutex);
+  // A callback can win the race with runtime-thread registration while the
+  // latter is stalled after native_ws_connect. Registration is guaranteed for
+  // every nonzero connect result, so an arbitrary timeout only drops a valid
+  // open/message event and strands JS in CONNECTING. Terminal callbacks wake
+  // this wait as well, preventing a failed connection from hanging here.
+  g_websocket_cv.wait(lock, [&] {
+    return context->websocket_registered || context->websocket_terminal;
+  });
+  if (!context->websocket_registered || context->websocket_terminal) return false;
+  auto it = g_websockets.find(ws_id);
+  return it != g_websockets.end() &&
+      it->second.runtime_nonce == context->runtime_nonce &&
+      it->second.context == context && !it->second.closing;
 }
 
 } // namespace
+
+extern "C" void exactCleanupRuntimeWebSockets(uint64_t runtimeNonce) {
+  if (runtimeNonce == 0) return;
+
+  std::vector<uint32_t> ownedIds;
+  {
+    std::lock_guard<std::mutex> lock(g_websocket_mutex);
+    for (auto it = g_websockets.begin(); it != g_websockets.end();) {
+      if (it->second.runtime_nonce == runtimeNonce) {
+        if (it->second.context) {
+          it->second.context->websocket_registered = true;
+          it->second.context->websocket_terminal = true;
+        }
+        ownedIds.push_back(it->first);
+        it = g_websockets.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    g_websocket_cv.notify_all();
+  }
+  for (uint32_t wsId : ownedIds) {
+    native_ws_destroy(wsId);
+  }
+}
 
 void installWebSocketGlobals(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
@@ -125,32 +224,57 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
         auto protocols =
             args[1].isString() ? args[1].toString(runtime).utf8(runtime) : std::string("");
         ParsedNetworkUrl parsedUrl;
-        if (!parseNetworkUrl(url, parsedUrl) ||
-            (parsedUrl.scheme != "ws" && parsedUrl.scheme != "wss")) {
-          throw facebook::jsi::JSError(runtime, "__exactWsConnect: invalid network URL");
+        const char* parseFailure = "unknown parse failure";
+        if (!parseNetworkUrl(url, parsedUrl, &parseFailure)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              std::string("__exactWsConnect: malformed network URL (") +
+                  parseFailure + ")");
+        }
+        if (parsedUrl.scheme != "ws" && parsedUrl.scheme != "wss") {
+          throw facebook::jsi::JSError(
+              runtime, "__exactWsConnect: unsupported network URL scheme");
         }
         // @ref LLP 0013#policy — WebSocket native I/O is the security boundary;
         // endpoint-scoped grants must authorize the concrete peer, not just JS.
         std::string connectCapability =
-            "network:connect:" + parsedUrl.host + ":" + std::to_string(parsedUrl.port);
+            "network:connect:" + formatNetworkEndpoint(parsedUrl.host, parsedUrl.port);
         if (!checkCapability(connectCapability)) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: network:connect capability required");
         }
         auto wsPrincipal = currentPrincipalId();
+        auto runtimeNonce = ex_hermes_current_runtime_nonce();
         auto wsInstance = std::make_shared<facebook::jsi::Object>(args[2].asObject(runtime));
-        auto* callbackContext =
-            new NativeWebSocketCallbackContext{handle, wsInstance, wsPrincipal, connectCapability, 1};
+        auto target = exactRuntimeCallbackTarget(handle);
+        if (!exactPinRuntimeNativeWorker(target)) {
+          throw facebook::jsi::JSError(runtime, "WebSocket runtime is shutting down");
+        }
+        NativeWebSocketCallbackContext* callbackContext = nullptr;
+        try {
+          callbackContext = new NativeWebSocketCallbackContext();
+          callbackContext->target = target;
+          callbackContext->ws_instance = std::move(wsInstance);
+          callbackContext->runtime_nonce = runtimeNonce;
+          callbackContext->principal = wsPrincipal;
+          callbackContext->capability = connectCapability;
+          callbackContext->runtime_pin_held = true;
+        } catch (...) {
+          delete callbackContext;
+          exactUnpinRuntimeNativeWorker(target);
+          throw;
+        }
 
         auto wsId = native_ws_connect(
             url.c_str(),
             protocols.empty() ? nullptr : protocols.c_str(),
-            [](uint32_t, const char* protocol, const char* extensions, void* ctx) {
+            [](uint32_t ws_id, const char* protocol, const char* extensions, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
-              auto runtime = context->runtime;
+              if (!webSocketCallbackIsCurrent(ws_id, context)) return;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto protoCopy = std::string(protocol ? protocol : "");
@@ -159,7 +283,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
 
               pushRuntimeCallback(
-                  runtime,
+                  target,
                   [wsObj,
                    protoCopy,
                    extCopy,
@@ -172,12 +296,13 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                             facebook::jsi::String::createFromUtf8(rt, extCopy));
                   });
             },
-            [](uint32_t, const uint8_t* data, size_t length, int is_text, void* ctx) {
+            [](uint32_t ws_id, const uint8_t* data, size_t length, int is_text, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
-              auto runtime = context->runtime;
+              if (!webSocketCallbackIsCurrent(ws_id, context)) return;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               native_ws_retain_context(context);
@@ -185,7 +310,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               if (is_text) {
                 auto textCopy = std::string(reinterpret_cast<const char*>(data), length);
                 pushRuntimeCallback(
-                    runtime,
+                    target,
                     [wsObj,
                      textCopy,
                      principal,
@@ -197,7 +322,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               } else {
                 auto dataCopy = std::make_shared<std::vector<uint8_t>>(data, data + length);
                 pushRuntimeCallback(
-                    runtime,
+                    target,
                     [wsObj,
                      dataCopy,
                      principal,
@@ -216,20 +341,20 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
             },
             [](uint32_t ws_id, uint16_t code, const char* reason, int was_clean, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
-              auto runtime = context->runtime;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto reasonCopy = std::string(reason ? reason : "");
               auto codeCopy = code;
               auto cleanCopy = was_clean;
-              unregisterWebSocket(ws_id);
+              if (!unregisterWebSocket(ws_id, context)) return;
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
-                  runtime,
+                  target,
                   [wsObj,
                    codeCopy,
                    reasonCopy,
@@ -246,40 +371,64 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
             },
             [](uint32_t ws_id, const char* message, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
-              auto runtime = context->runtime;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto msgCopy = std::string(message ? message : "Unknown error");
-              unregisterWebSocket(ws_id);
+              auto closeAfterError = ws_id == 0;
+              // An error event is not the terminal WebSocket notification:
+              // native backends report fatal failures as error followed by
+              // close. Keep a registered nonzero socket current so the close
+              // callback can unregister it and deliver readyState=CLOSED.
+              // A zero-id setup failure has no later registration/close path,
+              // so retain the per-context exactly-once gate and synthesize its
+              // unclean close after delivering the error.
+              // @ref LLP 0003#websocket-bridge-threading-and-context-ownership —
+              // handshake failure is error followed by close(1006, unclean)
+              if (ws_id == 0) {
+                if (!unregisterWebSocket(0, context)) return;
+              } else if (!webSocketCallbackIsCurrent(ws_id, context)) {
+                return;
+              }
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
-                  runtime,
+                  target,
                   [wsObj,
                    msgCopy,
+                   closeAfterError,
                    principal,
                    context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
                     ScopedNativePrincipal nativePrincipal(principal);
                     auto fn = wsObj->getPropertyAsFunction(rt, "_handleError");
                     fn.call(rt, facebook::jsi::String::createFromUtf8(rt, msgCopy));
+                    if (closeAfterError) {
+                      auto closeFn = wsObj->getPropertyAsFunction(rt, "_handleClose");
+                      closeFn.call(
+                          rt,
+                          facebook::jsi::Value(1006),
+                          facebook::jsi::String::createFromUtf8(rt, ""),
+                          facebook::jsi::Value(false));
+                    }
                   });
             },
-            [](uint32_t, size_t bytes_sent, void* ctx) {
+            [](uint32_t ws_id, size_t bytes_sent, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
-              auto runtime = context->runtime;
+              if (!webSocketCallbackIsCurrent(ws_id, context)) return;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto sentCopy = bytes_sent;
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
-                  runtime,
+                  target,
                   [wsObj,
                    sentCopy,
                    principal,
@@ -294,7 +443,18 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
           native_ws_release_context(callbackContext);
           return facebook::jsi::Value::undefined();
         }
-        registerWebSocket(wsId, wsPrincipal, connectCapability);
+        bool registered = false;
+        try {
+          registered =
+              registerWebSocket(callbackContext, wsId, wsPrincipal, connectCapability);
+        } catch (...) {
+          native_ws_destroy(wsId);
+          throw;
+        }
+        if (!registered) {
+          native_ws_destroy(wsId);
+          return facebook::jsi::Value::undefined();
+        }
         return facebook::jsi::Value(static_cast<int>(wsId));
       });
   rt.global().setProperty(rt, "__exactWsConnect", std::move(wsConnectFn));
@@ -340,13 +500,21 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
         uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
-        (void)requireWebSocketOwner(runtime, ws_id, "__exactWsClose");
+        // @ref LLP 0021#handles-dynamic-authority-and-generations — close is
+        // authority-reducing and survives positive grant revocation.
+        auto entry = requireWebSocketOwner(
+            runtime, ws_id, "__exactWsClose", false);
+        if (count > 3 && args[3].isBool() && args[3].getBool()) {
+          return facebook::jsi::Value::undefined();
+        }
+        if (!markWebSocketClosing(ws_id, entry.runtime_nonce)) {
+          return facebook::jsi::Value::undefined();
+        }
         uint16_t code =
             count > 1 && args[1].isNumber() ? static_cast<uint16_t>(args[1].asNumber()) : 1005;
         std::string reason =
             count > 2 && args[2].isString() ? args[2].toString(runtime).utf8(runtime) : "";
         native_ws_close(ws_id, code, reason.c_str());
-        unregisterWebSocket(ws_id);
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactWsClose", std::move(wsCloseFn));
@@ -406,7 +574,29 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
   // WinHTTP native bridge here.
   static const char* windowsWebSocketShim = R"JS(
 (function(g) {
-  if (typeof g.WebSocket === 'function' || typeof g.__exactWsConnect !== 'function') return;
+  var exactWsConnect = g.__exactWsConnect;
+  var exactWsSend = g.__exactWsSend;
+  var exactWsClose = g.__exactWsClose;
+  var exactNetOwner = g.__exactNetOwner;
+  if (typeof g.WebSocket === 'function' ||
+      typeof exactWsConnect !== 'function' ||
+      typeof exactWsSend !== 'function' ||
+      typeof exactWsClose !== 'function' ||
+      typeof exactNetOwner !== 'function') return;
+
+  var windowsWebSocketStates = new WeakMap();
+
+  function windowsWebSocketState(socket) {
+    var state = socket && windowsWebSocketStates.get(socket);
+    if (!state) throw new TypeError('Illegal invocation');
+    return state;
+  }
+
+  function ownedWindowsWebSocketState(socket) {
+    var state = windowsWebSocketState(socket);
+    exactNetOwner('assert', state.ownerStamp);
+    return state;
+  }
 
   function makeEvent(type, props) {
     var event = { type: type };
@@ -417,41 +607,94 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
     return event;
   }
 
+  function handleOpen(socket, protocol, extensions) {
+    var state = ownedWindowsWebSocketState(socket);
+    // A close() racing the end of the async handshake must not resurrect
+    // the socket (ENG-23469).
+    if (state.readyState !== WebSocket.CONNECTING) return;
+    state.readyState = WebSocket.OPEN;
+    state.protocol = protocol || '';
+    state.extensions = extensions || '';
+    if (typeof state.onopen === 'function') state.onopen.call(socket, makeEvent('open'));
+  }
+
+  function handleMessage(socket, data) {
+    var state = ownedWindowsWebSocketState(socket);
+    if (state.readyState !== WebSocket.OPEN) return;
+    if (typeof state.onmessage === 'function') {
+      state.onmessage.call(socket, makeEvent('message', { data: data }));
+    }
+  }
+
+  function handleClose(socket, code, reason, wasClean) {
+    var state = ownedWindowsWebSocketState(socket);
+    state.socketId = -1;
+    state.readyState = WebSocket.CLOSED;
+    if (typeof state.onclose === 'function') {
+      state.onclose.call(socket, makeEvent('close', {
+        code: code || 1005,
+        reason: reason || '',
+        wasClean: !!wasClean
+      }));
+    }
+  }
+
+  function handleError(socket, message) {
+    var state = ownedWindowsWebSocketState(socket);
+    if (typeof state.onerror === 'function') {
+      state.onerror.call(socket, makeEvent('error', { message: message || 'WebSocket error' }));
+    }
+  }
+
+  function handleBytesSent(socket, bytesSent) {
+    var state = ownedWindowsWebSocketState(socket);
+    state.bufferedAmount = Math.max(0, state.bufferedAmount - (bytesSent || 0));
+  }
+
   function WebSocket(url, protocols) {
     if (!(this instanceof WebSocket)) {
       throw new TypeError("Failed to construct 'WebSocket': constructor requires 'new'");
     }
-    this.url = String(url);
-    this.protocol = '';
-    this.extensions = '';
-    this.readyState = WebSocket.CONNECTING;
-    this.bufferedAmount = 0;
-    this.binaryType = 'arraybuffer';
-    this.onopen = null;
-    this.onmessage = null;
-    this.onerror = null;
-    this.onclose = null;
+    var state = {
+      url: String(url),
+      protocol: '',
+      extensions: '',
+      readyState: WebSocket.CONNECTING,
+      bufferedAmount: 0,
+      binaryType: 'arraybuffer',
+      socketId: -1,
+      ownerStamp: exactNetOwner('new'),
+      onopen: null,
+      onmessage: null,
+      onerror: null,
+      onclose: null
+    };
+    // @ref LLP 0013#delegation-and-authority-flow — a retained wrapper may
+    // cross a principal boundary, but its native selector remains private.
+    windowsWebSocketStates.set(this, state);
     var self = this;
-    this._handleOpen = function(protocol, extensions) {
-      WebSocket.prototype._handleOpen.call(self, protocol, extensions);
-    };
-    this._handleMessage = function(data) {
-      WebSocket.prototype._handleMessage.call(self, data);
-    };
-    this._handleClose = function(code, reason, wasClean) {
-      WebSocket.prototype._handleClose.call(self, code, reason, wasClean);
-    };
-    this._handleError = function(message) {
-      WebSocket.prototype._handleError.call(self, message);
-    };
-    this._handleBytesSent = function(bytesSent) {
-      WebSocket.prototype._handleBytesSent.call(self, bytesSent);
+    var bridge = {
+      _handleOpen: function(protocol, extensions) {
+        handleOpen(self, protocol, extensions);
+      },
+      _handleMessage: function(data) {
+        handleMessage(self, data);
+      },
+      _handleClose: function(code, reason, wasClean) {
+        handleClose(self, code, reason, wasClean);
+      },
+      _handleError: function(message) {
+        handleError(self, message);
+      },
+      _handleBytesSent: function(bytesSent) {
+        handleBytesSent(self, bytesSent);
+      }
     };
     var protocolList = Array.isArray(protocols) ? protocols.join(',') : (protocols || '');
-    var id = g.__exactWsConnect(this.url, String(protocolList), this);
-    this._socketId = typeof id === 'number' ? id : -1;
-    if (this._socketId < 0) {
-      this.readyState = WebSocket.CLOSED;
+    var id = exactWsConnect(state.url, String(protocolList), bridge);
+    state.socketId = typeof id === 'number' ? id : -1;
+    if (state.socketId < 0) {
+      state.readyState = WebSocket.CLOSED;
     }
   }
 
@@ -464,50 +707,103 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
   WebSocket.prototype.CLOSING = 2;
   WebSocket.prototype.CLOSED = 3;
 
-  WebSocket.prototype._handleOpen = function(protocol, extensions) {
-    // A close() racing the end of the async handshake must not resurrect
-    // the socket (ENG-23469).
-    if (this.readyState !== WebSocket.CONNECTING) return;
-    this.readyState = WebSocket.OPEN;
-    this.protocol = protocol || '';
-    this.extensions = extensions || '';
-    if (typeof this.onopen === 'function') this.onopen(makeEvent('open'));
-  };
-  WebSocket.prototype._handleMessage = function(data) {
-    if (typeof this.onmessage === 'function') {
-      this.onmessage(makeEvent('message', { data: data }));
+  Object.defineProperties(WebSocket.prototype, {
+    url: {
+      get: function() { return ownedWindowsWebSocketState(this).url; },
+      enumerable: true,
+      configurable: true
+    },
+    protocol: {
+      get: function() { return ownedWindowsWebSocketState(this).protocol; },
+      enumerable: true,
+      configurable: true
+    },
+    extensions: {
+      get: function() { return ownedWindowsWebSocketState(this).extensions; },
+      enumerable: true,
+      configurable: true
+    },
+    readyState: {
+      get: function() { return ownedWindowsWebSocketState(this).readyState; },
+      enumerable: true,
+      configurable: true
+    },
+    bufferedAmount: {
+      get: function() { return ownedWindowsWebSocketState(this).bufferedAmount; },
+      enumerable: true,
+      configurable: true
+    },
+    binaryType: {
+      get: function() { return ownedWindowsWebSocketState(this).binaryType; },
+      set: function(value) {
+        if (value === 'blob' || value === 'arraybuffer') {
+          ownedWindowsWebSocketState(this).binaryType = value;
+        }
+      },
+      enumerable: true,
+      configurable: true
+    },
+    onopen: {
+      get: function() { return ownedWindowsWebSocketState(this).onopen; },
+      set: function(value) { ownedWindowsWebSocketState(this).onopen = typeof value === 'function' ? value : null; },
+      enumerable: true,
+      configurable: true
+    },
+    onmessage: {
+      get: function() { return ownedWindowsWebSocketState(this).onmessage; },
+      set: function(value) { ownedWindowsWebSocketState(this).onmessage = typeof value === 'function' ? value : null; },
+      enumerable: true,
+      configurable: true
+    },
+    onerror: {
+      get: function() { return ownedWindowsWebSocketState(this).onerror; },
+      set: function(value) { ownedWindowsWebSocketState(this).onerror = typeof value === 'function' ? value : null; },
+      enumerable: true,
+      configurable: true
+    },
+    onclose: {
+      get: function() { return ownedWindowsWebSocketState(this).onclose; },
+      set: function(value) { ownedWindowsWebSocketState(this).onclose = typeof value === 'function' ? value : null; },
+      enumerable: true,
+      configurable: true
     }
-  };
-  WebSocket.prototype._handleClose = function(code, reason, wasClean) {
-    this.readyState = WebSocket.CLOSED;
-    if (typeof this.onclose === 'function') {
-      this.onclose(makeEvent('close', {
-        code: code || 1005,
-        reason: reason || '',
-        wasClean: !!wasClean
-      }));
-    }
-  };
-  WebSocket.prototype._handleError = function(message) {
-    if (typeof this.onerror === 'function') {
-      this.onerror(makeEvent('error', { message: message || 'WebSocket error' }));
-    }
-  };
-  WebSocket.prototype._handleBytesSent = function(bytesSent) {
-    this.bufferedAmount = Math.max(0, this.bufferedAmount - (bytesSent || 0));
-  };
+  });
+
   WebSocket.prototype.send = function(data) {
-    if (this.readyState !== WebSocket.OPEN) {
+    var state = ownedWindowsWebSocketState(this);
+    if (state.readyState === WebSocket.CONNECTING) {
       throw new Error('WebSocket is not open');
     }
-    if (typeof data === 'string') this.bufferedAmount += data.length;
-    else if (data && typeof data.byteLength === 'number') this.bufferedAmount += data.byteLength;
-    g.__exactWsSend(this._socketId, data);
+    if (state.readyState !== WebSocket.OPEN) return;
+    // Authenticate before inspecting caller-controlled data or reserving
+    // bufferedAmount. An unsupported payload reaches the shared native owner
+    // gate but never native_ws_send.
+    exactWsSend(state.socketId, undefined);
+    var bytes = 0;
+    if (typeof data === 'string') bytes = data.length;
+    else if (data && typeof data.byteLength === 'number') bytes = data.byteLength;
+    state.bufferedAmount += bytes;
+    try {
+      exactWsSend(state.socketId, data);
+    } catch (error) {
+      state.bufferedAmount = Math.max(0, state.bufferedAmount - bytes);
+      throw error;
+    }
   };
   WebSocket.prototype.close = function(code, reason) {
-    if (this.readyState === WebSocket.CLOSED || this.readyState === WebSocket.CLOSING) return;
-    this.readyState = WebSocket.CLOSING;
-    g.__exactWsClose(this._socketId, code || 1005, reason || '');
+    var state = ownedWindowsWebSocketState(this);
+    if (state.readyState === WebSocket.CLOSED || state.readyState === WebSocket.CLOSING) return;
+    // @ref LLP 0021#handles-dynamic-authority-and-generations — the native
+    // call is the strict owner check. Commit terminal JS state only after it
+    // succeeds so a denied retained-wrapper call leaves the owner a retry.
+    exactWsClose(
+      state.socketId,
+      code == null ? 1005 : code,
+      reason == null ? '' : String(reason)
+    );
+    if (state.readyState !== WebSocket.CLOSED) {
+      state.readyState = WebSocket.CLOSING;
+    }
   };
 
   Object.defineProperty(g, 'WebSocket', {

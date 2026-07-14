@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'fs/promises';
 import path from 'path';
+import { createHash } from 'crypto';
 import {
   createRolldownConfig,
   runtimeImportMetaDefine,
@@ -49,6 +50,10 @@ for (let i = 0; i < args.length; i++) {
     // compiles into its own Domain at load time, giving bundled apps
     // per-package frame attribution (not just the unbundled path).
     opts.perPackageChunks = true;
+  } else if (arg === '--cache-manifest') {
+    // Runtime generated-code cache: bind graph inputs and outputs by digest.
+    // Build-time vendoring does not need or commit this sidecar.
+    opts.cacheManifest = true;
   }
 }
 
@@ -59,8 +64,244 @@ if (!opts.entry || !opts.out) {
 
 const entry = path.resolve(process.cwd(), opts.entry);
 const out = path.resolve(process.cwd(), opts.out);
+const utf8Compare = (left, right) =>
+  Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
+const digestFile = async (file) =>
+  createHash('sha256').update(await fs.readFile(file)).digest('hex');
+const missingDigest = createHash('sha256').update('missing').digest('hex');
+const metadataNames = [
+  'package.json', 'bun.lock', 'bun.lockb', 'package-lock.json',
+  'pnpm-lock.yaml', 'yarn.lock', 'tsconfig.json', 'jsconfig.json',
+];
+const directoryDigest = async (directory) => {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const rows = [];
+  for (const item of entries) {
+    const kind = item.isSymbolicLink() ? 'l' : item.isDirectory() ? 'd' : item.isFile() ? 'f' : 'o';
+    let target = '';
+    if (kind === 'l') target = await fs.readlink(path.join(directory, item.name));
+    rows.push({ name: item.name, row: `${kind}\0${item.name}\0${target}\n` });
+  }
+  rows.sort((a, b) => utf8Compare(a.name, b.name));
+  return createHash('sha256').update(rows.map((item) => item.row).join('')).digest('hex');
+};
 
-const bundle = await rolldown(createRolldownConfig({
+const resolutionInputMap = new Map();
+const resolutionInputTasks = new Map();
+const rememberResolutionInput = (record) => {
+  // First observation wins: later hooks run after a resolver decision and
+  // must never bless a mutation that changed that decision's precedence.
+  if (!resolutionInputMap.has(record.path)) resolutionInputMap.set(record.path, record);
+};
+const snapshotPathState = async (candidate) => {
+  const absolute = path.resolve(candidate);
+  // Rolldown may resolve thousands of imports from the same directory. The
+  // first pre-resolution observation is the security witness; recomputing its
+  // full directory/file digest for every import is both redundant and O(graph
+  // size × directory size). Reserve the path before awaiting so concurrent
+  // resolve hooks cannot duplicate that work or replace the first witness.
+  if (resolutionInputMap.has(absolute)) return;
+  const inFlight = resolutionInputTasks.get(absolute);
+  if (inFlight) return inFlight;
+  const capture = (async () => {
+    let record;
+    try {
+      const stat = await fs.lstat(absolute);
+      if (stat.isSymbolicLink()) {
+        record = {
+          kind: 'symlink',
+          path: absolute,
+          sha256: createHash('sha256').update(await fs.readlink(absolute)).digest('hex'),
+        };
+      } else if (stat.isDirectory()) {
+        record = { kind: 'directory', path: absolute, sha256: await directoryDigest(absolute) };
+      } else if (stat.isFile()) {
+        record = { kind: 'file', path: absolute, sha256: await digestFile(absolute) };
+      } else {
+        record = { kind: 'missing', path: absolute, sha256: missingDigest };
+      }
+    } catch {
+      record = { kind: 'missing', path: absolute, sha256: missingDigest };
+    }
+    resolutionInputMap.set(absolute, record);
+  })();
+  resolutionInputTasks.set(absolute, capture);
+  try {
+    await capture;
+  } finally {
+    resolutionInputTasks.delete(absolute);
+  }
+};
+const checkedSymlinkComponents = new Set();
+const symlinkComponentTasks = new Map();
+const addSymlinkComponents = async (file) => {
+  const absolute = path.resolve(file);
+  const parsed = path.parse(absolute);
+  let current = parsed.root;
+  for (const component of absolute.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, component);
+    if (checkedSymlinkComponents.has(current)) continue;
+    const existing = symlinkComponentTasks.get(current);
+    if (existing) {
+      await existing;
+      continue;
+    }
+    const componentPath = current;
+    const capture = (async () => {
+      try {
+        const stat = await fs.lstat(componentPath);
+        if (stat.isSymbolicLink()) {
+          rememberResolutionInput({
+            kind: 'symlink',
+            path: componentPath,
+            sha256: createHash('sha256').update(await fs.readlink(componentPath)).digest('hex'),
+          });
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    symlinkComponentTasks.set(componentPath, capture);
+    const exists = await capture;
+    symlinkComponentTasks.delete(componentPath);
+    checkedSymlinkComponents.add(componentPath);
+    if (!exists) break;
+  }
+};
+const extensionCandidates = ['', '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json'];
+const snapshotFileResolutionCandidates = async (candidate) => {
+  await snapshotPathState(path.dirname(candidate));
+  for (const extension of extensionCandidates) {
+    await snapshotPathState(candidate + extension);
+    if (extension) await snapshotPathState(path.join(candidate, 'index' + extension));
+  }
+  await addSymlinkComponents(candidate);
+};
+const snapshotResolutionRequest = async (source, importer) => {
+  if (typeof source !== 'string' || source.startsWith('\0')) return;
+  const importerPath = importer && !importer.startsWith('\0') ? importer : entry;
+  const base = path.dirname(importerPath);
+  await addSymlinkComponents(importerPath);
+
+  // Resolver configuration can live above a nested VCS/project boundary (for
+  // example a workspace package with a hoisted package.json/tsconfig). Record
+  // each exact metadata candidate through the filesystem root. Do not hash
+  // whole ancestor directories: unrelated files in $HOME or / must not churn
+  // an otherwise valid bundle cache.
+  for (let current = base, depth = 0; depth < 64; depth++) {
+    for (const name of metadataNames) await snapshotPathState(path.join(current, name));
+    if (path.dirname(current) === current) break;
+    current = path.dirname(current);
+  }
+
+  if (source.startsWith('.') || path.isAbsolute(source)) {
+    const candidate = path.isAbsolute(source) ? source : path.resolve(base, source);
+    await snapshotFileResolutionCandidates(candidate);
+    return;
+  }
+
+  const parts = source.split('/');
+  const packageName = source.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  const packageSubpathParts = source.startsWith('@') ? parts.slice(2) : parts.slice(1);
+  // Node package lookup does not stop at `.git` or the nearest package
+  // metadata boundary. Witness every ancestor node_modules candidate so a
+  // newly-created, closer hoisted package cannot make an old bundle resolve to
+  // different code while all of its previous positive dependencies remain.
+  for (let current = base, depth = 0; depth < 64; depth++) {
+    const nodeModules = path.join(current, 'node_modules');
+    const packageRoot = path.join(nodeModules, packageName);
+    await snapshotPathState(nodeModules);
+    await snapshotPathState(packageRoot);
+    await snapshotPathState(path.join(packageRoot, 'package.json'));
+    if (packageSubpathParts.length > 0) {
+      const subpath = path.resolve(packageRoot, ...packageSubpathParts);
+      // Reject pkg/../outside-style escape spellings rather than using an
+      // import string to make the witness collector scan unrelated paths.
+      if (subpath === packageRoot || subpath.startsWith(packageRoot + path.sep)) {
+        await snapshotFileResolutionCandidates(subpath);
+      }
+    } else {
+      // package.json main/exports is itself digest-bound above; witness the
+      // legacy/default index extension precedence as well.
+      await snapshotFileResolutionCandidates(path.join(packageRoot, 'index'));
+    }
+    if (path.dirname(current) === current) break;
+    current = path.dirname(current);
+  }
+};
+
+const digestResolutionInput = async (record) => {
+  try {
+    const stat = await fs.lstat(record.path);
+    if (record.kind === 'missing') return null;
+    if (record.kind === 'symlink' && stat.isSymbolicLink()) {
+      return createHash('sha256').update(await fs.readlink(record.path)).digest('hex');
+    }
+    if (record.kind === 'directory' && stat.isDirectory()) return directoryDigest(record.path);
+    if (record.kind === 'file' && stat.isFile()) return digestFile(record.path);
+    return null;
+  } catch {
+    return record.kind === 'missing' ? missingDigest : null;
+  }
+};
+
+// Capture the exact pre-transform source text Rolldown hands to its plugin
+// pipeline. The cache manifest is built from these bytes, not a post-build
+// reread that could authenticate old output against a concurrently edited file.
+const capturedModules = new Map();
+let captureBarrierUsed = false;
+const sourceCapturePlugin = {
+  name: 'ibex-cache-source-capture',
+  async resolveId(source, importer) {
+    if (opts.cacheManifest) await snapshotResolutionRequest(source, importer);
+    // Resolve through the remaining plugin/default resolver exactly once and
+    // return that decision. Capturing the selected module's parent directory
+    // closes package.json main/exports remapping holes that cannot be inferred
+    // from the bare specifier (for example pkg -> ./lib/entry). A new
+    // higher-precedence sibling then changes this first-observed witness even
+    // though the selected file and package.json bytes are unchanged.
+    const resolved = await this.resolve(source, importer, { skipSelf: true });
+    const resolvedId = typeof resolved === 'string' ? resolved : resolved?.id;
+    if (opts.cacheManifest && resolved && !resolved.external &&
+        typeof resolvedId === 'string' && !resolvedId.startsWith('\0') &&
+        path.isAbsolute(resolvedId)) {
+      await snapshotPathState(path.dirname(resolvedId));
+      await snapshotPathState(resolvedId);
+      await addSymlinkComponents(resolvedId);
+    }
+    return resolved;
+  },
+  async transform(code, id) {
+    if (!id.startsWith('\0') && path.isAbsolute(id)) {
+      const real = await fs.realpath(id);
+      capturedModules.set(real, {
+        id,
+        code,
+        sha256: createHash('sha256').update(code).digest('hex'),
+      });
+      const barrierEntry = process.env.IBEX_TEST_BUNDLE_BARRIER_ENTRY;
+      const barrierDir = process.env.IBEX_TEST_BUNDLE_BARRIER_DIR;
+      if (!captureBarrierUsed && barrierEntry && barrierDir &&
+          real === await fs.realpath(barrierEntry)) {
+        captureBarrierUsed = true;
+        await fs.mkdir(barrierDir, { recursive: true });
+        await fs.writeFile(path.join(barrierDir, 'captured'), '');
+        const deadline = Date.now() + 10000;
+        while (!(await (async () => {
+          try { await fs.stat(path.join(barrierDir, 'release')); return true; }
+          catch { return false; }
+        })())) {
+          if (Date.now() >= deadline) throw new Error('bundle capture test barrier timed out');
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      }
+    }
+    return null;
+  },
+};
+if (opts.cacheManifest) await snapshotResolutionRequest(entry, undefined);
+const rolldownConfig = createRolldownConfig({
   input: entry,
   // Disable tree-shaking so that calls with observable side effects
   // (e.g. URL.canParse() throwing on missing args, assert.throws callbacks)
@@ -71,7 +312,9 @@ const bundle = await rolldown(createRolldownConfig({
   keepRelativeCjsExternal: true,
   define: runtimeImportMetaDefine,
   compartments: opts.compartments || false,
-}));
+});
+rolldownConfig.plugins.unshift(sourceCapturePlugin);
+const bundle = await rolldown(rolldownConfig);
 
 // @ref LLP 0013#mechanism-3 — per-package chunking. Group each npm package's
 // modules into a chunk named after the package; the entry chunk requires them,
@@ -119,27 +362,76 @@ if (typeof bundle.close === 'function') {
   await bundle.close();
 }
 
-// Emit a dependency manifest next to the output so the runtime's bundle
-// cache can invalidate when any module in the graph changes, not just the
-// entry file. Real file paths only —
-// virtual modules (\0-prefixed) and externals are skipped.
-try {
-  const moduleIds = new Set([entry]);
+// Emit a content-addressed dependency/output manifest next to the output.
+// Cache identity never trusts mtime or length: both every source in the graph
+// and every published output are SHA-256 bound. Real file paths only — virtual
+// modules (\0-prefixed) and externals are skipped.
+if (opts.cacheManifest) {
+  const moduleIds = new Set([await fs.realpath(entry)]);
   for (const item of writeResult?.output ?? []) {
     if (item?.type === 'chunk' && item.modules) {
       for (const id of Object.keys(item.modules)) {
         if (!id.startsWith('\0') && path.isAbsolute(id)) {
-          moduleIds.add(id);
+          moduleIds.add(await fs.realpath(id));
         }
       }
     }
   }
+  const deps = [];
+  for (const modulePath of [...moduleIds].sort(utf8Compare)) {
+    const captured = capturedModules.get(modulePath);
+    if (!captured) {
+      throw new Error(`cache source capture missed ${modulePath}`);
+    }
+    const currentCode = await fs.readFile(modulePath, 'utf8');
+    const currentDigest = createHash('sha256').update(currentCode).digest('hex');
+    if (currentDigest !== captured.sha256) {
+      throw new Error(`source changed while bundling: ${modulePath}`);
+    }
+    deps.push({ path: modulePath, sha256: captured.sha256 });
+  }
+
+  for (const record of resolutionInputMap.values()) {
+    const currentDigest = await digestResolutionInput(record);
+    if (currentDigest !== record.sha256) {
+      throw new Error(`module resolution input changed while bundling: ${record.path}`);
+    }
+  }
+  const resolutionInputs = [...resolutionInputMap.values()].sort((a, b) => {
+    const byPath = utf8Compare(a.path, b.path);
+    return byPath || utf8Compare(a.kind, b.kind);
+  });
+  const resolutionDigest = createHash('sha256')
+    .update(JSON.stringify(resolutionInputs))
+    .digest('hex');
+  const outputs = [];
+  const outputNames = new Set([path.basename(out)]);
+  for (const item of writeResult?.output ?? []) {
+    if (typeof item?.fileName === 'string') outputNames.add(item.fileName);
+  }
+  for (const outputName of outputNames) {
+    const outputPath = path.join(outDir, outputName);
+    outputs.push({ path: outputName, sha256: await digestFile(outputPath) });
+  }
+  outputs.sort((a, b) => utf8Compare(a.path, b.path));
+  const graphDigest = createHash('sha256')
+    .update(JSON.stringify(deps))
+    .digest('hex');
+  const manifestPath = `${out}.deps.json`;
+  const manifestTmp = `${manifestPath}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(
-    `${out}.deps.json`,
-    JSON.stringify({ version: 1, entry, deps: [...moduleIds].sort() })
+    manifestTmp,
+    JSON.stringify({
+      version: 3,
+      entry: await fs.realpath(entry),
+      resolutionDigest,
+      graphDigest,
+      deps,
+      resolutionInputs,
+      outputs,
+    })
   );
-} catch (err) {
-  console.error(`warning: failed to write bundle deps manifest: ${err?.message || err}`);
+  await fs.rename(manifestTmp, manifestPath);
 }
 
 if (opts.lowerClasses) {

@@ -33,6 +33,7 @@ extern "C" char** environ;
 #endif
 
 void installProcessSetup(ExactHermesRuntime* handle) {
+  requireArmedStartupStage(handle, "process-setup");
   auto& rt = *handle->runtime;
   const auto performanceStart = std::chrono::steady_clock::now();
   const double performanceTimeOriginMs =
@@ -68,7 +69,8 @@ void installProcessSetup(ExactHermesRuntime* handle) {
           }
         }
         handle->next_tick.push_back(
-            NextTickEntry{currentPrincipalId(), std::move(callback), std::move(callbackArgs)});
+            NextTickEntry{currentPrincipalId(), exactCollectTypedPrincipalStack(),
+                          std::move(callback), std::move(callbackArgs)});
         return facebook::jsi::Value::undefined();
       });
   processObj.setProperty(rt, "nextTick", std::move(nextTickFn));
@@ -235,6 +237,7 @@ void installProcessSetup(ExactHermesRuntime* handle) {
 )EXACT_MARKER_JS");
     rt.evaluateJavaScript(markerBuffer, "<process-exit-marker>");
   } catch (...) {
+    if (handle->armed) throw;
   }
 
   auto makeStream = [&rt](int fd) {
@@ -532,10 +535,14 @@ void installProcessSetup(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetProcessRSS"),
       0,
-      [getResidentSetSize](facebook::jsi::Runtime&,
+      [getResidentSetSize](facebook::jsi::Runtime& runtime,
                            const facebook::jsi::Value&,
                            const facebook::jsi::Value*,
                            size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime,
+            ExactSystemInfoSurface::ProcessRss,
+            ExactSystemInfoName::Memory);
         return facebook::jsi::Value(static_cast<double>(getResidentSetSize()));
       });
   rt.global().setProperty(rt, "__exactGetProcessRSS", std::move(rssFn));
@@ -734,9 +741,9 @@ void installProcessSetup(ExactHermesRuntime* handle) {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(streamEnhanceJS);
       rt.evaluateJavaScript(buffer, "<stream-enhance>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, (std::string("Stream enhance error: ") + err.getMessage()).c_str());
+      reportStartupFailure(handle, "Stream enhance", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(1, (std::string("Stream enhance error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "Stream enhance", err.what());
     }
 #endif
   }
@@ -803,11 +810,9 @@ void installProcessSetup(ExactHermesRuntime* handle) {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(streamStabilityPatchJS);
       rt.evaluateJavaScript(buffer, "<stream-stability-patch>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(
-          1, (std::string("Stream stability patch error: ") + err.getMessage()).c_str());
+      reportStartupFailure(handle, "Stream stability patch", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(
-          1, (std::string("Stream stability patch error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "Stream stability patch", err.what());
     }
   }
 }

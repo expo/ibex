@@ -18,6 +18,11 @@ use std::os::raw::{c_char, c_int};
 /// static archive that defines the hook — is linked into this test binary.
 fn ensure_runtime_linked() {
     let _ = std::hint::black_box(ibex_runtime::runtime_cache_dir as *const () as usize);
+    // Pull the library-owned notify symbol into this link unit as well. The
+    // crypto test hook lives in the native archive alongside code that calls
+    // this callback, and `cli-notify` no longer supplies a binary-owned copy.
+    let _ =
+        std::hint::black_box(ibex_runtime::engine::ex_hermes_notify_callback as extern "C" fn());
 }
 
 extern "C" {

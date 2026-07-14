@@ -1,5 +1,0 @@
-{
-  "mode": "enforce",
-  "allow": ["fs", "crypto", "time", "env", "os"],
-  "ceiling": ["network:fetch"]
-}

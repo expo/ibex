@@ -13,7 +13,24 @@
 **Revised:** 2026-07-05 (ENG-22903..ENG-22909 native hardening: DNS resolution is a `network:resolve` capability, raw WebSocket ids and async callbacks carry owner/principal metadata, host allow-all is queried live after host replacement, child-process `fd:N` stdio redirects validate fd ownership before fork, native ArrayBuffer-view consumers share bounds checks, HTTP waits are worker-bounded, and fetch raw headers are validated at the C++ boundary.)
 **Revised:** 2026-07-07 (document drift cleanup: canonical SecurityMode is `Permissive | Audit | Enforce`; historical `Capability`/`Strict` aliases collapse to Enforce)
 **Revised:** 2026-07-10 (ENG-24144 factual drift repair: manifest count is 57 after `network:resolve`; package-selector precedence and enforced host fences recorded; typed successor contract is LLP 0021)
+**Revised:** 2026-07-12 (ENG-24263 retirement reconciliation: the legacy binary policy suite and its string-policy fixtures were removed; every former case is mapped to a live named revision-2 test, production closure, or an explicitly migrated compatibility regression in `tests/fixtures/capsec-rev2/llp0013-retirement-map.json`)
+**Revised:** 2026-07-12 (ENG-24463 isolates post-bootstrap global property bindings and existence: native bootstrap installs a closure-private registry, the selected runtime path performs a required one-shot baseline refresh, package reads resolve against that detached view, and package lookup/binding failures refuse rather than falling back to the real global; ENG-24526 adds exact-importer lexical scope imports and strict flat chunks; shared nested descriptor values and all-free flat rewriting remain explicit follow-ups ENG-24514 and ENG-24527)
+**Revised:** 2026-07-13 (`allowed_hosts` remains a hard outbound fence but no longer conflates remote-host policy with local `network:listen` authority — ENG-24285)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
+
+> **Current implementation (2026-07-12):** LLP 0021 supersedes this RFC's
+> legacy string-policy, mode-selection, and rollout mechanics. Ordinary
+> execution is typed, armed, enforce-only, and structurally locked down. The
+> old permissive/audit flags and `PolicyFile` passages below are retained only
+> as historical rationale; they are not operator guidance. Foreground diagnosis
+> is `ibex capsec audit`. No exact target is currently advertised complete, so
+> ordinary production execution refuses before project code; LLP 0021 §WP10
+> records `aarch64-apple-darwin` only as a candidate pending complete evidence.
+> Named `tests/llp0013_compartments.rs` cases and `tests/fixtures/llp0013/`
+> paths later in this document describe the retired implementation history.
+> The checked retirement map above is the authoritative join from every old
+> case to the current authenticated callback, typed semantic, armed-engine,
+> production-closure, or migrated diagnostic test that replaces it.
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
 > (`IBEX_HERMES_SOURCE_COMMIT` on the `260318099.0.0-stable` release branch
@@ -159,8 +176,9 @@ exists yet (this section serves as the interim record):
   LLP 0006 §"Capability-gated host").
 - **Boundary fences**: the historical `SecurityMode::Capability`/`Strict`
   split has been collapsed into canonical `Enforce` (the old strings remain
-  aliases). `HostConfig.root_dir` and `allowed_hosts` are now hard host-boundary
-  fences in every mode and cannot be widened by policy
+  aliases). `HostConfig.root_dir` and the outbound-only `allowed_hosts` remote
+  host allowlist are now hard host-boundary fences in every mode and cannot be
+  widened by policy; `network:listen` remains a separate policy decision
   `[observed]` (`src/host/capability.rs`).
 
 ## Threat model
@@ -235,20 +253,31 @@ policy's endowments: the safe shared surface plus whatever powerful objects
 (attenuated `fs`, scoped `fetch`) the manifest grants. Bare-global resolution
 and `globalThis` inside that package's code resolve against it.
 
-Two implementations, one semantics:
+Two delivery paths target the same resolution semantics, but they do not yet
+provide the same independent security boundary:
 
 - **Build-time (Phase 1, no fork)**: the bundler rewrites free global
   references per package to a compartment scope object. Ibex owns the whole
   transform pipeline (LLP 0007; Oxc transforms in
   `packages/ibex-devtools`), so this is a transform plugin, not a runtime
   `with`+Proxy shim. LavaMoat ships the equivalent as bundler plugins
-  `[inferred: external]`. The rewrite hoists the registry lookup once per
-  module (`var __ibexC_* = __compartments["pkg"];`, inserted after the
-  directive prologue so `"use strict"` survives) and routes every rewritten
-  access through that binding, so a powerful-global read pays one compartment
-  Proxy trap instead of registry-trap + compartment-trap. Safe because the
-  registry get trap memoizes the per-package compartment — stable identity,
-  no other observable effect (ENG-22644).
+  `[inferred: external]`. The plugin now generates an exact-importer-bound
+  virtual module which exports only that module's package compartment, then
+  routes each configured free-global access through a hygienic lexical import.
+  Resolver checks reject copied, unknown, and cross-module scope imports;
+  authored `__compartments` reads route through the scoped view; and every
+  package-bearing output chunk is strict so sloppy-function `this` cannot
+  recover the realm global (ENG-24526). The virtual module performs the
+  registry lookup once, retaining the ENG-22644 one-compartment-trap steady
+  state.
+
+  This transform still recognizes a finite configured global set rather than
+  every lexically unbound identifier. An arbitrary name such as a post-arming
+  `apiKey` therefore remains a realm-global lookup when a package is collapsed
+  into a flat root Domain. All-free rewriting, including CJS implicit bindings
+  and free-call receiver semantics, is tracked by ENG-24527. Until that lands,
+  the flat transform is compatibility routing and defense in depth; the native
+  per-package Domain below is the production property-binding boundary.
 - **Engine-native (Phase 3, fork)**: global resolution is already a single
   interpreter case — `CASE(GetGlobalObject)` reads `runtime.getGlobal()` in
   one place `[observed]` (`hermes:lib/VM/Interpreter.cpp:1842-1844`;
@@ -609,8 +638,9 @@ each point; anything stronger is overclaiming (Risk 3):
   *dynamic-code escape*, *sloppy-`this` escape*, prototype patching,
   identity forgery, host tampering. This suite is the durable asset the
   fork phases and every future rebase are measured against.
-- **Deliverable**: `ibex run --capsec audit` (or equivalent); compat report
-  including the strict-mode and direct-eval semantic deltas.
+- **Historical deliverable**: the rollout used an audit selector. The current
+  equivalent is the non-durable `ibex capsec audit` command; compat reports
+  include lockdown and direct-eval semantic deltas.
 - **Kill criterion**: unmanageable breakage across top dependencies →
   remain audit-only indefinitely (still valuable: honest attribution +
   drift detection) and do not start fork phases.
@@ -1224,16 +1254,56 @@ acceptance criterion (ENG-23112, finding L). Regression:
 
 #### Mechanism 2
 
-Per-package compartment globals, two implementations of one semantics:
+Per-package compartment globals have two delivery paths. The engine-native
+Domain path is the production security boundary; the build-time rewrite is
+currently compatibility routing and defense in depth on top of it:
 
 - **Build-time (Phase 1)**: the rewrite (`rewriteFreeGlobals` /
   `createCompartmentGlobalsPlugin` in
   `packages/ibex-devtools/src/scripts/transforms.mjs`, wired through
   `rolldown-bundle.mjs` and gated by `run_bundler`) routes each package's bare
   globals to `__compartments[<pkg>]`. The runtime registry
-  (`<compartment-registry>` in `hermes_runtime.cc`) withholds powerful globals
-  unless endowed (`IBEX_ENDOW` / `globalThis.__ibexEndowments`). End-to-end: a
-  compromised transitive dependency cannot read `process.env` under `--lockdown`.
+  (`<compartment-registry>` in `hermes_runtime.cc`) installs a detached
+  descriptor baseline and prototype-chain copy during native bootstrap. A
+  required one-shot hook refreshes that baseline only after the selected
+  embedded, disk-fallback, preinstalled, or Windows-minimal runtime path has
+  finished; a non-configurable final marker makes the handshake fail-closed and
+  idempotent. Own lazy accessors initialize once against the real global and
+  memoize their value, while every global alias (including `window`) resolves to
+  the requesting package's compartment rather than the realm global.
+
+  The trusted loader holds the root registry view. Through the native Domain
+  path, a package sees only a read-only view scoped to its exact identity, so
+  it cannot retrieve, poison,
+  delete, enumerate, or freeze away another package's compartment. When the
+  registry is armed, missing lookup state or a failed native Domain bind refuses
+  module execution rather than silently using the real global. Each compartment
+  otherwise has a private mutable target whose reads resolve only against the
+  final baseline. Prompt/session declarations, sloppy assignments, later
+  top-level bindings, and replaced builtin slots therefore do not cross the
+  boundary; powerful baseline bindings remain withheld unless endowed
+  (`IBEX_ENDOW` / `globalThis.__ibexEndowments`), and writes/reflection remain
+  package-local.
+
+  This is a **property-binding and existence boundary**, not a claim that every
+  object reachable as a captured descriptor value is deep-isolated. Shared
+  values such as `console` or `crypto` can still carry nested mutable state when
+  lockdown has not frozen or replaced them; per-principal facades/hardening and
+  root/package/sibling mutation tests are tracked by ENG-24514. End-to-end here:
+  a compromised dependency cannot acquire `process` or a post-finalization root
+  session binding through its compartment.
+
+  The build-time rewrite no longer reads a source-shadowable root-registry
+  identifier. Its exact-importer-bound virtual module exports only the caller's
+  package compartment into a hygienic lexical import; authored raw-registry
+  reads route through that compartment's scoped registry, cross-scope imports
+  fail the build, and package-bearing chunks are emitted strict (ENG-24526).
+  Flat output nevertheless remains defense in depth rather than the production
+  boundary: the transform's finite global set does not yet route arbitrary
+  unbound names such as a post-arming `apiKey`. ENG-24527 tracks all-free
+  rewriting and its CJS/call-semantics constraints. Production package modules
+  execute inside native Domains, where every global resolution is scoped
+  independently of the finite transform.
 - **Engine-native (Phase 3) — landed (patch 0004).** The interpreter resolves
   `GetGlobalObject` and sloppy-`this` (`CoerceThisNS`/`LoadThisNS`) through the
   executing frame's `Domain` compartment global (`globalForFrame`), so a
@@ -1401,10 +1471,11 @@ sealed.
 
 #### Phase 1
 
-Audit mode (`--capsec audit`) logs would-deny decisions and prints a would-deny
-report at shutdown while letting operations proceed; lockdown + compartments as
-above; the conformance/red-team suite (`tests/llp0013_compartments.rs` +
-`tests/fixtures/llp0013/`) is the durable asset. **Real-global inventory closed:**
+Historically, audit mode (`--capsec audit`) logged would-deny decisions while
+letting operations proceed, and the LLP 0013 binary/fixture corpus was the
+durable red-team asset. LLP 0021 retired that string-policy plane and corpus;
+the loaded-engine conformance batches plus the checked retirement map are now
+the durable assets. **Real-global inventory closed:**
 under lockdown/compartment mode the lazy `__exactEnsure*` installers are
 eager-run then deleted before the intrinsics freeze (so no host surface can
 appear on a frozen global mid-run), and the ambient self-grant channel

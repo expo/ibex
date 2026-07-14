@@ -62,6 +62,13 @@ struct WebSocketEntry {
     void* context = nullptr;
 
     std::mutex io_mutex;
+    // Guards the callback context's snapshot+retain against teardown's
+    // null+release. Runtime destruction can call native_ws_destroy on the JS
+    // thread while the I/O thread is about to deliver a callback; accessing
+    // the raw pointer without this lock can retain it after its final release.
+    // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — callback
+    // retain/release pairs must stay inside the transferred owner lifetime
+    std::mutex context_mutex;
     std::queue<OutboundMessage> outbound;
     // Client close request, written by the JS thread under io_mutex and
     // consumed by the io thread once close_requested is observed.
@@ -76,6 +83,18 @@ struct WebSocketEntry {
 static std::mutex g_ws_mutex;
 static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> g_ws_connections;
 static std::atomic<uint32_t> g_next_ws_id{1};
+
+static uint32_t allocate_ws_id() {
+    uint32_t next = g_next_ws_id.load(std::memory_order_relaxed);
+    while (next != 0) {
+        const uint32_t successor = next + 1; // unsigned wrap yields terminal 0
+        if (g_next_ws_id.compare_exchange_weak(
+                next, successor, std::memory_order_relaxed, std::memory_order_relaxed)) {
+            return next;
+        }
+    }
+    return 0;
+}
 static std::once_flag g_curl_global_init_once;
 
 static void ensure_curl_global_init() {
@@ -233,27 +252,63 @@ static size_t handshake_header_callback(char* buffer, size_t size, size_t nitems
     return length;
 }
 
-static void call_error(const std::shared_ptr<WebSocketEntry>& entry, const char* message) {
-    if (!entry || !entry->error_cb || !entry->context) {
-        return;
+// Snapshot and retain the callback context atomically against
+// release_context. Callers must balance a non-null return with
+// native_ws_release_context.
+static void* acquire_context(const std::shared_ptr<WebSocketEntry>& entry) {
+    if (!entry) {
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> lock(entry->context_mutex);
+    if (!entry->context) {
+        return nullptr;
     }
     native_ws_retain_context(entry->context);
-    entry->error_cb(entry->ws_id, message ? message : "WebSocket error", entry->context);
-    native_ws_release_context(entry->context);
+    return entry->context;
+}
+
+static void release_context(const std::shared_ptr<WebSocketEntry>& entry) {
+    if (!entry) {
+        return;
+    }
+    void* context = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(entry->context_mutex);
+        context = entry->context;
+        entry->context = nullptr;
+    }
+    if (context) {
+        native_ws_release_context(context);
+    }
+}
+
+static void call_error(const std::shared_ptr<WebSocketEntry>& entry, const char* message) {
+    if (!entry || !entry->error_cb) {
+        return;
+    }
+    void* context = acquire_context(entry);
+    if (!context) {
+        return;
+    }
+    entry->error_cb(entry->ws_id, message ? message : "WebSocket error", context);
+    native_ws_release_context(context);
 }
 
 static void call_open(const std::shared_ptr<WebSocketEntry>& entry) {
-    if (!entry || !entry->open_cb || !entry->context) {
+    if (!entry || !entry->open_cb) {
         return;
     }
-    native_ws_retain_context(entry->context);
+    void* context = acquire_context(entry);
+    if (!context) {
+        return;
+    }
     entry->open_cb(
         entry->ws_id,
         entry->selected_protocol.c_str(),
         entry->extensions.c_str(),
-        entry->context
+        context
     );
-    native_ws_release_context(entry->context);
+    native_ws_release_context(context);
 }
 
 static void call_message(
@@ -262,30 +317,39 @@ static void call_message(
     size_t len,
     bool is_text
 ) {
-    if (!entry || !entry->message_cb || !entry->context) {
+    if (!entry || !entry->message_cb) {
         return;
     }
-    native_ws_retain_context(entry->context);
-    entry->message_cb(entry->ws_id, data, len, is_text ? 1 : 0, entry->context);
-    native_ws_release_context(entry->context);
+    void* context = acquire_context(entry);
+    if (!context) {
+        return;
+    }
+    entry->message_cb(entry->ws_id, data, len, is_text ? 1 : 0, context);
+    native_ws_release_context(context);
 }
 
 static void call_bytes_sent(const std::shared_ptr<WebSocketEntry>& entry, size_t bytes_sent) {
-    if (!entry || !entry->bytes_sent_cb || !entry->context) {
+    if (!entry || !entry->bytes_sent_cb) {
         return;
     }
-    native_ws_retain_context(entry->context);
-    entry->bytes_sent_cb(entry->ws_id, bytes_sent, entry->context);
-    native_ws_release_context(entry->context);
+    void* context = acquire_context(entry);
+    if (!context) {
+        return;
+    }
+    entry->bytes_sent_cb(entry->ws_id, bytes_sent, context);
+    native_ws_release_context(context);
 }
 
 static void call_close(const std::shared_ptr<WebSocketEntry>& entry, uint16_t code, const char* reason, int was_clean) {
-    if (!entry || !entry->close_cb || !entry->context) {
+    if (!entry || !entry->close_cb) {
         return;
     }
-    native_ws_retain_context(entry->context);
-    entry->close_cb(entry->ws_id, code, reason ? reason : "", was_clean, entry->context);
-    native_ws_release_context(entry->context);
+    void* context = acquire_context(entry);
+    if (!context) {
+        return;
+    }
+    entry->close_cb(entry->ws_id, code, reason ? reason : "", was_clean, context);
+    native_ws_release_context(context);
 }
 
 // Builds the RFC 6455 5.5.1 CLOSE payload: 2-byte big-endian status code
@@ -317,10 +381,7 @@ static void remove_connection(uint32_t ws_id) {
         return;
     }
     entry->closed.store(true, std::memory_order_relaxed);
-    if (entry->context) {
-        native_ws_release_context(entry->context);
-        entry->context = nullptr;
-    }
+    release_context(entry);
 }
 
 // Runs on the io thread. Performs the blocking DNS/TCP/TLS/upgrade
@@ -693,7 +754,10 @@ extern "C" uint32_t native_ws_connect(
     ensure_curl_global_init();
 
     auto entry = std::make_shared<WebSocketEntry>();
-    entry->ws_id = g_next_ws_id.fetch_add(1, std::memory_order_relaxed);
+    entry->ws_id = allocate_ws_id();
+    if (entry->ws_id == 0) {
+        return 0;
+    }
     entry->url = url;
     entry->protocols = protocols ? protocols : "";
     entry->open_cb = open_cb;
@@ -712,7 +776,9 @@ extern "C" uint32_t native_ws_connect(
 
     {
         std::lock_guard<std::mutex> lock(g_ws_mutex);
-        g_ws_connections[entry->ws_id] = entry;
+        if (!g_ws_connections.emplace(entry->ws_id, entry).second) {
+            return 0;
+        }
     }
 
     // Run the blocking DNS/TCP/TLS/upgrade handshake on the io thread and

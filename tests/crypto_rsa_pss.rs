@@ -25,7 +25,9 @@ use std::os::raw::{c_char, c_int};
 /// otherwise let rustc drop the (apparently unused) rlib, and the hooks would be
 /// reported as undefined at link time.
 fn ensure_runtime_linked() {
-    let _ = std::hint::black_box(ibex_runtime::runtime_cache_dir as usize);
+    let _ = std::hint::black_box(ibex_runtime::runtime_cache_dir as *const () as usize);
+    let _ =
+        std::hint::black_box(ibex_runtime::engine::ex_hermes_notify_callback as extern "C" fn());
 }
 
 extern "C" {

@@ -13,7 +13,7 @@
     "combination": { "const": "conjunction" },
     "context": {
       "type": "object",
-      "required": ["stage", "actor", "constrainedPrincipals"],
+      "required": ["stage", "actor", "constrainedPrincipals", "presentedHandleIds"],
       "properties": {
         "stage": {
           "enum": ["requested", "discovery", "candidate", "commit", "delivery", "repeat", "cleanup"]
@@ -28,6 +28,11 @@
           "items": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/principal"
           }
+        },
+        "presentedHandleIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
         }
       },
       "additionalProperties": false

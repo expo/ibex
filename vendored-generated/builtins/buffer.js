@@ -1547,7 +1547,28 @@ Buffer.prototype = Object.create(Uint8Array.prototype, { constructor: {
 	writable: true,
 	configurable: true
 } });
-for (var _bk in BufferProto) if (Object.prototype.hasOwnProperty.call(BufferProto, _bk)) Buffer.prototype[_bk] = BufferProto[_bk];
+var _defineBufferPrototypeProperty = Object.defineProperty;
+for (var _bk in BufferProto) if (Object.prototype.hasOwnProperty.call(BufferProto, _bk)) {
+	Buffer.prototype[_bk] = BufferProto[_bk];
+	_defineBufferPrototypeProperty(Buffer.prototype, _bk, {
+		value: BufferProto[_bk],
+		writable: true,
+		configurable: true,
+		enumerable: true
+	});
+}
+_defineBufferPrototypeProperty(Buffer.prototype, "toString", {
+	value: BufferProto.toString,
+	writable: true,
+	configurable: true,
+	enumerable: true
+});
+_defineBufferPrototypeProperty(Buffer.prototype, "toLocaleString", {
+	value: BufferProto.toLocaleString,
+	writable: true,
+	configurable: true,
+	enumerable: true
+});
 Object.defineProperty(Buffer.prototype, "parent", {
 	get: function() {
 		if (!this || typeof this !== "object" || !ArrayBuffer.isView(this)) return void 0;

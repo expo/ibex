@@ -97,7 +97,7 @@ fn run_probe(mode: MockMode) -> String {
     std::fs::write(&script, RCODE_PROBE_JS).expect("write script");
 
     let out = Command::new(IBEX)
-        .args(["run", "probe.js"])
+        .args(["capsec", "audit", "probe.js"])
         .current_dir(&dir)
         // Point the DEFAULT native resolver path at the loopback mock server;
         // keep the resolver timing tight so the timeout scenario stays fast.
@@ -167,4 +167,31 @@ fn dns_default_path_unresponsive_server_maps_to_etimeout() {
 fn dns_default_path_txt_answer_still_resolves() {
     let line = run_probe(MockMode::TxtAnswer);
     assert_eq!(line, "dns-rcode: ok [[\"eng-23506\"]]");
+}
+
+#[test]
+fn dns_get_servers_uses_native_resolver_configuration_without_fs_access() {
+    let port = start_mock_dns_server(MockMode::TxtAnswer);
+    let dir = unique_dir("dns-get-servers");
+    std::fs::write(
+        dir.join("probe.js"),
+        "console.log(JSON.stringify(require('dns').getServers()));\n",
+    )
+    .expect("write getServers probe");
+    let output = Command::new(IBEX)
+        .args(["capsec", "audit", "probe.js"])
+        .current_dir(&dir)
+        .env("IBEX_DNS_SERVER", format!("127.0.0.1:{port}"))
+        .output()
+        .expect("run getServers probe");
+    assert!(
+        output.status.success(),
+        "getServers probe failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        format!(r#"["127.0.0.1:{port}"]"#)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

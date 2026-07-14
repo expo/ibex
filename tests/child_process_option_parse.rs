@@ -43,7 +43,8 @@ fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
 
     write_text(&dir.join("app.js"), app);
     let mut child = Command::new(IBEX)
-        .arg("run")
+        .arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -91,7 +92,7 @@ fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
     }
 }
 
-fn result_line<'a>(run: &'a AppRun) -> &'a str {
+fn result_line(run: &AppRun) -> &str {
     assert!(
         !run.timed_out,
         "app timed out\nstdout:\n{}\nstderr:\n{}",

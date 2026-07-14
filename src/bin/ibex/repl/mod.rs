@@ -61,19 +61,19 @@ fn plain_prompt(symbol: &str) -> String {
 }
 
 fn repl_inspect_expression() -> &'static str {
-    "if (typeof Exact !== 'undefined' && typeof Exact.inspect === 'function') { return Exact.inspect(_val, {colors: true, compact: true}); } else { return String(_val); }"
+    "var _commitDisplay = function(_rendered) { var _text = String(_rendered); globalThis.$_ = _val; return _text; }; var _display = (typeof Exact !== 'undefined' && typeof Exact.inspect === 'function') ? Exact.inspect(_val, {colors: true, compact: true}) : String(_val); if (_display !== null && (typeof _display === 'object' || typeof _display === 'function')) { var _then = _display.then; if (typeof _then === 'function') { return new Promise(function(_resolve, _reject) { try { _then.call(_display, _resolve, _reject); } catch (_error) { _reject(_error); } }).then(_commitDisplay); } } return _commitDisplay(_display);"
 }
 
 fn wrap_inspected_expression(code: &str, async_expression: bool) -> String {
     if async_expression {
         format!(
-            "(async function() {{ var __repl_slot = [ ({}) ]; var _val = __repl_slot[0]; globalThis.$_ = _val; {} }})()",
+            "(async function() {{ var __repl_slot = [ ({}) ]; var _val = __repl_slot[0]; {} }})()",
             code,
             repl_inspect_expression()
         )
     } else {
         format!(
-            "(function() {{ var _val = {}; globalThis.$_ = _val; {} }})()",
+            "(function() {{ var _val = {}; {} }})()",
             code,
             repl_inspect_expression()
         )
@@ -944,6 +944,9 @@ async fn handle_command(cmd: &str, engine: &Arc<dyn Engine>) -> Result<bool> {
         ".time" => {
             let code = arg.ok_or_else(|| anyhow::anyhow!("Usage: .time <code>"))?;
             let start = std::time::Instant::now();
+            // `.time` reports the evaluated value but is not a history entry:
+            // neither its direct-expression path nor this top-level-await path
+            // implicitly mutates `$_`.
             let code = if needs_top_level_await(code) {
                 wrap_top_level_await(code)
             } else {
@@ -1177,11 +1180,10 @@ fn wrap_top_level_await(input: &str) -> String {
         // Statements can't be wrapped in return(...), just execute them
         format!("(async () => {{ {} }})()", trimmed)
     } else {
-        // Capture result as $_ for REPL history
-        format!(
-            "(async () => {{ return (globalThis.$_ = ({})); }})()",
-            trimmed
-        )
+        // This helper is also used by `.time`, which displays a result without
+        // creating a REPL history entry. Only the inspected prompt wrapper may
+        // commit an expression result to `$_` after display materialization.
+        format!("(async () => {{ return ({}); }})()", trimmed)
     }
 }
 
@@ -1189,7 +1191,12 @@ fn wrap_top_level_await(input: &str) -> String {
 mod tests {
     use super::{
         highlight_prompt_text, history_path_in, is_side_effect_free_path, needs_top_level_await,
-        plain_prompt, styled_prompt_with_colors, wrap_inspected_expression, DEFAULT_PROMPT_SYMBOL,
+        plain_prompt, styled_prompt_with_colors, wrap_inspected_expression, wrap_top_level_await,
+        DEFAULT_PROMPT_SYMBOL,
+    };
+    use crate::engine::{
+        hermes::{hermes_engine_test_lock, HermesEngine},
+        Engine,
     };
 
     #[test]
@@ -1328,5 +1335,109 @@ mod tests {
         let wrapped = wrap_inspected_expression("Promise.resolve(3)", false);
         assert!(wrapped.starts_with("(function() { var _val = Promise.resolve(3);"));
         assert!(!wrapped.contains("__repl_slot"));
+    }
+
+    #[test]
+    fn inspected_wrappers_materialize_display_before_committing_last_value() {
+        for wrapped in [
+            wrap_inspected_expression("41 + 1", false),
+            wrap_inspected_expression("await Promise.resolve(42)", true),
+        ] {
+            let conversion = wrapped.find("String(_rendered)").unwrap();
+            let commit = wrapped.find("globalThis.$_ = _val").unwrap();
+            assert!(
+                conversion < commit,
+                "final display conversion must precede $_ commit: {wrapped}"
+            );
+            assert_eq!(wrapped.matches("globalThis.$_ = _val").count(), 1);
+        }
+
+        for timed in [
+            "41 + 1".to_string(),
+            wrap_top_level_await("await Promise.resolve(42)"),
+            wrap_top_level_await("const answer = await Promise.resolve(42)"),
+        ] {
+            assert!(
+                !timed.contains("globalThis.$_"),
+                "timed/uninspected paths must not commit $_: {timed}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn hermes_commits_last_value_only_after_display_fully_succeeds() {
+        async fn last_value(engine: &HermesEngine) -> String {
+            engine
+                .eval_immediate("String(globalThis.$_)")
+                .await
+                .expect("history query should evaluate")
+                .expect("history query should return text")
+        }
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().expect("Hermes should initialize");
+
+        for formatter in [
+            "function() { throw new Error('sync-display-failure'); }",
+            "function() { return { toString: function() { throw new Error('string-conversion-failure'); } }; }",
+            "function() { return Promise.reject(new Error('promise-display-failure')); }",
+            "function() { return { then: function(_resolve, reject) { reject(new Error('thenable-display-failure')); } }; }",
+        ] {
+            engine
+                .eval_immediate(&format!(
+                    "globalThis.$_ = 'old'; Object.defineProperty(Exact, 'inspect', {{ value: {formatter}, writable: true, configurable: true }});"
+                ))
+                .await
+                .expect("formatter setup should evaluate");
+            let failure = engine
+                .eval_immediate(&wrap_inspected_expression("42", false))
+                .await;
+            assert!(failure.is_err(), "display should fail for {formatter}");
+            assert_eq!(last_value(&engine).await, "old");
+        }
+
+        engine
+            .eval_immediate(
+                "Object.defineProperty(Exact, 'inspect', { value: function(value) { return 'sync:' + String(value); }, writable: true, configurable: true });",
+            )
+            .await
+            .expect("sync formatter setup should evaluate");
+        let sync_display = engine
+            .eval_immediate(&wrap_inspected_expression("43", false))
+            .await
+            .expect("sync display should evaluate");
+        assert_eq!(sync_display.as_deref(), Some("sync:43"));
+        assert_eq!(last_value(&engine).await, "43");
+
+        engine
+            .eval_immediate(
+                "Object.defineProperty(Exact, 'inspect', { value: function(value) { return Promise.resolve('async:' + String(value)); }, writable: true, configurable: true });",
+            )
+            .await
+            .expect("async formatter setup should evaluate");
+        let async_display = engine
+            .eval_immediate(&wrap_inspected_expression(
+                "await Promise.resolve(44)",
+                true,
+            ))
+            .await
+            .expect("async display should evaluate");
+        assert_eq!(async_display.as_deref(), Some("async:44"));
+        assert_eq!(last_value(&engine).await, "44");
+
+        engine
+            .eval_immediate("globalThis.$_ = 'timed'")
+            .await
+            .expect("timed history setup should evaluate");
+        engine
+            .eval_immediate("45")
+            .await
+            .expect("non-await timed expression should evaluate");
+        assert_eq!(last_value(&engine).await, "timed");
+        engine
+            .eval_immediate(&wrap_top_level_await("await Promise.resolve(46)"))
+            .await
+            .expect("awaited timed expression should evaluate");
+        assert_eq!(last_value(&engine).await, "timed");
     }
 }

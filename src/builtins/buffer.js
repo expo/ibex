@@ -2114,11 +2114,39 @@ BufferProto.fill = function(value, start, end, encoding) {
 Buffer.prototype = Object.create(Uint8Array.prototype, {
   constructor: { value: Buffer, writable: true, configurable: true }
 });
+var _defineBufferPrototypeProperty = Object.defineProperty;
 for (var _bk in BufferProto) {
   if (Object.prototype.hasOwnProperty.call(BufferProto, _bk)) {
+    // Lazy builtin evaluation can run after Uint8Array.prototype is locked
+    // down. An assignment cannot shadow an inherited non-writable method in
+    // sloppy CommonJS, so define each intended Buffer override directly.
+    // @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
+    // Keep the assignment as the static source-level copy declaration; the
+    // defineProperty immediately after it is the lockdown-safe realization.
     Buffer.prototype[_bk] = BufferProto[_bk];
+    _defineBufferPrototypeProperty(Buffer.prototype, _bk, {
+      value: BufferProto[_bk],
+      writable: true,
+      configurable: true,
+      enumerable: true
+    });
   }
 }
+// Hermes' legacy for-in path can retain the old [[DontEnum]] suppression for
+// Object.prototype names even when BufferProto has enumerable own overrides.
+// Install these two names explicitly as well.
+_defineBufferPrototypeProperty(Buffer.prototype, "toString", {
+  value: BufferProto.toString,
+  writable: true,
+  configurable: true,
+  enumerable: true
+});
+_defineBufferPrototypeProperty(Buffer.prototype, "toLocaleString", {
+  value: BufferProto.toLocaleString,
+  writable: true,
+  configurable: true,
+  enumerable: true
+});
 Object.defineProperty(Buffer.prototype, "parent", {
   get: function() {
     if (!this || typeof this !== "object" || !ArrayBuffer.isView(this)) return undefined;

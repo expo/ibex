@@ -42,15 +42,16 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
     }
     auto& runtime_debugger = handle->runtime->getDebugger();
     runtime_debugger.setIsDebuggerAttached(true);
+    auto target = exactRuntimeCallbackTarget(handle);
     debugger->setDebuggerEventCallback_TS(
-        [handle](facebook::hermes::HermesRuntime& rt,
+        [handle, target](facebook::hermes::HermesRuntime& rt,
                  facebook::hermes::debugger::AsyncDebuggerAPI&,
                  facebook::hermes::debugger::DebuggerEventType) {
           // @ref LLP 0003#the-platform-shims-map — async debugger callbacks
           // can run as teardown races the runtime. Pin across every handle
           // deref so ex_hermes_destroy cannot free the runtime in the old
           // check-then-deref gap.
-          withRuntimePinned(handle, [&]() {
+          withRuntimePinned(target, [&]() {
             if (!handle->debugger_attached.load()) {
               return;
             }
@@ -279,9 +280,10 @@ extern "C" void ex_hermes_debugger_resume(ExactHermesRuntime* runtime, int comma
   }
 
   try {
-    debugger->triggerInterrupt_TS([runtime, debugger, cmd](facebook::hermes::HermesRuntime&) {
+    auto target = exactRuntimeCallbackTarget(runtime);
+    debugger->triggerInterrupt_TS([runtime, target, debugger, cmd](facebook::hermes::HermesRuntime&) {
       // @ref LLP 0003#the-platform-shims-map — see the event callback above.
-      withRuntimePinned(runtime, [&]() {
+      withRuntimePinned(target, [&]() {
         if (debugger->resumeFromPaused(cmd)) {
           pushDebugEvent(runtime, "{\"method\":\"Debugger.resumed\",\"params\":{}}");
         }

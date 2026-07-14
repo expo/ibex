@@ -154,38 +154,9 @@ function _emitPromiseRejection(emitter, err, eventName, args) {
 		emitter.emit("error", err);
 	});
 }
-function _emitUnhandledPromiseRejection(err, promise) {
-	_scheduleRejection(function() {
-		var handled = false;
-		var g = typeof globalThis !== "undefined" ? globalThis : void 0;
-		if (g && typeof g.dispatchEvent === "function" && typeof g.PromiseRejectionEvent === "function") try {
-			var event = new g.PromiseRejectionEvent("unhandledrejection", {
-				promise,
-				reason: err,
-				cancelable: true
-			});
-			handled = g.dispatchEvent(event) === false || event.defaultPrevented === true;
-		} catch (_dispatchErr) {}
-		if (!handled && g && typeof g.__exactUnhandledRejectionHandler === "function") try {
-			handled = g.__exactUnhandledRejectionHandler(err, promise) === true;
-		} catch (_handlerErr) {}
-		if (!handled && typeof console !== "undefined" && console && typeof console.error === "function") console.error("Unhandled promise rejection:", err);
-		if (!handled) {
-			var proc = g && g.process;
-			if (proc && typeof proc === "object" && (typeof proc.exitCode !== "number" || proc.exitCode === 0)) try {
-				proc.exitCode = 1;
-			} catch (_exitCodeErr) {}
-		}
-	});
-}
 function _maybeCaptureRejection(emitter, result, eventName, args) {
+	if (!(emitter && (emitter.captureRejections === true || EventEmitter.captureRejections === true))) return;
 	if (!result || typeof result.then !== "function") return;
-	if (!(emitter && (emitter.captureRejections === true || EventEmitter.captureRejections === true))) {
-		result.then(void 0, function(err) {
-			_emitUnhandledPromiseRejection(err, result);
-		});
-		return;
-	}
 	result.then(void 0, function(err) {
 		_emitPromiseRejection(emitter, err, eventName, args);
 	});
