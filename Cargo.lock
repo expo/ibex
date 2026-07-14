@@ -1082,6 +1082,7 @@ dependencies = [
  "tokio-tungstenite",
  "webpki-roots 0.26.11",
  "which",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

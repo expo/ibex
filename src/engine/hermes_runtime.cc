@@ -3465,9 +3465,17 @@ extern "C" uint32_t ex_hermes_bytecode_version() {
   // The root object is supplied by the same mapped Hermes image as the runtime
   // factory used above. Keep HBC compatibility bound to that engine instead of
   // inferring it from an independently discovered `hermes` executable.
+#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
+  // Hermes 0.11 / ReactNative.Hermes.Windows 0.71 exposes the bytecode
+  // version directly on HermesRuntime and has no IHermesRootAPI interface.
+  return facebook::hermes::HermesRuntime::getBytecodeVersion();
+#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
   auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
       facebook::hermes::makeHermesRootAPI());
   return root == nullptr ? 0 : root->getBytecodeVersion();
+#else
+  return 0;
+#endif
 }
 
 extern "C" uint64_t ex_host_claim_armed_context(const char* digest);

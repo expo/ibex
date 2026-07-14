@@ -19,6 +19,7 @@ use std::sync::OnceLock;
 extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
+    #[cfg(target_os = "macos")]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
 }
 
@@ -124,9 +125,9 @@ pub fn loaded_engine_structural_features() -> Vec<String> {
 fn engine_object_identity(
     metadata: &std::fs::Metadata,
 ) -> Result<capsec_semantics::model::ObjectIdentity, String> {
-    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
     #[cfg(unix)]
     {
+        use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
         use std::os::unix::fs::MetadataExt;
         Ok(ObjectIdentity {
             platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
@@ -142,15 +143,11 @@ fn engine_object_identity(
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        Ok(ObjectIdentity {
-            platform: ObjectPlatform::Windows,
-            volume: NonEmptyString::new(format!(
-                "volume:{}",
-                metadata.volume_serial_number().unwrap_or(0)
-            ))?,
-            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))?,
-        })
+        let _ = metadata;
+        Err(
+            "Windows cannot derive a stable loaded-engine object identity on this build; refusing pathname-only identity"
+                .into(),
+        )
     }
 }
 

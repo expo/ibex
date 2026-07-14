@@ -3004,7 +3004,7 @@ fn validate_snapshot_protected_artifacts(
                 path.display()
             ))
         })?;
-        if !before.is_file() || object_identity_for_metadata(&before)? != artifact.object {
+        if !before.is_file() || object_identity_for_open_file(&file)? != artifact.object {
             return Err(capsec_semantics::Error::ArmRefused(format!(
                 "protected artifact path does not identify its authenticated object: {}",
                 path.display()
@@ -3057,7 +3057,7 @@ fn validate_snapshot_protected_artifacts(
                 path.display()
             ))
         })?;
-        if object_identity_for_metadata(&after)? != artifact.object || after.len() != before.len() {
+        if object_identity_for_open_file(&file)? != artifact.object || after.len() != before.len() {
             return Err(capsec_semantics::Error::ArmRefused(format!(
                 "protected artifact changed while it was authenticated: {}",
                 path.display()
@@ -3070,47 +3070,81 @@ fn validate_snapshot_protected_artifacts(
 fn object_identity_for_host_path(
     path: &std::path::Path,
 ) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
-    let metadata = std::fs::metadata(path).map_err(|error| {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x0020_0000 | 0x0200_0000); // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
+    }
+    let file = options.open(path).map_err(|error| {
         capsec_semantics::Error::ArmRefused(format!(
-            "cannot revalidate armed root {}: {error}",
+            "cannot pin armed root {}: {error}",
             path.display()
         ))
     })?;
-    object_identity_for_metadata(&metadata)
+    object_identity_for_open_file(&file)
 }
 
+#[cfg(unix)]
 fn object_identity_for_metadata(
     metadata: &std::fs::Metadata,
 ) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
     use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+    use std::os::unix::fs::MetadataExt;
+    Ok(ObjectIdentity {
+        platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+            ObjectPlatform::Apple
+        } else if cfg!(target_os = "android") {
+            ObjectPlatform::Android
+        } else {
+            ObjectPlatform::Unix
+        },
+        volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+        file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+    })
+}
+
+fn object_identity_for_open_file(
+    file: &std::fs::File,
+) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
-        Ok(ObjectIdentity {
-            platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
-                ObjectPlatform::Apple
-            } else if cfg!(target_os = "android") {
-                ObjectPlatform::Android
-            } else {
-                ObjectPlatform::Unix
-            },
-            volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
-                .map_err(capsec_semantics::Error::InvalidModel)?,
-            file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
-                .map_err(capsec_semantics::Error::InvalidModel)?,
-        })
+        let metadata = file.metadata().map_err(|error| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "cannot inspect pinned filesystem object: {error}"
+            ))
+        })?;
+        object_identity_for_metadata(&metadata)
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
+        use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+
+        let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, &mut info) } == 0 {
+            return Err(capsec_semantics::Error::ArmRefused(format!(
+                "cannot identify pinned Windows filesystem object: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        let file_index = ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64;
         Ok(ObjectIdentity {
             platform: ObjectPlatform::Windows,
-            volume: NonEmptyString::new(format!(
-                "volume:{}",
-                metadata.volume_serial_number().unwrap_or(0)
-            ))
-            .map_err(capsec_semantics::Error::InvalidModel)?,
-            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))
+            volume: NonEmptyString::new(format!("volume:{}", info.dwVolumeSerialNumber))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+            file: NonEmptyString::new(format!("file:{file_index}"))
                 .map_err(capsec_semantics::Error::InvalidModel)?,
         })
     }

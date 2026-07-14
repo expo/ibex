@@ -2282,6 +2282,11 @@ fn resolved_path_for_fd(fd: i32) -> Option<std::path::PathBuf> {
     std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()
 }
 
+#[cfg(not(unix))]
+fn resolved_path_for_fd(_fd: i32) -> Option<std::path::PathBuf> {
+    None
+}
+
 #[cfg(unix)]
 fn object_identity_at(
     parent_fd: i32,
