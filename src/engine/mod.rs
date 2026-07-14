@@ -893,7 +893,7 @@ mod tests {
                 tier.tier
             );
             for artifact in &tier.artifacts {
-                assert_eq!(artifact.schema_version, 1);
+                assert_eq!(artifact.schema_version, 2);
                 assert_eq!(artifact.install_format, "source-utf8");
                 assert!(artifact.node_id > 0);
                 assert!(artifact.generation > 0);
