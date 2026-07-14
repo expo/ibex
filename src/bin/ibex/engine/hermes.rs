@@ -2290,6 +2290,27 @@ fn bytecode_manifest_path(bytecode: &Path) -> PathBuf {
     path_with_suffix(bytecode, ".meta.json")
 }
 
+fn hermesc_source_map_path(bytecode: &Path) -> PathBuf {
+    path_with_suffix(bytecode, ".map")
+}
+
+fn configure_hermesc_compile_command(
+    cmd: &mut Command,
+    output: &Path,
+    emit_source_map: bool,
+    input: &Path,
+) {
+    cmd.arg("-emit-binary");
+    cmd.arg("-out");
+    cmd.arg(output);
+    if emit_source_map {
+        // hermesc's -output-source-map is a boolean flag. It always writes to
+        // `<-out>.map`; a following pathname is parsed as another input.
+        cmd.arg("-output-source-map");
+    }
+    cmd.arg(input);
+}
+
 #[cfg(test)]
 fn bytecode_source_map_is_fresh(bytecode: &Path, source_map: &Path) -> bool {
     verified_bytecode_source_map(bytecode, source_map).is_some()
@@ -2731,19 +2752,17 @@ async fn compile_source_to_bytecode_with_compiler(
             timeout_from_env("EXACT_HERMESC_TIMEOUT_MS", DEFAULT_HERMESC_TIMEOUT_MS)
         });
     let temp_output = temporary_output_path(output);
-    let temp_source_map = source_map.map(temporary_output_path);
+    // @ref LLP 0005#bytecode-precompilation-hermesc — hermesc derives the
+    // source-map path from `-out`; only publication uses the caller's path.
+    let temp_source_map = source_map.map(|_| hermesc_source_map_path(&temp_output));
 
     let mut cmd = Command::new(&staged_compiler);
-    cmd.arg("-emit-binary");
-    cmd.arg("-out");
-    cmd.arg(&temp_output);
-
-    if let Some(map_path) = temp_source_map.as_ref() {
-        cmd.arg("-output-source-map");
-        cmd.arg(map_path);
-    }
-
-    cmd.arg(&staged_input);
+    configure_hermesc_compile_command(
+        &mut cmd,
+        &temp_output,
+        temp_source_map.is_some(),
+        &staged_input,
+    );
 
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -2820,6 +2839,33 @@ async fn compile_source_to_bytecode_with_compiler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hermesc_source_map_flag_is_boolean_and_uses_derived_output_path() {
+        let mut command = Command::new("hermesc");
+        let output = Path::new("bundle.hbc");
+        let input = Path::new("bundle.js");
+        configure_hermesc_compile_command(&mut command, output, true, input);
+        let args = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            args,
+            [
+                "-emit-binary",
+                "-out",
+                "bundle.hbc",
+                "-output-source-map",
+                "bundle.js"
+            ]
+        );
+        assert_eq!(
+            hermesc_source_map_path(output),
+            PathBuf::from("bundle.hbc.map")
+        );
+    }
 
     #[cfg(feature = "capsec-conformance-observer")]
     mod capsec_conformance_batch {
