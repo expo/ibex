@@ -12,6 +12,7 @@ import {
   assertReportMayAdvertise,
   executionBindingDigest,
   fixtureCatalogForTarget,
+  selectCandidateTarget,
 } from "./capsec-conformance.mjs";
 import { assertRecipeCatalogComplete } from "./capsec-conformance-recipes.mjs";
 import {
@@ -47,6 +48,7 @@ const valueOptions = new Set([
   "--public-surface-evidence",
   "--output",
   "--report",
+  "--target",
 ]);
 const booleanOptions = new Set(["--expect-incomplete"]);
 const parsedOptions = new Map();
@@ -154,8 +156,7 @@ if (git("status", "--porcelain").toString("utf8").trim()) {
 const rules = readJsonStrict(
   path.join(capsecRoot, "registry/policy-rules.json"),
 );
-const target = rules.initialProfile.candidateTargets[0];
-if (!target) throw new Error("no candidate target is declared");
+const target = selectCandidateTarget(rules, option("--target"));
 
 const evidenceRoot = path.join(repoRoot, "target");
 if (!fs.existsSync(evidenceRoot)) fs.mkdirSync(evidenceRoot, { mode: 0o700 });

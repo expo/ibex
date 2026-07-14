@@ -8,6 +8,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { fileURLToPath } from "node:url";
 import {
   buildConformanceReport,
+  selectCandidateTarget,
   validateConformanceReportSemantics,
 } from "./capsec-conformance.mjs";
 import { validateRecipeCatalog } from "./capsec-conformance-recipes.mjs";
@@ -83,8 +84,7 @@ const registryBundle = readJsonStrict(
 const digestVectors = readJsonStrict(
   path.join(capsecRoot, "examples/digest-vectors.canonical.json"),
 );
-const target = rules.initialProfile.candidateTargets[0];
-if (!target) throw new Error("no candidate target is declared");
+const target = selectCandidateTarget(rules, option("--target"));
 const engineBinding = validateLoadedEngineIdentity({
   identity: loadedEngineIdentity,
   canonicalArtifactPath: fs.realpathSync(enginePath),
