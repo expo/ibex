@@ -112,7 +112,9 @@ function _setTimerRef(timer, refed) {
     } else if (typeof timer.unref === 'function') {
       timer.unref();
     }
-  } catch (e) {}
+  } catch (e) {
+    // Best effort: timer handles differ across host implementations.
+  }
 }
 
 var _dgramSocketStates = typeof WeakMap === 'function' ? new WeakMap() : null;
@@ -210,10 +212,18 @@ function _installDgramSocketState(socket) {
   state.values._eventsCount = socket._eventsCount;
   state.values._maxListeners = socket._maxListeners;
   state.values.type = socket.type;
-  try { delete socket._events; } catch (_deleteDgramEventsErr) {}
-  try { delete socket._eventsCount; } catch (_deleteDgramEventCountErr) {}
-  try { delete socket._maxListeners; } catch (_deleteDgramMaxListenersErr) {}
-  try { delete socket.type; } catch (_deleteDgramTypeErr) {}
+  try { delete socket._events; } catch (_deleteDgramEventsErr) {
+    // The projection descriptors below replace these fields when configurable.
+  }
+  try { delete socket._eventsCount; } catch (_deleteDgramEventCountErr) {
+    // The projection descriptors below replace these fields when configurable.
+  }
+  try { delete socket._maxListeners; } catch (_deleteDgramMaxListenersErr) {
+    // The projection descriptors below replace these fields when configurable.
+  }
+  try { delete socket.type; } catch (_deleteDgramTypeErr) {
+    // The projection descriptors below replace these fields when configurable.
+  }
   Object.defineProperties(socket, {
     _events: _dgramStateProjectionDescriptor(state, '_events'),
     _eventsCount: _dgramStateProjectionDescriptor(state, '_eventsCount'),
@@ -904,7 +914,9 @@ Socket.prototype.setTTL = function(ttl) {
     throw new Error('setTTL EINVAL');
   }
   if (state.handle >= 0 && typeof globalThis.__exactUdpSetTTL === 'function') {
-    try { globalThis.__exactUdpSetTTL(state.handle, ttl); } catch(e) {}
+    try { globalThis.__exactUdpSetTTL(state.handle, ttl); } catch(e) {
+      // Preserve Node's local setter semantics when the reduced host rejects it.
+    }
   }
   return ttl;
 };
@@ -923,7 +935,9 @@ Socket.prototype.setMulticastTTL = function(ttl) {
     throw new Error('setMulticastTTL EINVAL');
   }
   if (state.handle >= 0 && typeof globalThis.__exactUdpSetMulticastTTL === 'function') {
-    try { globalThis.__exactUdpSetMulticastTTL(state.handle, ttl); } catch(e) {}
+    try { globalThis.__exactUdpSetMulticastTTL(state.handle, ttl); } catch(e) {
+      // Preserve Node's local setter semantics when the reduced host rejects it.
+    }
   }
   return ttl;
 };
@@ -956,14 +970,18 @@ Socket.prototype.addMembership = function(multicastAddress, multicastInterface) 
   }
   state = _dgramState(this);
   if (state.handle >= 0 && typeof globalThis.__exactUdpAddMembership === 'function') {
-    try { globalThis.__exactUdpAddMembership(state.handle, multicastAddress, multicastInterface || ''); } catch(e) {}
+    try { globalThis.__exactUdpAddMembership(state.handle, multicastAddress, multicastInterface || ''); } catch(e) {
+      // Membership support is optional in the reduced UDP host.
+    }
   }
 };
 
 Socket.prototype.dropMembership = function(multicastAddress, multicastInterface) {
   var state = _dgramState(this);
   if (state.handle >= 0 && typeof globalThis.__exactUdpDropMembership === 'function') {
-    try { globalThis.__exactUdpDropMembership(state.handle, multicastAddress, multicastInterface || ''); } catch(e) {}
+    try { globalThis.__exactUdpDropMembership(state.handle, multicastAddress, multicastInterface || ''); } catch(e) {
+      // Membership support is optional in the reduced UDP host.
+    }
   }
 };
 
@@ -987,7 +1005,9 @@ Socket.prototype.setBroadcast = function(flag) {
     throw new Error('setBroadcast EBADF');
   }
   if (state.handle >= 0 && typeof globalThis.__exactUdpSetBroadcast === 'function') {
-    try { globalThis.__exactUdpSetBroadcast(state.handle, flag ? 1 : 0); } catch(e) {}
+    try { globalThis.__exactUdpSetBroadcast(state.handle, flag ? 1 : 0); } catch(e) {
+      // Broadcast support is optional in the reduced UDP host.
+    }
   }
 };
 

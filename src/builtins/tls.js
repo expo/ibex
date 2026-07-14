@@ -1,5 +1,7 @@
 var net;
-try { net = require('net'); } catch(e) {}
+try { net = require('net'); } catch(e) {
+  // Optional during reduced-runtime bootstrap; callers validate availability.
+}
 var _kReinitializeHandle = Symbol.for('nodejs.net.kReinitializeHandle');
 var _kRunOwnedServer = Symbol.for('ibex.tls.runOwnedServer');
 var _kCloseOwnedServer = Symbol.for('ibex.tls.closeOwnedServer');
@@ -8,12 +10,18 @@ var _kSetHttpResetAsEof = Symbol.for('ibex.tls.setHttpResetAsEof');
 var _kFlowControlStats = Symbol.for('ibex.tls.flowControlStats');
 
 var eventsModule;
-try { eventsModule = require('events'); } catch(e) {}
+try { eventsModule = require('events'); } catch(e) {
+  // Optional during reduced-runtime bootstrap; callers validate availability.
+}
 var cryptoModule;
-try { cryptoModule = require('crypto'); } catch(e) {}
+try { cryptoModule = require('crypto'); } catch(e) {
+  // Optional during reduced-runtime bootstrap; callers validate availability.
+}
 var StringDecoder = null;
 try { StringDecoder = require('node:string_decoder').StringDecoder; } catch (_decoderErr) {
-  try { StringDecoder = require('string_decoder').StringDecoder; } catch (_decoderErr2) {}
+  try { StringDecoder = require('string_decoder').StringDecoder; } catch (_decoderErr2) {
+    // The byte fallback below handles runtimes without either decoder module.
+  }
 }
 
 var EventEmitter = eventsModule && (eventsModule.EventEmitter || eventsModule);
@@ -252,7 +260,9 @@ function _installTlsPrivateState(target) {
   for (var i = 0; i < _tlsPrivatePropertyNames.length; i++) {
     (function(name) {
       if (hasOwn.call(target, name)) state.values[name] = target[name];
-      try { delete target[name]; } catch (_deletePrivateErr) {}
+      try { delete target[name]; } catch (_deletePrivateErr) {
+        // Non-configurable host fields remain authoritative projections.
+      }
       Object.defineProperty(target, name, {
         enumerable: false,
         configurable: false,
@@ -1252,7 +1262,9 @@ function _bytesToUtf8(bytes, start, end) {
   if (typeof TextDecoder !== 'undefined') {
     try {
       return new TextDecoder('utf-8').decode(raw);
-    } catch (_decodeErr) {}
+    } catch (_decodeErr) {
+      // Invalid peer text falls through to the raw-byte representation.
+    }
   }
   return _bytesToAscii(bytes, start, end);
 }
@@ -5414,7 +5426,9 @@ function _startTlsServerOwnerPump(server) {
           _applyPendingServerHandshake(server, tlsSocket, handshake);
         } catch (handoffErr) {
           server.emit('tlsClientError', handoffErr, tlsSocket);
-          try { tlsSocket.destroy(); } catch (_handoffDestroyErr) {}
+          try { tlsSocket.destroy(); } catch (_handoffDestroyErr) {
+            // The failed handoff may already have destroyed the socket.
+          }
         }
         continue;
       }
@@ -5425,7 +5439,9 @@ function _startTlsServerOwnerPump(server) {
           'TLS loopback handshake timed out'
         );
         server.emit('tlsClientError', timeoutErr, tlsSocket);
-        try { tlsSocket.destroy(); } catch (_timeoutDestroyErr) {}
+        try { tlsSocket.destroy(); } catch (_timeoutDestroyErr) {
+          // Timeout delivery races with ordinary socket teardown.
+        }
         continue;
       }
       i++;
@@ -5471,7 +5487,9 @@ function _stopTlsServerOwnerPump(server) {
   var pending = state.pendingSockets.splice(0, state.pendingSockets.length);
   for (var i = 0; i < pending.length; i++) {
     if (pending[i].socket && !_tlsPub(pending[i].socket).destroyed) {
-      try { pending[i].socket.destroy(); } catch (_pendingDestroyErr) {}
+      try { pending[i].socket.destroy(); } catch (_pendingDestroyErr) {
+        // Server close races with pending-socket teardown.
+      }
     }
   }
   var handshakes = state.pendingHandshakes.splice(0, state.pendingHandshakes.length);
@@ -5486,7 +5504,9 @@ function _stopTlsServerOwnerPump(server) {
           _createError('ERR_TLS_SERVER_CLOSED', 'TLS server closed during handshake'),
           false
         );
-      } catch (_clientCloseErr) {}
+      } catch (_clientCloseErr) {
+        // The client may have closed before the server-close notification.
+      }
     }
   }
   // This reduced TLS server becomes terminal after close. Scrubbing before
@@ -5559,7 +5579,9 @@ function _guardTlsServerNetState(server, state) {
       configurable: false,
       writable: false
     });
-  } catch (_ownedRunnerGuardErr) {}
+  } catch (_ownedRunnerGuardErr) {
+    // Frozen hosts retain the existing guarded lifecycle method.
+  }
   try {
     Object.defineProperty(server, _kCloseOwnedServer, {
       value: function(phase) {
@@ -5578,7 +5600,9 @@ function _guardTlsServerNetState(server, state) {
       configurable: false,
       writable: false
     });
-  } catch (_ownedCloseGuardErr) {}
+  } catch (_ownedCloseGuardErr) {
+    // Frozen hosts retain the existing guarded lifecycle method.
+  }
 }
 
 function _guardTlsServerLifecycle(server, state) {
@@ -5651,7 +5675,9 @@ function _guardTlsServerLifecycle(server, state) {
             writable: false
           });
           return;
-        } catch (_lifecycleMethodGuardErr) {}
+        } catch (_lifecycleMethodGuardErr) {
+          // Assignment fallback below covers configurable legacy hosts.
+        }
       }
       server[name] = guarded;
     })(guardedMethods[i], server[guardedMethods[i]]);
@@ -5702,7 +5728,9 @@ function _guardTlsServerEventSurface(server, state) {
             writable: false
           });
           return;
-        } catch (_methodGuardErr) {}
+        } catch (_methodGuardErr) {
+          // Assignment fallback below covers configurable legacy hosts.
+        }
       }
       server[name] = guarded;
     })(methods[i], server[methods[i]]);

@@ -693,7 +693,9 @@ function _finishResolverQuery(query, err, result) {
   if (query.socket) {
     query.socket.removeAllListeners('message');
     query.socket.removeAllListeners('error');
-    try { query.socket.close(); } catch (_) {}
+    try { query.socket.close(); } catch (_) {
+      // The socket may already have closed while the query was completing.
+    }
     query.socket = null;
   }
   var resolver = query.resolver;
@@ -732,7 +734,9 @@ function _sendResolverAttempt(query) {
   if (query.socket) {
     query.socket.removeAllListeners('message');
     query.socket.removeAllListeners('error');
-    try { query.socket.close(); } catch (_) {}
+    try { query.socket.close(); } catch (_) {
+      // Retry teardown races with the prior socket's terminal event.
+    }
     query.socket = null;
   }
   var dgram = require('dgram');
@@ -1226,7 +1230,9 @@ function _readSystemServers() {
     try {
       var nativeServers = JSON.parse(__exactDnsGetServers());
       if (Array.isArray(nativeServers)) return nativeServers;
-    } catch (_) {}
+    } catch (_) {
+      // A malformed optional host response falls back to resolv.conf below.
+    }
   }
   try {
     var fs = require('fs');

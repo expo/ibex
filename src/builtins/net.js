@@ -2731,7 +2731,9 @@ Socket.prototype.connect = function(options, connectListener) {
         if (!_isCurrentNetSocketConnect(self, connectTarget)) {
           try {
             if (typeof __exactTcpClose === 'function') __exactTcpClose(unixHandle);
-          } catch (_staleUnixCloseErr) {}
+          } catch (_staleUnixCloseErr) {
+            // Another stale-connect teardown path may already own the handle.
+          }
           return;
         }
         _setSocketHandle(self, unixHandle, connectTarget.path);
