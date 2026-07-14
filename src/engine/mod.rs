@@ -422,6 +422,13 @@ mod tests {
         source_install_max_ns: u64,
     }
 
+    #[derive(Clone, Copy, Debug, Default)]
+    #[repr(C)]
+    struct WorkletAllocationMetrics {
+        typed_invoke_count: u64,
+        hermes_total_allocated_bytes: u64,
+    }
+
     #[derive(Clone, Copy, Debug)]
     #[repr(C)]
     struct MotionRatedPublishSample {
@@ -510,6 +517,10 @@ mod tests {
         fn ex_worklet_install_metrics(
             runtime: *mut HermesRuntimeOpaque,
             out_metrics: *mut WorkletInstallMetrics,
+        ) -> i32;
+        fn ex_worklet_allocation_metrics(
+            runtime: *mut HermesRuntimeOpaque,
+            out_metrics: *mut WorkletAllocationMetrics,
         ) -> i32;
         fn ex_worklet_drain_scheduled_typed(
             runtime: *mut HermesRuntimeOpaque,
@@ -662,6 +673,137 @@ mod tests {
         assert_eq!(status, 0, "typed worklet install failed: {message:?}");
         assert_ne!(identity, 0);
         identity
+    }
+
+    unsafe fn worklet_allocation_metrics(
+        runtime: *mut HermesRuntimeOpaque,
+    ) -> WorkletAllocationMetrics {
+        let mut metrics = WorkletAllocationMetrics::default();
+        assert_eq!(
+            ex_worklet_allocation_metrics(runtime, &mut metrics),
+            0,
+            "worklet allocation counter must be available"
+        );
+        metrics
+    }
+
+    unsafe fn typed_allocation_slope(
+        runtime: *mut HermesRuntimeOpaque,
+        identity: u64,
+        sample_count: u64,
+    ) -> u64 {
+        let inputs = [2.0_f32];
+        let mut outputs = [0.0_f32];
+        let mut output_count = 0;
+        let before = worklet_allocation_metrics(runtime);
+        for _ in 0..sample_count {
+            assert_eq!(
+                ex_worklet_invoke_typed(
+                    runtime,
+                    identity,
+                    inputs.as_ptr(),
+                    inputs.len() as u32,
+                    outputs.as_mut_ptr(),
+                    outputs.len() as u32,
+                    &mut output_count,
+                ),
+                0
+            );
+            assert_eq!(output_count, 1);
+        }
+        let after = worklet_allocation_metrics(runtime);
+        assert_eq!(
+            after.typed_invoke_count - before.typed_invoke_count,
+            sample_count
+        );
+        assert!(
+            after.hermes_total_allocated_bytes >= before.hermes_total_allocated_bytes,
+            "Hermes' cumulative allocation counter must be monotonic"
+        );
+        after.hermes_total_allocated_bytes - before.hermes_total_allocated_bytes
+    }
+
+    /// LLP 0099 M6 forbids object/string allocation in the hot math path; it
+    /// does not pretend Hermes' fixed JSI call cells disappear. Compare raw
+    /// cumulative slopes in one warmed runtime with identical input/output
+    /// host-call shapes, and require zero candidate excess. The allocating
+    /// control proves that this counter detects the object-literal regression
+    /// the compiler is required to exclude.
+    #[test]
+    fn motion_worklet_semantic_allocation_slope_is_flat() {
+        unsafe {
+            const WARMUP: usize = 128;
+            const SAMPLES: u64 = 2_048;
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+            ex_worklet_set_generation(runtime, 1);
+
+            let control = install_typed_worklet(
+                runtime,
+                "(function (input) { worklet.output(0, input); })",
+                &[],
+                1,
+            );
+            let candidate = install_typed_worklet(
+                runtime,
+                "(function (input) { worklet.output(0, input * 2 + 1); })",
+                &[],
+                1,
+            );
+            let allocating_control = install_typed_worklet(
+                runtime,
+                "(function (input) { var box = { value: input * 2 + 1 }; worklet.output(0, box.value); })",
+                &[],
+                1,
+            );
+
+            let inputs = [2.0_f32];
+            let mut outputs = [0.0_f32];
+            let mut output_count = 0;
+            for identity in [control, candidate, allocating_control] {
+                for _ in 0..WARMUP {
+                    assert_eq!(
+                        ex_worklet_invoke_typed(
+                            runtime,
+                            identity,
+                            inputs.as_ptr(),
+                            1,
+                            outputs.as_mut_ptr(),
+                            1,
+                            &mut output_count,
+                        ),
+                        0
+                    );
+                }
+            }
+
+            let control_bytes = typed_allocation_slope(runtime, control, SAMPLES);
+            let candidate_bytes = typed_allocation_slope(runtime, candidate, SAMPLES);
+            let allocating_bytes = typed_allocation_slope(runtime, allocating_control, SAMPLES);
+
+            eprintln!(
+                concat!(
+                    "motion-worklet-allocation: samples={} raw-control={} ",
+                    "raw-candidate={} semantic-excess={} allocating-control={}",
+                ),
+                SAMPLES,
+                control_bytes,
+                candidate_bytes,
+                candidate_bytes.saturating_sub(control_bytes),
+                allocating_bytes,
+            );
+
+            assert!(control_bytes > 0, "retain raw Hermes ABI allocation truth");
+            assert_eq!(
+                candidate_bytes, control_bytes,
+                "scalar math must have zero semantic/excess allocation bytes"
+            );
+            assert!(
+                allocating_bytes > control_bytes,
+                "the paired counter must detect an object-literal allocation"
+            );
+            ex_worklet_destroy(runtime);
+        }
     }
 
     fn eval(runtime: *mut HermesRuntimeOpaque, source: &str) -> (i32, Option<String>) {

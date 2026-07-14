@@ -581,6 +581,18 @@ typedef struct ExWorkletInstallMetrics {
     uint64_t source_install_max_ns;
 } ExWorkletInstallMetrics;
 
+/// Raw counters used to compare steady-state typed-worklet allocation slopes.
+/// `hermes_total_allocated_bytes` is Hermes' cumulative GC allocation counter;
+/// it deliberately includes the fixed VM call-frame, positional-argument, and
+/// host-function cells required to enter any worklet. Callers prove the M6
+/// object/string rule by comparing a candidate with a warmed, matching-arity
+/// control in the same runtime and requiring zero excess slope. They must not
+/// claim that this raw counter itself is flat.
+typedef struct ExWorkletAllocationMetrics {
+    uint64_t typed_invoke_count;
+    uint64_t hermes_total_allocated_bytes;
+} ExWorkletAllocationMetrics;
+
 /// Runtime-side rated-publish input. Motion writes the latest finite raw
 /// sample plus a monotonically increasing dirty generation; the app-runtime
 /// pacer forwards one coalesced sample per declared slot. Payload evaluation
@@ -628,6 +640,15 @@ int ex_worklet_invoke_typed(
 int ex_worklet_install_metrics(
     ExactHermesRuntime* runtime,
     ExWorkletInstallMetrics* out_metrics);
+
+/// Snapshot cumulative raw allocation counters without resetting them. The
+/// snapshot itself allocates no Hermes heap cells. Use paired, same-runtime
+/// deltas around warmed typed invocations; a candidate's semantic/excess
+/// allocation is its raw slope minus a control with the same input arity and
+/// the same typed host-function/output-call shape.
+int ex_worklet_allocation_metrics(
+    ExactHermesRuntime* runtime,
+    ExWorkletAllocationMetrics* out_metrics);
 
 /// Validating, synchronous main-thread accessors for the restricted worklet
 /// runtime. Return 0 for a live read/write; any other verdict is a defined

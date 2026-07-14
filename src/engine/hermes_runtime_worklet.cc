@@ -86,6 +86,7 @@ struct WorkletState {
   uint32_t typed_scheduled_count = 0;
   uint64_t scheduled_drops = 0;
   ExWorkletInstallMetrics install_metrics{};
+  uint64_t typed_invoke_count = 0;
   ExWorkletSharedValueReadCallback shared_value_read = nullptr;
   ExWorkletSharedValueWriteCallback shared_value_write = nullptr;
   void* shared_value_context = nullptr;
@@ -163,6 +164,51 @@ uint64_t hashU32(uint64_t hash, uint32_t value) {
       static_cast<uint8_t>(value >> 24),
   };
   return hashBytes(hash, bytes, sizeof(bytes));
+}
+
+bool recordedCounter(
+    ExactHermesRuntime* handle,
+    const char* name,
+    uint64_t* out_value) {
+  if (!handle || !handle->runtime || !name || !out_value) {
+    return false;
+  }
+  try {
+    const std::string stats =
+        handle->runtime->instrumentation().getRecordedGCStats();
+    const std::string marker = std::string("\"") + name + "\":";
+    size_t cursor = stats.find(marker);
+    if (cursor == std::string::npos) {
+      return false;
+    }
+    cursor += marker.size();
+    while (cursor < stats.size() &&
+           (stats[cursor] == ' ' || stats[cursor] == '\n' ||
+            stats[cursor] == '\r' || stats[cursor] == '\t')) {
+      cursor++;
+    }
+    uint64_t value = 0;
+    bool found_digit = false;
+    for (; cursor < stats.size(); cursor++) {
+      const char ch = stats[cursor];
+      if (ch < '0' || ch > '9') {
+        break;
+      }
+      found_digit = true;
+      const uint64_t digit = static_cast<uint64_t>(ch - '0');
+      if (value > (std::numeric_limits<uint64_t>::max() - digit) / 10) {
+        return false;
+      }
+      value = value * 10 + digit;
+    }
+    if (!found_digit) {
+      return false;
+    }
+    *out_value = value;
+    return true;
+  } catch (...) {
+    return false;
+  }
 }
 
 std::pair<uint64_t, uint64_t> workletFingerprint(
@@ -972,6 +1018,7 @@ extern "C" int ex_worklet_invoke_typed(
     }
     CurrentInvocationScope invocation(
         state, &it->second, outputs, output_capacity);
+    state->typed_invoke_count++;
     (void)it->second.fn->call(
         rt,
         static_cast<const Value*>(arguments.data()),
@@ -993,6 +1040,23 @@ extern "C" int ex_worklet_install_metrics(
     return EX_WORKLET_ERROR;
   }
   *out_metrics = state->install_metrics;
+  return EX_WORKLET_OK;
+}
+
+extern "C" int ex_worklet_allocation_metrics(
+    ExactHermesRuntime* handle,
+    ExWorkletAllocationMetrics* out_metrics) {
+  auto* state = stateFor(handle);
+  if (!state || !out_metrics) {
+    return EX_WORKLET_ERROR;
+  }
+  uint64_t total_allocated_bytes = 0;
+  if (!recordedCounter(
+          handle, "totalAllocatedBytes", &total_allocated_bytes)) {
+    return EX_WORKLET_ERROR;
+  }
+  out_metrics->typed_invoke_count = state->typed_invoke_count;
+  out_metrics->hermes_total_allocated_bytes = total_allocated_bytes;
   return EX_WORKLET_OK;
 }
 
