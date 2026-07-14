@@ -140078,6 +140078,36 @@
             "rationale": "Generic embedder event, host-call, and handle transfer is closed."
           },
           {
+            "id": "surface.host.abi.ex.hermes.dispatch.motion.rated.publish.0bbxbt5",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_dispatch_motion_rated_publish"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Generic embedder event, host-call, and handle transfer is closed."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_dispatch_worklet_calls"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Generic embedder event, host-call, and handle transfer is closed."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.dispatch.worklet.json.batch.0vpbf64",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_dispatch_worklet_json_batch"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Generic embedder event, host-call, and handle transfer is closed."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.emit.module.event.00w52n6",
             "classification": "closed",
             "surface": {
@@ -145110,11 +145140,11 @@
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
-            "id": "surface.host.abi.ex.worklet.bind.shared.values.1vkss8f",
+            "id": "surface.host.abi.ex.worklet.bind.shared.value.accessors.0dpm31t",
             "classification": "closed",
             "surface": {
               "kind": "host-abi",
-              "name": "ex_worklet_bind_shared_values"
+              "name": "ex_worklet_bind_shared_value_accessors"
             },
             "cap": "ipc:channel",
             "rationale": "Worklet shared state, callback registration, and drain channels are closed."
@@ -145160,6 +145190,16 @@
             "rationale": "Worklet shared state, callback registration, and drain channels are closed."
           },
           {
+            "id": "surface.host.abi.ex.worklet.drain.scheduled.typed.1cd8ro0",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_drain_scheduled_typed"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet shared state, callback registration, and drain channels are closed."
+          },
+          {
             "id": "surface.host.abi.ex.worklet.generation.1c7z1ct",
             "classification": "non-capability",
             "surface": {
@@ -145180,11 +145220,41 @@
             "rationale": "Worklet creation, installation, and invocation are closed until principal isolation is proved."
           },
           {
+            "id": "surface.host.abi.ex.worklet.install.metrics.1d5ipuc",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_install_metrics"
+            },
+            "cap": "runtime:inspect",
+            "rationale": "Worklet diagnostic counters are closed in the initial profile."
+          },
+          {
+            "id": "surface.host.abi.ex.worklet.install.typed.11dea8d",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_install_typed"
+            },
+            "cap": "worker:create",
+            "rationale": "Worklet creation, installation, and invocation are closed until principal isolation is proved."
+          },
+          {
             "id": "surface.host.abi.ex.worklet.invoke.14qubev",
             "classification": "closed",
             "surface": {
               "kind": "host-abi",
               "name": "ex_worklet_invoke"
+            },
+            "cap": "worker:create",
+            "rationale": "Worklet creation, installation, and invocation are closed until principal isolation is proved."
+          },
+          {
+            "id": "surface.host.abi.ex.worklet.invoke.typed.0vm7ato",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_invoke_typed"
             },
             "cap": "worker:create",
             "rationale": "Worklet creation, installation, and invocation are closed until principal isolation is proved."
@@ -145208,6 +145278,16 @@
             },
             "cap": "ipc:channel",
             "rationale": "Worklet shared state, callback registration, and drain channels are closed."
+          },
+          {
+            "id": "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_take_scheduled_drop_count"
+            },
+            "cap": "runtime:inspect",
+            "rationale": "Worklet diagnostic counters are closed in the initial profile."
           },
           {
             "id": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.accessibilityflags.1m7g2yw",
@@ -200024,6 +200104,16 @@
             }
           },
           {
+            "id": "surface.native.op.exactmotionratedpublish.17cxgfa",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactMotionRatedPublish"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
             "id": "surface.native.op.exactnativedialog.0qc9nk6",
             "classification": "closed",
             "surface": {
@@ -201009,6 +201099,16 @@
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
+            "id": "surface.native.op.exactrunonjs.0h77cb0",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactRunOnJS"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
             "id": "surface.native.op.exactruntime.0agzg87",
             "classification": "non-capability",
             "surface": {
@@ -201077,6 +201177,16 @@
             },
             "rationaleId": "runtime-bootstrap-state",
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.native.op.exactscheduleonappruntime.0ev3zto",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactScheduleOnAppRuntime"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
           },
           {
             "id": "surface.native.op.exactscryptsync.0u89mot",
@@ -246730,6 +246840,36 @@
             "rationale": "Worklet global reachability is closed until worker principal isolation is proved."
           },
           {
+            "id": "surface.native.op.global.worklet.capture.0yvdy3b",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.capture"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
+            "id": "surface.native.op.global.worklet.captureget.0a4t4gx",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.captureGet"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
+            "id": "surface.native.op.global.worklet.captureset.02i1hil",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.captureSet"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
             "id": "surface.native.op.global.worklet.clamp.10ckbeu",
             "classification": "non-capability",
             "surface": {
@@ -246750,6 +246890,26 @@
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
+            "id": "surface.native.op.global.worklet.output.1ij3raq",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.output"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
+            "id": "surface.native.op.global.worklet.runonjs.08g0zpi",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.runOnJS"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
             "id": "surface.native.op.global.worklet.sharedvalue.1jey6on",
             "classification": "closed",
             "surface": {
@@ -246757,7 +246917,7 @@
               "name": "global:worklet.sharedValue"
             },
             "cap": "ipc:channel",
-            "rationale": "Worklet shared values are a cross-runtime communication channel."
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
           },
           {
             "id": "surface.native.op.global.writablestream.0f653iv",
@@ -248464,6 +248624,56 @@
             },
             "cap": "ipc:channel",
             "rationale": "Cross-runtime shared-value access is closed until a typed shared-memory channel and ownership model exist."
+          },
+          {
+            "id": "surface.native.op.workletcapture.1qk72mm",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletCapture"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
+            "id": "surface.native.op.workletcaptureget.1nw8x5m",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletCaptureGet"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
+            "id": "surface.native.op.workletcaptureset.0khajo6",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletCaptureSet"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
+            "id": "surface.native.op.workletoutput.03umqr5",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletOutput"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
+            "id": "surface.native.op.workletrunonjs.12t14kb",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletRunOnJS"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
           },
           {
             "id": "surface.startup.capability.hardening.seal.1bkrr89",
