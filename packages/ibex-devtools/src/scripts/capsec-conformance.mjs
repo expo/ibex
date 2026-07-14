@@ -181,7 +181,7 @@ export function fixtureExecutionPlans(catalog) {
 
 function validateExecutionEvidence(
   execution,
-  { plan, engineBinaryDigest },
+  { plan, engineBinaryDigest, executionBinding },
 ) {
   const evidence = execution.evidence;
   if (
@@ -190,7 +190,16 @@ function validateExecutionEvidence(
     !Array.isArray(evidence.command) || evidence.command.length === 0 ||
     !evidence.command.every((part) => typeof part === "string" && part.length > 0) ||
     !Number.isSafeInteger(evidence.exitCode) ||
-    typeof evidence.resultMarker !== "string"
+    typeof evidence.resultMarker !== "string" ||
+    canonicalJson(evidence.fixturePlan) !== canonicalJson(plan) ||
+    canonicalJson(evidence.executionBinding) !==
+      canonicalJson(executionBinding) ||
+    evidence.runtimeObservation?.observationSchema !==
+      "ibex/capsec-runtime-public-observation/1" ||
+    !evidence.runtimeObservation.invocation ||
+    typeof evidence.runtimeObservation.invocation !== "object" ||
+    evidence.runtimeObservation.legacyObservationCount !== 0 ||
+    !Array.isArray(evidence.runtimeObservation.typedDecisions)
   ) {
     throw new Error(`${execution.fixtureId}: malformed fixture-specific evidence`);
   }
@@ -343,6 +352,18 @@ export function buildConformanceReport({
     target,
     fixtureCatalogDigest,
   });
+  const requiredExecutionBinding = {
+    sourceRevision: bindings.sourceRevision,
+    sourceTreeDigest: bindings.sourceTreeDigest,
+    target,
+    engine: bindings.engine,
+    vocabularyDigest: bindings.vocabularyDigest,
+    registryDigest: bindings.registryDigest,
+    implementationManifestDigest,
+    fixtureCatalogDigest,
+    recipeCatalogDigest: bindings.recipeCatalogDigest,
+    publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
+  };
   const results = new Map();
   for (const execution of executions) {
     if (!expected.has(execution.fixtureId)) {
@@ -364,6 +385,7 @@ export function buildConformanceReport({
     validateExecutionEvidence(execution, {
       plan: plans.get(execution.fixtureId),
       engineBinaryDigest: bindings.engine.binaryDigest,
+      executionBinding: requiredExecutionBinding,
     });
     if (execution.bindingDigest !== requiredBindingDigest) {
       throw new Error(

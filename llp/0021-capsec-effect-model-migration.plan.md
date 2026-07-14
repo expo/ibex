@@ -544,7 +544,7 @@ graph/root objects, and protected artifacts, then replaces its construction
 nonce and digest; it cannot advertise a target. The package-side producer and
 normal Exact artifact publication, Apple/Windows conformance reports, and
 target advertisements remain incomplete. The refreshed catalog has 22,988
-required fixtures, 4,532 fully executable recipes, and 18,456 unresolved
+required fixtures, 4,539 fully executable recipes, and 18,449 unresolved
 fixtures, so the existing Apple matrix remains unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
@@ -1220,6 +1220,20 @@ and exact execution binding. Missing, generic, duplicated, stale, or synthetic
 records keep the report incomplete. Promotion remains closed until real
 executable evidence exists for every required fixture and the full matrix is
 green.
+
+Implementation status (2026-07-14): the first report-crediting fixture pilot
+reruns exactly seven Exact embedder mechanisms independently of the public
+catalog/adapter batches: three views of the single-use host-call completion
+route, endowment installation, exact-set authorization, armed-artifact
+freshening, and the unendowed-operation closure. Every
+`ibex/capsec-fixture-evidence/2` record carries the committed revision/tree,
+exact target and mapped engine identity, full fixture plan, recipe/public
+digests, producer command and exit status, and the fresh runtime observation.
+The runner validates the artifact through its `--fixture-evidence` path and
+credits exactly seven passes; the other 22,981 obligations remain missing, so
+the report remains `incomplete` and the target remains unadvertised. Missing,
+duplicate, stale, mismatched-plan/engine, or mechanism-invalid pilot evidence
+fails closed rather than reverting to zero credited rows.
 
 Builtin public-surface evidence follows the same rule at value granularity.
 The source scanner records whether an export is data, a readable accessor, a

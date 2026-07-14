@@ -74,6 +74,18 @@ const fixturePlan = fixtureExecutionPlan(
   fixtureCatalogForTarget({ coverage, implementation, target }),
   "edge.one.main.closed",
 );
+const passExecutionBinding = {
+  sourceRevision: bindings.sourceRevision,
+  sourceTreeDigest: bindings.sourceTreeDigest,
+  target,
+  engine: bindings.engine,
+  vocabularyDigest: bindings.vocabularyDigest,
+  registryDigest: bindings.registryDigest,
+  implementationManifestDigest: sha(implementation),
+  fixtureCatalogDigest,
+  recipeCatalogDigest: bindings.recipeCatalogDigest,
+  publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
+};
 const passEvidence = {
   evidenceSchema: "ibex/capsec-fixture-evidence/2",
   fixtureId: "edge.one.main.closed",
@@ -82,10 +94,18 @@ const passEvidence = {
   resultMarker: "ibex-capsec-fixture:edge.one.main.closed:passed",
   planDigest: sha(fixturePlan),
   engineBinaryDigest: bindings.engine.binaryDigest,
+  fixturePlan,
+  executionBinding: passExecutionBinding,
   observation: {
     kind: "enforcement-branch",
     branchId: "edge.one.main",
     result: "passed",
+  },
+  runtimeObservation: {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: { fixtureId: "edge.one.main.closed" },
+    legacyObservationCount: 0,
+    typedDecisions: [],
   },
 };
 const pass = {
@@ -242,6 +262,109 @@ describe("capsec target conformance", () => {
         digestContract,
       }),
     ).toThrow(/derived evidence/);
+  });
+
+  test("credits seven fixture records while the residual target remains incomplete", () => {
+    const fixtureIds = Array.from(
+      { length: 8 },
+      (_, index) => `edge.pilot.main.fixture-${index + 1}`,
+    );
+    const pilotCoverage = {
+      edges: [
+        {
+          id: "edge.pilot",
+          classification: "closed",
+          surface: { kind: "native-op", name: "pilot" },
+        },
+      ],
+    };
+    const pilotImplementation = {
+      surfaces: [
+        {
+          edgeId: "edge.pilot",
+          observedKey: "native-op:pilot",
+          branchId: "edge.pilot.main",
+          enforcementBranchId: "edge.pilot.main",
+          enforcementRoute: { terminalObservedKey: "native-op:pilot" },
+          targetVariant: "all",
+          targetApplicability: { kind: "all" },
+          fixtureObligations: fixtureIds,
+        },
+      ],
+    };
+    const pilotCatalog = fixtureCatalogForTarget({
+      coverage: pilotCoverage,
+      implementation: pilotImplementation,
+      target,
+    });
+    const pilotFixtureCatalogDigest = sha(pilotCatalog);
+    const pilotImplementationDigest = sha(pilotImplementation);
+    const pilotExecutionBinding = {
+      sourceRevision: bindings.sourceRevision,
+      sourceTreeDigest: bindings.sourceTreeDigest,
+      target,
+      engine: bindings.engine,
+      vocabularyDigest: bindings.vocabularyDigest,
+      registryDigest: bindings.registryDigest,
+      implementationManifestDigest: pilotImplementationDigest,
+      fixtureCatalogDigest: pilotFixtureCatalogDigest,
+      recipeCatalogDigest: bindings.recipeCatalogDigest,
+      publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
+    };
+    const pilotBindingDigest = executionBindingDigest({
+      bindings: {
+        ...bindings,
+        implementationManifestDigest: pilotImplementationDigest,
+      },
+      target,
+      fixtureCatalogDigest: pilotFixtureCatalogDigest,
+    });
+    const pilotExecutions = fixtureIds.slice(0, 7).map((fixtureId) => {
+      const plan = fixtureExecutionPlan(pilotCatalog, fixtureId);
+      const evidence = {
+        evidenceSchema: "ibex/capsec-fixture-evidence/2",
+        fixtureId,
+        command: ["cargo", "test", "fixture-pilot"],
+        exitCode: 0,
+        resultMarker: `ibex-capsec-fixture:${fixtureId}:passed`,
+        planDigest: sha(plan),
+        engineBinaryDigest: bindings.engine.binaryDigest,
+        fixturePlan: plan,
+        executionBinding: pilotExecutionBinding,
+        observation: { ...plan.expectedObservation, result: "passed" },
+        runtimeObservation: {
+          observationSchema: "ibex/capsec-runtime-public-observation/1",
+          invocation: { fixtureId },
+          legacyObservationCount: 0,
+          typedDecisions: [],
+        },
+      };
+      return {
+        fixtureId,
+        outcome: "passed",
+        executor: "fixture-pilot",
+        artifactDigest: sha(evidence),
+        bindingDigest: pilotBindingDigest,
+        evidence,
+      };
+    });
+    const report = buildConformanceReport({
+      coverage: pilotCoverage,
+      implementation: pilotImplementation,
+      target,
+      executions: pilotExecutions,
+      bindings,
+      digestContract,
+    });
+    expect(report.status).toBe("incomplete");
+    expect(report.summary).toMatchObject({
+      requiredFixtures: 8,
+      passedFixtures: 7,
+      missingFixtures: 1,
+      failedFixtures: 0,
+    });
+    expect(report.executions).toHaveLength(7);
+    expect(() => assertReportMayAdvertise(report)).toThrow(/incomplete/);
   });
 
   test("rejects unknown, duplicate, and unbound execution claims", () => {

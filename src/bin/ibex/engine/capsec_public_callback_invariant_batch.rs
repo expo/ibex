@@ -7,8 +7,7 @@ use std::io::Write as _;
 
 const CALLBACK_INVOCATION_SCHEMA: &str = "ibex/capsec-callback-invariant-invocation/1";
 const ENV_AUXILIARY_EDGE_ID: &str = "surface.native.op.exactgetenv.0k6bv7a";
-const EXACT_OPERATION_MANIFEST_DIGEST: &str =
-    "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+const EXACT_OPERATION_MANIFEST_DIGEST: &str = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
 const EXACT_APP_OPERATION_IDS: [u32; 2] = [7, 11];
 const CALLBACK_BATCH_COMMAND: [&str; 9] = [
     "cargo",
@@ -588,9 +587,7 @@ fn artifact_host_path(path: &std::path::Path) -> capsec_semantics::model::Logica
     }
 }
 
-fn artifact_object_identity(
-    path: &std::path::Path,
-) -> capsec_semantics::model::ObjectIdentity {
+fn artifact_object_identity(path: &std::path::Path) -> capsec_semantics::model::ObjectIdentity {
     use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
 
     let mut options = std::fs::OpenOptions::new();
@@ -729,14 +726,13 @@ fn prepare_embedder_artifact_fixture() -> EmbedderArtifactFixture {
     }]);
     snapshot["packageGraph"]["nodes"] = serde_json::json!([]);
     snapshot["packageGraph"]["importEdges"] = serde_json::json!([]);
-    snapshot["packageGraph"]["digest"] = serde_json::json!(
-        capsec_semantics::digest::compute_domain_digest(
+    snapshot["packageGraph"]["digest"] =
+        serde_json::json!(capsec_semantics::digest::compute_domain_digest(
             "ibex:capsec:package-graph:1",
             &snapshot["packageGraph"],
             &["digest".to_owned()],
         )
-        .expect("digest embedder package graph")
-    );
+        .expect("digest embedder package graph"));
     snapshot["rootBindings"] = serde_json::json!([{
         "logicalRoot": "project",
         "hostPath": artifact_host_path(&project_root),
@@ -897,7 +893,10 @@ fn begin_observation(session_id: &str) {
 
 fn finish_observation(session_id: &str) -> Vec<serde_json::Value> {
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
-    assert!(legacy.is_empty(), "rev2 public path consulted the legacy plane");
+    assert!(
+        legacy.is_empty(),
+        "rev2 public path consulted the legacy plane"
+    );
     typed
         .into_iter()
         .map(|observation| {
@@ -930,7 +929,9 @@ fn assert_context_principal(
     );
     assert!(result["context"]["runtimeNonce"]
         .as_str()
-        .is_some_and(|value| value.strip_prefix("u64:").is_some_and(|raw| raw.parse::<u64>().is_ok())));
+        .is_some_and(|value| value
+            .strip_prefix("u64:")
+            .is_some_and(|raw| raw.parse::<u64>().is_ok())));
 }
 
 fn assert_package_global_withholding(result: &serde_json::Value) {
@@ -980,9 +981,13 @@ fn assert_typed_decisions(
             "public decision actor drifted: {decision}"
         );
         assert_eq!(
-            decision["decisionSet"]["context"]["stage"], expected_stages[index]
+            decision["decisionSet"]["context"]["stage"],
+            expected_stages[index]
         );
-        assert_eq!(decision["decisionSet"]["effects"][0]["cap"], expected_action);
+        assert_eq!(
+            decision["decisionSet"]["effects"][0]["cap"],
+            expected_action
+        );
         assert_eq!(decision["gates"][0]["coverageEdgeId"], expected_edge_id);
         assert_eq!(decision["gates"][0]["targetCell"], "complete");
         assert_eq!(
@@ -1917,7 +1922,10 @@ async fn execute_exact_artifact_prepare(recipe: &Recipe) -> ScenarioExecution {
             fixture.expected_identity.len(),
         )
     };
-    assert!(!output.is_null(), "artifact preparation returned a null envelope");
+    assert!(
+        !output.is_null(),
+        "artifact preparation returned a null envelope"
+    );
     let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
         .to_bytes()
         .to_vec();
@@ -1926,9 +1934,15 @@ async fn execute_exact_artifact_prepare(recipe: &Recipe) -> ScenarioExecution {
     assert!(typed_decisions.is_empty());
     let envelope: serde_json::Value =
         serde_json::from_slice(&bytes).expect("artifact preparation envelope must be JSON");
-    assert_eq!(envelope["ok"], true, "artifact preparation refused: {envelope}");
+    assert_eq!(
+        envelope["ok"], true,
+        "artifact preparation refused: {envelope}"
+    );
     let artifacts = &envelope["artifacts"];
-    assert_eq!(artifacts["artifactSchema"], "ibex/armed-embedder-artifacts/1");
+    assert_eq!(
+        artifacts["artifactSchema"],
+        "ibex/armed-embedder-artifacts/1"
+    );
     let fresh_nonce = artifacts["snapshot"]["runNonce"]
         .as_str()
         .expect("prepared artifact has no run nonce");
@@ -1995,11 +2009,63 @@ async fn execute_mechanism(
 }
 
 async fn execute_scenario(recipe: &Recipe, package: &PackageFixture) -> ScenarioExecution {
-    let mechanism = recipe.public_surface_probe.as_ref().unwrap().invocation.source_descriptor
-        ["executionMechanism"]
+    let mechanism = recipe
+        .public_surface_probe
+        .as_ref()
+        .unwrap()
+        .invocation
+        .source_descriptor["executionMechanism"]
         .as_str()
         .expect("callback invariant recipe has no execution mechanism");
     execute_mechanism(recipe, package, mechanism).await
+}
+
+fn build_runtime_observation(recipe: &Recipe, scenario: &ScenarioExecution) -> serde_json::Value {
+    let probe = recipe.public_surface_probe.as_ref().unwrap();
+    serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": probe.invocation.invocation_schema,
+            "kind": probe.invocation.kind,
+            "surfaceObservedKey": probe.surface_observed_key,
+            "surfaceKind": probe.invocation.surface_kind,
+            "surfaceName": probe.invocation.surface_name,
+            "scenario": probe.invocation.scenario,
+            "sourceDescriptorDigest": probe.invocation.source_descriptor_digest,
+            "result": scenario.result,
+        },
+        "legacyObservationCount": scenario.legacy_observation_count,
+        "typedDecisions": scenario.typed_decisions,
+    })
+}
+
+pub(super) async fn execute_exact_fixture_runtime_observation(
+    recipe_value: &serde_json::Value,
+) -> serde_json::Value {
+    let recipe: Recipe = serde_json::from_value(recipe_value.clone())
+        .expect("Exact fixture recipe must match the executable recipe schema");
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.scenario, "non-capability");
+    let mechanism = recipe
+        .public_surface_probe
+        .as_ref()
+        .unwrap()
+        .invocation
+        .source_descriptor["executionMechanism"]
+        .as_str()
+        .expect("Exact fixture recipe has no execution mechanism");
+    assert!(matches!(
+        mechanism,
+        "exact-host-call-round-trip"
+            | "exact-endowment-install"
+            | "exact-endowment-authorize"
+            | "exact-artifact-prepare-round-trip"
+    ));
+    let (branches, edges) = checked_registry_rows();
+    validate_recipe_source_binding(&recipe, &branches, &edges);
+    let package = prepare_package_fixture();
+    let scenario = execute_scenario(&recipe, &package).await;
+    build_runtime_observation(&recipe, &scenario)
 }
 
 fn build_execution(
@@ -2064,21 +2130,7 @@ fn build_execution(
             .map(serde_json::Value::String)
             .collect::<Vec<_>>()
     );
-    let runtime_observation = serde_json::json!({
-        "observationSchema": "ibex/capsec-runtime-public-observation/1",
-        "invocation": {
-            "invocationSchema": probe.invocation.invocation_schema,
-            "kind": probe.invocation.kind,
-            "surfaceObservedKey": probe.surface_observed_key,
-            "surfaceKind": probe.invocation.surface_kind,
-            "surfaceName": probe.invocation.surface_name,
-            "scenario": probe.invocation.scenario,
-            "sourceDescriptorDigest": probe.invocation.source_descriptor_digest,
-            "result": scenario.result,
-        },
-        "legacyObservationCount": scenario.legacy_observation_count,
-        "typedDecisions": scenario.typed_decisions,
-    });
+    let runtime_observation = build_runtime_observation(recipe, &scenario);
     let mut observation = recipe.expected_observation.clone();
     observation
         .as_object_mut()

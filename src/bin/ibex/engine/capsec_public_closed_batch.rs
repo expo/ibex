@@ -168,8 +168,7 @@ const CLOSED_BATCH_COMMAND: [&str; 9] = [
     "--",
     "--test-threads=1",
 ];
-const EXACT_OPERATION_MANIFEST_DIGEST: &str =
-    "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+const EXACT_OPERATION_MANIFEST_DIGEST: &str = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
 const EXACT_APP_OPERATION_IDS: [u32; 2] = [7, 11];
 const EXACT_UNENDOWED_OPERATION_ID: u32 = 8;
 const EXACT_UNENDOWED_ERROR: &str = "exact.invokeHostAsync operation is not endowed";
@@ -243,9 +242,7 @@ fn coverage_terminals() -> BTreeMap<String, (String, String)> {
 
 fn closed_surface_probe(recipe: &Recipe) -> Option<ClosedSurfaceProbe> {
     let value = recipe.public_surface_probe.as_ref()?;
-    if value["invocation"]["invocationSchema"]
-        != "ibex/capsec-closed-surface-invocation/1"
-    {
+    if value["invocation"]["invocationSchema"] != "ibex/capsec-closed-surface-invocation/1" {
         return None;
     }
     Some(
@@ -260,10 +257,11 @@ struct ClosedEnvironmentRestore(Vec<(String, Option<OsString>)>);
 #[cfg(test)]
 impl ClosedEnvironmentRestore {
     fn clear() -> Self {
-        let mut names = ibex_runtime::capsec_registry_generated::CAPSEC_CLOSED_STARTUP_ENVIRONMENT_NAMES
-            .iter()
-            .copied()
-            .collect::<std::collections::BTreeSet<_>>();
+        let mut names =
+            ibex_runtime::capsec_registry_generated::CAPSEC_CLOSED_STARTUP_ENVIRONMENT_NAMES
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>();
         names.extend(["IBEX_POLICY", "EXACT_POLICY"]);
         let values = names
             .iter()
@@ -327,14 +325,15 @@ async fn execute_closed_startup_environment(
     assert!(recipe.action_ids.is_empty());
     assert_eq!(recipe.edge_ids.len(), 1);
     assert_eq!(probe.kind, "public-surface-invocation");
-    assert!(
-        probe
-            .command
-            .iter()
-            .map(String::as_str)
-            .eq(CLOSED_BATCH_COMMAND)
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
     );
-    assert_eq!(invocation.invocation_schema, "ibex/capsec-closed-surface-invocation/1");
     assert_eq!(invocation.kind, "closed-surface");
     assert_eq!(invocation.surface_kind, "startup");
     assert_eq!(invocation.surface_name, format!("env:{environment_name}"));
@@ -349,7 +348,10 @@ async fn execute_closed_startup_environment(
     );
     let descriptor = &invocation.source_descriptor;
     assert_eq!(descriptor.kind, "closed-startup-environment");
-    assert_eq!(descriptor.environment_name.as_deref(), Some(environment_name));
+    assert_eq!(
+        descriptor.environment_name.as_deref(),
+        Some(environment_name)
+    );
     assert!(descriptor.surface_observed_key.is_none());
     assert!(descriptor.control_descriptor.is_none());
     assert!(!descriptor.source_refs.is_empty());
@@ -377,9 +379,7 @@ async fn execute_closed_startup_environment(
 
     crate::host::abi::install_host(crate::host::Host::strict());
     let session_id = format!("public-observation:{}", recipe.plan_digest);
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-        &session_id
-    ));
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     std::env::set_var(environment_name, "");
     let missing_root = std::env::temp_dir().join(format!(
         "ibex-capsec-closed-missing-{}",
@@ -486,8 +486,15 @@ async fn execute_closed_tamed_evaluator(
     assert!(recipe.action_ids.is_empty());
     assert_eq!(recipe.edge_ids.len(), 1);
     assert_eq!(probe.kind, "public-surface-invocation");
-    assert!(probe.command.iter().map(String::as_str).eq(CLOSED_BATCH_COMMAND));
-    assert_eq!(invocation.invocation_schema, "ibex/capsec-closed-surface-invocation/1");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
     assert_eq!(invocation.kind, "closed-surface");
     assert_eq!(invocation.surface_kind, "native-op");
     assert_eq!(invocation.surface_name, format!("global:{global_name}"));
@@ -502,8 +509,14 @@ async fn execute_closed_tamed_evaluator(
     );
     let descriptor = &invocation.source_descriptor;
     assert_eq!(descriptor.kind, "closed-tamed-evaluator");
-    assert_eq!(descriptor.global_name.as_deref(), Some(global_name.as_str()));
-    assert_eq!(descriptor.access_mode.as_deref(), Some(access_mode.as_str()));
+    assert_eq!(
+        descriptor.global_name.as_deref(),
+        Some(global_name.as_str())
+    );
+    assert_eq!(
+        descriptor.access_mode.as_deref(),
+        Some(access_mode.as_str())
+    );
     assert_eq!(
         descriptor.surface_observed_key.as_deref(),
         Some(probe.surface_observed_key.as_str())
@@ -519,8 +532,14 @@ async fn execute_closed_tamed_evaluator(
         .lockdown_taming_digest
         .as_deref()
         .is_some_and(|value| value.starts_with("sha256-") && value.len() == 71));
-    assert_eq!(descriptor.source_metadata["evidenceType"], "hermes-evaluator-reachability");
-    assert_eq!(descriptor.source_metadata["exportName"], global_name.as_str());
+    assert_eq!(
+        descriptor.source_metadata["evidenceType"],
+        "hermes-evaluator-reachability"
+    );
+    assert_eq!(
+        descriptor.source_metadata["exportName"],
+        global_name.as_str()
+    );
     assert_eq!(descriptor.source_metadata["tamingEvidence"], "lockdownJS");
     assert_eq!(
         descriptor.source_metadata["engineIdentityReviewId"],
@@ -564,9 +583,7 @@ async fn execute_closed_tamed_evaluator(
         .await
         .expect("load exact tamed-evaluator runtime");
     let session_id = format!("closed-evaluator:{}", recipe.plan_digest);
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-        &session_id
-    ));
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     let script = format!(
         "JSON.stringify((function(){{var evaluator={expression};try{{Reflect.apply(evaluator,globalThis,['return 7']);return {{kind:'return',tamed:evaluator&&evaluator.__ibexTamed===true}};}}catch(error){{return {{kind:'throw',tamed:evaluator&&evaluator.__ibexTamed===true,errorName:String(error&&error.name||'Error'),errorMessage:String(error&&error.message||error)}};}}}})())"
     );
@@ -733,9 +750,7 @@ async fn execute_closed_exact_unendowed_operation(
         .await
         .expect("load exact closed-operation runtime");
     let session_id = format!("closed-exact-operation:{}", recipe.plan_digest);
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-        &session_id
-    ));
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     let manifest_digest = std::ffi::CString::new(operation_manifest_digest.as_str()).unwrap();
     let runtime = engine
         .ensure_runtime()
@@ -852,6 +867,28 @@ async fn execute_closed_exact_unendowed_operation(
     })
 }
 
+pub(super) async fn execute_exact_fixture_runtime_observation(
+    recipe_value: &serde_json::Value,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let recipe: Recipe = serde_json::from_value(recipe_value.clone())
+        .expect("closed Exact fixture recipe must match the executable recipe schema");
+    let probe = closed_surface_probe(&recipe)
+        .expect("closed Exact fixture recipe has no closed-surface probe");
+    assert!(matches!(
+        probe.invocation.operation,
+        ClosedOperation::ExactUnendowedOperation { .. }
+    ));
+    let execution = execute_closed_exact_unendowed_operation(
+        &recipe,
+        &probe,
+        &coverage_terminals(),
+        engine_binary_digest,
+    )
+    .await;
+    execution["evidence"]["runtimeObservation"].clone()
+}
+
 #[cfg(test)]
 async fn execute_closed_loader_executable(
     recipe: &Recipe,
@@ -874,8 +911,15 @@ async fn execute_closed_loader_executable(
     assert!(recipe.action_ids.is_empty());
     assert_eq!(recipe.edge_ids.len(), 1);
     assert_eq!(probe.kind, "public-surface-invocation");
-    assert!(probe.command.iter().map(String::as_str).eq(CLOSED_BATCH_COMMAND));
-    assert_eq!(invocation.invocation_schema, "ibex/capsec-closed-surface-invocation/1");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
     assert_eq!(invocation.kind, "closed-surface");
     assert_eq!(invocation.surface_kind, "loader");
     assert_eq!(invocation.expected_result, "closed");
@@ -889,7 +933,10 @@ async fn execute_closed_loader_executable(
     );
     let descriptor = &invocation.source_descriptor;
     assert_eq!(descriptor.kind, "closed-loader-executable-kind");
-    assert_eq!(descriptor.loader_kind.as_deref(), Some(loader_kind.as_str()));
+    assert_eq!(
+        descriptor.loader_kind.as_deref(),
+        Some(loader_kind.as_str())
+    );
     assert_eq!(descriptor.extension.as_deref(), Some(extension.as_str()));
     assert!(!descriptor.source_refs.is_empty());
     assert!(matches!(loader_kind.as_str(), "native-addon" | "wasm"));
@@ -949,9 +996,7 @@ async fn execute_closed_loader_executable(
         .await
         .expect("load exact closed loader runtime");
     let session_id = format!("public-observation:{}", recipe.plan_digest);
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-        &session_id
-    ));
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     let script = format!(
         r#"JSON.stringify((function(path) {{
   var errorName = null;
@@ -1212,7 +1257,10 @@ fn assert_cli_source_facet(
             assert_eq!(source_metadata["routeKind"], route_kind);
         }
         "cli-value-action" => {
-            assert_eq!(source_metadata["action"], clap_action_name(argument.get_action()))
+            assert_eq!(
+                source_metadata["action"],
+                clap_action_name(argument.get_action())
+            )
         }
         "cli-value-arity" => {
             let arity = argument.get_num_args().unwrap_or_default();
@@ -1278,11 +1326,7 @@ fn assert_clap_control_descriptor(descriptor: &ClosedSourceDescriptor) {
                 control["parserKind"],
                 serde_json::json!(reviewed_parser_kind(command_path, argument))
             );
-            assert_cli_source_facet(
-                &descriptor.source_metadata,
-                control,
-                Some(argument),
-            );
+            assert_cli_source_facet(&descriptor.source_metadata, control, Some(argument));
         }
         "clap-positional" => {
             let positional = control["positionalMetadata"]
@@ -1423,7 +1467,10 @@ async fn execute_closed_cli_control(
         .iter()
         .map(String::as_str)
         .eq(CLOSED_BATCH_COMMAND));
-    assert_eq!(invocation.invocation_schema, "ibex/capsec-closed-surface-invocation/1");
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
     assert_eq!(invocation.kind, "closed-surface");
     assert_eq!(invocation.surface_kind, "cli");
     assert_eq!(invocation.expected_result, "closed");
@@ -1494,7 +1541,10 @@ async fn execute_closed_cli_control(
                     .unwrap()
                     .iter()
                     .any(|spelling| spelling.as_str() == Some(vector.spelling.as_str())));
-                assert!(vector.args.iter().any(|argument| argument == &vector.spelling));
+                assert!(vector
+                    .args
+                    .iter()
+                    .any(|argument| argument == &vector.spelling));
                 if descriptor.source_metadata["evidenceType"] == "cli-option-name" {
                     assert_eq!(
                         descriptor.source_metadata["name"].as_str(),
@@ -1507,17 +1557,13 @@ async fn execute_closed_cli_control(
             }
             other => panic!("unsupported closed CLI vector kind {other}"),
         }
-        assert_cli_control_selected(
-            &cli,
-            descriptor,
-            evaluation_marker,
-            &project_code,
-        );
+        assert_cli_control_selected(&cli, descriptor, evaluation_marker, &project_code);
         crate::host::abi::install_host(crate::host::Host::strict());
-        let session_id = format!("public-observation:{}:{}", recipe.plan_digest, vector.spelling);
-        assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-            &session_id
-        ));
+        let session_id = format!(
+            "public-observation:{}:{}",
+            recipe.plan_digest, vector.spelling
+        );
+        assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
         let error = crate::run(cli)
             .await
             .expect_err("closed CLI control reached production execution");
@@ -1717,13 +1763,15 @@ async fn capsec_public_closed_recipe_batch() {
                 )
                 .await
             }
-            ClosedOperation::CliControl { .. } => execute_closed_cli_control(
-                recipe,
-                &probe,
-                &coverage,
-                &identity_before.binary_digest,
-            )
-            .await,
+            ClosedOperation::CliControl { .. } => {
+                execute_closed_cli_control(
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await
+            }
             ClosedOperation::TamedEvaluator { .. } => {
                 execute_closed_tamed_evaluator(
                     recipe,
@@ -1753,11 +1801,7 @@ async fn capsec_public_closed_recipe_batch() {
             }
         });
     }
-    executions.sort_by(|left, right| {
-        left["fixtureId"]
-            .as_str()
-            .cmp(&right["fixtureId"].as_str())
-    });
+    executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     let identity_after = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes after closed public recipes");
     assert_eq!(identity_after, identity_before);

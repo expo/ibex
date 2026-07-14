@@ -134,7 +134,7 @@
           },
           "evidence": {
             "type": "object",
-            "required": ["evidenceSchema", "fixtureId", "command", "exitCode", "resultMarker", "planDigest", "engineBinaryDigest", "observation"],
+            "required": ["evidenceSchema", "fixtureId", "command", "exitCode", "resultMarker", "planDigest", "engineBinaryDigest", "fixturePlan", "executionBinding", "observation", "runtimeObservation"],
             "properties": {
               "evidenceSchema": { "const": "ibex/capsec-fixture-evidence/2" },
               "fixtureId": {
@@ -153,6 +153,8 @@
               "engineBinaryDigest": {
                 "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
               },
+              "fixturePlan": { "$ref": "#/$defs/fixturePlan" },
+              "executionBinding": { "$ref": "#/$defs/executionBinding" },
               "observation": {
                 "oneOf": [
                   {
@@ -180,6 +182,24 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "runtimeObservation": {
+                "type": "object",
+                "required": [
+                  "observationSchema",
+                  "invocation",
+                  "legacyObservationCount",
+                  "typedDecisions"
+                ],
+                "properties": {
+                  "observationSchema": {
+                    "const": "ibex/capsec-runtime-public-observation/1"
+                  },
+                  "invocation": { "type": "object", "minProperties": 1 },
+                  "legacyObservationCount": { "const": 0 },
+                  "typedDecisions": { "type": "array" }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false
@@ -224,6 +244,122 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "executionBinding": {
+      "type": "object",
+      "required": [
+        "sourceRevision",
+        "sourceTreeDigest",
+        "target",
+        "engine",
+        "vocabularyDigest",
+        "registryDigest",
+        "implementationManifestDigest",
+        "fixtureCatalogDigest",
+        "recipeCatalogDigest",
+        "publicSurfaceExecutionDigest"
+      ],
+      "properties": {
+        "sourceRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "sourceTreeDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "target": { "$ref": "#/$defs/target" },
+        "engine": {
+          "type": "object",
+          "required": [
+            "engineArtifactPath",
+            "kind",
+            "binaryDigest",
+            "object",
+            "targetArchitecture",
+            "structuralFeatures"
+          ],
+          "properties": {
+            "engineArtifactPath": { "type": "string", "minLength": 1 },
+            "kind": { "const": "hermes" },
+            "binaryDigest": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+            },
+            "object": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+            },
+            "targetArchitecture": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+            "structuralFeatures": { "$ref": "#/$defs/idSet" }
+          },
+          "additionalProperties": false
+        },
+        "vocabularyDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "registryDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "implementationManifestDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "fixtureCatalogDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "recipeCatalogDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "publicSurfaceExecutionDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        }
+      },
+      "additionalProperties": false
+    },
+    "fixturePlan": {
+      "type": "object",
+      "required": [
+        "fixtureId",
+        "edgeIds",
+        "implementationBranchIds",
+        "enforcementBranchIds",
+        "terminalObservedKey",
+        "classification",
+        "actionIds",
+        "expectedObservation"
+      ],
+      "properties": {
+        "fixtureId": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "edgeIds": { "$ref": "#/$defs/idSet" },
+        "implementationBranchIds": { "$ref": "#/$defs/idSet" },
+        "enforcementBranchIds": { "$ref": "#/$defs/idSet" },
+        "terminalObservedKey": { "type": "string", "minLength": 1 },
+        "classification": { "type": "string", "minLength": 1 },
+        "actionIds": { "$ref": "#/$defs/idSet" },
+        "expectedObservation": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind", "branchId"],
+              "properties": {
+                "kind": { "const": "enforcement-branch" },
+                "branchId": {
+                  "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["kind", "edgeId"],
+              "properties": {
+                "kind": { "const": "target-absence" },
+                "edgeId": {
+                  "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "target": {
       "type": "object",
       "required": ["triple", "features"],

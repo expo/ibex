@@ -1682,7 +1682,11 @@ function validateRuntimeInvocation(observation, recipe) {
   }
 }
 
-function validateRuntimeObservation(observation, recipe, coverage) {
+export function validatePublicFixtureRuntimeObservation(
+  observation,
+  recipe,
+  coverage,
+) {
   exactKeys(
     observation,
     [
@@ -2098,7 +2102,7 @@ function validateExecution(execution, recipe, engineBinaryDigest, coverage) {
       `${recipe.fixtureId}: adapter-only, stale, or malformed public-surface evidence`,
     );
   }
-  const runtimeTerminal = validateRuntimeObservation(
+  const runtimeTerminal = validatePublicFixtureRuntimeObservation(
     evidence.runtimeObservation,
     recipe,
     coverage,
@@ -2254,7 +2258,7 @@ export function buildPublicFixtureEvidence({
   outcome = "passed",
   executor = "ibex-public-surface-harness",
 }) {
-  const terminalObservedKey = validateRuntimeObservation(
+  const terminalObservedKey = validatePublicFixtureRuntimeObservation(
     runtimeObservation,
     recipe,
     coverage,

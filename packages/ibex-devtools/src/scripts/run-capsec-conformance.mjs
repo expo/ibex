@@ -35,6 +35,11 @@ import {
   engineLoaderEnvironment,
   validateLoadedEngineIdentity,
 } from "./capsec-engine-identity.mjs";
+import {
+  buildExactFixtureEvidenceBindingArtifact,
+  EXACT_FIXTURE_EVIDENCE_COMMAND,
+  validateExactFixtureEvidenceArtifact,
+} from "./capsec-fixture-evidence.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -91,7 +96,7 @@ const engineArtifactPath = path.resolve(
   option("--engine-artifact") ??
     "ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
 );
-const fixtureEvidencePath = option("--fixture-evidence");
+const suppliedFixtureEvidencePath = option("--fixture-evidence");
 const publicSurfaceEvidenceInputPath = option("--public-surface-evidence");
 const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
@@ -244,6 +249,14 @@ const publicSurfaceEvidencePath = path.join(
 const publicBatchEvidenceDirectory = path.join(
   evidenceDirectory,
   "public-fixture-batches",
+);
+const fixtureEvidenceBindingPath = path.join(
+  evidenceDirectory,
+  "exact-fixture-evidence-binding.json",
+);
+const producedFixtureEvidencePath = path.join(
+  evidenceDirectory,
+  "exact-fixture-evidence.json",
 );
 execFileSync(
   process.execPath,
@@ -463,22 +476,66 @@ const bindingDigest = executionBindingDigest({
   target,
   fixtureCatalogDigest,
 });
-let executions = [];
-if (fixtureEvidencePath) {
-  const fixtureArtifact = readJsonStrict(path.resolve(repoRoot, fixtureEvidencePath));
-  if (
-    fixtureArtifact.executionArtifactSchema !== "ibex/capsec-executions/1" ||
-    fixtureArtifact.sourceRevision !== bindings.sourceRevision ||
-    fixtureArtifact.sourceTreeDigest !== bindings.sourceTreeDigest ||
-    canonicalJson(fixtureArtifact.engine) !== canonicalJson(bindings.engine) ||
-    fixtureArtifact.recipeCatalogDigest !== bindings.recipeCatalogDigest ||
-    fixtureArtifact.publicSurfaceExecutionDigest !==
-      bindings.publicSurfaceExecutionDigest ||
-    !Array.isArray(fixtureArtifact.executions)
-  ) {
-    throw new Error("fixture evidence artifact is stale, malformed, or from another revision");
-  }
-  executions = fixtureArtifact.executions;
+const fixtureEvidenceBinding = buildExactFixtureEvidenceBindingArtifact({
+  recipeCatalog,
+  fixtureCatalog: catalog,
+  bindings,
+  target,
+  fixtureCatalogDigest,
+});
+fs.writeFileSync(
+  fixtureEvidenceBindingPath,
+  `${JSON.stringify(fixtureEvidenceBinding, null, 2)}\n`,
+  { flag: "wx", mode: 0o600 },
+);
+let fixtureEvidencePath;
+if (suppliedFixtureEvidencePath) {
+  fixtureEvidencePath = path.resolve(repoRoot, suppliedFixtureEvidencePath);
+} else {
+  commandEvidence.push(
+    runObservedCommand({
+      id: "exact-fixture-evidence-pilot",
+      command: EXACT_FIXTURE_EVIDENCE_COMMAND[0],
+      args: EXACT_FIXTURE_EVIDENCE_COMMAND.slice(1),
+      cwd: repoRoot,
+      evidenceDirectory,
+      env: {
+        ...exactEngineEnvironment,
+        IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+        IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING: fixtureEvidenceBindingPath,
+        IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT: producedFixtureEvidencePath,
+      },
+    }),
+  );
+  fixtureEvidencePath = producedFixtureEvidencePath;
+}
+const fixtureArtifact = readOwnedJson(
+  fixtureEvidencePath,
+  "Exact fixture evidence",
+);
+validateExactFixtureEvidenceArtifact(fixtureArtifact, {
+  recipeCatalog,
+  fixtureCatalog: catalog,
+  coverage,
+  bindings,
+  target,
+  fixtureCatalogDigest,
+});
+const executions = fixtureArtifact.executions;
+const sourceRevisionAfterFixtureEvidence = git("rev-parse", "HEAD")
+  .toString("utf8")
+  .trim();
+const sourceTreeAfterFixtureEvidence = git("rev-parse", "HEAD^{tree}")
+  .toString("utf8")
+  .trim();
+if (
+  git("status", "--porcelain").toString("utf8").trim() ||
+  sourceRevisionAfterFixtureEvidence !== initialSourceRevision ||
+  sourceTreeAfterFixtureEvidence !== initialSourceTree
+) {
+  throw new Error(
+    "Exact fixture evidence changed the committed source revision or working tree",
+  );
 }
 // A broad suite pass is prerequisite evidence, never a per-obligation pass.
 // Only fixture-specific commands carrying their own result marker may enter
