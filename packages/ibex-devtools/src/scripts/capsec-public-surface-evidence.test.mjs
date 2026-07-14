@@ -94,6 +94,11 @@ const coverage = {
       classification: "non-capability",
       surface: { kind: "startup", name: "lockdown-install" },
     },
+    {
+      id: "edge.exact-closed",
+      classification: "closed",
+      surface: { kind: "native-op", name: "global:exact.invokeHostAsync" },
+    },
   ],
 };
 
@@ -679,6 +684,52 @@ function completeClosedLoaderCatalog() {
   return catalog;
 }
 
+function completeClosedExactCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "closed-exact-unendowed-operation",
+    surfaceObservedKey: "native-op:global:exact.invokeHostAsync",
+    globalName: "exact",
+    memberName: "invokeHostAsync",
+    sourceRefs: [
+      "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync",
+    ],
+    sourceMetadata: {
+      surfaceType: "global-api",
+      sourceKey: "native_jsi_global",
+      globalName: "exact",
+      memberName: "invokeHostAsync",
+      memberKinds: ["native-object-member"],
+      exportName: "exact.invokeHostAsync",
+    },
+  };
+  recipe.fixtureId = "fixture.exact.invoke-host-async.closed";
+  recipe.edgeIds = ["edge.exact-closed"];
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName: "global:exact.invokeHostAsync",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "exact-unendowed-operation",
+      contextKind: "app",
+      operationManifestDigest:
+        "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA",
+      endowedOperationIds: [7, 11],
+      selectedOperationId: 8,
+      expectedError: "exact.invokeHostAsync operation is not endowed",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeStartupCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -767,7 +818,9 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
       ? invocation.operation.expectedRejectionFragments.join("; ")
       : invocation.operation.kind === "loader-executable-file"
         ? invocation.operation.rejectionFragment
-      : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
+        : invocation.operation.kind === "exact-unendowed-operation"
+          ? invocation.operation.expectedError
+          : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
   return {
     observationSchema: "ibex/capsec-runtime-public-observation/1",
     invocation: {
@@ -785,7 +838,8 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         errorName: "ClosedSurface",
         errorMessage,
         engineExecuted:
-          invocation.operation.kind === "loader-executable-file",
+          invocation.operation.kind === "loader-executable-file" ||
+          invocation.operation.kind === "exact-unendowed-operation",
         projectCodeExecuted,
       },
     },
@@ -929,6 +983,109 @@ function completeCallbackCatalog() {
   catalog.summary.byScenario = { "generation-recheck": 1 };
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
   return catalog;
+}
+
+function completeExactCallbackCatalog() {
+  const catalog = structuredClone(completeCallbackCatalog());
+  const recipe = catalog.recipes[0];
+  const surfaceObservedKey = "callback:exact-host-call-async-resolve";
+  const sourceRefs = [
+    "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call",
+  ];
+  const sourceDescriptor = {
+    kind: "callback-security-invariant",
+    scenario: "non-capability",
+    rationaleId: "callback-attribution-carrier",
+    surfaceObservedKey,
+    edgeId: "edge.exact-callback",
+    branchId: "edge.exact-callback.main",
+    sourceRefs,
+    coverageEdge: {
+      id: "edge.exact-callback",
+      classification: "non-capability",
+    },
+    implementationBranch: {
+      branchId: "edge.exact-callback.main",
+      sourceRefs,
+    },
+    liveSurface: {
+      observedKey: surfaceObservedKey,
+      kind: "callback",
+      name: "exact-host-call-async-resolve",
+      sourceRefs,
+    },
+    executionMechanism: "exact-host-call-round-trip",
+    auxiliaryDecisionEdgeId: null,
+  };
+  Object.assign(recipe, {
+    fixtureId: "fixture.exact-callback.non-capability",
+    scenario: "non-capability",
+    edgeIds: ["edge.exact-callback"],
+    implementationBranchIds: ["edge.exact-callback.main"],
+    enforcementBranchIds: ["edge.exact-callback.main"],
+    terminalObservedKey: surfaceObservedKey,
+  });
+  recipe.expectedObservation.branchId = "edge.exact-callback.main";
+  recipe.route.surfaceObservedKeys = [surfaceObservedKey];
+  Object.assign(recipe.publicSurfaceProbe, {
+    surfaceObservedKey,
+    invocation: {
+      invocationSchema: "ibex/capsec-callback-invariant-invocation/1",
+      kind: "callback-security-invariant",
+      scenario: "non-capability",
+      surfaceKind: "callback",
+      surfaceName: "exact-host-call-async-resolve",
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      expectedResult: "invariant-passed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      expectedTypedOutcomes: [],
+      expectedTypedReasons: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  });
+  catalog.summary.byScenario = { "non-capability": 1 };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function exactCallbackRuntimeObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      scenario: invocation.scenario,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "callback-security-invariant",
+        scenario: "non-capability",
+        outcome: "passed",
+        checks: {
+          executionMechanism: "exact-host-call-round-trip",
+          setterInstalled: true,
+          immutableCapability: true,
+          genericBridgeAbsent: true,
+          callbackExecuted: true,
+          operationId: 7,
+          payloadLength: 3,
+          completion: "9,8",
+          completionTargetsConsumed: 1,
+          completionCallbacksQueued: 1,
+          completionCallbacksDelivered: 1,
+          singleUseCompletion: true,
+        },
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
 }
 
 function completeStartupEnvironmentCatalog(scenario = "allow") {
@@ -1732,6 +1889,41 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/executed extension guard/);
   });
 
+  test("accepts Exact closure only for the authenticated unendowed operation", () => {
+    const catalog = completeClosedExactCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const endowed = structuredClone(recipe);
+    endowed.publicSurfaceProbe.invocation.operation.selectedOperationId = 7;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: endowed,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(endowed),
+        coverage,
+      }),
+    ).toThrow(/authenticated unendowed operation/);
+
+    const wrongError = closedRuntimeObservation(recipe);
+    wrongError.invocation.result.errorMessage = "generic IPC failure";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongError,
+        coverage,
+      }),
+    ).toThrow(/did not fail closed before the embedder callback/);
+  });
+
   test("accepts exact source-bound target absence and rejects invented entry proof", () => {
     const catalog = targetAbsenceCatalog();
     const recipe = catalog.recipes[0];
@@ -1980,6 +2172,52 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage: driftedCoverage,
       }),
     ).toThrow(/auxiliary decision is not coverage-bound/);
+  });
+
+  test("accepts Exact non-capability evidence only from its bound ABI lifecycle", () => {
+    const catalog = completeExactCallbackCatalog();
+    const recipe = catalog.recipes[0];
+    const observed = exactCallbackRuntimeObservation(recipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const wrongMechanism = structuredClone(recipe);
+    wrongMechanism.publicSurfaceProbe.invocation.sourceDescriptor.executionMechanism =
+      "exact-endowment-install";
+    wrongMechanism.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        wrongMechanism.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    const wrongMechanismObservation =
+      exactCallbackRuntimeObservation(wrongMechanism);
+    wrongMechanismObservation.invocation.result.checks.executionMechanism =
+      "exact-endowment-install";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongMechanism,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongMechanismObservation,
+        coverage,
+      }),
+    ).toThrow(/not source-bound/);
+
+    const replayWon = structuredClone(observed);
+    replayWon.invocation.result.checks.completion = "7";
+    replayWon.invocation.result.checks.completionCallbacksDelivered = 2;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: replayWon,
+        coverage,
+      }),
+    ).toThrow(/single-use Exact completion route/);
   });
 
   test("accepts startup environment carriers only with exact source, resource, and principal evidence", () => {

@@ -82,6 +82,11 @@ const TAMED_EVALUATOR_ACCESS = new Map([
   ["global:GeneratorFunction", "generator-function-constructor"],
 ]);
 
+const EXACT_OPERATION_MANIFEST_DIGEST =
+  "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+const EXACT_APP_OPERATION_IDS = Object.freeze([7, 11]);
+const EXACT_UNENDOWED_OPERATION_ID = 8;
+
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -255,6 +260,82 @@ function tamedEvaluatorProbe({
         kind: "tamed-evaluator",
         globalName: metadata.exportName,
         accessMode,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function exactUnendowedOperationProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  if (surfaceObservedKey !== "native-op:global:exact.invokeHostAsync") {
+    return null;
+  }
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== "global:exact.invokeHostAsync" ||
+    metadata?.surfaceType !== "global-api" ||
+    metadata?.sourceKey !== "native_jsi_global" ||
+    metadata?.globalName !== "exact" ||
+    metadata?.memberName !== "invokeHostAsync" ||
+    metadata?.exportName !== "exact.invokeHostAsync" ||
+    canonicalJson(metadata?.memberKinds) !==
+      canonicalJson(["native-object-member"]) ||
+    canonicalJson(live.sourceRefs) !==
+      canonicalJson([
+        "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync",
+      ]) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-exact-unendowed-operation",
+    surfaceObservedKey,
+    globalName: "exact",
+    memberName: "invokeHostAsync",
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName: "global:exact.invokeHostAsync",
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "exact-unendowed-operation",
+        contextKind: "app",
+        operationManifestDigest: EXACT_OPERATION_MANIFEST_DIGEST,
+        endowedOperationIds: [...EXACT_APP_OPERATION_IDS],
+        selectedOperationId: EXACT_UNENDOWED_OPERATION_ID,
+        expectedError: "exact.invokeHostAsync operation is not endowed",
       },
       expectedResult: "closed",
       expectedTypedDecisionCount: 0,
@@ -531,6 +612,7 @@ export function authoredClosedPublicProbe(options) {
   return (
     startupEnvironmentProbe(options) ??
     cliControlProbe(options) ??
+    exactUnendowedOperationProbe(options) ??
     tamedEvaluatorProbe(options) ??
     loaderExecutableKindProbe(options)
   );

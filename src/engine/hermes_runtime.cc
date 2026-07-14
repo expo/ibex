@@ -252,9 +252,39 @@ extern "C" void ex_host_console_log(int32_t level, const char* message);
 
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
 thread_local std::string g_injected_armed_startup_failure_stage;
+// Test-only proof that one Exact completion capability traversed the resolver,
+// callback queue, and runtime delivery exactly once. Ordinary artifacts do not
+// compile this observer, and it cannot authorize or complete an operation.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+std::atomic<uint64_t> g_exact_host_completion_targets_consumed{0};
+std::atomic<uint64_t> g_exact_host_completion_callbacks_queued{0};
+std::atomic<uint64_t> g_exact_host_completion_callbacks_delivered{0};
 
 extern "C" void ibex_test_set_armed_startup_failure_stage(const char* stage) {
   g_injected_armed_startup_failure_stage = stage ? stage : "";
+}
+
+extern "C" void ibex_test_reset_exact_host_completion_observer() {
+  g_exact_host_completion_targets_consumed.store(0, std::memory_order_seq_cst);
+  g_exact_host_completion_callbacks_queued.store(0, std::memory_order_seq_cst);
+  g_exact_host_completion_callbacks_delivered.store(0, std::memory_order_seq_cst);
+}
+
+extern "C" int ibex_test_exact_host_completion_observation(
+    uint64_t* targets_consumed,
+    uint64_t* callbacks_queued,
+    uint64_t* callbacks_delivered) {
+  if (targets_consumed == nullptr || callbacks_queued == nullptr ||
+      callbacks_delivered == nullptr) {
+    return 0;
+  }
+  *targets_consumed =
+      g_exact_host_completion_targets_consumed.load(std::memory_order_seq_cst);
+  *callbacks_queued =
+      g_exact_host_completion_callbacks_queued.load(std::memory_order_seq_cst);
+  *callbacks_delivered =
+      g_exact_host_completion_callbacks_delivered.load(std::memory_order_seq_cst);
+  return 1;
 }
 #endif
 
@@ -4518,7 +4548,6 @@ extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
     exactUnpinRuntimeNativeWorker(target);
     return;
   }
-
   std::string payloadCopy = payload ? payload : "";
   pushRuntimeCallback(
       target,
@@ -4794,6 +4823,10 @@ extern "C" void ex_hermes_resolve_exact_host_call(
     exactUnpinRuntimeNativeWorker(target);
     return;
   }
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  g_exact_host_completion_targets_consumed.fetch_add(
+      1, std::memory_order_seq_cst);
+#endif
 
   std::vector<uint8_t> payloadCopy;
   int32_t completionStatus = status;
@@ -4807,10 +4840,15 @@ extern "C" void ex_hermes_resolve_exact_host_call(
   } else if (payload_len > 0) {
     payloadCopy.assign(payload, payload + payload_len);
   }
+  bool callbackAccepted = false;
   pushRuntimeCallback(
       target,
       [resolve, reject, completionStatus, payloadCopy = std::move(payloadCopy)](
           facebook::jsi::Runtime& rt) mutable {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+        g_exact_host_completion_callbacks_delivered.fetch_add(
+            1, std::memory_order_seq_cst);
+#endif
         try {
           if (completionStatus == 0) {
             resolve->call(rt, makeUint8Array(rt, std::move(payloadCopy)));
@@ -4828,7 +4866,14 @@ extern "C" void ex_hermes_resolve_exact_host_call(
           } catch (...) {
           }
         }
-      });
+      },
+      &callbackAccepted);
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  if (callbackAccepted) {
+    g_exact_host_completion_callbacks_queued.fetch_add(
+        1, std::memory_order_seq_cst);
+  }
+#endif
   exactUnpinRuntimeNativeWorker(target);
 }
 

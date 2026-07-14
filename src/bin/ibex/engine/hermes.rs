@@ -230,6 +230,14 @@ extern "C" {
     ) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_set_armed_startup_failure_stage(stage: *const std::os::raw::c_char);
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_reset_exact_host_completion_observer();
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_exact_host_completion_observation(
+        targets_consumed: *mut u64,
+        callbacks_queued: *mut u64,
+        callbacks_delivered: *mut u64,
+    ) -> i32;
     fn ex_hermes_debugger_enable(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_debugger_get_scripts(
         runtime: *mut HermesRuntimeOpaque,
@@ -3515,32 +3523,36 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
-    fn install_armed_exact_test_host() -> (HostResetGuard, String) {
+    fn build_armed_exact_test_host() -> (crate::host::Host, String) {
         let manifest_digest = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
-        let (host, digest) =
-            build_armed_test_host_custom(None, false, false, false, vec![], None, |value| {
-                value["exactEmbedder"] = serde_json::json!({
-                    "schema": "exact/host-operation-endowments/1",
-                    "operationManifestDigest": manifest_digest,
-                    "endowments": {
-                        "app": [7, 11],
-                        "agentIsolate": [19],
-                        "uiWorklet": [],
-                    }
-                });
-                value["protectedObjects"]
-                    .as_array_mut()
-                    .unwrap()
-                    .push(serde_json::json!({
-                        "role": "exact-operation-manifest",
-                        "object": {
-                            "platform": "unix",
-                            "volume": "fixture-volume",
-                            "file": "exact-operation-manifest"
-                        },
-                        "deniedActions": ["fs:write"]
-                    }));
+        build_armed_test_host_custom(None, false, false, false, vec![], None, |value| {
+            value["exactEmbedder"] = serde_json::json!({
+                "schema": "exact/host-operation-endowments/1",
+                "operationManifestDigest": manifest_digest,
+                "endowments": {
+                    "app": [7, 11],
+                    "agentIsolate": [19],
+                    "uiWorklet": [],
+                }
             });
+            value["protectedObjects"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "role": "exact-operation-manifest",
+                    "object": {
+                        "platform": "unix",
+                        "volume": "fixture-volume",
+                        "file": "exact-operation-manifest"
+                    },
+                    "deniedActions": ["fs:write"]
+                }));
+        })
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    fn install_armed_exact_test_host() -> (HostResetGuard, String) {
+        let (host, digest) = build_armed_exact_test_host();
         assert_ne!(crate::host::abi::install_host(host), 0);
         (HostResetGuard, digest)
     }

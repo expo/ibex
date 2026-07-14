@@ -7,6 +7,9 @@ use std::io::Write as _;
 
 const CALLBACK_INVOCATION_SCHEMA: &str = "ibex/capsec-callback-invariant-invocation/1";
 const ENV_AUXILIARY_EDGE_ID: &str = "surface.native.op.exactgetenv.0k6bv7a";
+const EXACT_OPERATION_MANIFEST_DIGEST: &str =
+    "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+const EXACT_APP_OPERATION_IDS: [u32; 2] = [7, 11];
 const CALLBACK_BATCH_COMMAND: [&str; 9] = [
     "cargo",
     "test",
@@ -99,6 +102,14 @@ struct PackageFixture {
     package_root: std::path::PathBuf,
     principal_value: serde_json::Value,
     principal: capsec_semantics::model::Principal,
+}
+
+struct EmbedderArtifactFixture {
+    _directory: tempfile::TempDir,
+    snapshot: Vec<u8>,
+    expected_identity: Vec<u8>,
+    source_nonce: String,
+    source_digest: String,
 }
 
 struct ScenarioExecution {
@@ -194,7 +205,9 @@ fn checked_registry_rows() -> (
 
 fn expected_invariant(
     scenario: &str,
+    surface_observed_key: &str,
 ) -> (
+    &'static str,
     &'static str,
     Vec<&'static str>,
     Vec<&'static str>,
@@ -203,36 +216,79 @@ fn expected_invariant(
     match scenario {
         "attribution-missing-deny" => (
             "callback-attribution-carrier",
+            "scheduled-public-attribution-guard",
             vec!["requested", "commit"],
             vec!["allow", "allow"],
             vec!["ambient-root", "ambient-root"],
         ),
         "generation-recheck" => (
             "callback-attribution-carrier",
+            "scheduled-public-environment-revocation-recheck",
             vec!["requested", "commit", "requested"],
             vec!["allow", "allow", "deny"],
             vec!["dynamic-session", "dynamic-session", "missing-authority"],
         ),
         "principal-restore" => (
             "callback-attribution-carrier",
+            "scheduled-package-principal-scope",
             vec!["requested", "commit", "requested", "commit"],
             vec!["allow", "allow", "allow", "allow"],
             vec!["static-floor", "static-floor", "ambient-root", "ambient-root"],
         ),
         "snapshot-mismatch-deny" => (
             "callback-attribution-carrier",
+            "cross-snapshot-public-handle-reattenuation",
             Vec::new(),
             Vec::new(),
             Vec::new(),
         ),
-        "cannot-widen-authority" | "post-lockdown-invariant" => {
-            (
+        "cannot-widen-authority" => (
+            "authority-control-plane",
+            "typed-grant-ceiling-refusal",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        ),
+        "post-lockdown-invariant" => (
+            "authority-control-plane",
+            "lockdown-tamper-and-grant-refusal",
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        ),
+        "non-capability" => match surface_observed_key {
+            "callback:exact-host-call-async-resolve"
+            | "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
+            | "host-abi:ex_hermes_resolve_exact_host_call" => (
+                "callback-attribution-carrier",
+                "exact-host-call-round-trip",
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+            "host-abi:ex_hermes_set_exact_host_call_async" => (
                 "authority-control-plane",
+                "exact-endowment-install",
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
-            )
-        }
+            ),
+            "host-abi:ex_host_authorize_exact_endowment" => (
+                "authority-control-plane",
+                "exact-endowment-authorize",
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+            "host-abi:ex_host_prepare_armed_embedder_artifacts" => (
+                "authority-control-plane",
+                "exact-artifact-prepare-round-trip",
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            ),
+            other => panic!("unsupported exact embedder non-capability surface {other}"),
+        },
         other => panic!("unsupported callback invariant scenario {other}"),
     }
 }
@@ -261,7 +317,8 @@ fn validate_recipe_source_binding(
         .expect("callback invariant recipe has no public probe");
     let invocation = &probe.invocation;
     let descriptor = &invocation.source_descriptor;
-    let (rationale, stages, outcomes, reasons) = expected_invariant(&recipe.scenario);
+    let (rationale, mechanism, stages, outcomes, reasons) =
+        expected_invariant(&recipe.scenario, &probe.surface_observed_key);
     assert_eq!(recipe.classification, "non-capability");
     assert!(recipe.action_ids.is_empty());
     assert_eq!(recipe.edge_ids.len(), 1);
@@ -321,6 +378,7 @@ fn validate_recipe_source_binding(
     assert_eq!(descriptor["kind"], "callback-security-invariant");
     assert_eq!(descriptor["scenario"], recipe.scenario);
     assert_eq!(descriptor["rationaleId"], rationale);
+    assert_eq!(descriptor["executionMechanism"], mechanism);
     assert_eq!(descriptor["surfaceObservedKey"], probe.surface_observed_key);
     assert_eq!(descriptor["edgeId"], recipe.edge_ids[0]);
     assert_eq!(descriptor["branchId"], recipe.implementation_branch_ids[0]);
@@ -490,6 +548,288 @@ fn prepare_package_fixture() -> PackageFixture {
         package_root,
         principal_value,
         principal,
+    }
+}
+
+fn artifact_content_digest(bytes: &[u8]) -> capsec_semantics::model::Digest {
+    capsec_semantics::model::Digest::new(format!(
+        "sha256-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(<sha2::Sha256 as sha2::Digest>::digest(bytes))
+    ))
+    .expect("artifact content digest must be valid")
+}
+
+fn artifact_host_path(path: &std::path::Path) -> capsec_semantics::model::LogicalPath {
+    use capsec_semantics::model::{LogicalPath, LogicalRoot, PathComponent};
+    use std::path::Component;
+
+    let components = path
+        .components()
+        .filter_map(|component| match component {
+            Component::Prefix(prefix) => Some(prefix.as_os_str()),
+            Component::Normal(value) => Some(value),
+            Component::RootDir | Component::CurDir => None,
+            Component::ParentDir => panic!("canonical artifact path contains parent traversal"),
+        })
+        .map(|component| {
+            PathComponent::utf8(
+                component
+                    .to_str()
+                    .expect("artifact path components must be UTF-8"),
+            )
+            .expect("artifact path component must be canonical")
+        })
+        .collect();
+    LogicalPath {
+        root: LogicalRoot::Absolute,
+        components,
+        host_bound: Some(true),
+    }
+}
+
+fn artifact_object_identity(
+    path: &std::path::Path,
+) -> capsec_semantics::model::ObjectIdentity {
+    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.custom_flags(0x0020_0000 | 0x0200_0000);
+    }
+    let file = options.open(path).expect("open embedder artifact identity");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        let metadata = file.metadata().expect("inspect embedder artifact identity");
+        ObjectIdentity {
+            platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+                ObjectPlatform::Apple
+            } else if cfg!(target_os = "android") {
+                ObjectPlatform::Android
+            } else {
+                ObjectPlatform::Unix
+            },
+            volume: NonEmptyString::new(format!("dev:{}", metadata.dev())).unwrap(),
+            file: NonEmptyString::new(format!("ino:{}", metadata.ino())).unwrap(),
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle as _;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+        let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+        assert_ne!(
+            unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, &mut info) },
+            0,
+            "identify embedder artifact on Windows"
+        );
+        let file_index = ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64;
+        ObjectIdentity {
+            platform: ObjectPlatform::Windows,
+            volume: NonEmptyString::new(format!("volume:{}", info.dwVolumeSerialNumber)).unwrap(),
+            file: NonEmptyString::new(format!("file:{file_index}")).unwrap(),
+        }
+    }
+}
+
+fn materialize_embedder_artifact(
+    directory: &std::path::Path,
+    name: &str,
+    bytes: &[u8],
+) -> (
+    capsec_semantics::model::LogicalPath,
+    capsec_semantics::model::ObjectIdentity,
+    capsec_semantics::model::Digest,
+) {
+    let path = directory.join(name);
+    std::fs::write(&path, bytes).expect("write embedder artifact");
+    let mut permissions = std::fs::metadata(&path)
+        .expect("inspect embedder artifact")
+        .permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        permissions.set_mode(0o400);
+    }
+    #[cfg(not(unix))]
+    permissions.set_readonly(true);
+    std::fs::set_permissions(&path, permissions).expect("protect embedder artifact");
+    let path = std::fs::canonicalize(path).expect("canonicalize embedder artifact");
+    (
+        artifact_host_path(&path),
+        artifact_object_identity(&path),
+        artifact_content_digest(bytes),
+    )
+}
+
+fn embedder_runtime_target_triple() -> String {
+    let architecture = match std::env::consts::ARCH {
+        "aarch64" => "aarch64",
+        "x86_64" => "x86_64",
+        "x86" => "i686",
+        other => other,
+    };
+    let suffix = match std::env::consts::OS {
+        "macos" => "apple-darwin",
+        "ios" => "apple-ios",
+        "linux" => "unknown-linux-gnu",
+        "android" => "linux-android",
+        "windows" => "pc-windows-msvc",
+        other => other,
+    };
+    format!("{architecture}-{suffix}")
+}
+
+fn prepare_embedder_artifact_fixture() -> EmbedderArtifactFixture {
+    use capsec_semantics::arming::{ExpectedArmingIdentity, ExpectedProtectedArtifact};
+    use capsec_semantics::digest::{compute_checked_contract_digest, DigestKind};
+    use capsec_semantics::model::Digest;
+
+    let directory = tempfile::tempdir().expect("create embedder artifact fixture");
+    let project_root = directory.path().join("project");
+    let artifacts = directory.path().join("artifacts");
+    std::fs::create_dir(&project_root).expect("create embedder project root");
+    std::fs::create_dir(&artifacts).expect("create embedder artifacts root");
+    let project_root =
+        std::fs::canonicalize(project_root).expect("canonicalize embedder project root");
+
+    let engine = HermesEngine::loaded_engine_identity()
+        .expect("load exact engine identity for embedder artifact fixture");
+    let mut snapshot: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/examples/armed-snapshot.canonical.json"
+    )))
+    .expect("checked armed snapshot fixture must be JSON");
+    snapshot["workflow"] = serde_json::json!("production");
+    snapshot["effectiveMode"] = serde_json::json!("enforce");
+    snapshot["engine"] = serde_json::json!({
+        "target": embedder_runtime_target_triple(),
+        "binaryDigest": engine.binary_digest,
+        "features": engine.structural_features,
+    });
+    let root_identity = snapshot["rootIdentity"].clone();
+    snapshot["principals"] = serde_json::json!([{
+        "principal": root_identity,
+        "floor": [],
+        "denials": [],
+        "escalationCeiling": [],
+        "imports": {"builtins": [], "packages": []},
+        "endowments": [],
+    }]);
+    snapshot["packageGraph"]["nodes"] = serde_json::json!([]);
+    snapshot["packageGraph"]["importEdges"] = serde_json::json!([]);
+    snapshot["packageGraph"]["digest"] = serde_json::json!(
+        capsec_semantics::digest::compute_domain_digest(
+            "ibex:capsec:package-graph:1",
+            &snapshot["packageGraph"],
+            &["digest".to_owned()],
+        )
+        .expect("digest embedder package graph")
+    );
+    snapshot["rootBindings"] = serde_json::json!([{
+        "logicalRoot": "project",
+        "hostPath": artifact_host_path(&project_root),
+        "object": artifact_object_identity(&project_root),
+    }]);
+
+    let policy_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/examples/canonical-policy.canonical.json"
+    ));
+    let (policy_path, policy_object, policy_content) =
+        materialize_embedder_artifact(&artifacts, "armed-policy.json", policy_bytes);
+    let graph_bytes = capsec_semantics::canonical::to_jcs_bytes(&snapshot["packageGraph"])
+        .expect("canonicalize embedder package graph");
+    let (graph_path, graph_object, graph_content) =
+        materialize_embedder_artifact(&artifacts, "package-graph.json", &graph_bytes);
+    let registry_bytes = b"authenticated checked registry";
+    let (registry_path, registry_object, registry_content) =
+        materialize_embedder_artifact(&artifacts, "registry.json", registry_bytes);
+    for (role, object) in [
+        ("armed-policy", &policy_object),
+        ("engine-binary", &engine.object),
+        ("package-graph", &graph_object),
+        ("registry", &registry_object),
+    ] {
+        snapshot["protectedObjects"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|row| row["role"] == role)
+            .expect("checked snapshot lacks protected role")["object"] =
+            serde_json::to_value(object).unwrap();
+    }
+
+    let source_nonce = snapshot["runNonce"].as_str().unwrap().to_owned();
+    let source_digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &snapshot)
+        .expect("digest embedder snapshot template");
+    snapshot["armedSnapshotDigest"] = serde_json::json!(source_digest);
+    let digest_at = |path: &[&str]| {
+        let field = path
+            .iter()
+            .fold(&snapshot, |current, segment| &current[*segment]);
+        Digest::new(field.as_str().unwrap()).unwrap()
+    };
+    let expected = ExpectedArmingIdentity {
+        profile: snapshot["capsVocab"].as_str().unwrap().into(),
+        semantic_core: snapshot["semanticCore"].as_str().unwrap().into(),
+        vocab_digest: digest_at(&["vocabDigest"]),
+        registry_digest: digest_at(&["registryDigest"]),
+        policy_digest: digest_at(&["policyDigest"]),
+        armed_snapshot_digest: digest_at(&["armedSnapshotDigest"]),
+        target: snapshot["engine"]["target"].as_str().unwrap().into(),
+        engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
+        features: snapshot["engine"]["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|feature| feature.as_str().unwrap().into())
+            .collect(),
+        package_graph_digest: digest_at(&["packageGraph", "digest"]),
+        protected_artifacts: vec![
+            ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy,
+                host_path: policy_path,
+                object: policy_object,
+                content_digest: policy_content,
+            },
+            ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::EngineBinary,
+                host_path: artifact_host_path(&engine.engine_artifact_path),
+                object: engine.object,
+                content_digest: digest_at(&["engine", "binaryDigest"]),
+            },
+            ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::PackageGraph,
+                host_path: graph_path,
+                object: graph_object,
+                content_digest: graph_content,
+            },
+            ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::Registry,
+                host_path: registry_path,
+                object: registry_object,
+                content_digest: registry_content,
+            },
+        ],
+    };
+    EmbedderArtifactFixture {
+        _directory: directory,
+        snapshot: serde_json::to_vec(&snapshot).unwrap(),
+        expected_identity: serde_json::to_vec(&expected).unwrap(),
+        source_nonce,
+        source_digest,
     }
 }
 
@@ -1320,16 +1660,346 @@ async fn execute_post_lockdown(recipe: &Recipe) -> ScenarioExecution {
     }
 }
 
-async fn execute_scenario(recipe: &Recipe, package: &PackageFixture) -> ScenarioExecution {
-    match recipe.scenario.as_str() {
-        "attribution-missing-deny" => execute_attribution_missing(recipe).await,
-        "generation-recheck" => execute_generation_recheck(recipe, package).await,
-        "principal-restore" => execute_principal_restore(recipe, package).await,
-        "snapshot-mismatch-deny" => execute_snapshot_mismatch(recipe, package).await,
-        "cannot-widen-authority" => execute_cannot_widen(recipe).await,
-        "post-lockdown-invariant" => execute_post_lockdown(recipe).await,
-        other => panic!("unsupported callback invariant scenario {other}"),
+fn reset_exact_abi_probe() {
+    EXACT_ABI_PROBE_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+    EXACT_ABI_PROBE_OPERATION.store(0, std::sync::atomic::Ordering::SeqCst);
+    EXACT_ABI_PROBE_PAYLOAD_LEN.store(0, std::sync::atomic::Ordering::SeqCst);
+}
+
+async fn install_exact_endowment(engine: &HermesEngine) -> serde_json::Value {
+    let runtime = engine
+        .ensure_runtime()
+        .await
+        .expect("load exact embedder runtime handle");
+    let manifest_digest = std::ffi::CString::new(EXACT_OPERATION_MANIFEST_DIGEST).unwrap();
+    runtime
+        .with_runtime(|raw| unsafe {
+            assert_eq!(
+                ex_hermes_set_exact_host_call_async(
+                    raw,
+                    1,
+                    EXACT_APP_OPERATION_IDS.as_ptr(),
+                    EXACT_APP_OPERATION_IDS.len(),
+                    manifest_digest.as_ptr(),
+                    abi_probe_exact_host_call,
+                    std::ptr::null_mut(),
+                ),
+                0,
+                "install authenticated Exact app endowment"
+            );
+        })
+        .expect("invoke Exact endowment setter on the runtime owner thread");
+    let encoded = engine
+        .eval_immediate(
+            r#"JSON.stringify((function () {
+  var descriptor = Object.getOwnPropertyDescriptor(exact, 'invokeHostAsync');
+  return {
+    genericBridgeAbsent: typeof __hostCall === 'undefined' && typeof __hostCallAsync === 'undefined',
+    methodInstalled: typeof exact.invokeHostAsync === 'function',
+    writable: descriptor && descriptor.writable,
+    configurable: descriptor && descriptor.configurable,
+    enumerable: descriptor && descriptor.enumerable,
+    baselineFinalized: __ibexCompartmentBaselineFinalized === true,
+    refreshHookRemoved: typeof __ibexRefreshCompartmentBaseline === 'undefined'
+  };
+})())"#,
+        )
+        .await
+        .expect("inspect Exact endowment installation")
+        .expect("Exact endowment installation returned no descriptor");
+    let descriptor: serde_json::Value =
+        serde_json::from_str(&encoded).expect("Exact endowment descriptor must be JSON");
+    assert_eq!(descriptor["genericBridgeAbsent"], true);
+    assert_eq!(descriptor["methodInstalled"], true);
+    assert_eq!(descriptor["writable"], false);
+    assert_eq!(descriptor["configurable"], false);
+    assert_eq!(descriptor["enumerable"], false);
+    assert_eq!(descriptor["baselineFinalized"], true);
+    assert_eq!(descriptor["refreshHookRemoved"], true);
+    descriptor
+}
+
+async fn execute_exact_host_call_round_trip(recipe: &Recipe) -> ScenarioExecution {
+    let (_reset, digest) = install_armed_exact_test_host();
+    reset_exact_abi_probe();
+    unsafe { ibex_test_reset_exact_host_completion_observer() };
+    let engine = armed_engine(&digest).await;
+    let session = format!("exact-host-call-round-trip:{}", recipe.plan_digest);
+    begin_observation(&session);
+    let descriptor = install_exact_endowment(&engine).await;
+    assert_eq!(
+        engine
+            .eval_immediate(
+                "globalThis.__exactConformanceResult = 'pending'; \
+                 exact.invokeHostAsync(7, new Uint8Array([1,2,3])).then(\
+                   function(value) { globalThis.__exactConformanceResult = Array.from(value).join(','); },\
+                   function(error) { globalThis.__exactConformanceResult = 'rejected:' + error.message; }); \
+                 'kicked'",
+            )
+            .await
+            .expect("invoke endowed Exact host operation")
+            .as_deref(),
+        Some("kicked")
+    );
+    engine
+        .drive_event_loop()
+        .await
+        .expect("deliver Exact host operation completion");
+    let completion = engine
+        .eval_immediate("globalThis.__exactConformanceResult")
+        .await
+        .expect("read Exact host operation completion")
+        .expect("Exact host operation completion was undefined");
+    let typed_decisions = finish_observation(&session);
+    assert_eq!(completion, "9,8");
+    assert_eq!(
+        EXACT_ABI_PROBE_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+    assert_eq!(
+        EXACT_ABI_PROBE_OPERATION.load(std::sync::atomic::Ordering::SeqCst),
+        7
+    );
+    assert_eq!(
+        EXACT_ABI_PROBE_PAYLOAD_LEN.load(std::sync::atomic::Ordering::SeqCst),
+        3
+    );
+    assert!(typed_decisions.is_empty());
+    let mut completion_targets_consumed = 0;
+    let mut completion_callbacks_queued = 0;
+    let mut completion_callbacks_delivered = 0;
+    assert_eq!(
+        unsafe {
+            ibex_test_exact_host_completion_observation(
+                &mut completion_targets_consumed,
+                &mut completion_callbacks_queued,
+                &mut completion_callbacks_delivered,
+            )
+        },
+        1
+    );
+    assert_eq!(completion_targets_consumed, 1);
+    assert_eq!(completion_callbacks_queued, 1);
+    assert_eq!(completion_callbacks_delivered, 1);
+    ScenarioExecution {
+        result: serde_json::json!({
+            "kind": "callback-security-invariant",
+            "scenario": recipe.scenario,
+            "outcome": "passed",
+            "checks": {
+                "executionMechanism": "exact-host-call-round-trip",
+                "setterInstalled": descriptor["methodInstalled"],
+                "immutableCapability": descriptor["writable"] == false
+                    && descriptor["configurable"] == false,
+                "genericBridgeAbsent": descriptor["genericBridgeAbsent"],
+                "callbackExecuted": true,
+                "operationId": 7,
+                "payloadLength": 3,
+                "completion": completion,
+                "completionTargetsConsumed": completion_targets_consumed,
+                "completionCallbacksQueued": completion_callbacks_queued,
+                "completionCallbacksDelivered": completion_callbacks_delivered,
+                "singleUseCompletion": completion_targets_consumed == 1
+                    && completion_callbacks_queued == 1
+                    && completion_callbacks_delivered == 1,
+            },
+        }),
+        typed_decisions,
+        legacy_observation_count: 0,
     }
+}
+
+async fn execute_exact_endowment_install(recipe: &Recipe) -> ScenarioExecution {
+    let (_reset, digest) = install_armed_exact_test_host();
+    reset_exact_abi_probe();
+    let engine = armed_engine(&digest).await;
+    let session = format!("exact-endowment-install:{}", recipe.plan_digest);
+    begin_observation(&session);
+    let descriptor = install_exact_endowment(&engine).await;
+    let typed_decisions = finish_observation(&session);
+    assert_eq!(
+        EXACT_ABI_PROBE_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "installing an endowment must not invoke the embedder callback"
+    );
+    assert!(typed_decisions.is_empty());
+    ScenarioExecution {
+        result: serde_json::json!({
+            "kind": "callback-security-invariant",
+            "scenario": recipe.scenario,
+            "outcome": "passed",
+            "checks": {
+                "executionMechanism": "exact-endowment-install",
+                "setterInstalled": descriptor["methodInstalled"],
+                "immutableCapability": descriptor["writable"] == false
+                    && descriptor["configurable"] == false,
+                "genericBridgeAbsent": descriptor["genericBridgeAbsent"],
+                "baselineFinalized": descriptor["baselineFinalized"],
+                "refreshHookRemoved": descriptor["refreshHookRemoved"],
+                "callbackExecuted": false,
+            },
+        }),
+        typed_decisions,
+        legacy_observation_count: 0,
+    }
+}
+
+async fn execute_exact_endowment_authorize(recipe: &Recipe) -> ScenarioExecution {
+    let (host, digest) = build_armed_exact_test_host();
+    let context_id = crate::host::abi::install_host(host);
+    assert_ne!(context_id, 0, "install Exact authorization Host context");
+    let _reset = HostResetGuard;
+    let session = format!("exact-endowment-authorize:{}", recipe.plan_digest);
+    begin_observation(&session);
+    let digest_c = std::ffi::CString::new(digest).unwrap();
+    let manifest_digest = std::ffi::CString::new(EXACT_OPERATION_MANIFEST_DIGEST).unwrap();
+    let claimed = unsafe { crate::host::abi::ex_host_claim_armed_context(digest_c.as_ptr()) };
+    assert_eq!(claimed, context_id, "claim exact installed Host context");
+    let authorized = unsafe {
+        crate::host::abi::ex_host_authorize_exact_endowment(
+            claimed,
+            1,
+            manifest_digest.as_ptr(),
+            EXACT_APP_OPERATION_IDS.as_ptr(),
+            EXACT_APP_OPERATION_IDS.len(),
+        )
+    };
+    let narrowed = [EXACT_APP_OPERATION_IDS[0]];
+    let narrowed_authorized = unsafe {
+        crate::host::abi::ex_host_authorize_exact_endowment(
+            claimed,
+            1,
+            manifest_digest.as_ptr(),
+            narrowed.as_ptr(),
+            narrowed.len(),
+        )
+    };
+    let typed_decisions = finish_observation(&session);
+    crate::host::abi::ex_host_release_context(claimed);
+    assert_eq!(authorized, 1);
+    assert_eq!(narrowed_authorized, 0);
+    assert!(typed_decisions.is_empty());
+    ScenarioExecution {
+        result: serde_json::json!({
+            "kind": "callback-security-invariant",
+            "scenario": recipe.scenario,
+            "outcome": "passed",
+            "checks": {
+                "executionMechanism": "exact-endowment-authorize",
+                "contextClaimed": true,
+                "endowmentAuthorized": true,
+                "narrowedEndowmentRejected": true,
+                "contextKind": "app",
+                "operationIds": EXACT_APP_OPERATION_IDS,
+                "operationManifestDigest": EXACT_OPERATION_MANIFEST_DIGEST,
+            },
+        }),
+        typed_decisions,
+        legacy_observation_count: 0,
+    }
+}
+
+async fn execute_exact_artifact_prepare(recipe: &Recipe) -> ScenarioExecution {
+    let fixture = prepare_embedder_artifact_fixture();
+    assert_ne!(
+        crate::host::abi::install_host(crate::host::Host::strict()),
+        0,
+        "install observer Host for embedder artifact preparation"
+    );
+    let _reset = HostResetGuard;
+    let session = format!("exact-artifact-prepare:{}", recipe.plan_digest);
+    begin_observation(&session);
+    let output = unsafe {
+        crate::host::abi::ex_host_prepare_armed_embedder_artifacts(
+            fixture.snapshot.as_ptr(),
+            fixture.snapshot.len(),
+            fixture.expected_identity.as_ptr(),
+            fixture.expected_identity.len(),
+        )
+    };
+    assert!(!output.is_null(), "artifact preparation returned a null envelope");
+    let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
+        .to_bytes()
+        .to_vec();
+    crate::host::abi::ex_host_free_string(output);
+    let typed_decisions = finish_observation(&session);
+    assert!(typed_decisions.is_empty());
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&bytes).expect("artifact preparation envelope must be JSON");
+    assert_eq!(envelope["ok"], true, "artifact preparation refused: {envelope}");
+    let artifacts = &envelope["artifacts"];
+    assert_eq!(artifacts["artifactSchema"], "ibex/armed-embedder-artifacts/1");
+    let fresh_nonce = artifacts["snapshot"]["runNonce"]
+        .as_str()
+        .expect("prepared artifact has no run nonce");
+    let fresh_digest = artifacts["armedSnapshotDigest"]
+        .as_str()
+        .expect("prepared artifact has no digest");
+    assert_ne!(fresh_nonce, fixture.source_nonce);
+    assert_ne!(fresh_digest, fixture.source_digest);
+    assert_eq!(artifacts["snapshot"]["armedSnapshotDigest"], fresh_digest);
+    assert_eq!(
+        artifacts["expectedIdentity"]["armedSnapshotDigest"],
+        fresh_digest
+    );
+    let expected: capsec_semantics::arming::ExpectedArmingIdentity =
+        serde_json::from_value(artifacts["expectedIdentity"].clone())
+            .expect("prepared expected identity must deserialize");
+    let snapshot = serde_json::to_vec(&artifacts["snapshot"]).unwrap();
+    let reloaded = capsec_semantics::arming::ArmedSnapshot::load(&snapshot, &expected)
+        .expect("prepared artifact pair must authenticate");
+    assert_eq!(reloaded.digest().as_str(), fresh_digest);
+    ScenarioExecution {
+        result: serde_json::json!({
+            "kind": "callback-security-invariant",
+            "scenario": recipe.scenario,
+            "outcome": "passed",
+            "checks": {
+                "executionMechanism": "exact-artifact-prepare-round-trip",
+                "artifactPrepared": true,
+                "artifactSchema": artifacts["artifactSchema"],
+                "nonceFreshened": true,
+                "digestRebound": true,
+                "sourceDigest": fixture.source_digest,
+                "preparedDigest": fresh_digest,
+                "preparedPairAuthenticated": true,
+            },
+        }),
+        typed_decisions,
+        legacy_observation_count: 0,
+    }
+}
+
+async fn execute_mechanism(
+    recipe: &Recipe,
+    package: &PackageFixture,
+    mechanism: &str,
+) -> ScenarioExecution {
+    match mechanism {
+        "scheduled-public-attribution-guard" => execute_attribution_missing(recipe).await,
+        "scheduled-public-environment-revocation-recheck" => {
+            execute_generation_recheck(recipe, package).await
+        }
+        "scheduled-package-principal-scope" => execute_principal_restore(recipe, package).await,
+        "cross-snapshot-public-handle-reattenuation" => {
+            execute_snapshot_mismatch(recipe, package).await
+        }
+        "typed-grant-ceiling-refusal" => execute_cannot_widen(recipe).await,
+        "lockdown-tamper-and-grant-refusal" => execute_post_lockdown(recipe).await,
+        "exact-host-call-round-trip" => execute_exact_host_call_round_trip(recipe).await,
+        "exact-endowment-install" => execute_exact_endowment_install(recipe).await,
+        "exact-endowment-authorize" => execute_exact_endowment_authorize(recipe).await,
+        "exact-artifact-prepare-round-trip" => execute_exact_artifact_prepare(recipe).await,
+        other => panic!("unsupported callback invariant execution mechanism {other}"),
+    }
+}
+
+async fn execute_scenario(recipe: &Recipe, package: &PackageFixture) -> ScenarioExecution {
+    let mechanism = recipe.public_surface_probe.as_ref().unwrap().invocation.source_descriptor
+        ["executionMechanism"]
+        .as_str()
+        .expect("callback invariant recipe has no execution mechanism");
+    execute_mechanism(recipe, package, mechanism).await
 }
 
 fn build_execution(
@@ -1472,11 +2142,38 @@ async fn capsec_callback_invariant_mechanisms_smoke() {
         "post-lockdown-invariant",
     ] {
         let recipe = smoke_recipe(scenario);
-        let execution = execute_scenario(&recipe, &package).await;
-        let (_, _, outcomes, _) = expected_invariant(scenario);
+        let (_, mechanism, _, outcomes, _) =
+            expected_invariant(scenario, &recipe.terminal_observed_key);
+        let execution = execute_mechanism(&recipe, &package, mechanism).await;
         assert_eq!(execution.result["outcome"], "passed");
         assert_eq!(execution.legacy_observation_count, 0);
         assert_eq!(execution.typed_decisions.len(), outcomes.len());
+    }
+    for (surface_observed_key, mechanism) in [
+        (
+            "callback:exact-host-call-async-resolve",
+            "exact-host-call-round-trip",
+        ),
+        (
+            "host-abi:ex_hermes_set_exact_host_call_async",
+            "exact-endowment-install",
+        ),
+        (
+            "host-abi:ex_host_authorize_exact_endowment",
+            "exact-endowment-authorize",
+        ),
+        (
+            "host-abi:ex_host_prepare_armed_embedder_artifacts",
+            "exact-artifact-prepare-round-trip",
+        ),
+    ] {
+        let mut recipe = smoke_recipe("non-capability");
+        recipe.terminal_observed_key = surface_observed_key.to_owned();
+        let execution = execute_mechanism(&recipe, &package, mechanism).await;
+        assert_eq!(execution.result["outcome"], "passed");
+        assert_eq!(execution.result["checks"]["executionMechanism"], mechanism);
+        assert_eq!(execution.legacy_observation_count, 0);
+        assert!(execution.typed_decisions.is_empty());
     }
 }
 
@@ -1499,13 +2196,14 @@ async fn capsec_public_callback_invariant_batch() {
             .entry(recipe.scenario.as_str())
             .or_insert(0usize) += 1;
     }
-    assert_eq!(recipes.len(), 2_846);
-    assert_eq!(by_scenario.get("attribution-missing-deny"), Some(&557));
-    assert_eq!(by_scenario.get("generation-recheck"), Some(&557));
-    assert_eq!(by_scenario.get("principal-restore"), Some(&557));
-    assert_eq!(by_scenario.get("snapshot-mismatch-deny"), Some(&557));
-    assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&309));
-    assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&309));
+    assert_eq!(recipes.len(), 2_858);
+    assert_eq!(by_scenario.get("attribution-missing-deny"), Some(&554));
+    assert_eq!(by_scenario.get("generation-recheck"), Some(&554));
+    assert_eq!(by_scenario.get("principal-restore"), Some(&554));
+    assert_eq!(by_scenario.get("snapshot-mismatch-deny"), Some(&554));
+    assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&318));
+    assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&318));
+    assert_eq!(by_scenario.get("non-capability"), Some(&6));
     let (branches, edges) = checked_registry_rows();
     for recipe in &recipes {
         validate_recipe_source_binding(recipe, &branches, &edges);
