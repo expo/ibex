@@ -140428,6 +140428,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_authorize_exact_endowment"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv",
             "classification": "non-capability",
             "surface": {
@@ -262848,6 +262858,43 @@
             },
             "additionalProperties": false
           },
+          "exactEmbedder": {
+            "type": "object",
+            "required": [
+              "schema",
+              "operationManifestDigest",
+              "endowments"
+            ],
+            "properties": {
+              "schema": {
+                "const": "exact/host-operation-endowments/1"
+              },
+              "operationManifestDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "endowments": {
+                "type": "object",
+                "required": [
+                  "app",
+                  "agentIsolate",
+                  "uiWorklet"
+                ],
+                "properties": {
+                  "app": {
+                    "$ref": "#/$defs/exactOperationEndowment"
+                  },
+                  "agentIsolate": {
+                    "$ref": "#/$defs/exactOperationEndowment"
+                  },
+                  "uiWorklet": {
+                    "$ref": "#/$defs/exactOperationEndowment"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
           "runNonce": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/base64url"
           },
@@ -262950,6 +262997,7 @@
                   "enum": [
                     "armed-policy",
                     "engine-binary",
+                    "exact-operation-manifest",
                     "package-graph",
                     "registry"
                   ]
@@ -263054,6 +263102,16 @@
         ],
         "additionalProperties": false,
         "$defs": {
+          "exactOperationEndowment": {
+            "type": "array",
+            "maxItems": 4096,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          },
           "generation": {
             "type": "integer",
             "minimum": 0,

@@ -5147,6 +5147,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_module_dispatch_callback",
     "ex_hermes_set_module_sync_callback",
     "ex_host_armed_endowments",
+    "ex_host_authorize_exact_endowment",
     "ex_host_authorize_typed_environment_read_stack",
     "ex_host_authorize_typed_fs_stack",
     "ex_host_authorize_typed_network_stack",
@@ -11788,6 +11789,7 @@ function hostAbiClassification(name) {
   if (
     new Set([
       "exhostarmedendowments",
+      "exhostauthorizeexactendowment",
       "exhostinstallarmed",
       "exhostmatchesarmedsnapshotdigest",
       "exhostpreparearmedembedderartifacts",

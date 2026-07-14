@@ -535,13 +535,17 @@ single-use completion path exist and are usable by an armed runtime without
 making `__hostCall` reachable. Its setter publishes an immutable method on the
 stable pre-captured `exact` object and atomically completes the one-shot package
 baseline finalization, so package compartments cannot intercept or replace the
-capability. The public artifact-preparation ABI authenticates
+capability. Armed snapshots now conditionally authenticate the Exact manifest
+as a fifth protected artifact and carry exact app, agent-isolate, and empty
+UI-worklet ID sets. The setter validates that three-way binding before any JSI
+or callback-state mutation. The public artifact-preparation ABI authenticates
 an already-built pair against the checked registry, loaded engine, package
 graph/root objects, and protected artifacts, then replaces its construction
 nonce and digest; it cannot advertise a target. The package-side producer and
-Exact operation-endowment-manifest binding, Apple/Windows conformance reports,
-and target advertisements remain incomplete. The current recipe catalog has
-18,455 unresolved fixtures, so the existing Apple matrix remains unsupported;
+normal Exact artifact publication, Apple/Windows conformance reports, and
+target advertisements remain incomplete. The refreshed catalog has 22,988
+required fixtures, 4,532 fully executable recipes, and 18,456 unresolved
+fixtures, so the existing Apple matrix remains unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
 

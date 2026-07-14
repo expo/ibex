@@ -545,6 +545,51 @@ pub extern "C" fn ex_host_release_context(context_id: u64) {
     }
 }
 
+/// Check an Exact operation endowment against the runtime-scoped armed host
+/// context. This is called before Hermes mutates JSI or finalizes package
+/// baselines, so every mismatch is a fail-before-publication refusal.
+///
+/// # Safety
+///
+/// `operation_ids` must address `operation_count` readable `u32` values, and a
+/// non-null `operation_manifest_digest` must point to a valid NUL-terminated
+/// UTF-8 string for the duration of this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_exact_endowment(
+    context_id: u64,
+    context_kind: u32,
+    operation_manifest_digest: *const c_char,
+    operation_ids: *const u32,
+    operation_count: usize,
+) -> i32 {
+    if context_id == 0 || operation_ids.is_null() || operation_count == 0 || operation_count > 4096
+    {
+        return 0;
+    }
+    let manifest_digest = if operation_manifest_digest.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(operation_manifest_digest) }
+            .to_str()
+            .ok()
+    };
+    if !operation_manifest_digest.is_null() && manifest_digest.is_none() {
+        return 0;
+    }
+    let operations = unsafe { std::slice::from_raw_parts(operation_ids, operation_count) };
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| Arc::clone(&record.host))
+        })
+    });
+    host.is_some_and(|host| {
+        host.authorizes_exact_endowment(context_kind, manifest_digest, operations)
+    }) as i32
+}
+
 #[doc(hidden)]
 pub fn installed_typed_decision_count() -> usize {
     with_host(Host::typed_decision_count, 0)

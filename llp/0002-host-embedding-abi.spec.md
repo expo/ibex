@@ -172,7 +172,15 @@ generic bridge as unavailable rather than granting fallback authority
 Exact app and agent isolates use a dedicated binary channel rather than the
 diagnostic string bridge. The native host calls
 `ex_hermes_set_exact_host_call_async` once with an explicit context kind and a
-strictly increasing set of nonzero 32-bit operation IDs. The runtime then
+strictly increasing set of nonzero 32-bit operation IDs plus the tagged digest
+of Exact's operation manifest. In an armed runtime, the snapshot must carry an
+`exact/host-operation-endowments/1` binding and protect the manifest as the
+conditional `exact-operation-manifest` artifact. Ibex compares the manifest
+digest, context kind, and complete canonical ID set against that authenticated
+binding before storing native callback state, mutating JSI, or finalizing the
+package baseline. A generic armed snapshot without the binding, a mismatched
+digest, and narrowed or widened endowments all return `-8` before publication.
+The runtime then
 exposes only
 `exact.invokeHostAsync(operationId, ArrayBuffer | ArrayBufferView) ->
 Promise<Uint8Array>`.
@@ -186,7 +194,8 @@ setter call. The finalizer hook is then deleted, so package code cannot refresh
 or substitute the baseline. A failed refresh leaves no replaceable method.
 The setter rejects malformed or duplicate/reordered endowments and rejects any
 attempt to replace a successful installation `[observed]`
-(`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+(`capsec/schema/armed-snapshot.schema.json`; `include/exact_runtime.h`;
+`src/engine/hermes_runtime.cc`; `src/host/abi.rs`).
 Because installation creates and publishes JSI values, the setter is an
 owner-runtime-thread operation. An off-owner call returns `-7` before reading
 or mutating JSI or publishing any endowment `[observed]`
@@ -213,16 +222,18 @@ than stranding its Promise.
 
 The context model is deliberately closed:
 
-- an **app** runtime receives the app operation-ID set selected by its native
-  host;
-- an **agent** runtime receives a separately selected agent operation-ID set;
+- an **app** runtime receives the exact app operation-ID set authenticated by
+  its armed artifact (or selected by its explicitly diagnostic host);
+- an **agent** runtime receives the separately authenticated agent operation-ID
+  set;
 - a **UI worklet** cannot install this ingress at all. Its complete endowment
   remains the typed SharedValue/Motion ABI described above.
 
 The native callback remains part of the trusted embedder. Exact owns the
-operation registry, payload schemas, and the narrower app/agent sets; the
-normal Ibex-to-Exact packaging path must bind that registry identity into the
-authenticated production artifact before an Exact target may advertise. The
+operation registry, payload schemas, and the narrower app/agent sets. Ibex now
+authenticates their opaque manifest digest and numeric projection; the normal
+Ibex-to-Exact packaging path must supply that protected binding before an Exact
+target may advertise. The
 existence of this ABI by itself is not target-conformance evidence and does not
 relax the unsupported-target refusal.
 

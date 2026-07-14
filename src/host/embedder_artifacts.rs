@@ -372,6 +372,49 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
+    fn with_exact_embedder_binding(mut fixture: RealEmbedderFixture) -> RealEmbedderFixture {
+        let mut snapshot: serde_json::Value = serde_json::from_slice(&fixture.snapshot).unwrap();
+        let mut expected: ExpectedArmingIdentity =
+            serde_json::from_slice(&fixture.expected_identity).unwrap();
+        let manifest_bytes = br#"{"schema":"exact.host-call-operations/v1"}"#;
+        let (host_path, object, manifest_digest) = materialize_test_artifact(
+            &fixture._temp.path().join("artifacts"),
+            "exact-host-call-operations.json",
+            manifest_bytes,
+        );
+        snapshot["exactEmbedder"] = serde_json::json!({
+            "schema": "exact/host-operation-endowments/1",
+            "operationManifestDigest": manifest_digest,
+            "endowments": {
+                "app": [7, 11],
+                "agentIsolate": [19],
+                "uiWorklet": [],
+            }
+        });
+        snapshot["protectedObjects"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "role": "exact-operation-manifest",
+                "object": object,
+                "deniedActions": ["fs:write"]
+            }));
+        expected
+            .protected_artifacts
+            .push(ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::ExactOperationManifest,
+                host_path,
+                object,
+                content_digest: manifest_digest,
+            });
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &snapshot).unwrap();
+        snapshot["armedSnapshotDigest"] = serde_json::json!(digest);
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+        fixture.snapshot = serde_json::to_vec(&snapshot).unwrap();
+        fixture.expected_identity = serde_json::to_vec(&expected).unwrap();
+        fixture
+    }
+
     fn expected_for_static_verification() -> ExpectedArmingIdentity {
         let checked: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -492,6 +535,26 @@ mod tests {
             reingested.digest().as_str(),
             artifacts["armedSnapshotDigest"].as_str().unwrap()
         );
+    }
+
+    #[test]
+    fn public_prepare_preserves_the_protected_exact_endowment_binding() {
+        let fixture = with_exact_embedder_binding(real_embedder_fixture());
+        let envelope = prepare_through_abi(&fixture);
+        assert_eq!(envelope["ok"], true, "{envelope}");
+        let artifacts = &envelope["artifacts"];
+        let returned_expected: ExpectedArmingIdentity =
+            serde_json::from_value(artifacts["expectedIdentity"].clone()).unwrap();
+        let returned_snapshot = serde_json::to_vec(&artifacts["snapshot"]).unwrap();
+        let reingested = ArmedSnapshot::load(&returned_snapshot, &returned_expected).unwrap();
+        let binding = reingested.exact_embedder_binding().unwrap().unwrap();
+        assert_eq!(binding.endowments.app, [7, 11]);
+        assert_eq!(binding.endowments.agent_isolate, [19]);
+        assert!(returned_expected
+            .protected_artifacts
+            .iter()
+            .any(|artifact| artifact.role == ProtectedArtifactRole::ExactOperationManifest));
+        super::super::validate_snapshot_protected_artifacts(&reingested).unwrap();
     }
 
     #[test]

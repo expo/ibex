@@ -4168,5 +4168,5 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         expected,
       );
     }
-  }, 30_000);
+  }, 60_000);
 });

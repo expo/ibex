@@ -65,6 +65,27 @@
       },
       "additionalProperties": false
     },
+    "exactEmbedder": {
+      "type": "object",
+      "required": ["schema", "operationManifestDigest", "endowments"],
+      "properties": {
+        "schema": { "const": "exact/host-operation-endowments/1" },
+        "operationManifestDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "endowments": {
+          "type": "object",
+          "required": ["app", "agentIsolate", "uiWorklet"],
+          "properties": {
+            "app": { "$ref": "#/$defs/exactOperationEndowment" },
+            "agentIsolate": { "$ref": "#/$defs/exactOperationEndowment" },
+            "uiWorklet": { "$ref": "#/$defs/exactOperationEndowment" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "runNonce": {
       "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/base64url"
     },
@@ -125,7 +146,7 @@
         "required": ["role", "object", "deniedActions"],
         "properties": {
           "role": {
-            "enum": ["armed-policy", "engine-binary", "package-graph", "registry"]
+            "enum": ["armed-policy", "engine-binary", "exact-operation-manifest", "package-graph", "registry"]
           },
           "object": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
@@ -179,6 +200,12 @@
   ],
   "additionalProperties": false,
   "$defs": {
+    "exactOperationEndowment": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+    },
     "generation": {
       "type": "integer",
       "minimum": 0,

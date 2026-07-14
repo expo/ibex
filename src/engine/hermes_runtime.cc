@@ -304,6 +304,12 @@ extern "C" int32_t ex_host_authorize_typed_fs_stack(
     int32_t needs_write,
     const char* presented_handle_id);
 extern "C" int32_t ex_host_matches_armed_snapshot_digest(const char* digest);
+extern "C" int32_t ex_host_authorize_exact_endowment(
+    uint64_t host_context_id,
+    uint32_t context_kind,
+    const char* operation_manifest_digest,
+    const uint32_t* operation_ids,
+    size_t operation_count);
 extern "C" int32_t ex_host_typed_dynamic_grant(uint64_t module_id,
                                                  const uint8_t* request,
                                                  size_t request_len);
@@ -4546,6 +4552,7 @@ extern "C" int ex_hermes_set_exact_host_call_async(
     ExactEmbedderContext context_kind,
     const uint32_t* allowed_operation_ids,
     size_t allowed_operation_count,
+    const char* operation_manifest_digest,
     void (*callback)(ExactHermesRuntime* runtime,
                      uint64_t call_id,
                      uint32_t operation_id,
@@ -4579,6 +4586,14 @@ extern "C" int ex_hermes_set_exact_host_call_async(
     if (operation == 0 || (index > 0 && operation <= previous)) return -4;
     operations.insert(operation);
     previous = operation;
+  }
+  if (ex_host_authorize_exact_endowment(
+          runtime->host_context_id,
+          rawContext,
+          operation_manifest_digest,
+          allowed_operation_ids,
+          allowed_operation_count) != 1) {
+    return -8;
   }
 
   runtime->exact_host_context = rawContext;

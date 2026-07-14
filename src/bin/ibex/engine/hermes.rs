@@ -185,6 +185,7 @@ extern "C" {
         context_kind: i32,
         allowed_operation_ids: *const u32,
         allowed_operation_count: usize,
+        operation_manifest_digest: *const std::os::raw::c_char,
         callback: extern "C" fn(
             runtime: *mut HermesRuntimeOpaque,
             call_id: u64,
@@ -3514,6 +3515,37 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
+    fn install_armed_exact_test_host() -> (HostResetGuard, String) {
+        let manifest_digest = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+        let (host, digest) =
+            build_armed_test_host_custom(None, false, false, false, vec![], None, |value| {
+                value["exactEmbedder"] = serde_json::json!({
+                    "schema": "exact/host-operation-endowments/1",
+                    "operationManifestDigest": manifest_digest,
+                    "endowments": {
+                        "app": [7, 11],
+                        "agentIsolate": [19],
+                        "uiWorklet": [],
+                    }
+                });
+                value["protectedObjects"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({
+                        "role": "exact-operation-manifest",
+                        "object": {
+                            "platform": "unix",
+                            "volume": "fixture-volume",
+                            "file": "exact-operation-manifest"
+                        },
+                        "deniedActions": ["fs:write"]
+                    }));
+            });
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        (HostResetGuard, digest)
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
     fn install_armed_test_host_at(
         project_root: Option<&std::path::Path>,
         allow_write: bool,
@@ -3752,6 +3784,9 @@ cp \"$input\" \"$out\"\n";
                     let content_digest = match role {
                         capsec_semantics::arming::ProtectedArtifactRole::EngineBinary => {
                             digest_at(&["engine", "binaryDigest"])
+                        }
+                        capsec_semantics::arming::ProtectedArtifactRole::ExactOperationManifest => {
+                            digest_at(&["exactEmbedder", "operationManifestDigest"])
                         }
                         capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy => {
                             digest_at(&["policyDigest"])
@@ -4225,7 +4260,7 @@ cp \"$input\" \"$out\"\n";
     #[tokio::test(flavor = "current_thread")]
     async fn armed_exact_embedder_ingress_is_binary_endowed_and_single_use() {
         let _lock = hermes_engine_test_lock().lock().await;
-        let (_reset, digest) = install_armed_test_host();
+        let (_reset, digest) = install_armed_exact_test_host();
         EXACT_ABI_PROBE_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
         EXACT_ABI_PROBE_OPERATION.store(0, std::sync::atomic::Ordering::SeqCst);
         EXACT_ABI_PROBE_PAYLOAD_LEN.store(0, std::sync::atomic::Ordering::SeqCst);
@@ -4234,6 +4269,10 @@ cp \"$input\" \"$out\"\n";
         engine.load_runtime().await.unwrap();
         let runtime = engine.ensure_runtime().await.unwrap();
         let operations = [7_u32, 11_u32];
+        let manifest_digest =
+            std::ffi::CString::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+        let wrong_manifest_digest =
+            std::ffi::CString::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
         runtime
             .with_runtime(|raw| unsafe {
                 assert_eq!(
@@ -4242,6 +4281,34 @@ cp \"$input\" \"$out\"\n";
                         1,
                         operations.as_ptr(),
                         operations.len(),
+                        wrong_manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -8,
+                    "an armed runtime must reject the wrong manifest before JSI mutation"
+                );
+                let narrowed = [7_u32];
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        narrowed.as_ptr(),
+                        narrowed.len(),
+                        manifest_digest.as_ptr(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -8,
+                    "an armed runtime must reject a caller-selected endowment"
+                );
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        manifest_digest.as_ptr(),
                         abi_probe_exact_host_call,
                         std::ptr::null_mut(),
                     ),
@@ -4253,6 +4320,7 @@ cp \"$input\" \"$out\"\n";
                         1,
                         operations.as_ptr(),
                         operations.len(),
+                        manifest_digest.as_ptr(),
                         abi_probe_exact_host_call,
                         std::ptr::null_mut(),
                     ),
@@ -4366,6 +4434,7 @@ cp \"$input\" \"$out\"\n";
                         1,
                         operations.as_ptr(),
                         operations.len(),
+                        std::ptr::null(),
                         abi_probe_exact_host_call,
                         std::ptr::null_mut(),
                     ),
@@ -4453,6 +4522,7 @@ cp \"$input\" \"$out\"\n";
                         1,
                         operations.as_ptr(),
                         operations.len(),
+                        std::ptr::null(),
                         abi_probe_exact_host_call,
                         std::ptr::null_mut(),
                     ),
@@ -4491,6 +4561,7 @@ cp \"$input\" \"$out\"\n";
                         1,
                         operations.as_ptr(),
                         operations.len(),
+                        std::ptr::null(),
                         abi_probe_exact_malformed_completion,
                         std::ptr::null_mut(),
                     ),
@@ -4530,6 +4601,7 @@ cp \"$input\" \"$out\"\n";
                         1,
                         operations.as_ptr(),
                         operations.len(),
+                        std::ptr::null(),
                         abi_probe_exact_pending_call,
                         std::ptr::null_mut(),
                     ),
@@ -4578,6 +4650,7 @@ cp \"$input\" \"$out\"\n";
                         1,
                         operations.as_ptr(),
                         operations.len(),
+                        std::ptr::null(),
                         abi_probe_exact_host_call,
                         std::ptr::null_mut(),
                     ),
@@ -4651,6 +4724,7 @@ cp \"$input\" \"$out\"\n";
                         1,
                         valid.as_ptr(),
                         valid.len(),
+                        std::ptr::null(),
                         abi_probe_exact_host_call,
                         std::ptr::null_mut(),
                     )
@@ -4665,6 +4739,7 @@ cp \"$input\" \"$out\"\n";
                         1,
                         unsorted.as_ptr(),
                         unsorted.len(),
+                        std::ptr::null(),
                         abi_probe_exact_host_call,
                         std::ptr::null_mut(),
                     ),
@@ -4677,6 +4752,7 @@ cp \"$input\" \"$out\"\n";
                         2,
                         zero.as_ptr(),
                         zero.len(),
+                        std::ptr::null(),
                         abi_probe_exact_host_call,
                         std::ptr::null_mut(),
                     ),
@@ -4689,6 +4765,7 @@ cp \"$input\" \"$out\"\n";
                         99,
                         valid.as_ptr(),
                         valid.len(),
+                        std::ptr::null(),
                         abi_probe_exact_host_call,
                         std::ptr::null_mut(),
                     ),

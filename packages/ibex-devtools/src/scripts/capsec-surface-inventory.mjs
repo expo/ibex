@@ -9258,6 +9258,7 @@ export function scanCppGlobalPropertySurfaces(
   const assignedHostFunctions = cppAssignedHostFunctions(tokens, sourcePath);
   const calls = [];
   const objectOwners = new Set();
+  const exactCapabilityOwners = new Set();
   const closedGlobalTableNames = new Set();
   for (let index = 0; index < tokens.length; index += 1) {
     if (
@@ -9280,6 +9281,38 @@ export function scanCppGlobalPropertySurfaces(
       args,
       globalTarget: false,
       owner: tokens[index].value,
+    });
+  }
+
+  // Exact's late-bound embedder capability uses Object.defineProperty through
+  // this dedicated helper so the member can be sealed after the compartment
+  // baseline refresh. Treat it as the same authored object-member installation
+  // shape as target.setProperty; otherwise the reviewed public ingress silently
+  // disappears from source-derived inventory.
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index].value !== "defineExactCapability" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: defineExactCapability call has no closing parenthesis`,
+      );
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    if (args.length < 4) continue;
+    const owner = cppMovedOrDirectIdentifier(args[1]);
+    if (!owner) continue;
+    objectOwners.add(owner);
+    exactCapabilityOwners.add(owner);
+    calls.push({
+      args: [args[0], args[2], args[3]],
+      globalTarget: false,
+      owner,
     });
   }
 
@@ -9398,6 +9431,7 @@ export function scanCppGlobalPropertySurfaces(
     paths.add(objectPath);
     return paths.size !== before;
   };
+  for (const owner of exactCapabilityOwners) addOwnerPath(owner, "exact");
   const addFact = (exportName) => {
     if (!facts.has(exportName)) facts.set(exportName, new Set());
     facts

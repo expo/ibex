@@ -303,6 +303,9 @@ void ex_hermes_resolve_host_call(
 /// strictly increasing, contain no zero ID, and contain at most 4096 entries.
 /// The setter succeeds at most once per runtime. It is available to armed and
 /// diagnostic app/agent runtimes, but always refuses restricted UI worklets.
+/// Armed runtimes additionally require `operation_manifest_digest` and the
+/// context/endowment set to exactly match the Exact binding authenticated by
+/// the armed snapshot and its protected operation-manifest artifact.
 ///
 /// Return 0 on success; negative values indicate malformed arguments,
 /// unsupported context/runtime kind, or an attempted replacement.
@@ -322,6 +325,7 @@ int ex_hermes_set_exact_host_call_async(
     ExactEmbedderContext context_kind,
     const uint32_t* allowed_operation_ids,
     size_t allowed_operation_count,
+    const char* operation_manifest_digest,
     void (*callback)(ExactHermesRuntime* runtime,
                      uint64_t call_id,
                      uint32_t operation_id,
@@ -431,6 +435,9 @@ char* ex_host_prepare_armed_embedder_artifacts(
     size_t snapshot_template_len,
     const uint8_t* expected_identity,
     size_t expected_identity_len);
+
+/// Release heap-owned strings returned by Host ABI functions.
+void ex_host_free_string(char* value);
 
 /// Return 1 only when the installed host has the exact snapshot digest.
 int ex_host_matches_armed_snapshot_digest(const char* digest);

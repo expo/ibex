@@ -2132,6 +2132,20 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     });
   });
 
+  test("Exact defineProperty helper retains late-bound capability members", () => {
+    const source = `
+      facebook::jsi::Object exactObject(rt);
+      rt.global().setProperty(rt, "exact", std::move(exactObject));
+      defineExactCapability(
+        rt, exactObject, "invokeHostAsync", std::move(invoke), true);
+    `;
+    const rows = scanCppGlobalPropertySurfaces(source, "synthetic.cc");
+    expect(rows.map((row) => row.name)).toEqual([
+      "global:exact",
+      "global:exact.invokeHostAsync",
+    ]);
+  });
+
   test("native JSI globals derive direct public function invocation descriptors", () => {
     const source = `
       auto directFn = facebook::jsi::Function::createFromHostFunction(
@@ -3901,7 +3915,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(120);
+    ).toHaveLength(121);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);
