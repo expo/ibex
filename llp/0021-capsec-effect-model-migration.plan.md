@@ -532,7 +532,10 @@ input, and unadvertised rows all remain startup refusals.
 
 Implementation status (2026-07-14): the dedicated binary app/agent ingress and
 single-use completion path exist and are usable by an armed runtime without
-making `__hostCall` reachable. The public artifact-preparation ABI authenticates
+making `__hostCall` reachable. Its setter publishes an immutable method on the
+stable pre-captured `exact` object and atomically completes the one-shot package
+baseline finalization, so package compartments cannot intercept or replace the
+capability. The public artifact-preparation ABI authenticates
 an already-built pair against the checked registry, loaded engine, package
 graph/root objects, and protected artifacts, then replaces its construction
 nonce and digest; it cannot advertise a target. The package-side producer and

@@ -1516,6 +1516,10 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
     defineProp(g, '__ibexCompartmentBaselineFinalized', {
       value: true, writable: false, enumerable: false, configurable: false
     });
+    // The trusted finalizer is one-shot. Delete it from inside the closure so
+    // both the CLI handshake and native embedders can finalize without a
+    // second eval that leaves a capability-bearing hook reachable by app code.
+    try { delete g.__ibexRefreshCompartmentBaseline; } catch (e) {}
   }
 
   var POWERFUL = ['process','fetch','Buffer','XMLHttpRequest','WebSocket',
@@ -1764,6 +1768,83 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
   return false;
 }
 
+// Create the one stable Exact capability object before the package-compartment
+// baseline is captured. Native setters add immutable methods to this object;
+// package compartments retain the object identity from the baseline instead of
+// consulting a later, replaceable realm-global binding.
+void ensureExactEmbedderObject(struct ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto exactValue = rt.global().getProperty(rt, "exact");
+  if (exactValue.isUndefined()) {
+    rt.global().setProperty(rt, "exact", facebook::jsi::Object(rt));
+    return;
+  }
+  if (!exactValue.isObject()) {
+    throw facebook::jsi::JSError(
+        rt, "armed startup requires the Exact capability global to be an object");
+  }
+}
+
+// Finalize the one-shot compartment baseline after the native embedder adds
+// its last package-visible capability. The CLI may already have finalized the
+// baseline before a diagnostic test installs this ingress; that idempotent path
+// is accepted only when the complete marker/registry state is intact.
+bool finalizeCompartmentBaselineForEmbedder(
+    struct ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto registry = rt.global().getProperty(rt, "__compartments");
+  auto ready =
+      rt.global().getProperty(rt, "__ibexCompartmentRegistryReady");
+  auto finalized =
+      rt.global().getProperty(rt, "__ibexCompartmentBaselineFinalized");
+  auto refresh =
+      rt.global().getProperty(rt, "__ibexRefreshCompartmentBaseline");
+
+  const bool handshakeAbsent = registry.isUndefined() && ready.isUndefined() &&
+      finalized.isUndefined() && refresh.isUndefined();
+  if (handshakeAbsent) return true;
+  if (!registry.isObject() || !ready.isBool() || !ready.getBool()) return false;
+
+  if (refresh.isUndefined()) {
+    return finalized.isBool() && finalized.getBool();
+  }
+  if (!refresh.isObject() ||
+      !refresh.getObject(rt).isFunction(rt) ||
+      !finalized.isBool() || finalized.getBool()) {
+    return false;
+  }
+
+  refresh.getObject(rt).asFunction(rt).call(rt);
+  auto finalizedAfter =
+      rt.global().getProperty(rt, "__ibexCompartmentBaselineFinalized");
+  auto refreshAfter =
+      rt.global().getProperty(rt, "__ibexRefreshCompartmentBaseline");
+  return finalizedAfter.isBool() && finalizedAfter.getBool() &&
+      refreshAfter.isUndefined();
+}
+
+void defineExactCapability(
+    facebook::jsi::Runtime& rt,
+    facebook::jsi::Object& exactObject,
+    const char* name,
+    facebook::jsi::Value value,
+    bool configurable) {
+  auto objectConstructor =
+      rt.global().getPropertyAsObject(rt, "Object");
+  auto defineProperty =
+      objectConstructor.getPropertyAsFunction(rt, "defineProperty");
+  facebook::jsi::Object descriptor(rt);
+  descriptor.setProperty(rt, "value", std::move(value));
+  descriptor.setProperty(rt, "writable", false);
+  descriptor.setProperty(rt, "enumerable", false);
+  descriptor.setProperty(rt, "configurable", configurable);
+  defineProperty.call(
+      rt,
+      exactObject,
+      facebook::jsi::String::createFromAscii(rt, name),
+      descriptor);
+}
+
 void installGlobals(struct ExactHermesRuntime* handle) {
   bool _tracing = startup_trace_enabled();
   bool sharedRuntimeInstalled = false;
@@ -1778,6 +1859,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   auto _t_console_globals = std::chrono::steady_clock::now();
   installConsoleGlobals(handle);
+  ensureExactEmbedderObject(handle);
   IG_TRACE_END(console_globals);
 
   bool skip_host_functions = env_flag_enabled("EX_SKIP_STARTUP_HOST_FUNCTIONS");
@@ -4507,9 +4589,11 @@ extern "C" int ex_hermes_set_exact_host_call_async(
   try {
     auto& rt = *runtime->runtime;
     auto exactValue = rt.global().getProperty(rt, "exact");
-    auto exactObject = exactValue.isObject()
-        ? exactValue.getObject(rt)
-        : facebook::jsi::Object(rt);
+    if (!exactValue.isObject()) {
+      throw facebook::jsi::JSError(
+          rt, "exact.invokeHostAsync requires the predeclared Exact capability object");
+    }
+    auto exactObject = exactValue.getObject(rt);
     auto invoke = facebook::jsi::Function::createFromHostFunction(
         rt,
         facebook::jsi::PropNameID::forAscii(rt, "invokeHostAsync"),
@@ -4606,9 +4690,52 @@ extern "C" int ex_hermes_set_exact_host_call_async(
               });
           return promiseConstructor.callAsConstructor(rt, executor);
         });
-    exactObject.setProperty(rt, "invokeHostAsync", std::move(invoke));
-    rt.global().setProperty(rt, "exact", std::move(exactObject));
+    // Keep the property removable until the package baseline refresh succeeds.
+    // The baseline retains this stable object identity, so sealing the property
+    // below is immediately visible through every package compartment too.
+    defineExactCapability(
+        rt, exactObject, "invokeHostAsync", std::move(invoke), true);
+    if (!finalizeCompartmentBaselineForEmbedder(runtime)) {
+      throw facebook::jsi::JSError(
+          rt,
+          "exact.invokeHostAsync could not finalize the package-compartment baseline");
+    }
+    auto installed = exactObject.getProperty(rt, "invokeHostAsync");
+    defineExactCapability(
+        rt, exactObject, "invokeHostAsync", std::move(installed), false);
   } catch (...) {
+    try {
+      auto& rt = *runtime->runtime;
+      auto exactValue = rt.global().getProperty(rt, "exact");
+      if (exactValue.isObject()) {
+        auto exactObject = exactValue.getObject(rt);
+        auto descriptor = rt.global()
+                              .getPropertyAsObject(rt, "Object")
+                              .getPropertyAsFunction(rt, "getOwnPropertyDescriptor")
+                              .call(
+                                  rt,
+                                  exactObject,
+                                  facebook::jsi::String::createFromAscii(
+                                      rt, "invokeHostAsync"));
+        if (descriptor.isObject()) {
+          auto configurable = descriptor.getObject(rt).getProperty(
+              rt, "configurable");
+          if (configurable.isBool() && configurable.getBool()) {
+            rt.global()
+                .getPropertyAsObject(rt, "Reflect")
+                .getPropertyAsFunction(rt, "deleteProperty")
+                .call(
+                    rt,
+                    exactObject,
+                    facebook::jsi::String::createFromAscii(
+                        rt, "invokeHostAsync"));
+          }
+        }
+      }
+    } catch (...) {
+      // The primary failure still wins. A successfully sealed property is
+      // intentionally irreversible and can only occur after finalization.
+    }
     runtime->exact_host_call_async_fn = nullptr;
     runtime->exact_host_call_async_context = nullptr;
     runtime->exact_host_context = 0;

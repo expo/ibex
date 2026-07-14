@@ -387,9 +387,14 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
 ///
 /// Success: `{ "ok": true, "artifacts": { ... } }`.
 /// Refusal: `{ "ok": false, "error": "..." }`.
+///
+/// # Safety
+///
+/// Each non-null input pointer must reference its declared byte length for the
+/// duration of this call. The input buffers are read-only and are not retained.
 /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
 #[no_mangle]
-pub extern "C" fn ex_host_prepare_armed_embedder_artifacts(
+pub unsafe extern "C" fn ex_host_prepare_armed_embedder_artifacts(
     snapshot_template: *const u8,
     snapshot_template_len: usize,
     expected_identity: *const u8,
@@ -5275,12 +5280,9 @@ mod tests {
 
     #[test]
     fn embedder_artifact_preparation_refuses_missing_inputs() {
-        let envelope = take_json(ex_host_prepare_armed_embedder_artifacts(
-            ptr::null(),
-            0,
-            ptr::null(),
-            0,
-        ));
+        let envelope = take_json(unsafe {
+            ex_host_prepare_armed_embedder_artifacts(ptr::null(), 0, ptr::null(), 0)
+        });
         assert_eq!(envelope["ok"], false);
         assert!(envelope["error"]
             .as_str()

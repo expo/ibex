@@ -356,12 +356,14 @@ mod tests {
     }
 
     fn prepare_through_abi(fixture: &RealEmbedderFixture) -> serde_json::Value {
-        let output = crate::host::abi::ex_host_prepare_armed_embedder_artifacts(
-            fixture.snapshot.as_ptr(),
-            fixture.snapshot.len(),
-            fixture.expected_identity.as_ptr(),
-            fixture.expected_identity.len(),
-        );
+        let output = unsafe {
+            crate::host::abi::ex_host_prepare_armed_embedder_artifacts(
+                fixture.snapshot.as_ptr(),
+                fixture.snapshot.len(),
+                fixture.expected_identity.as_ptr(),
+                fixture.expected_identity.len(),
+            )
+        };
         assert!(!output.is_null());
         let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
             .to_bytes()

@@ -4333,6 +4333,148 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn exact_embedder_ingress_finalizes_immutable_package_capability() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let _compartments = TestEnvVar::set("IBEX_COMPARTMENTS", "1");
+        EXACT_ABI_PROBE_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        let engine = HermesEngine::new().unwrap();
+        // Touch the native runtime without running the CLI finalizer. This is
+        // the embedder posture: the compartment hook is pending until the
+        // typed ingress becomes the last package-visible native capability.
+        assert!(engine.runtime_bundle_installed().await.unwrap());
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "typeof __ibexRefreshCompartmentBaseline + '/' + \
+                     __ibexCompartmentBaselineFinalized",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("function/false")
+        );
+
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+            })
+            .unwrap();
+
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    r#"(function () {
+                      var a = __compartments['alpha@1.0.0'];
+                      var b = __compartments['beta@1.0.0'];
+                      var original = a.exact.invokeHostAsync;
+                      try { a.exact.invokeHostAsync = function () { return 'intercepted'; }; }
+                      catch (_) {}
+                      try { delete a.exact.invokeHostAsync; } catch (_) {}
+                      var descriptor = Object.getOwnPropertyDescriptor(
+                        a.exact, 'invokeHostAsync'
+                      );
+                      return JSON.stringify([
+                        typeof __ibexRefreshCompartmentBaseline,
+                        __ibexCompartmentBaselineFinalized,
+                        typeof a.exact.invokeHostAsync,
+                        original === b.exact.invokeHostAsync,
+                        descriptor.writable,
+                        descriptor.configurable,
+                        descriptor.enumerable
+                      ]);
+                    })()"#,
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(r#"["undefined",true,"function",true,false,false,false]"#)
+        );
+
+        engine
+            .eval_immediate(
+                "globalThis.__exactPackageResult = 'pending'; \
+                 __compartments['alpha@1.0.0'].exact.invokeHostAsync(\
+                   7, new Uint8Array([1,2,3])\
+                 ).then(function(value) { \
+                   globalThis.__exactPackageResult = Array.from(value).join(','); \
+                 });",
+            )
+            .await
+            .unwrap();
+        engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("globalThis.__exactPackageResult")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("9,8")
+        );
+        assert_eq!(
+            EXACT_ABI_PROBE_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn exact_embedder_ingress_rolls_back_when_package_finalization_fails() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let _compartments = TestEnvVar::set("IBEX_COMPARTMENTS", "1");
+
+        let engine = HermesEngine::new().unwrap();
+        assert!(engine.runtime_bundle_installed().await.unwrap());
+        engine
+            .eval_immediate("delete globalThis.__ibexRefreshCompartmentBaseline")
+            .await
+            .unwrap();
+
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -6
+                );
+            })
+            .unwrap();
+
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "typeof exact.invokeHostAsync + '/' + \
+                     __ibexCompartmentBaselineFinalized",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("undefined/false")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn exact_embedder_ingress_rejects_malformed_completion_and_pending_flood() {
         let _lock = hermes_engine_test_lock().lock().await;
         let _reset = install_test_host_with_allow(&[]);

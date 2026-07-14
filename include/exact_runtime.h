@@ -295,7 +295,11 @@ void ex_hermes_resolve_host_call(
 ///
 /// This is not the generic `__hostCall` channel: operations are numeric,
 /// payloads are binary, and each app/agent runtime receives one immutable,
-/// canonical endowment set. `allowed_operation_ids` must be non-empty,
+/// canonical endowment set. The runtime predeclares one stable `exact` object
+/// before package-compartment capture; successful installation publishes a
+/// non-writable/non-configurable method on that object and atomically performs
+/// the one-shot package-baseline finalization when it is still pending.
+/// `allowed_operation_ids` must be non-empty,
 /// strictly increasing, contain no zero ID, and contain at most 4096 entries.
 /// The setter succeeds at most once per runtime. It is available to armed and
 /// diagnostic app/agent runtimes, but always refuses restricted UI worklets.

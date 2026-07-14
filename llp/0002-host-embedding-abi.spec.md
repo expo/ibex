@@ -178,6 +178,12 @@ exposes only
 Promise<Uint8Array>`.
 Operation names and JSON envelopes do not cross Ibex's boundary, and a JS
 caller cannot ask for an operation absent from its immutable endowment set.
+Ibex creates one stable lowercase `exact` object before the package baseline is
+captured. Successful installation defines `invokeHostAsync` as non-writable and
+non-configurable on that shared object and, when the compartment finalizer is
+still pending, completes that one-shot finalization in the same owner-thread
+setter call. The finalizer hook is then deleted, so package code cannot refresh
+or substitute the baseline. A failed refresh leaves no replaceable method.
 The setter rejects malformed or duplicate/reordered endowments and rejects any
 attempt to replace a successful installation `[observed]`
 (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
