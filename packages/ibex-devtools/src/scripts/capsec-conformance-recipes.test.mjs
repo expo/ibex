@@ -335,7 +335,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_850);
+    expect(callbackRecipes).toHaveLength(2_852);
     expect(
       Object.fromEntries(
         [
@@ -356,8 +356,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 554,
       "principal-restore": 554,
       "snapshot-mismatch-deny": 554,
-      "cannot-widen-authority": 317,
-      "post-lockdown-invariant": 317,
+      "cannot-widen-authority": 318,
+      "post-lockdown-invariant": 318,
     });
     for (const terminalObservedKey of [
       "native-op:__ibexCompartmentBaselineFinalized",
