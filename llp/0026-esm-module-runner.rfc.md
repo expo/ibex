@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
+**Revised:** 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
 handled internal record promises, fresh ESM/CommonJS dynamic-import promises,
 sticky rejection, event-loop keepalive, and mixed re-entry refusal); 2026-07-15
 (ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
@@ -1016,6 +1016,17 @@ for a pre-execution bytecode load failure, never after program effects.
 
 Dynamic boundaries may remain as separately authenticated chunks. Loading one
 uses the same record/link/evaluate path as a source-created artifact.
+
+The v1 wire realization is `ibex/module-carrier/1`
+(`schemas/module-carrier-v1.schema.json`, `commit:c6d2aefe`). Its manifest binds
+one defining principal, prepared producer binary, deployment graph, carrier
+digest, encoding, and a strictly ordered table of entries. Each entry embeds
+the complete original `ModuleSemanticsV1` and recomputed semantic digest. Rust
+admits the manifest and carrier atomically, then the native runner accepts only
+the pair of an admitted carrier entry and its matching admitted carrier-form
+`ModuleArtifact`; source-table and matching-HBC fixtures execute to the same
+namespace on real Hermes. Graph-location publication by the existing Rolldown
+cache remains Phase 4 integration work rather than a competing format.
 
 ### 10. Diagnostics and source maps
 

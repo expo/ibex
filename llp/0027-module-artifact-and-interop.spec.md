@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
+**Revised:** 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
 promise-returning CommonJS-to-ESM import ABI); 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
 snapshot adapters); 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
 producer adapter, and tamper fixtures)
@@ -22,7 +22,7 @@ The first implementation targets `ibex/module-artifact/1`. The canonical
 schema is `schemas/module-artifact-v1.schema.json`; the Rust codec and verifier
 are `src/module_loader/artifact.rs`; the checked-in tamper matrix is under
 `tests/fixtures/module-artifact-v1/`. The document remains Draft while the
-ENG-25061 interop half is implemented. No producer output becomes trusted
+remaining prepared-publisher and interop integration is implemented. No producer output becomes trusted
 merely because it resembles this shape.
 
 ## Artifact envelope
@@ -111,6 +111,17 @@ semantic digest. A carrier has its own digest and manifest and never becomes
 the `SourceId` or semantic identity of any contained module. Cross-project
 portable reuse remains prohibited until LLP 0023 defines a stable authenticated
 project identity collision domain.
+
+The canonical prepared manifest is `ibex/module-carrier/1`, specified by
+`schemas/module-carrier-v1.schema.json` and enforced by
+`src/module_loader/carrier.rs` (`commit:c6d2aefe`). It binds exactly one
+defining principal, prepared-producer binary, deployment-graph digest, carrier
+digest, and either `javascript-factory-table` or `hermes-bytecode` encoding.
+HBC encoding additionally binds the loaded engine binary digest and bytecode
+version. Its strictly ordered entries contain an entry id, the complete
+original semantic core, and its recomputed semantic digest. Admission rejects
+cross-principal entries, bytes/metadata tamper, entry substitution, graph or
+producer drift, and stale engine/HBC identity before native evaluation.
 
 `transform_fingerprint` includes parser/transform versions, Hermes target,
 TypeScript/JSX options, module-runner ABI, Hermes-compat pass version, CommonJS

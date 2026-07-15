@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-13
-**Revised:** 2026-07-15 (architecture fork resolved to the accepted LLP 0026 ModuleRunner branch); 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision); 2026-07-04 (devtools parser convergence: Acorn removed from first-party transform/import-grants scripts in favor of Rolldown/Oxc parser utilities); 2026-07-07 (Hermes-compat for-of / async-generator authority delegated to LLP 0019)
+**Revised:** 2026-07-15 (ENG-25064 made source-table and Rolldown/HBC preparation share one authenticated carrier/artifact contract); 2026-07-15 (architecture fork resolved to the accepted LLP 0026 ModuleRunner branch); 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision); 2026-07-04 (devtools parser convergence: Acorn removed from first-party transform/import-grants scripts in favor of Rolldown/Oxc parser utilities); 2026-07-07 (Hermes-compat for-of / async-generator authority delegated to LLP 0019)
 **Related:** LLP 0000; LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0006 (design principles); LLP 0009; LLP 0026 (accepted ModuleRunner architecture)
 
 ## Summary
@@ -56,6 +56,15 @@ spike passed its precommitted real-Hermes bars on the pinned toolchain. SWC
 remains a compatibility implementation during the staged migration; the
 accepted direction does not bypass this RFC's fixture, hermeticity,
 performance, or default-switch gates.
+
+The prepared-carrier seam is now concrete (`commit:c6d2aefe`). The in-process
+producer's verified artifacts can be deterministically assembled into a
+per-principal JavaScript factory table, or that exact table can be compiled by
+the matching `hermesc` into HBC. Both representations retain the same
+`ModuleSemanticsV1`, semantic digest, original `SourceId`, typed edges, and
+source map; only the separately authenticated carrier encoding/digest changes.
+This is the contract the existing Rolldown cache and chunk publisher must emit,
+not a second bundled-module semantics.
 
 ## Motivation
 
