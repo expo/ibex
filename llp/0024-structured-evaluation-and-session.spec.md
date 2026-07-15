@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-15 (ENG-25063 reconciled dependency-level TLA through the
+**Revised:** 2026-07-15 (ENG-25065 defined runner-backed session cache identity per execution generation while preserving legacy retry behavior); 2026-07-15 (ENG-25063 reconciled dependency-level TLA through the
 separate authenticated LLP 0026 runner while preserving the legacy session
 loader's entry-only refusal)
 **Revised:** 2026-07-12 (round-7 terminal two-family review — the last round of the
@@ -1669,6 +1669,15 @@ use of it:
   also what makes a retry after fixing the file work at the prompt. Its **completed
   dependencies remain** cached. An earlier draft said the failing entry "of course stands";
   that was false against the loader and wrong in principle.
+- A session that adopts LLP 0026's module runner scopes this rule to an
+  **execution graph generation**. Within one generation, ESM success and failure
+  are sticky and one equal `SourceId` has one incarnation. Retrying after an
+  accepted root-source edit atomically advances the coherent graph generation;
+  it never deletes and recreates a record in place. Live cells, namespaces,
+  promises, CommonJS exports, and errors never cross generations. The current
+  legacy session loader keeps delete-on-failure until it adopts that runner
+  transaction, so this amendment does not silently change shipped prompt
+  behavior.
 - **`.load` creates no cache entry** and re-evaluates on repeat.
 
 ### 8. Safe inspection

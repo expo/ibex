@@ -5,7 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest; runtime graph publication remains); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
+**Revised:** 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest; runtime graph publication remains); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
 (round-8 dual-model review, **terminal** — both NOT READY,
 reconciled as a **ledger-and-stop**, the honest end of the loop. Fable and Codex
 converged on substance ("everything architectural, safety-relevant, and ledger-relevant
@@ -681,6 +681,22 @@ Module identity is therefore
 ```
 
 — **one** key shape for every module kind, not a family of rival shapes.
+
+That key names the logical module and remains the production instance key.
+Development HMR adds a separate, monotonically increasing **execution graph
+generation** to name a live *module incarnation*:
+
+```text
+(runtime/session identity, SourceId, execution graph generation)
+```
+
+The extension does not enter `SourceId`, portable artifact identity, source
+maps, or authorization. Two incarnations still identify the same source; they
+must not share live cells, namespaces, promises, cached errors, or CommonJS
+exports. Production has exactly one execution generation. A development
+generation transition is atomic and may reuse immutable parse/transform
+artifacts by semantic digest, never live module state. This is the LLP 0026 §8
+extension, landed with ENG-25065 before any session adopts runner HMR.
 
 An earlier draft gave file-backed modules `(runtime, defining principal, retained
 object)` and generated modules `(runtime, defining principal, provenance id)` as

@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
+**Revised:** 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
 handled internal record promises, fresh ESM/CommonJS dynamic-import promises,
 sticky rejection, event-loop keepalive, and mixed re-entry refusal); 2026-07-15
 (ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
@@ -1190,9 +1190,9 @@ the later implementation phases are complete.
 
 Reconciliation is phase-specific, not wholesale. The LLP 0024 TLA and
 failure-caching amendments land with the first consumer that adopts the
-runner (Phases 2–3); the LLP 0023/0024 generation amendments land before
-Phase 4's HMR work *and before any session consumer adopts the runner's ESM
-failure caching* (§5's rule); LLP 0002's owner-thread contract is already
+runner (Phases 2–3); the LLP 0023/0024 generation amendments landed with
+ENG-25065 before its HMR implementation and *before any session consumer adopts
+the runner's ESM failure caching* (§5's rule); LLP 0002's owner-thread contract is already
 amended and is touched again when resolver or runner ABI symbols change; and
 LLP 0014 is touched again when import attributes and direct-file grant handling
 land. LLP 0003's owner-thread contract is likewise already amended and is
