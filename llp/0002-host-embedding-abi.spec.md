@@ -113,6 +113,22 @@ compartment to the package factory before compiling it. Opaque factory,
 context, and ModuleRecord handles own all JSI values and are destroyed on the
 runtime owner thread.
 
+ModuleRecord setup is deliberately split into native-only operations:
+declare the record's canonical export-cell set, bind authenticated imports to
+target record/cell handles, instantiate the factory, then run `declare` and
+`execute`. Instantiation creates one stable null-prototype, non-extensible
+namespace whose enumerable getters read checked cells. Uninitialized reads
+throw the TDZ error; export updates mutate the same cells, so later importer
+reads observe live values. Import lookup keys and targets are installed by the
+native graph owner rather than accepted from package JavaScript.
+
+The CapSec registry classifies graph/context construction and link setup as
+authority-control-plane operations, release as authority release, factory
+compile/instantiate/declare/execute as closed `vm:evaluate`, and diagnostic
+namespace serialization as closed `runtime:inspect`. The experimental runner
+cannot silently acquire evaluator or inspection authority before ENG-25062
+lands its exact graph authorization profile.
+
 This family is a provisional extension, not an addition to LLP 0000's five-
 function semver-major minimum. `ex_hermes_try_destroy(runtime, nonce)` is the
 generation-bearing, status-returning lifecycle companion; the legacy void

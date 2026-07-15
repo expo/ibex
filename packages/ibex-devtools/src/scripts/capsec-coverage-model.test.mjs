@@ -3754,14 +3754,20 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(
       edgeByObservedKey.get("host-abi:ex_hermes_module_compile_factory"),
     ).toMatchObject({
-      classification: "non-capability",
-      rationaleId: "authority-control-plane",
+      classification: "closed",
+      cap: "vm:evaluate",
     });
     expect(
       edgeByObservedKey.get("host-abi:ex_hermes_module_release_handle"),
     ).toMatchObject({
       classification: "non-capability",
       rationaleId: "authority-release",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_record_namespace_json"),
+    ).toMatchObject({
+      classification: "closed",
+      cap: "runtime:inspect",
     });
     expect(
       edgeByObservedKey.get(

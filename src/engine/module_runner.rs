@@ -70,6 +70,54 @@ unsafe extern "C" {
         source_id_len: usize,
         out_record: *mut NativeModuleHandle,
     ) -> i32;
+    fn ex_hermes_module_record_declare_export(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        export_name: *const u8,
+        export_name_len: usize,
+    ) -> i32;
+    fn ex_hermes_module_record_link_import(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        imported_name: *const u8,
+        imported_name_len: usize,
+        target_record: NativeModuleHandle,
+        target_export: *const u8,
+        target_export_len: usize,
+    ) -> i32;
+    fn ex_hermes_module_record_instantiate(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        meta_url: *const u8,
+        meta_url_len: usize,
+        is_main: i32,
+        out_error: *mut *mut c_char,
+    ) -> i32;
+    fn ex_hermes_module_record_run_declare(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_error: *mut *mut c_char,
+    ) -> i32;
+    fn ex_hermes_module_record_run_execute(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_async: *mut i32,
+        out_error: *mut *mut c_char,
+    ) -> i32;
+    fn ex_hermes_module_record_namespace_json(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_json: *mut *mut c_char,
+        out_error: *mut *mut c_char,
+    ) -> i32;
     fn ex_hermes_free_string(value: *mut c_char);
 }
 
@@ -310,6 +358,146 @@ pub struct NativeModuleRecord<'runtime> {
     handle: Option<NativeModuleHandle>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModuleExecutionKind {
+    Synchronous,
+    Asynchronous,
+}
+
+impl NativeModuleRecord<'_> {
+    fn live_handle(&self) -> Result<NativeModuleHandle> {
+        self.handle
+            .ok_or_else(|| anyhow!("native ModuleRecord capability was released"))
+    }
+
+    pub fn declare_export(&mut self, export_name: &str) -> Result<()> {
+        if export_name.is_empty() {
+            bail!("module export name must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_module_record_declare_export(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                export_name.as_ptr(),
+                export_name.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native export-cell declaration refused ({status})");
+        }
+        Ok(())
+    }
+
+    pub fn link_import(
+        &mut self,
+        specifier: &str,
+        imported_name: &str,
+        target: &NativeModuleRecord<'_>,
+        target_export: &str,
+    ) -> Result<()> {
+        if !std::ptr::eq(self.runtime, target.runtime) {
+            bail!("module import records belong to different runtime borrows");
+        }
+        if specifier.is_empty() || imported_name.is_empty() || target_export.is_empty() {
+            bail!("module import binding strings must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_module_record_link_import(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                specifier.as_ptr(),
+                specifier.len(),
+                imported_name.as_ptr(),
+                imported_name.len(),
+                target.live_handle()?,
+                target_export.as_ptr(),
+                target_export.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native import binding refused ({status})");
+        }
+        Ok(())
+    }
+
+    pub fn instantiate(&mut self, meta_url: &str, is_main: bool) -> Result<()> {
+        if meta_url.is_empty() {
+            bail!("module import.meta URL must not be empty");
+        }
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_module_record_instantiate(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                meta_url.as_ptr(),
+                meta_url.len(),
+                i32::from(is_main),
+                &mut error,
+            )
+        };
+        native_result(status, error, "ModuleRecord instantiation")
+    }
+
+    pub fn run_declare(&mut self) -> Result<()> {
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_module_record_run_declare(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                &mut error,
+            )
+        };
+        native_result(status, error, "ModuleRecord declaration")
+    }
+
+    pub fn run_execute(&mut self) -> Result<ModuleExecutionKind> {
+        let mut asynchronous = 0;
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_module_record_run_execute(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                &mut asynchronous,
+                &mut error,
+            )
+        };
+        native_result(status, error, "ModuleRecord execution")?;
+        match asynchronous {
+            0 => Ok(ModuleExecutionKind::Synchronous),
+            1 => Ok(ModuleExecutionKind::Asynchronous),
+            _ => bail!("native ModuleRecord returned an invalid execution kind"),
+        }
+    }
+
+    pub fn namespace_json(&self) -> Result<String> {
+        let mut json = std::ptr::null_mut();
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_module_record_namespace_json(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                &mut json,
+                &mut error,
+            )
+        };
+        native_result(status, error, "ModuleRecord namespace read")?;
+        if json.is_null() {
+            bail!("native ModuleRecord namespace read returned no JSON");
+        }
+        let value = unsafe { CStr::from_ptr(json) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { ex_hermes_free_string(json) };
+        Ok(value)
+    }
+}
+
 fn release(runtime: &NativeModuleRuntime<'_>, handle: &mut Option<NativeModuleHandle>) {
     let Some(handle) = handle.take() else {
         return;
@@ -348,13 +536,24 @@ fn take_error(error: *mut c_char) -> String {
     detail
 }
 
+fn native_result(status: i32, error: *mut c_char, operation: &str) -> Result<()> {
+    if status != 0 {
+        let detail = take_error(error);
+        bail!("native {operation} refused ({status}): {detail}");
+    }
+    if !error.is_null() {
+        unsafe { ex_hermes_free_string(error) };
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::module_loader::artifact::{
-        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, ModuleArtifactV1, ModuleSemanticsV1,
-        ProducerIdentityV1, SourceDialectV1, SourceGoalV1, SourceMapV1, TransformFingerprintV1,
-        MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, ExportDescriptorV1, ModuleArtifactV1,
+        ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1, SourceMapV1,
+        TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
     };
     use capsec_semantics::model::{Digest, NonEmptyString, PathComponent, Principal};
 
@@ -369,9 +568,11 @@ mod tests {
         digest_bytes("module-runner-test", label.as_bytes()).unwrap()
     }
 
-    fn test_artifact(source_id: SourceId) -> ModuleArtifactV1 {
-        let factory =
-            "function () { return { declare: function () {}, execute: function () {} }; }";
+    fn test_artifact_with_factory(
+        source_id: SourceId,
+        factory: &str,
+        exports: &[&str],
+    ) -> ModuleArtifactV1 {
         let fingerprint = TransformFingerprintV1 {
             producer: NonEmptyString::new("test-producer").unwrap(),
             parser_version: NonEmptyString::new("oxc-test").unwrap(),
@@ -392,7 +593,13 @@ mod tests {
                 source_integrity: digest("source"),
                 transform_fingerprint: fingerprint,
                 static_edges: Vec::new(),
-                export_descriptors: Vec::new(),
+                export_descriptors: exports
+                    .iter()
+                    .map(|name| ExportDescriptorV1::Local {
+                        exported: NonEmptyString::new(*name).unwrap(),
+                        local: NonEmptyString::new(*name).unwrap(),
+                    })
+                    .collect(),
                 commonjs_exports: None,
                 has_top_level_await: false,
                 factory_digest: digest_bytes(MODULE_ARTIFACT_FACTORY_DOMAIN_V1, factory.as_bytes())
@@ -411,6 +618,30 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    fn test_artifact(source_id: SourceId) -> ModuleArtifactV1 {
+        test_artifact_with_factory(
+            source_id,
+            "function ($export) { return { declare: function () {}, execute: function () { $export('value', 42); } }; }",
+            &["value"],
+        )
+    }
+
+    fn verify_test_artifact(artifact: &ModuleArtifactV1) -> VerifiedModuleArtifactV1<'_> {
+        artifact
+            .verify_for_admission(&ArtifactAdmissionV1::TrustedInProcess {
+                expected_source_id: artifact.semantics.source_id.0.clone(),
+                expected_source_integrity: digest("source"),
+                expected_producer_id: NonEmptyString::new("test-runtime").unwrap(),
+                producer_binary_digest: digest("producer"),
+                transform_fingerprint_digest: artifact
+                    .semantics
+                    .transform_fingerprint
+                    .digest()
+                    .unwrap(),
+            })
+            .unwrap()
     }
 
     #[test]
@@ -445,19 +676,7 @@ mod tests {
             let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
             let source_id = SourceId::synthetic("module-runner-test", "entry").unwrap();
             let artifact = test_artifact(source_id.clone());
-            let verified = artifact
-                .verify_for_admission(&ArtifactAdmissionV1::TrustedInProcess {
-                    expected_source_id: source_id.clone(),
-                    expected_source_integrity: digest("source"),
-                    expected_producer_id: NonEmptyString::new("test-runtime").unwrap(),
-                    producer_binary_digest: digest("producer"),
-                    transform_fingerprint_digest: artifact
-                        .semantics
-                        .transform_fingerprint
-                        .digest()
-                        .unwrap(),
-                })
-                .unwrap();
+            let verified = verify_test_artifact(&artifact);
             let context = runtime
                 .create_graph_context(
                     GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], 1).unwrap(),
@@ -467,11 +686,121 @@ mod tests {
             let factory = runtime
                 .compile_verified_factory(verified, 0, None, 1, "entry.mjs")
                 .unwrap();
-            let record = factory.create_record(&context, &source_id).unwrap();
+            let mut record = factory.create_record(&context, &source_id).unwrap();
+            record.declare_export("value").unwrap();
+            record
+                .instantiate("synthetic:module-runner-test/entry", true)
+                .unwrap();
+            record.run_declare().unwrap();
+            let tdz = record.namespace_json().unwrap_err().to_string();
+            assert!(
+                tdz.contains("before initialization"),
+                "namespace getter must preserve TDZ: {tdz}"
+            );
+            assert_eq!(
+                record.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(record.namespace_json().unwrap(), r#"{"value":42}"#);
             drop(record);
             drop(factory);
             drop(retained_context);
             drop(context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn linked_records_observe_live_binding_updates() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let target_id = SourceId::synthetic("module-runner-test", "target").unwrap();
+            let importer_id = SourceId::synthetic("module-runner-test", "importer").unwrap();
+            let target_artifact = test_artifact_with_factory(
+                target_id.clone(),
+                "function ($export) { let count; function increment() { $export('count', ++count); } return { declare: function () { $export('increment', increment); }, execute: function () { count = 0; $export('count', count); } }; }",
+                &["count", "increment"],
+            );
+            let importer_artifact = test_artifact_with_factory(
+                importer_id.clone(),
+                "function ($export, context) { return { declare: function () {}, execute: function () { const before = context.importValue('./target', 'count'); context.importValue('./target', 'increment')(); $export('observed', before + ':' + context.importValue('./target', 'count')); } }; }",
+                &["observed"],
+            );
+            let target_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(target_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let importer_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(importer_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let target_factory = runtime
+                .compile_verified_factory(
+                    verify_test_artifact(&target_artifact),
+                    0,
+                    None,
+                    1,
+                    "target.mjs",
+                )
+                .unwrap();
+            let importer_factory = runtime
+                .compile_verified_factory(
+                    verify_test_artifact(&importer_artifact),
+                    0,
+                    None,
+                    1,
+                    "importer.mjs",
+                )
+                .unwrap();
+            let mut target = target_factory
+                .create_record(&target_context, &target_id)
+                .unwrap();
+            target.declare_export("count").unwrap();
+            target.declare_export("increment").unwrap();
+            let mut importer = importer_factory
+                .create_record(&importer_context, &importer_id)
+                .unwrap();
+            importer.declare_export("observed").unwrap();
+            importer
+                .link_import("./target", "count", &target, "count")
+                .unwrap();
+            importer
+                .link_import("./target", "increment", &target, "increment")
+                .unwrap();
+
+            target
+                .instantiate("synthetic:module-runner-test/target", false)
+                .unwrap();
+            importer
+                .instantiate("synthetic:module-runner-test/importer", true)
+                .unwrap();
+            target.run_declare().unwrap();
+            importer.run_declare().unwrap();
+            assert_eq!(
+                target.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(
+                importer.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(target.namespace_json().unwrap(), r#"{"count":1}"#);
+            assert_eq!(importer.namespace_json().unwrap(), r#"{"observed":"0:1"}"#);
+
+            drop(importer);
+            drop(target);
+            drop(importer_factory);
+            drop(target_factory);
+            drop(importer_context);
+            drop(target_context);
             drop(runtime);
             ex_hermes_destroy(raw);
         }

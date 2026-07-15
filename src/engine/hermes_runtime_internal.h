@@ -43,6 +43,7 @@
 #include <functional>
 #include <initializer_list>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -115,11 +116,37 @@ struct GraphContextEntry {
   uint32_t references{1};
 };
 
+enum class NativeModuleRecordState : uint8_t {
+  New,
+  Instantiated,
+  Declared,
+  Evaluated,
+  Errored,
+};
+
+struct NativeModuleBindingCell {
+  bool initialized{false};
+  std::shared_ptr<facebook::jsi::Value> value;
+};
+
+struct NativeModuleImportBinding {
+  uint64_t target_record_id{0};
+  std::string target_export;
+};
+
 struct NativeModuleRecordEntry {
   uint64_t graph_generation{0};
   std::string source_id;
   uint64_t context_handle_id{0};
   std::shared_ptr<facebook::jsi::Function> factory;
+  NativeModuleRecordState state{NativeModuleRecordState::New};
+  std::map<std::string, NativeModuleBindingCell> export_cells;
+  std::map<std::pair<std::string, std::string>, NativeModuleImportBinding>
+      import_bindings;
+  std::shared_ptr<facebook::jsi::Object> namespace_object;
+  std::shared_ptr<facebook::jsi::Function> declare_function;
+  std::shared_ptr<facebook::jsi::Function> execute_function;
+  std::string error_message;
 };
 
 // A runtime address is not an identity: allocators routinely reuse the same

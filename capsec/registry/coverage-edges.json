@@ -140241,13 +140241,13 @@
     },
     {
       "id": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "host-abi",
         "name": "ex_hermes_module_compile_factory"
       },
-      "rationaleId": "authority-control-plane",
-      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+      "cap": "vm:evaluate",
+      "rationale": "The experimental native graph runner compiles or executes authenticated module factories; it remains closed until the graph authorization profile lands."
     },
     {
       "id": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
@@ -140258,6 +140258,66 @@
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_record_declare_export"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.record.instantiate.043epyu",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_record_instantiate"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "The experimental native graph runner compiles or executes authenticated module factories; it remains closed until the graph authorization profile lands."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_record_link_import"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_record_namespace_json"
+      },
+      "cap": "runtime:inspect",
+      "rationale": "Diagnostic namespace serialization observes live JavaScript values and is closed as runtime inspection."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_record_run_declare"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "The experimental native graph runner compiles or executes authenticated module factories; it remains closed until the graph authorization profile lands."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_record_run_execute"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "The experimental native graph runner compiles or executes authenticated module factories; it remains closed until the graph authorization profile lands."
     },
     {
       "id": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8",

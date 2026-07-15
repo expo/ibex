@@ -120,6 +120,9 @@ app-host = []
 # Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer
 # but never selects it as the runtime evaluator or enables artifact caching.
 module-runner-spike = []
+# Experimental LLP 0026 graph linker. This compiles the authenticated graph
+# path but does not select it as the default evaluator.
+module-runner = []
 # Compiles the hyper-based localhost HTTP server backing `exact:http` and the
 # agent endpoints (the `ex_host_http_*` C symbols). App hosts and the full
 # `ibex` CLI profile enable this; without it build.rs compiles no-op stubs

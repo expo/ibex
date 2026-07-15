@@ -1,0 +1,507 @@
+//! Authenticated synchronous ESM graph planning.
+//!
+//! This layer resolves namespace exports and checks graph shape before any
+//! factory executes. Hermes owns live cells; Rust owns these authenticated
+//! SourceId edges and the ambiguity decision.
+//! @ref LLP 0026#4-native-graph-owner-and-hermes-runner
+//! @ref LLP 0026#5-esm-record-lifecycle
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use thiserror::Error;
+
+use super::artifact::{ExportDescriptorV1, StaticEdgeV1, VerifiedModuleArtifactV1};
+use super::identity::SourceId;
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ExportTarget {
+    pub record: SourceId,
+    /// `*` denotes the stable namespace object; other values denote cells.
+    pub binding: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphErrorCode {
+    ModuleLink,
+    RequireAsyncModule,
+}
+
+impl GraphErrorCode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ModuleLink => "ERR_MODULE_LINK",
+            Self::RequireAsyncModule => "ERR_REQUIRE_ASYNC_MODULE",
+        }
+    }
+}
+
+#[derive(Debug, Error, PartialEq, Eq)]
+#[error("{code}: {detail}", code = .code.as_str())]
+pub struct GraphError {
+    pub code: GraphErrorCode,
+    pub detail: String,
+}
+
+impl GraphError {
+    fn link(detail: impl Into<String>) -> Self {
+        Self {
+            code: GraphErrorCode::ModuleLink,
+            detail: detail.into(),
+        }
+    }
+
+    fn asynchronous(source_id: &SourceId) -> Self {
+        Self {
+            code: GraphErrorCode::RequireAsyncModule,
+            detail: format!("synchronous graph contains top-level await in {source_id:?}"),
+        }
+    }
+}
+
+struct PlannedRecord<'artifact> {
+    artifact: VerifiedModuleArtifactV1<'artifact>,
+    edges: BTreeMap<String, SourceId>,
+}
+
+/// Immutable link plan for one synchronous graph generation.
+pub struct SynchronousGraphPlan<'artifact> {
+    records: BTreeMap<SourceId, PlannedRecord<'artifact>>,
+}
+
+impl<'artifact> SynchronousGraphPlan<'artifact> {
+    /// Build a plan from admitted artifacts and authenticated resolution edges.
+    /// The edge map must exactly match the artifact's static specifier set;
+    /// disagreement fails before any factory compilation or evaluation.
+    pub fn new(
+        records: impl IntoIterator<
+            Item = (
+                VerifiedModuleArtifactV1<'artifact>,
+                BTreeMap<String, SourceId>,
+            ),
+        >,
+    ) -> Result<Self, GraphError> {
+        let mut planned = BTreeMap::new();
+        for (artifact, edges) in records {
+            let semantics = &artifact.artifact().semantics;
+            let source_id = semantics.source_id.0.clone();
+            if semantics.has_top_level_await {
+                return Err(GraphError::asynchronous(&source_id));
+            }
+            let expected: BTreeSet<_> = semantics.static_edges.iter().map(edge_specifier).collect();
+            let observed: BTreeSet<_> = edges.keys().cloned().collect();
+            if expected != observed {
+                return Err(GraphError::link(format!(
+                    "artifact/resolver graph disagreement for {source_id:?}: expected {expected:?}, observed {observed:?}"
+                )));
+            }
+            if planned
+                .insert(source_id.clone(), PlannedRecord { artifact, edges })
+                .is_some()
+            {
+                return Err(GraphError::link(format!(
+                    "duplicate ModuleRecord identity {source_id:?}"
+                )));
+            }
+        }
+        for (source_id, record) in &planned {
+            for target in record.edges.values() {
+                if !planned.contains_key(target) {
+                    return Err(GraphError::link(format!(
+                        "{source_id:?} resolves a static edge to absent record {target:?}"
+                    )));
+                }
+            }
+        }
+        Ok(Self { records: planned })
+    }
+
+    pub fn namespace(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<BTreeMap<String, ExportTarget>, GraphError> {
+        if !self.records.contains_key(source_id) {
+            return Err(GraphError::link(format!(
+                "namespace requested for absent record {source_id:?}"
+            )));
+        }
+        let mut names = BTreeSet::new();
+        self.collect_export_names(source_id, &mut BTreeSet::new(), &mut names)?;
+        let mut namespace = BTreeMap::new();
+        for name in names {
+            let resolution = self.resolve_export(source_id, &name, &mut BTreeSet::new())?;
+            match resolution {
+                Resolution::Found(target) => {
+                    namespace.insert(name, target);
+                }
+                Resolution::Missing | Resolution::Ambiguous
+                    if self.has_explicit_export(source_id, &name)? =>
+                {
+                    return Err(GraphError::link(format!(
+                        "explicit export {name:?} of {source_id:?} does not resolve uniquely"
+                    )));
+                }
+                Resolution::Missing | Resolution::Ambiguous => {}
+            }
+        }
+        Ok(namespace)
+    }
+
+    fn has_explicit_export(&self, source_id: &SourceId, name: &str) -> Result<bool, GraphError> {
+        Ok(self
+            .record(source_id)?
+            .artifact
+            .artifact()
+            .semantics
+            .export_descriptors
+            .iter()
+            .any(|descriptor| match descriptor {
+                ExportDescriptorV1::Local { exported, .. }
+                | ExportDescriptorV1::Indirect { exported, .. }
+                | ExportDescriptorV1::Namespace { exported, .. } => exported.as_str() == name,
+                ExportDescriptorV1::Star { .. } => false,
+            }))
+    }
+
+    fn collect_export_names(
+        &self,
+        source_id: &SourceId,
+        visiting: &mut BTreeSet<SourceId>,
+        names: &mut BTreeSet<String>,
+    ) -> Result<(), GraphError> {
+        if !visiting.insert(source_id.clone()) {
+            return Ok(());
+        }
+        let record = self.record(source_id)?;
+        for descriptor in &record.artifact.artifact().semantics.export_descriptors {
+            match descriptor {
+                ExportDescriptorV1::Local { exported, .. }
+                | ExportDescriptorV1::Indirect { exported, .. }
+                | ExportDescriptorV1::Namespace { exported, .. } => {
+                    names.insert(exported.as_str().to_owned());
+                }
+                ExportDescriptorV1::Star { specifier } => {
+                    let target = self.edge_target(record, specifier.as_str())?;
+                    let mut inherited = BTreeSet::new();
+                    self.collect_export_names(target, visiting, &mut inherited)?;
+                    inherited.remove("default");
+                    names.extend(inherited);
+                }
+            }
+        }
+        visiting.remove(source_id);
+        Ok(())
+    }
+
+    fn resolve_export(
+        &self,
+        source_id: &SourceId,
+        name: &str,
+        visiting: &mut BTreeSet<(SourceId, String)>,
+    ) -> Result<Resolution, GraphError> {
+        let key = (source_id.clone(), name.to_owned());
+        if !visiting.insert(key.clone()) {
+            return Ok(Resolution::Missing);
+        }
+        let record = self.record(source_id)?;
+
+        for descriptor in &record.artifact.artifact().semantics.export_descriptors {
+            match descriptor {
+                ExportDescriptorV1::Local { exported, .. } if exported.as_str() == name => {
+                    visiting.remove(&key);
+                    return Ok(Resolution::Found(ExportTarget {
+                        record: source_id.clone(),
+                        binding: name.to_owned(),
+                    }));
+                }
+                ExportDescriptorV1::Indirect {
+                    exported,
+                    specifier,
+                    imported,
+                } if exported.as_str() == name => {
+                    let target = self.edge_target(record, specifier.as_str())?;
+                    let result = self.resolve_export(target, imported.as_str(), visiting)?;
+                    visiting.remove(&key);
+                    return Ok(result);
+                }
+                ExportDescriptorV1::Namespace {
+                    exported,
+                    specifier,
+                } if exported.as_str() == name => {
+                    let target = self.edge_target(record, specifier.as_str())?;
+                    visiting.remove(&key);
+                    return Ok(Resolution::Found(ExportTarget {
+                        record: target.clone(),
+                        binding: "*".into(),
+                    }));
+                }
+                _ => {}
+            }
+        }
+
+        if name == "default" {
+            visiting.remove(&key);
+            return Ok(Resolution::Missing);
+        }
+        let mut found: Option<ExportTarget> = None;
+        for descriptor in &record.artifact.artifact().semantics.export_descriptors {
+            let ExportDescriptorV1::Star { specifier } = descriptor else {
+                continue;
+            };
+            let target = self.edge_target(record, specifier.as_str())?;
+            match self.resolve_export(target, name, visiting)? {
+                Resolution::Found(candidate) => match &found {
+                    None => found = Some(candidate),
+                    Some(existing) if existing == &candidate => {}
+                    Some(_) => {
+                        visiting.remove(&key);
+                        return Ok(Resolution::Ambiguous);
+                    }
+                },
+                Resolution::Ambiguous => {
+                    visiting.remove(&key);
+                    return Ok(Resolution::Ambiguous);
+                }
+                Resolution::Missing => {}
+            }
+        }
+        visiting.remove(&key);
+        Ok(found.map_or(Resolution::Missing, Resolution::Found))
+    }
+
+    fn record(&self, source_id: &SourceId) -> Result<&PlannedRecord<'artifact>, GraphError> {
+        self.records.get(source_id).ok_or_else(|| {
+            GraphError::link(format!("graph references absent record {source_id:?}"))
+        })
+    }
+
+    fn edge_target<'a>(
+        &self,
+        record: &'a PlannedRecord<'artifact>,
+        specifier: &str,
+    ) -> Result<&'a SourceId, GraphError> {
+        record.edges.get(specifier).ok_or_else(|| {
+            GraphError::link(format!(
+                "static edge {specifier:?} has no authenticated target"
+            ))
+        })
+    }
+}
+
+enum Resolution {
+    Missing,
+    Found(ExportTarget),
+    Ambiguous,
+}
+
+fn edge_specifier(edge: &StaticEdgeV1) -> String {
+    match edge {
+        StaticEdgeV1::SideEffect { specifier, .. }
+        | StaticEdgeV1::Default { specifier, .. }
+        | StaticEdgeV1::Namespace { specifier, .. }
+        | StaticEdgeV1::Named { specifier, .. }
+        | StaticEdgeV1::ReExportNamed { specifier, .. }
+        | StaticEdgeV1::ReExportStar { specifier, .. }
+        | StaticEdgeV1::ReExportNamespace { specifier, .. } => specifier.as_str().to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::module_loader::artifact::{
+        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, ModuleArtifactV1, ModuleSemanticsV1,
+        ProducerIdentityV1, SourceDialectV1, SourceGoalV1, SourceMapV1, TransformFingerprintV1,
+        MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+    };
+    use crate::module_loader::identity::ImportAttributes;
+    use capsec_semantics::model::{Digest, NonEmptyString};
+
+    fn digest(label: &str) -> Digest {
+        digest_bytes("module-graph-test", label.as_bytes()).unwrap()
+    }
+
+    fn name(value: &str) -> NonEmptyString {
+        NonEmptyString::new(value).unwrap()
+    }
+
+    fn source(value: &str) -> SourceId {
+        SourceId::synthetic("module-graph-test", value).unwrap()
+    }
+
+    fn edge(specifier: &str) -> StaticEdgeV1 {
+        StaticEdgeV1::ReExportStar {
+            specifier: name(specifier),
+            attributes: ImportAttributes::default(),
+        }
+    }
+
+    fn local(exported: &str) -> ExportDescriptorV1 {
+        ExportDescriptorV1::Local {
+            exported: name(exported),
+            local: name(exported),
+        }
+    }
+
+    fn star(specifier: &str) -> ExportDescriptorV1 {
+        ExportDescriptorV1::Star {
+            specifier: name(specifier),
+        }
+    }
+
+    fn artifact(
+        source_id: SourceId,
+        export_descriptors: Vec<ExportDescriptorV1>,
+        static_edges: Vec<StaticEdgeV1>,
+        has_top_level_await: bool,
+    ) -> ModuleArtifactV1 {
+        let factory =
+            "function () { return { declare: function () {}, execute: function () {} }; }";
+        let fingerprint = TransformFingerprintV1 {
+            producer: name("graph-test"),
+            parser_version: name("parser-test"),
+            transform_version: name("transform-test"),
+            hermes_target: name("hermes-test"),
+            typescript_jsx_options_digest: digest("ts-jsx"),
+            module_runner_abi: name("ibex-module-runner-1"),
+            hermes_compat_version: name("compat-test"),
+            commonjs_detector: name("cjs-module-lexer"),
+            commonjs_detector_version: name("2.1.0"),
+            output_options_digest: digest("output"),
+        };
+        ModuleArtifactV1::new_inline(
+            ModuleSemanticsV1 {
+                source_id: CanonicalSourceId(source_id.clone()),
+                source_goal: SourceGoalV1::Module,
+                dialect: Some(SourceDialectV1::Js),
+                source_integrity: digest("source"),
+                transform_fingerprint: fingerprint,
+                static_edges,
+                export_descriptors,
+                commonjs_exports: None,
+                has_top_level_await,
+                factory_digest: digest_bytes(MODULE_ARTIFACT_FACTORY_DOMAIN_V1, factory.as_bytes())
+                    .unwrap(),
+                source_map: SourceMapV1 {
+                    version: 3,
+                    source_ids: vec![CanonicalSourceId(source_id)],
+                    names: Vec::new(),
+                    mappings: String::new(),
+                },
+            },
+            factory.into(),
+            ProducerIdentityV1::InProcess {
+                producer_id: name("graph-test"),
+                producer_binary_digest: digest("producer"),
+            },
+        )
+        .unwrap()
+    }
+
+    fn verify(artifact: &ModuleArtifactV1) -> VerifiedModuleArtifactV1<'_> {
+        artifact
+            .verify_for_admission(&ArtifactAdmissionV1::TrustedInProcess {
+                expected_source_id: artifact.semantics.source_id.0.clone(),
+                expected_source_integrity: digest("source"),
+                expected_producer_id: name("graph-test"),
+                producer_binary_digest: digest("producer"),
+                transform_fingerprint_digest: artifact
+                    .semantics
+                    .transform_fingerprint
+                    .digest()
+                    .unwrap(),
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn star_ambiguity_is_excluded_and_local_exports_win() {
+        let left_id = source("left");
+        let right_id = source("right");
+        let hub_id = source("hub");
+        let left = artifact(
+            left_id.clone(),
+            vec![local("left"), local("shared")],
+            vec![],
+            false,
+        );
+        let right = artifact(
+            right_id.clone(),
+            vec![local("right"), local("shared")],
+            vec![],
+            false,
+        );
+        let hub = artifact(
+            hub_id.clone(),
+            vec![star("./left"), star("./right"), local("shared")],
+            vec![edge("./left"), edge("./right")],
+            false,
+        );
+        let plan = SynchronousGraphPlan::new([
+            (verify(&left), BTreeMap::new()),
+            (verify(&right), BTreeMap::new()),
+            (
+                verify(&hub),
+                BTreeMap::from([
+                    ("./left".into(), left_id.clone()),
+                    ("./right".into(), right_id.clone()),
+                ]),
+            ),
+        ])
+        .unwrap();
+        let namespace = plan.namespace(&hub_id).unwrap();
+        assert_eq!(
+            namespace.keys().cloned().collect::<Vec<_>>(),
+            ["left", "right", "shared"]
+        );
+        assert_eq!(namespace["shared"].record, hub_id);
+    }
+
+    #[test]
+    fn cyclic_star_resolution_reuses_records_without_recursing_forever() {
+        let a_id = source("a");
+        let b_id = source("b");
+        let a = artifact(
+            a_id.clone(),
+            vec![local("a"), star("./b")],
+            vec![edge("./b")],
+            false,
+        );
+        let b = artifact(
+            b_id.clone(),
+            vec![local("b"), star("./a")],
+            vec![edge("./a")],
+            false,
+        );
+        let plan = SynchronousGraphPlan::new([
+            (verify(&a), BTreeMap::from([("./b".into(), b_id)])),
+            (verify(&b), BTreeMap::from([("./a".into(), a_id.clone())])),
+        ])
+        .unwrap();
+        assert_eq!(
+            plan.namespace(&a_id)
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+    }
+
+    #[test]
+    fn graph_disagreement_and_async_require_fail_before_execution() {
+        let entry_id = source("entry");
+        let mismatch = artifact(entry_id.clone(), vec![], vec![edge("./missing")], false);
+        let error = SynchronousGraphPlan::new([(verify(&mismatch), BTreeMap::new())])
+            .err()
+            .unwrap();
+        assert_eq!(error.code, GraphErrorCode::ModuleLink);
+        assert!(error.to_string().starts_with("ERR_MODULE_LINK:"));
+
+        let asynchronous = artifact(entry_id, vec![], vec![], true);
+        let error = SynchronousGraphPlan::new([(verify(&asynchronous), BTreeMap::new())])
+            .err()
+            .unwrap();
+        assert_eq!(error.code, GraphErrorCode::RequireAsyncModule);
+        assert!(error.to_string().starts_with("ERR_REQUIRE_ASYNC_MODULE:"));
+    }
+}

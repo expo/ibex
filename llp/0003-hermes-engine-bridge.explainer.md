@@ -72,6 +72,18 @@ eval/Function propagation then stamps both values onto the actual factory's
 Domain at compile time. Handle registries are members of the runtime object, so
 their JSI references are released on the owner thread before Hermes itself.
 
+The first synchronous-record layer also keeps binding identity in Hermes. A
+record declares cells before instantiation; the engine materializes one stable
+namespace with checked getters, supplies a record-scoped `$export` callback,
+and supplies `context.importValue` backed only by native-installed record
+links. Declare and execute are separate one-shot phases. A thrown phase moves
+the record to sticky `errored` state and later native calls return the retained
+error text rather than partially rerunning factory state. The Rust graph plan
+resolves explicit, namespace, and star exports by authenticated `SourceId`,
+excludes ambiguous stars, reuses records through cycles, rejects resolver/
+artifact graph disagreement, and refuses top-level-await closures before a
+synchronous drive.
+
 The engine uses Hermes through **JSI** (`<jsi/jsi.h>`) `[observed]`
 (`src/engine/hermes_runtime.cc:14-15`). Native functions are registered with
 `jsi::Function::createFromHostFunction` and set as properties on `rt.global()`

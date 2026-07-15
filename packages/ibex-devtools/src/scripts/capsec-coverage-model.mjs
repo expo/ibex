@@ -5131,6 +5131,12 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_has_pending_tasks",
     "ex_hermes_module_compile_factory",
     "ex_hermes_module_create_record",
+    "ex_hermes_module_record_declare_export",
+    "ex_hermes_module_record_instantiate",
+    "ex_hermes_module_record_link_import",
+    "ex_hermes_module_record_namespace_json",
+    "ex_hermes_module_record_run_declare",
+    "ex_hermes_module_record_run_execute",
     "ex_hermes_module_release_handle",
     "ex_hermes_next_timer",
     "ex_hermes_notify_callback",
@@ -12115,8 +12121,9 @@ function classifyConcreteSurface(surface) {
       new Set([
         "ex_hermes_graph_context_create",
         "ex_hermes_graph_context_retain",
-        "ex_hermes_module_compile_factory",
         "ex_hermes_module_create_record",
+        "ex_hermes_module_record_declare_export",
+        "ex_hermes_module_record_link_import",
       ]).has(surface.name)
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
@@ -12128,6 +12135,27 @@ function classifyConcreteSurface(surface) {
       ]).has(surface.name)
     ) {
       return nonCapabilitySpec("authority-release", "WP8");
+    }
+    if (
+      new Set([
+        "ex_hermes_module_compile_factory",
+        "ex_hermes_module_record_instantiate",
+        "ex_hermes_module_record_run_declare",
+        "ex_hermes_module_record_run_execute",
+      ]).has(surface.name)
+    ) {
+      return closedSpec(
+        "vm:evaluate",
+        "WP8",
+        "The experimental native graph runner compiles or executes authenticated module factories; it remains closed until the graph authorization profile lands.",
+      );
+    }
+    if (surface.name === "ex_hermes_module_record_namespace_json") {
+      return closedSpec(
+        "runtime:inspect",
+        "WP8",
+        "Diagnostic namespace serialization observes live JavaScript values and is closed as runtime inspection.",
+      );
     }
     if (surface.name === "ex_hermes_current_runtime_nonce") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");

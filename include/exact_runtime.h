@@ -166,6 +166,67 @@ int32_t ex_hermes_module_create_record(
     size_t source_id_len,
     ExactModuleRunnerHandle* out_record);
 
+/// Declare one own export cell before record instantiation. Names are unique
+/// UTF-8 byte strings; declaration order is canonicalized by the native map.
+int32_t ex_hermes_module_record_declare_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len);
+
+/// Bind one factory `context.importValue(specifier, imported)` lookup to an
+/// authenticated target record/cell. `target_export == "*"` selects the
+/// target's stable namespace object.
+int32_t ex_hermes_module_record_link_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    const uint8_t* imported_name,
+    size_t imported_name_len,
+    ExactModuleRunnerHandle target_record,
+    const uint8_t* target_export,
+    size_t target_export_len);
+
+/// Materialize the stable namespace, export callback, import context, and
+/// factory result. This does not run declare or execute.
+int32_t ex_hermes_module_record_instantiate(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* meta_url,
+    size_t meta_url_len,
+    int32_t is_main,
+    char** out_error);
+
+/// Run the factory's declaration phase exactly once.
+int32_t ex_hermes_module_record_run_declare(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    char** out_error);
+
+/// Run the factory's execute phase exactly once. `out_async` is set when the
+/// phase returned a thenable; synchronous graph callers must refuse it.
+int32_t ex_hermes_module_record_run_execute(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    int32_t* out_async,
+    char** out_error);
+
+/// Diagnostic serialization of the stable namespace. The namespace itself
+/// never crosses the ABI; TDZ reads fail through the same checked getters used
+/// by imports.
+int32_t ex_hermes_module_record_namespace_json(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    char** out_json,
+    char** out_error);
+
 // =============================================================================
 // Evaluation
 // =============================================================================

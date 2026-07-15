@@ -60,6 +60,73 @@ uint64_t nextHandleId(ExactHermesRuntime* runtime) {
   return id;
 }
 
+NativeModuleRecordEntry* recordFor(
+    ExactHermesRuntime* runtime, ExactModuleRunnerHandle handle) {
+  if (runtime == nullptr || handle.opaque[0] != runtime->runtime_nonce ||
+      handle.opaque[1] == 0 || handle.opaque[2] == 0) {
+    return nullptr;
+  }
+  auto it = runtime->module_records.find(handle.opaque[2]);
+  if (it == runtime->module_records.end() ||
+      it->second.graph_generation != handle.opaque[1]) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+NativeModuleRecordEntry* callbackRecordFor(
+    RuntimeCallbackTarget target, uint64_t graphGeneration, uint64_t recordId) {
+  if (!runtimeIsAlive(target) ||
+      target.runtime->runtime_thread != std::this_thread::get_id()) {
+    return nullptr;
+  }
+  auto it = target.runtime->module_records.find(recordId);
+  if (it == target.runtime->module_records.end() ||
+      it->second.graph_generation != graphGeneration) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+facebook::jsi::Value readBinding(
+    facebook::jsi::Runtime& rt,
+    NativeModuleRecordEntry& record,
+    const std::string& exportName) {
+  if (exportName == "*") {
+    if (!record.namespace_object) {
+      throw facebook::jsi::JSError(rt, "module namespace is not instantiated");
+    }
+    return facebook::jsi::Value(rt, *record.namespace_object);
+  }
+  auto cell = record.export_cells.find(exportName);
+  if (cell == record.export_cells.end()) {
+    throw facebook::jsi::JSError(
+        rt, "module does not export '" + exportName + "'");
+  }
+  if (!cell->second.initialized || !cell->second.value) {
+    throw facebook::jsi::JSError(
+        rt, "Cannot access '" + exportName + "' before initialization");
+  }
+  return facebook::jsi::Value(rt, *cell->second.value);
+}
+
+void rememberRecordError(
+    NativeModuleRecordEntry& record, const std::string& message) {
+  record.state = NativeModuleRecordState::Errored;
+  if (record.error_message.empty()) {
+    record.error_message = message;
+  }
+}
+
+int32_t reportRecordError(
+    NativeModuleRecordEntry& record, char** outError) {
+  writeError(
+      outError,
+      record.error_message.empty() ? "module record is errored"
+                                   : record.error_message);
+  return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+}
+
 }  // namespace
 
 extern "C" int32_t ex_hermes_module_compile_factory(
@@ -356,4 +423,354 @@ extern "C" int32_t ex_hermes_module_create_record(
   out_record->opaque[1] = factory.opaque[1];
   out_record->opaque[2] = id;
   return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_module_record_declare_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeModuleRecordState::New || export_name == nullptr ||
+      export_name_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  std::string name(reinterpret_cast<const char*>(export_name), export_name_len);
+  if (!entry->export_cells.emplace(name, NativeModuleBindingCell{}).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_module_record_link_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    const uint8_t* imported_name,
+    size_t imported_name_len,
+    ExactModuleRunnerHandle target_record,
+    const uint8_t* target_export,
+    size_t target_export_len) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  auto* target = recordFor(runtime, target_record);
+  if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeModuleRecordState::New ||
+      entry->graph_generation != target->graph_generation ||
+      specifier == nullptr || specifier_len == 0 || imported_name == nullptr ||
+      imported_name_len == 0 || target_export == nullptr ||
+      target_export_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  std::string targetName(
+      reinterpret_cast<const char*>(target_export), target_export_len);
+  if (targetName != "*" && target->export_cells.find(targetName) ==
+                               target->export_cells.end()) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  auto key = std::make_pair(
+      std::string(reinterpret_cast<const char*>(specifier), specifier_len),
+      std::string(
+          reinterpret_cast<const char*>(imported_name), imported_name_len));
+  NativeModuleImportBinding binding;
+  binding.target_record_id = target_record.opaque[2];
+  binding.target_export = std::move(targetName);
+  if (!entry->import_bindings.emplace(std::move(key), std::move(binding)).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_module_record_instantiate(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* meta_url,
+    size_t meta_url_len,
+    int32_t is_main,
+    char** out_error) {
+  if (out_error) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state == NativeModuleRecordState::Errored) {
+    return reportRecordError(*entry, out_error);
+  }
+  if (entry->state != NativeModuleRecordState::New || meta_url == nullptr ||
+      meta_url_len == 0 || (is_main != 0 && is_main != 1)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  try {
+    auto& rt = *runtime->runtime;
+    auto objectConstructor = rt.global().getPropertyAsObject(rt, "Object");
+    auto create = objectConstructor.getPropertyAsFunction(rt, "create");
+    auto defineProperty =
+        objectConstructor.getPropertyAsFunction(rt, "defineProperty");
+    auto preventExtensions =
+        objectConstructor.getPropertyAsFunction(rt, "preventExtensions");
+    auto namespaceValue = create.call(rt, facebook::jsi::Value::null());
+    if (!namespaceValue.isObject()) {
+      throw facebook::jsi::JSError(rt, "failed to create module namespace");
+    }
+    auto namespaceObject = namespaceValue.asObject(rt);
+    const auto target = exactRuntimeCallbackTarget(runtime);
+    const uint64_t graphGeneration = entry->graph_generation;
+    const uint64_t recordId = record.opaque[2];
+
+    for (const auto& exportCell : entry->export_cells) {
+      const std::string name = exportCell.first;
+      auto getter = facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(rt, "moduleNamespaceGetter"),
+          0,
+          [target, graphGeneration, recordId, name](
+              facebook::jsi::Runtime& rt,
+              const facebook::jsi::Value&,
+              const facebook::jsi::Value*,
+              size_t) -> facebook::jsi::Value {
+            auto* current =
+                callbackRecordFor(target, graphGeneration, recordId);
+            if (current == nullptr) {
+              throw facebook::jsi::JSError(rt, "stale module namespace");
+            }
+            return readBinding(rt, *current, name);
+          });
+      facebook::jsi::Object descriptor(rt);
+      descriptor.setProperty(rt, "enumerable", true);
+      descriptor.setProperty(rt, "configurable", false);
+      descriptor.setProperty(rt, "get", std::move(getter));
+      defineProperty.call(
+          rt,
+          namespaceObject,
+          facebook::jsi::String::createFromUtf8(rt, name),
+          descriptor);
+    }
+    preventExtensions.call(rt, namespaceObject);
+    entry->namespace_object =
+        std::make_shared<facebook::jsi::Object>(std::move(namespaceObject));
+
+    auto exportFunction = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "moduleExport"),
+        2,
+        [target, graphGeneration, recordId](
+            facebook::jsi::Runtime& rt,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value* args,
+            size_t count) -> facebook::jsi::Value {
+          auto* current = callbackRecordFor(target, graphGeneration, recordId);
+          if (current == nullptr) {
+            throw facebook::jsi::JSError(rt, "stale module export callback");
+          }
+          if (count != 2 || !args[0].isString()) {
+            throw facebook::jsi::JSError(rt, "module export requires name and value");
+          }
+          const std::string name = args[0].asString(rt).utf8(rt);
+          auto cell = current->export_cells.find(name);
+          if (cell == current->export_cells.end()) {
+            throw facebook::jsi::JSError(
+                rt, "module attempted to publish undeclared export '" + name + "'");
+          }
+          cell->second.value =
+              std::make_shared<facebook::jsi::Value>(rt, args[1]);
+          cell->second.initialized = true;
+          return facebook::jsi::Value::undefined();
+        });
+
+    facebook::jsi::Object context(rt);
+    auto importValue = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "moduleImportValue"),
+        2,
+        [target, graphGeneration, recordId](
+            facebook::jsi::Runtime& rt,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value* args,
+            size_t count) -> facebook::jsi::Value {
+          auto* current = callbackRecordFor(target, graphGeneration, recordId);
+          if (current == nullptr) {
+            throw facebook::jsi::JSError(rt, "stale module import context");
+          }
+          if (count != 2 || !args[0].isString() || !args[1].isString()) {
+            throw facebook::jsi::JSError(
+                rt, "module importValue requires specifier and import name");
+          }
+          auto key = std::make_pair(
+              args[0].asString(rt).utf8(rt), args[1].asString(rt).utf8(rt));
+          auto binding = current->import_bindings.find(key);
+          if (binding == current->import_bindings.end()) {
+            throw facebook::jsi::JSError(rt, "module import binding is not linked");
+          }
+          auto targetRecord =
+              target.runtime->module_records.find(binding->second.target_record_id);
+          if (targetRecord == target.runtime->module_records.end() ||
+              targetRecord->second.graph_generation != graphGeneration) {
+            throw facebook::jsi::JSError(rt, "module import target is stale");
+          }
+          return readBinding(
+              rt, targetRecord->second, binding->second.target_export);
+        });
+    context.setProperty(rt, "importValue", std::move(importValue));
+    facebook::jsi::Object meta(rt);
+    meta.setProperty(
+        rt,
+        "url",
+        facebook::jsi::String::createFromUtf8(
+            rt,
+            std::string(reinterpret_cast<const char*>(meta_url), meta_url_len)));
+    meta.setProperty(rt, "main", is_main == 1);
+    context.setProperty(rt, "meta", std::move(meta));
+
+    auto instanceValue = entry->factory->call(rt, exportFunction, context);
+    if (!instanceValue.isObject()) {
+      throw facebook::jsi::JSError(rt, "module factory did not return an object");
+    }
+    auto instance = instanceValue.asObject(rt);
+    auto declareValue = instance.getProperty(rt, "declare");
+    auto executeValue = instance.getProperty(rt, "execute");
+    if (!declareValue.isObject() ||
+        !declareValue.asObject(rt).isFunction(rt) || !executeValue.isObject() ||
+        !executeValue.asObject(rt).isFunction(rt)) {
+      throw facebook::jsi::JSError(
+          rt, "module factory result requires declare and execute functions");
+    }
+    entry->declare_function = std::make_shared<facebook::jsi::Function>(
+        declareValue.asObject(rt).asFunction(rt));
+    entry->execute_function = std::make_shared<facebook::jsi::Function>(
+        executeValue.asObject(rt).asFunction(rt));
+    entry->state = NativeModuleRecordState::Instantiated;
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (const facebook::jsi::JSError& error) {
+    rememberRecordError(*entry, error.getMessage());
+  } catch (const std::exception& error) {
+    rememberRecordError(*entry, error.what());
+  } catch (...) {
+    rememberRecordError(*entry, "unknown module instantiation failure");
+  }
+  return reportRecordError(*entry, out_error);
+}
+
+extern "C" int32_t ex_hermes_module_record_run_declare(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    char** out_error) {
+  if (out_error) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state == NativeModuleRecordState::Errored) {
+    return reportRecordError(*entry, out_error);
+  }
+  if (entry->state != NativeModuleRecordState::Instantiated ||
+      !entry->declare_function) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  try {
+    entry->declare_function->call(*runtime->runtime);
+    entry->state = NativeModuleRecordState::Declared;
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (const facebook::jsi::JSError& error) {
+    rememberRecordError(*entry, error.getMessage());
+  } catch (const std::exception& error) {
+    rememberRecordError(*entry, error.what());
+  } catch (...) {
+    rememberRecordError(*entry, "unknown module declaration failure");
+  }
+  return reportRecordError(*entry, out_error);
+}
+
+extern "C" int32_t ex_hermes_module_record_run_execute(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    int32_t* out_async,
+    char** out_error) {
+  if (out_async) *out_async = 0;
+  if (out_error) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state == NativeModuleRecordState::Errored) {
+    return reportRecordError(*entry, out_error);
+  }
+  if (entry->state != NativeModuleRecordState::Declared ||
+      !entry->execute_function || out_async == nullptr) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    auto result = entry->execute_function->call(rt);
+    if (result.isObject()) {
+      auto object = result.asObject(rt);
+      auto thenValue = object.getProperty(rt, "then");
+      if (thenValue.isObject() && thenValue.asObject(rt).isFunction(rt)) {
+        *out_async = 1;
+      }
+    }
+    entry->state = NativeModuleRecordState::Evaluated;
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (const facebook::jsi::JSError& error) {
+    rememberRecordError(*entry, error.getMessage());
+  } catch (const std::exception& error) {
+    rememberRecordError(*entry, error.what());
+  } catch (...) {
+    rememberRecordError(*entry, "unknown module evaluation failure");
+  }
+  return reportRecordError(*entry, out_error);
+}
+
+extern "C" int32_t ex_hermes_module_record_namespace_json(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    char** out_json,
+    char** out_error) {
+  if (out_json) *out_json = nullptr;
+  if (out_error) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state == NativeModuleRecordState::Errored) {
+    return reportRecordError(*entry, out_error);
+  }
+  if (!entry->namespace_object || out_json == nullptr) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    auto json = rt.global().getPropertyAsObject(rt, "JSON");
+    auto stringify = json.getPropertyAsFunction(rt, "stringify");
+    auto value = stringify.call(rt, *entry->namespace_object);
+    if (!value.isString()) {
+      throw facebook::jsi::JSError(rt, "module namespace is not serializable");
+    }
+    const std::string text = value.asString(rt).utf8(rt);
+    *out_json = static_cast<char*>(std::malloc(text.size() + 1));
+    if (*out_json == nullptr) {
+      throw std::bad_alloc();
+    }
+    std::memcpy(*out_json, text.data(), text.size());
+    (*out_json)[text.size()] = '\0';
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (const facebook::jsi::JSError& error) {
+    writeError(out_error, error.getMessage());
+  } catch (const std::exception& error) {
+    writeError(out_error, error.what());
+  } catch (...) {
+    writeError(out_error, "unknown module namespace serialization failure");
+  }
+  return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
