@@ -18,6 +18,14 @@ crate-type = ["staticlib", "rlib"]
 name = "ibex"
 path = "src/bin/ibex/main.rs"
 
+[[example]]
+name = "module_runner_spike"
+required-features = ["module-runner-spike"]
+
+[[example]]
+name = "module_runner_test262_spike"
+required-features = ["module-runner-spike"]
+
 [dependencies]
 capsec-semantics = { path = "crates/capsec-semantics" }
 # Error handling
@@ -49,6 +57,7 @@ oxc_allocator = "=0.121.0"
 oxc_codegen = "=0.121.0"
 oxc_parser = "=0.121.0"
 oxc_semantic = "=0.121.0"
+oxc_sourcemap = "=6.1.1"
 oxc_span = "=0.121.0"
 oxc_transformer = "=0.121.0"
 
@@ -108,6 +117,9 @@ swc_ecma_transforms_react = "49.0.0"
 [features]
 default = []
 app-host = []
+# Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer
+# but never selects it as the runtime evaluator or enables artifact caching.
+module-runner-spike = []
 # Compiles the hyper-based localhost HTTP server backing `exact:http` and the
 # agent endpoints (the `ex_host_http_*` C symbols). App hosts and the full
 # `ibex` CLI profile enable this; without it build.rs compiles no-op stubs

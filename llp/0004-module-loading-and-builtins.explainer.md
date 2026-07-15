@@ -74,17 +74,23 @@ The resolver is configured (`src/module_loader/mod.rs:67-105`) with
 
 ### Loading and on-the-fly transpilation
 
-`load_source` reads the resolved file (`src/module_loader/mod.rs:163-186`) and
-transpiles when needed: `.ts/.tsx/.jsx/.mts/.cts` always (`needs_transpile`,
-`src/module_loader/mod.rs:188-193`),
-and `.js/.mjs/.cjs` when the source uses syntax Hermes can't run directly —
-async generators, `for await`, `using`, certain block-scoped loop closures —
-which are down-leveled (`needs_js_downlevel` + the `source_needs_*` scanners,
-`src/module_loader/mod.rs:195-228`). Transpilation runs through
-`src/module_loader/transpile.rs`, which imports swc parser/codegen/transform
-crates and lowers to CommonJS for the loader's synchronous `require()` chain
-`[observed]` (`src/module_loader/transpile.rs:1-16, 20-34, 36-45`;
-`Cargo.toml:56-64`).
+`load_source` reads the resolved file and always sends
+`.ts/.tsx/.jsx/.mts/.cts` through the selected in-process transform engine
+(`needs_transpile`). `.js/.mjs/.cjs` enters that Rust transform only when the
+`needs_js_downlevel` scanners select async generators, `for await`, `using`, or
+certain block-scoped loop closures. Ordinary JavaScript — including ordinary
+ESM-heavy JavaScript — is served unchanged by Rust `[observed]`
+(`src/module_loader/mod.rs`, `load_module_source`, `needs_transpile`, and
+`needs_js_downlevel`). The default in-process engine is SWC and lowers its
+selected inputs to CommonJS, but it applies no configured target-compatibility
+pass; describing that path generically as target "down-leveling" was therefore
+too broad `[observed]` (`src/module_loader/transpile.rs`,
+`transpile_with_swc`). Independently, the embedded bootstrap's
+`transformEsmToCjs` scanner rewrites ESM syntax file by file before the
+synchronous `require()`-shaped evaluator sees it `[observed]`
+(`src/engine/bootstrap/module-loader.js`). The implementation-neutral current
+path inventory and Node/Hermes divergence baseline live under
+`tests/fixtures/module-semantics/`.
 
 ## The builtin module surface
 

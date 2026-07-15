@@ -1,0 +1,709 @@
+{
+  "schema": "ibex/module-runner-test262-artifacts/1",
+  "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+  "subsetSchema": "ibex/module-runner-test262-subset/1",
+  "upstream": {
+    "repository": "https://github.com/tc39/test262",
+    "commit": "f2d1435644797268dca1f7988cad5a4e89ccd8d2",
+    "license": "BSD-3-Clause"
+  },
+  "minimumPassRate": {
+    "numerator": 18,
+    "denominator": 20,
+    "percent": 90
+  },
+  "expectedDivergences": [],
+  "cases": [
+    {
+      "id": "eval-this",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-this.js",
+      "upstreamFileSha256": "044874d01e501861c9c1d451ddd67e1c224a768045be75c5c49e0eb182d998c2",
+      "executableBodySha256": "ea3a2f328bb5e73d9e7f969e8b80d13ff8f668c27997408931a07e4b92d7e85d",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-this",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-6jovMou15z2ef5aei4DRP/j2aMJ5l0CJMaB+S5LX6F0=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nassert.sameValue(this, undefined);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "assert.sameValue(this, undefined);\n"
+          ],
+          "mappings": ";;;;;;;AAAA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 11
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "eval-export-cls-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-cls-semi.js",
+      "upstreamFileSha256": "793ff8ee409d129b4a974b2171542c9b96b784a0aba17cb5f26947657cb22038",
+      "executableBodySha256": "e537e62827a6bf327bc3b5964316dff89438d62b282bb0085bc5e218c1caed89",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-export-cls-semi",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-5TfmKCemvzJ7w7WWQxbf+JQ41isoK7AIW8XiGMHK7Yk=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [
+          {
+            "kind": "local",
+            "exported": "C",
+            "local": "C"
+          }
+        ],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvar count = 0;\nclass C {}\n__ibex_export$0(\"C\", C);\nif (true) {\n\tcount += 1;\n}\nassert.sameValue(count, 1);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var count = 0;\n\nexport class C {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 17
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "eval-export-dflt-cls-anon-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-dflt-cls-anon-semi.js",
+      "upstreamFileSha256": "8f51596535737bf33603d78543bfb00f8792802208b9ff0f9cc0212a7d329de1",
+      "executableBodySha256": "03ad0a4dbe49bfc3b37648d6060bc8f7bd87552fc87d5ab2be6d9fde05288f86",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-export-dflt-cls-anon-semi",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-A60KTb5Jv8OzdkjWBgvI972HVS/IfVqyvm2f3gUoj4Y=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [
+          {
+            "kind": "local",
+            "exported": "default",
+            "local": "__ibex_default_value"
+          }
+        ],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvar count = 0;\nconst __ibex_default_value = class {};\n__ibex_export$0(\"default\", __ibex_default_value);\nif (true) {\n\tcount += 1;\n}\nassert.sameValue(count, 1);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var count = 0;\n\nexport default class {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 17
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "eval-export-dflt-cls-named-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-dflt-cls-named-semi.js",
+      "upstreamFileSha256": "bf7513623f7cc16522906e13371a8c6763bb287fefcc0a0901243c935640aba9",
+      "executableBodySha256": "6c8a4c986282631452c084f7d9566cb86698b0c9169759e8b1ed74c7796c41ce",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-export-dflt-cls-named-semi",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-bIpMmGKCYxRSwIT32VZsuGaYsMkWl1nose10x3lsQc4=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [
+          {
+            "kind": "local",
+            "exported": "default",
+            "local": "__ibex_default_value"
+          }
+        ],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvar count = 0;\nclass C {}\n__ibex_export$0(\"default\", C);\nif (true) {\n\tcount += 1;\n}\nassert.sameValue(count, 1);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var count = 0;\n\nexport default class C {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 17
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "eval-export-dflt-fun-anon-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-dflt-fun-anon-semi.js",
+      "upstreamFileSha256": "5e07612c564201578fda64fcb97493bffcdb1a7d9d4731a1f937b22dda60bc50",
+      "executableBodySha256": "2356211a077f0168e53b9d2e25675ea6cf3ddcc991ced81362cc975b8bf547c5",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-export-dflt-fun-anon-semi",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-I1YhGgd/AWjlO50uJWdeps893MmRztgTYsyXW4v1R8U=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [
+          {
+            "kind": "local",
+            "exported": "default",
+            "local": "__ibex_default_value"
+          }
+        ],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvar count = 0;\nconst __ibex_default_value = function() {};\n__ibex_export$0(\"default\", __ibex_default_value);\nif (true) {\n\tcount += 1;\n}\nassert.sameValue(count, 1);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var count = 0;\n\nexport default function() {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 17
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "eval-export-dflt-fun-named-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-dflt-fun-named-semi.js",
+      "upstreamFileSha256": "cdbef6d4d8e357472675cb56b0f9799a32035a3ebd1551169b533d5330d4c1a7",
+      "executableBodySha256": "edcfc1c90b707ef0681171f478fe09ddd5180a844b1d7d96444aa01c7dec1879",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-export-dflt-fun-named-semi",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-7c/ByQtwfvBoEXH0eP4J3dUYCoRLHX2WREqgHH3sGHk=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [
+          {
+            "kind": "local",
+            "exported": "default",
+            "local": "__ibex_default_value"
+          }
+        ],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvar count = 0;\nfunction f() {}\n__ibex_export$0(\"default\", f);\nif (true) {\n\tcount += 1;\n}\nassert.sameValue(count, 1);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var count = 0;\n\nexport default function f() {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAAA;AAAA;AAEA;AAAA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 17
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "eval-export-fun-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-fun-semi.js",
+      "upstreamFileSha256": "2a2528cbed2e516d8465afb7221c6ff5cda2a3e7345c479f48a021403f5433c6",
+      "executableBodySha256": "4f063bab0b74b4b06ec5464ef51315ed3bfbbb3c7a862dcfc1aec06ecea09087",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-export-fun-semi",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-TwY7qwt0tLBuxUZO9RMV7Tv7uzx6hi3Pwa7Abs6gkIc=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [
+          {
+            "kind": "local",
+            "exported": "f",
+            "local": "f"
+          }
+        ],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nfunction f() {}\nreturn {\ndeclare: function () {\n__ibex_export$0(\"f\", f);\n\n},\nexecute: function () {\nvar count = 0;\nif (true) {\n\tcount += 1;\n}\nassert.sameValue(count, 1);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var count = 0;\n\nexport function f() {} if (true) { count += 1; }\n\nassert.sameValue(count, 1);\n"
+          ],
+          "mappings": ";;;;;;;;;AAAA;AAEA;AAAA;AAEA;AAAA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 17
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "eval-gtbndng-local-bndng-const",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-gtbndng-local-bndng-const.js",
+      "upstreamFileSha256": "bb22c7b2fb4787631030dc99700b1c74661a87a1baf7b01bb303460c511eea7a",
+      "executableBodySha256": "6e710af545b2783492c47a8663f31472be8756a2685bfb813abe9b6d826f0eed",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-gtbndng-local-bndng-const",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-bnEK9UWyeDSSxHqGY/MUcr6HVqJoW/uBOr6bbYJvDu0=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nconst constBinding = 89;\nassert.sameValue(constBinding, 89);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "const constBinding = 89;\nassert.sameValue(constBinding, 89);\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AACA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 12
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "eval-gtbndng-local-bndng-let",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-gtbndng-local-bndng-let.js",
+      "upstreamFileSha256": "eb71f5f4d024e44cec353cd46f7be9c7b467ab538f5281fa2827631adb97c33f",
+      "executableBodySha256": "205581269076b5aa1411233630cb61f5ecc2f5caad36addccfa985512e2dcf10",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-gtbndng-local-bndng-let",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-IFWBJpB2taoUESM2MMth9ezC9cqtNq3cz6mFUS4tzxA=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nlet letBinding = 1;\nassert.sameValue(letBinding, 1);\nletBinding = 2;\nassert.sameValue(letBinding, 2);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "let letBinding = 1;\nassert.sameValue(letBinding, 1);\n\nletBinding = 2;\nassert.sameValue(letBinding, 2);\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AACA;AAEA;AACA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 14
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "eval-gtbndng-local-bndng-var",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-gtbndng-local-bndng-var.js",
+      "upstreamFileSha256": "8445d147f687fa551b2b7b1b0227a68451c80ce4ec1f5d73736cf06f4259e2ee",
+      "executableBodySha256": "4076d7076a16f09afa4c4c672a54016111e276a8dc3868c2b4e4e63f305d7050",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "eval-gtbndng-local-bndng-var",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-QHbXB2oW8Jr6TExnKlQBYRHidqjcOGjCtOTmPzBdcFA=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": false,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvar varBinding = 1;\nassert.sameValue(varBinding, 1);\nvarBinding = 2;\nassert.sameValue(varBinding, 2);\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var varBinding = 1;\nassert.sameValue(varBinding, 1);\n\nvarBinding = 2;\nassert.sameValue(varBinding, 2);\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AACA;AAEA;AACA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 14
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "top-level-await/await-expr-resolution",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-resolution.js",
+      "upstreamFileSha256": "8d174bfc4457c1f0c28503dcf71a7839fe0253fdd9d5136da4b75b1c2ddf61b7",
+      "executableBodySha256": "3207e79c6d3e1ebabb72ff49162593eb3827262b278f298e6ab9f54429a43cd9",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "top-level-await/await-expr-resolution",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-MgfnnG0+Hrq7cv9JFiWT6zgnJisnjymOarn1RCmkPNk=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar x;\nx = await 42;\nassert.sameValue(x, 42, \"number\");\nx = await \"\";\nassert.sameValue(x, \"\", \"string\");\nvar s = Symbol();\nx = await s;\nassert.sameValue(x, s, \"symbol\");\nx = await false;\nassert.sameValue(x, false, \"false\");\nx = await true;\nassert.sameValue(x, true, \"true\");\nx = await NaN;\nassert.sameValue(x, NaN, \"NaN\");\nx = await null;\nassert.sameValue(x, null, \"null\");\nx = await undefined;\nassert.sameValue(x, undefined, \"undefined\");\nvar obj = {};\nx = await obj;\nassert.sameValue(x, obj, \"object\");\nx = await Promise.resolve(1).then((v) => v * 2).then((v) => v * 3);\nassert.sameValue(x, 6, \"promise\");\n$DONE();\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var x;\n\nx = await 42;\nassert.sameValue(x, 42, 'number');\n\nx = await '';\nassert.sameValue(x, '', 'string');\n\nvar s = Symbol();\nx = await s;\nassert.sameValue(x, s, 'symbol');\n\nx = await false;\nassert.sameValue(x, false, 'false');\n\nx = await true;\nassert.sameValue(x, true, 'true');\n\nx = await NaN;\nassert.sameValue(x, NaN, 'NaN');\n\nx = await null;\nassert.sameValue(x, null, 'null');\n\nx = await undefined;\nassert.sameValue(x, undefined, 'undefined');\n\nvar obj = {};\nx = await obj;\nassert.sameValue(x, obj, 'object');\n\nx = await Promise.resolve(1).then(v => v * 2).then(v => v * 3);\nassert.sameValue(x, 6, 'promise');\n\n$DONE();\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAEA;AACA;AAEA;AACA;AAEA;AACA;AACA;AAEA;AACA;AAEA;AACA;AAEA;AACA;AAEA;AACA;AAEA;AACA;AAEA;AACA;AACA;AAEA;AACA;AAEA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 34
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "top-level-await/await-void-expr",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-void-expr.js",
+      "upstreamFileSha256": "40380e918cb0ca5a6a805bdd9337e28503ed794f23ba6b2d02e8c645b3329b6c",
+      "executableBodySha256": "a839d8a6085fe3230ab8bda247d1e8cc40ed1a417f2211e9c4e762ef534bde4c",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "top-level-await/await-void-expr",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-qDnYpghf4yMKuL2iR9HozEDtGkF/IhHpxOdi71NL3kw=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar x = await void 1;\nassert.sameValue(x, undefined);\n$DONE();\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var x = await void 1;\n\nassert.sameValue(x, undefined);\n\n$DONE();\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAEA;AAEA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 13
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "top-level-await/if-await-expr",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/if-await-expr.js",
+      "upstreamFileSha256": "d49995c364dedd3261592ab84b36c506cecb0c2a78b0c261dc5481ce3956f532",
+      "executableBodySha256": "760a006fabe358170b3a085c219d86f666de1cf533d8e4c5ecd42fa9e6a1b7ee",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "top-level-await/if-await-expr",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-dgoAb6vjWBcLOghcIZ2G9mbeHPUz2OTF7NQvqeaht+4=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar completed = 0;\nvar p = Promise.resolve(true);\nif (await p) {\n\tcompleted += 1;\n}\nassert.sameValue(completed, 1);\n$DONE();\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var completed = 0;\nvar p = Promise.resolve(true);\n\nif (await p) {\n  completed += 1;\n}\n\nassert.sameValue(completed, 1);\n\n$DONE();\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AACA;AAEA;AACA;AAAA;AAGA;AAEA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 17
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "top-level-await/await-awaits-thenables",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-awaits-thenables.js",
+      "upstreamFileSha256": "cf6fe20dcd07e6cdf3e21aff669124622e72b3e2faa49936e5479508a995d409",
+      "executableBodySha256": "0a6e8309592299e23703dbd564c63a49f237c8009fa23e76ede2645345a094e0",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "top-level-await/await-awaits-thenables",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-Cm6DCVkimeI3A9vVZMY6SfI3yACfoj527eJkU0WglOA=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar thenable = { then: function(resolve, reject) {\n\tresolve(42);\n} };\nassert.sameValue(await thenable, 42);\n$DONE();\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var thenable = {\n  then: function (resolve, reject) {\n    resolve(42);\n  }\n}\n\nassert.sameValue(await thenable, 42);\n\n$DONE();\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAEA;AAAA;AAIA;AAEA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 15
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "top-level-await/await-awaits-thenable-not-callable",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-awaits-thenable-not-callable.js",
+      "upstreamFileSha256": "0daeda1cddb494836d64e714afd83cf1511255586812012dac20fd4770d72894",
+      "executableBodySha256": "670f1441c2df0fd05c40a09b687babe69f4eb620438030bc58b89dd37cfd0466",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "top-level-await/await-awaits-thenable-not-callable",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-Zw8UQcLfD9BcQKCbaHur5p9OtiBDgDC8WLid03z9BGY=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar thenable = { then: 42 };\nvar res = await thenable;\nassert.sameValue(res, thenable);\n$DONE();\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var thenable = { then: 42 };\nvar res = await thenable;\nassert.sameValue(res, thenable);\n\n$DONE();\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AACA;AACA;AAEA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 14
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "top-level-await/await-expr-func-expression",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-func-expression.js",
+      "upstreamFileSha256": "a942ef8ce3f9b99baf3780916bfceda23f33d2c82d30abd16432386e4654b8a9",
+      "executableBodySha256": "fedf35b11686dea7bdaca15b3a443935c83005fc6d9ea1a5b7a67f4d442c2746",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "top-level-await/await-expr-func-expression",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-/t81sRaG3qe9rKFbOkQ5NcgwBfxtnqGlt6Z/TUQsJ0Y=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nfunction fn() {\n\treturn 42;\n}\nawait function fn() {\n\treturn 111;\n};\nassert.sameValue(fn(), 42);\n$DONE();\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "function fn() { return 42; }\nawait function fn() { return 111; };\n\nassert.sameValue(fn(), 42);\n\n$DONE();\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAAA;AAEA;AADA;AAAA;AAIA;AAFA;AAEA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 18
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "top-level-await/await-expr-regexp",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-regexp.js",
+      "upstreamFileSha256": "d0b06c3dfacb4e792dd6b56205a5b8ba17b0a9400f6d37430540189e2871894d",
+      "executableBodySha256": "b3177a01d3adb3bbfa95989ab73372c91ee777f0b9753e639eee4665c9b483a6",
+      "expectedDivergence": null,
+      "producerError": "Oxc could not parse transformed entry.js: [OxcDiagnostic { inner: OxcDiagnosticInner { message: \"Expected a semicolon or an implicit semicolon after a statement, but found none\", labels: Some([LabeledSpan { label: None, span: SourceSpan { offset: SourceOffset(80), length: 0 }, primary: false }]), help: Some(\"Try inserting a semicolon here\"), note: None, severity: Error, code: OxcCode { scope: None, number: None }, url: None } }]"
+    },
+    {
+      "id": "top-level-await/new-await-parens",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/new-await-parens.js",
+      "upstreamFileSha256": "3e92ab899a091f3192b987f28f1b47ee163a774b10e1893f916ec158c606323a",
+      "executableBodySha256": "cde73f430747ee140fe941d25603ff717546023de9f7e0cf27cb05aee1e3fc57",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "top-level-await/new-await-parens",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-zec/QwdH7hQP6UHSVgP/cXVGAj3p9+DPJ8sFruHj/Fc=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nassert.sameValue(new (await Number)().valueOf(), 0);\nassert.sameValue(new (await String)().valueOf(), \"\");\nassert.sameValue(new (await Boolean)().valueOf(), false);\nassert.sameValue(new (await Array)().length, 0);\nassert.sameValue(new (await Map)().size, 0);\nassert.sameValue(new (await Set)().size, 0);\n$DONE();\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "assert.sameValue((new (await Number)).valueOf(), 0);\nassert.sameValue((new (await String)).valueOf(), '');\nassert.sameValue((new (await Boolean)).valueOf(), false);\nassert.sameValue((new (await Array)).length, 0);\nassert.sameValue((new (await Map)).size, 0);\nassert.sameValue((new (await Set)).size, 0);\n\n$DONE();\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AACA;AACA;AACA;AACA;AACA;AAEA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 17
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "top-level-await/await-expr-new-expr",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-new-expr.js",
+      "upstreamFileSha256": "47e6dd2275cdf4d8a81645bab8119d67964208bf72f17129c4bb64e1f8b74aca",
+      "executableBodySha256": "14aeebdb186d11f9f2ae33ef47b7e2c892b1f9810de3686339e11caf2529eb3a",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "top-level-await/await-expr-new-expr",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-FK7r2xhtEfnyrjPvR7fiyJKx+YEN42hjOeEcryUp6zo=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar value = await new Promise(function(res, rej) {\n\tres(42);\n});\nassert.sameValue(value, 42);\n$DONE();\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var value = await new Promise(function(res, rej) {\n  res(42);\n});\n\nassert.sameValue(value, 42);\n\n$DONE();\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AACA;AACA;AAEA;AAEA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 15
+        },
+        "hermesCompatPasses": []
+      }
+    },
+    {
+      "id": "top-level-await/await-expr-reject-throws",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-reject-throws.js",
+      "upstreamFileSha256": "0a2ef1756e8bf1c5555ac9f729d8a91930fab09e21bed18ac5ae8a82c78e5a36",
+      "executableBodySha256": "cdda175ce59a5738039ecdc08fbc2ae5652aa7a2d85151821c84ca0d38517257",
+      "expectedDivergence": null,
+      "artifact": {
+        "fixtureId": "top-level-await/await-expr-reject-throws",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-zdoXXOWaVzgDns3Aj7wq5WUqp6LYUVGCHITKDThRclc=",
+        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar x;\ntry {\n\tawait Promise.reject(42);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, 42, \"number\");\ntry {\n\tawait Promise.reject(\"\");\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, \"\", \"string\");\ntry {\n\tvar s = Symbol();\n\tawait Promise.reject(s);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, s, \"symbol\");\ntry {\n\tawait Promise.reject(false);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, false, \"false\");\ntry {\n\tawait Promise.reject(true);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, true, \"true\");\ntry {\n\tawait Promise.reject(NaN);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, NaN, \"NaN\");\ntry {\n\tawait Promise.reject(null);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, null, \"null\");\ntry {\n\tawait Promise.reject(undefined);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, undefined, \"undefined\");\ntry {\n\tvar obj = {};\n\tawait Promise.reject(obj);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, obj, \"object\");\n$DONE();\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var x;\n\ntry {\n  await Promise.reject(42);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, 42, 'number');\n\ntry {\n  await Promise.reject('');\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, '', 'string');\n\ntry {\n  var s = Symbol();\n  await Promise.reject(s);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, s, 'symbol');\n\ntry {\n  await Promise.reject(false);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, false, 'false');\n\ntry {\n  await Promise.reject(true);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, true, 'true');\n\ntry {\n  await Promise.reject(NaN);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, NaN, 'NaN');\n\ntry {\n  await Promise.reject(null);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, null, 'null');\n\ntry {\n  await Promise.reject(undefined);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, undefined, 'undefined');\n\ntry {\n  var obj = {};\n  await Promise.reject(obj);\n} catch (e) {\n  x = e;\n}\nassert.sameValue(x, obj, 'object');\n\n$DONE();\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AAEA;AACA;AAAA;AAEA;AAAA;AAEA;AAEA;AACA;AADA;AAGA;AADA;AAGA;AAEA;AAFA;AAIA;AAFA;AAIA;AAFA;AAIA;AAEA;AACA;AAHA;AAKA;AAHA;AAKA;AAEA;AACA;AAJA;AAMA;AAJA;AAMA;AAEA;AACA;AALA;AAOA;AALA;AAOA;AAEA;AACA;AANA;AAQA;AANA;AAQA;AAEA;AACA;AAPA;AASA;AAPA;AASA;AAEA;AARA;AAUA;AARA;AAUA;AARA;AAUA;AAEA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 68
+        },
+        "hermesCompatPasses": []
+      }
+    }
+  ]
+}

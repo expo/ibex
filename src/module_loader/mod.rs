@@ -4,6 +4,8 @@
 //! Node-style package resolution and full ESM/CJS interop are implemented
 //! incrementally (see TODOs).
 
+#[cfg(any(test, feature = "module-runner-spike"))]
+pub mod producer_spike;
 pub mod transpile;
 
 use anyhow::{anyhow, Context, Result};

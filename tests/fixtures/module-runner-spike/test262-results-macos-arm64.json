@@ -1,0 +1,190 @@
+{
+  "schema": "ibex/module-runner-test262-spike-report/1",
+  "upstream": {
+    "repository": "https://github.com/tc39/test262",
+    "commit": "f2d1435644797268dca1f7988cad5a4e89ccd8d2",
+    "license": "BSD-3-Clause"
+  },
+  "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+  "hermes": {
+    "binaryName": "hermes",
+    "versionOutput": "LLVM (http://llvm.org/):\n  LLVH version 8.0.0svn\n  Optimized build\n\nHermes JavaScript compiler and Virtual Machine.\n  Hermes release version: 1.0.0\n  HBC bytecode version: 99\n\n  Features:\n    Unicode RegExp Property Escapes\n    Zip file input",
+    "platform": {
+      "os": "darwin",
+      "arch": "arm64",
+      "release": "25.5.0"
+    }
+  },
+  "threshold": {
+    "numerator": 18,
+    "denominator": 20,
+    "percent": 90
+  },
+  "total": 20,
+  "passed": 19,
+  "thresholdMet": true,
+  "expectedDivergences": [],
+  "results": [
+    {
+      "id": "eval-this",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-this.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "eval-export-cls-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-cls-semi.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "eval-export-dflt-cls-anon-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-dflt-cls-anon-semi.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "eval-export-dflt-cls-named-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-dflt-cls-named-semi.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "eval-export-dflt-fun-anon-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-dflt-fun-anon-semi.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "eval-export-dflt-fun-named-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-dflt-fun-named-semi.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "eval-export-fun-semi",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-export-fun-semi.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "eval-gtbndng-local-bndng-const",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-gtbndng-local-bndng-const.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "eval-gtbndng-local-bndng-let",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-gtbndng-local-bndng-let.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "eval-gtbndng-local-bndng-var",
+      "suite": "module-code",
+      "upstreamPath": "test/language/module-code/eval-gtbndng-local-bndng-var.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "top-level-await/await-expr-resolution",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-resolution.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "top-level-await/await-void-expr",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-void-expr.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "top-level-await/if-await-expr",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/if-await-expr.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "top-level-await/await-awaits-thenables",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-awaits-thenables.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "top-level-await/await-awaits-thenable-not-callable",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-awaits-thenable-not-callable.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "top-level-await/await-expr-func-expression",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-func-expression.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "top-level-await/await-expr-regexp",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-regexp.js",
+      "expectedDivergence": null,
+      "ok": false,
+      "stage": "producer",
+      "error": "Oxc could not parse transformed entry.js: [OxcDiagnostic { inner: OxcDiagnosticInner { message: \"Expected a semicolon or an implicit semicolon after a statement, but found none\", labels: Some([LabeledSpan { label: None, span: SourceSpan { offset: SourceOffset(80), length: 0 }, primary: false }]), help: Some(\"Try inserting a semicolon here\"), note: None, severity: Error, code: OxcCode { scope: None, number: None }, url: None } }]"
+    },
+    {
+      "id": "top-level-await/new-await-parens",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/new-await-parens.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "top-level-await/await-expr-new-expr",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-new-expr.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    },
+    {
+      "id": "top-level-await/await-expr-reject-throws",
+      "suite": "top-level-await",
+      "upstreamPath": "test/language/module-code/top-level-await/await-expr-reject-throws.js",
+      "expectedDivergence": null,
+      "ok": true,
+      "stage": "hermes"
+    }
+  ]
+}

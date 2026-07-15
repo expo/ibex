@@ -1,0 +1,78 @@
+{
+  "schema": "ibex/module-loader-current-path-inventory/1",
+  "llp": "0026",
+  "paths": [
+    {
+      "id": "direct-source",
+      "description": "Ordinary JS/MJS/CJS is read by Rust and served unchanged when no Rust downlevel scanner fires; Hermes bootstrap still parses and rewrites ESM syntax before new Function execution.",
+      "evidence": [
+        { "file": "src/module_loader/mod.rs", "needle": "fn load_module_source" },
+        { "file": "src/module_loader/mod.rs", "needle": "fn needs_js_downlevel" },
+        { "file": "src/engine/bootstrap/module-loader.js", "needle": "function transformEsmToCjs" }
+      ]
+    },
+    {
+      "id": "swc-lowered",
+      "description": "TS/TSX/JSX/MTS/CTS and scanner-selected JS use the in-process SWC CommonJS transform by default, with transform-engine identity in the cache key.",
+      "evidence": [
+        { "file": "src/module_loader/transpile.rs", "needle": "TransformEngine::Swc" },
+        { "file": "src/module_loader/transpile.rs", "needle": "pub fn transpile_to_cjs" },
+        { "file": "src/module_loader/mod.rs", "needle": "fn transpile_module" }
+      ]
+    },
+    {
+      "id": "scanner-lowered",
+      "description": "The embedded bootstrap's transformEsmToCjs string/delimiter/regex scanner lowers file-at-a-time ESM to the synchronous CommonJS-shaped evaluator.",
+      "evidence": [
+        { "file": "src/engine/bootstrap/module-loader.js", "needle": "var moduleScanState = createDelimiterScanState()" },
+        { "file": "src/engine/bootstrap/module-loader.js", "needle": "function transformEsmToCjs" },
+        { "file": "src/engine/bootstrap/module-loader.js", "needle": "const compileFallbackSource = function" }
+      ]
+    },
+    {
+      "id": "prepared-rolldown",
+      "description": "CLI preparation invokes the checked-in Rolldown/Oxc script, captures its graph, and publishes a digest-keyed bundle artifact.",
+      "evidence": [
+        { "file": "src/bin/ibex/runtime.rs", "needle": "pub async fn prepare_entry_with_format" },
+        { "file": "src/bin/ibex/runtime.rs", "needle": "fn bundle_cache_key" },
+        { "file": "packages/ibex-devtools/src/scripts/rolldown-bundle.mjs", "needle": "const bundle = await rolldown" }
+      ]
+    },
+    {
+      "id": "entry-tla",
+      "description": "The CLI text scanner routes detected entry TLA through a separate async wrapper/evaluation path; it is distinct from dependency loading.",
+      "evidence": [
+        { "file": "src/bin/ibex/runtime.rs", "needle": "fn contains_top_level_await" },
+        { "file": "src/bin/ibex/runtime.rs", "needle": "async fn run_entry_with_tla_shim" },
+        { "file": "src/engine/hermes_runtime.cc", "needle": "This makes top-level await work in the REPL and eval contexts" }
+      ]
+    },
+    {
+      "id": "per-package-chunks",
+      "description": "Audit/enforce preparation emits one executable chunk per authenticated package to preserve Hermes frame attribution.",
+      "evidence": [
+        { "file": "src/bin/ibex/runtime.rs", "needle": "command.arg(\"--per-package-chunks\")" },
+        { "file": "packages/ibex-devtools/src/scripts/rolldown-bundle.mjs", "needle": "--per-package-chunks" },
+        { "file": "packages/ibex-devtools/src/scripts/rolldown-bundle.mjs", "needle": "advancedChunks" }
+      ]
+    },
+    {
+      "id": "integrity-manifest",
+      "description": "Prepared artifacts carry a cache manifest whose source/output digests are revalidated before reuse and atomic publication.",
+      "evidence": [
+        { "file": "src/bin/ibex/runtime.rs", "needle": "struct BundleCacheManifest" },
+        { "file": "src/bin/ibex/runtime.rs", "needle": "async fn bundle_cache_is_fresh" },
+        { "file": "packages/ibex-devtools/src/scripts/rolldown-bundle.mjs", "needle": "graphDigest" }
+      ]
+    },
+    {
+      "id": "hermes-bytecode",
+      "description": "Prepared or adjacent entry source may compile to HBC; engine and compiler identities gate reuse, and source fallback is pre-execution only.",
+      "evidence": [
+        { "file": "src/bin/ibex/runtime.rs", "needle": "engine::hermes::compile_source_to_bytecode" },
+        { "file": "src/bin/ibex/engine/hermes.rs", "needle": "fn get_hermesc_version" },
+        { "file": "src/bin/ibex/engine/hermes.rs", "needle": "fn configure_hermesc_compile_command" }
+      ]
+    }
+  ]
+}

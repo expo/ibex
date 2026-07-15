@@ -1,0 +1,39 @@
+{
+  "schema": "ibex/module-runner-producer-spike-performance/1",
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "release": "25.5.0",
+    "cpu": "Apple M5 Max"
+  },
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+  "build": {
+    "profile": "release",
+    "binary": "ibex",
+    "freshCargoTargetDirectory": true,
+    "authenticatedHermes": {
+      "release": "1.0.0",
+      "hbcBytecodeVersion": 99,
+      "matchingCompilerHeadersAndFramework": true
+    }
+  },
+  "defaultBuild": {
+    "command": "cargo build --release --bin ibex",
+    "realSeconds": 174.2,
+    "binaryBytes": 55929312
+  },
+  "spikeFeatureBuild": {
+    "command": "cargo build --release --bin ibex --features module-runner-spike",
+    "realSeconds": 250.42,
+    "binaryBytes": 55911968,
+    "hostContentionObserved": true,
+    "usableForCompileBudget": false
+  },
+  "delta": {
+    "realSeconds": 76.22,
+    "realPercent": 43.754,
+    "binaryBytes": -17344,
+    "binaryPercent": -0.031
+  },
+  "interpretation": "The release binary has no measurable size growth because the fixture-only producer is unreachable from the ibex executable and dead-stripped; the small negative delta is linker/build variance, not a claimed optimization. The feature-build wall time was collected while unrelated Rust builds were active on the host, so it is retained as provenance but must not be used as a compile-cost budget or attributed to the producer. Rerun the paired clean builds on an idle host before closing ENG-25057."
+}

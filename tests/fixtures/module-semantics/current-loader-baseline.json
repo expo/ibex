@@ -1,0 +1,208 @@
+{
+  "schema": "ibex/module-semantics-current-loader-baseline/1",
+  "oracle": {
+    "name": "node",
+    "version": "24.13.1"
+  },
+  "fixtureCount": 12,
+  "observations": {
+    "esm-live-binding-mutation": {
+      "category": "live-bindings",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"before\":0,\"after\":1}"
+        ]
+      },
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"before\":0,\"after\":0}"
+        ]
+      }
+    },
+    "esm-direct-cycle": {
+      "category": "cycles",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|[\"a1\",\"b1:a1\"]"
+        ]
+      },
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|[\"a1\",\"b0:undefined\"]"
+        ]
+      }
+    },
+    "esm-namespace-shape": {
+      "category": "namespaces",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"keys\":[\"a\",\"default\",\"z\"],\"extensible\":false,\"nullPrototype\":true,\"tag\":\"Module\"}"
+        ]
+      },
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"keys\":[\"z\",\"a\",\"__esModule\",\"default\"],\"extensible\":true,\"nullPrototype\":true,\"tag\":null}"
+        ]
+      }
+    },
+    "esm-commonjs-namespace": {
+      "category": "esm-commonjs-interop",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"value\":{\"answer\":42},\"keys\":[\"default\",\"module.exports\"],\"same\":true}"
+        ]
+      },
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"value\":{\"answer\":42},\"keys\":[\"answer\",\"default\"],\"same\":false}"
+        ]
+      }
+    },
+    "dependency-top-level-await-order": {
+      "category": "top-level-await",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|[\"dep:start\",\"dep:end\",\"entry\"]"
+        ]
+      },
+      "ibex": {
+        "status": 1,
+        "signal": null,
+        "lines": []
+      }
+    },
+    "dynamic-import-settlement": {
+      "category": "dynamic-import",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"value\":7,\"same\":true}"
+        ]
+      },
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"value\":7,\"same\":true}"
+        ]
+      }
+    },
+    "typescript-tsx-runtime": {
+      "category": "typescript-jsx",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"type\":\"section\",\"props\":{\"title\":\"ok\"},\"child\":42}"
+        ]
+      },
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|{\"type\":\"section\",\"props\":{\"title\":\"ok\"},\"child\":42}"
+        ]
+      }
+    },
+    "source-map-original-line": {
+      "category": "source-maps",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|line=5"
+        ]
+      },
+      "ibex": {
+        "status": 1,
+        "signal": null,
+        "lines": []
+      }
+    },
+    "scanner-eng-22514-comments": {
+      "category": "scanner-regressions",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|14"
+        ]
+      },
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|14"
+        ]
+      }
+    },
+    "scanner-eng-22520-strings": {
+      "category": "scanner-regressions",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|38"
+        ]
+      },
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|38"
+        ]
+      }
+    },
+    "scanner-eng-22528-regex-template": {
+      "category": "scanner-regressions",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|true"
+        ]
+      },
+      "ibex": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|true"
+        ]
+      }
+    },
+    "package-imports-key-order": {
+      "category": "resolution-divergences",
+      "node": {
+        "status": 0,
+        "signal": null,
+        "lines": [
+          "MODULE_SEMANTICS|default-first"
+        ]
+      },
+      "ibex": {
+        "status": 1,
+        "signal": null,
+        "lines": []
+      }
+    }
+  }
+}
