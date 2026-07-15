@@ -13,10 +13,19 @@ on:
       - "Cargo.lock"
       - "Cargo.toml"
       - "build.rs"
+      - "llp/0001-target-platforms-and-ci-matrix.rfc.md"
+      - "llp/0002-host-embedding-abi.spec.md"
+      - "llp/0003-hermes-engine-bridge.explainer.md"
       - "llp/0026-esm-module-runner.rfc.md"
+      - "llp/0027-module-artifact-and-interop.spec.md"
       - "packages/ibex-devtools/src/scripts/benchmark-module-loader-baseline.mjs"
       - "packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs"
+      - "include/exact_runtime.h"
+      - "src/engine/hermes_module_runner.cc"
+      - "src/engine/hermes_runtime_internal.h"
       - "src/module_loader/**"
+      - "tests/module_runner_spike.rs"
+      - "tests/fixtures/module-runner-spike/**"
       - "tests/fixtures/module-semantics/**"
 
 permissions:
@@ -27,6 +36,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-runner:
+    name: native-runner-${{ matrix.platform }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal
+          rustup default 1.93.1
+
+      - name: Install Node compatibility target
+        if: runner.os == 'macOS'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.1
+
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev pkg-config
+
+      # This bundle supplies the JSI headers, link library, and Hermes CLI from
+      # one patch identity. Mixing React Native headers with another framework
+      # is not admissible evidence for the native record ABI.
+      - name: Install matching patched Hermes toolchain
+        run: ./scripts/download-hermes.sh
+
+      - name: Run native ESM and CommonJS record corpus
+        run: |
+          scripts/run-tests.sh --scope lib --features module-runner \
+            engine::module_runner::tests -- --test-threads=1
+          scripts/run-tests.sh --scope lib --features module-runner \
+            module_loader::graph::tests
+
+      - name: Run canonical and Test262 producer corpus on Hermes
+        if: runner.os == 'macOS'
+        run: scripts/run-tests.sh --test module_runner_spike --features module-runner-spike
+
   collect:
     name: ${{ matrix.report }}
     strategy:

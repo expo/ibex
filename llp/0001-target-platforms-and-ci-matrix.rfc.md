@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Crypto, CI
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
+**Revised:** 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
 
 ## Summary
@@ -186,6 +186,13 @@ CapSec prerequisite/evidence gate, not a claim that the remaining Android
 cross-compile/emulator, iOS/tvOS, Linux, or full Windows runtime matrix rows
 have landed `[observed]` (`.github/workflows/ci.yml`;
 `.github/workflows/compartment-conformance.yml`).
+
+The module-runner workflow separately installs one patched Hermes artifact
+bundle per job so its JSI headers, link library, and CLI share an identity. It
+runs the native ESM/CommonJS record and pure graph corpora on macOS arm64 and
+Linux x64, and runs the canonical plus frozen Test262 producer corpus through
+the bundled Hermes CLI on macOS `[observed]`
+(`.github/workflows/module-loader-baselines.yml`).
 
 ## 5. Sequencing
 
