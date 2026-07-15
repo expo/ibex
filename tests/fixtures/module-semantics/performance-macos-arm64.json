@@ -1,5 +1,5 @@
 {
-  "schema": "ibex/module-loader-performance-baseline/1",
+  "schema": "ibex/module-loader-performance-baseline/2",
   "runtimeIdentity": {
     "$comment": "Runtime identity authority (LLP 0012): every claim the Ibex runtime makes about what it is derives from this file. Consumers span TS, Rust, and C++ across two load stages, so the authority is language-neutral JSON with generated bindings (identity.generated.ts, identity_generated.rs) produced by `bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts`. Policy (LLP 0012#decision): Node-primary — versions.node is pinned to the Node release the vendored compat corpus tracks; every other ambient key must be truthful (no v8/uv/openssl/modules masquerade; the compat harness injects fixture-fidelity keys per test, they never ship ambient). The Bun-shaped surface is opt-in via --compat=bun, which also sets versions.bun so detection stays coherent in both states.",
     "version": 1,
@@ -27,41 +27,63 @@
     "release": "25.5.0",
     "cpu": "Apple M5 Max"
   },
-  "revision": "f9ca3fcf7cc58fc99b9b293469f2069f3b956723",
+  "revision": "1ce83596529b97080e1d03a8c38633cd1679699a",
   "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
   "ibexBinaryBytes": 55929312,
   "graphModules": 40,
+  "measurementConditions": {
+    "hostContentionObserved": true,
+    "usableForPerformanceBudget": false,
+    "preparedProfileRequiresDigestVerifiedBundleArtifact": true,
+    "note": "Unrelated build processes were active during runtime sampling; retain values as provenance, not as an accepted performance budget."
+  },
   "profiles": {
     "directSourceMjs": {
       "cold": {
         "samples": 5,
-        "minMs": 85.179,
-        "medianMs": 87.306,
-        "meanMs": 322.089,
-        "maxMs": 1255.788
+        "minMs": 89.783,
+        "medianMs": 98.625,
+        "meanMs": 97.961,
+        "maxMs": 104.577
       },
       "warm": {
         "samples": 5,
-        "minMs": 67.609,
-        "medianMs": 72.905,
-        "meanMs": 76.119,
-        "maxMs": 83.78
+        "minMs": 92.931,
+        "medianMs": 99.297,
+        "meanMs": 105.828,
+        "maxMs": 134.722
       }
     },
     "swcSelectedTs": {
       "cold": {
         "samples": 5,
-        "minMs": 123.314,
-        "medianMs": 127.014,
-        "meanMs": 130.134,
-        "maxMs": 144.361
+        "minMs": 198.739,
+        "medianMs": 215.872,
+        "meanMs": 216.632,
+        "maxMs": 232.835
       },
       "warm": {
         "samples": 5,
-        "minMs": 66.279,
-        "medianMs": 67.66,
-        "meanMs": 68.04,
-        "maxMs": 70.395
+        "minMs": 90.705,
+        "medianMs": 106.219,
+        "meanMs": 107.25,
+        "maxMs": 126.608
+      }
+    },
+    "preparedRolldownMjs": {
+      "cold": {
+        "samples": 5,
+        "minMs": 1013.299,
+        "medianMs": 1092.77,
+        "meanMs": 1082.689,
+        "maxMs": 1151.835
+      },
+      "warm": {
+        "samples": 5,
+        "minMs": 304.087,
+        "medianMs": 306.163,
+        "meanMs": 309.46,
+        "maxMs": 321.02
       }
     }
   },

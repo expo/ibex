@@ -10,8 +10,10 @@
 
 import { spawnSync } from 'node:child_process';
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -27,7 +29,13 @@ const repoRoot = path.resolve(scriptDir, '../../../..');
 const marker = 'MODULE_BASELINE|';
 
 function parseArgs(argv) {
-  const options = { ibex: '', samples: 5, write: '', cleanBuildSeconds: null };
+  const options = {
+    ibex: '',
+    samples: 5,
+    write: '',
+    cleanBuildSeconds: null,
+    hostContentionObserved: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--ibex') options.ibex = argv[++index] || '';
@@ -36,6 +44,7 @@ function parseArgs(argv) {
     else if (arg === '--clean-build-seconds') {
       options.cleanBuildSeconds = Number(argv[++index]);
     }
+    else if (arg === '--host-contention-observed') options.hostContentionObserved = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
   if (!options.ibex) throw new Error('--ibex /path/to/ibex is required');
@@ -53,6 +62,7 @@ function parseArgs(argv) {
 
 function createGraph(root, extension, count = 40) {
   mkdirSync(root, { recursive: true });
+  writeFileSync(path.join(root, 'package.json'), '{"private":true,"type":"commonjs"}\n');
   for (let index = count - 1; index >= 0; index -= 1) {
     const next = index + 1 < count ? `import { value as next } from './m${index + 1}.${extension}';` : 'const next = 0;';
     const type = extension === 'ts' ? ': number' : '';
@@ -67,16 +77,39 @@ function createGraph(root, extension, count = 40) {
   );
 }
 
-function runIbex(ibex, project, home) {
+function findBundleManifests(home) {
+  const candidates = [
+    path.join(home, 'Library', 'Caches', 'Ibex', 'bundles'),
+    path.join(home, 'cache', 'ibex', 'bundles'),
+  ];
+  const pending = candidates.filter((candidate) => existsSync(candidate));
+  const manifests = [];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) pending.push(candidate);
+      else if (entry.isFile() && entry.name.endsWith('.deps.json')) manifests.push(candidate);
+    }
+  }
+  return manifests;
+}
+
+function runIbex(ibex, project, home, { bypassPreparation }) {
+  const env = {
+    ...process.env,
+    HOME: home,
+    XDG_CACHE_HOME: path.join(home, 'cache'),
+    LOCALAPPDATA: path.join(home, 'cache'),
+    IBEX_REPO_ROOT: repoRoot,
+    IBEX_SKIP_AGENT_SKILLS_SYNC: '1',
+  };
+  if (bypassPreparation) env.EXACT_COMPAT_TEST = '1';
+  else delete env.EXACT_COMPAT_TEST;
   const started = performance.now();
   const result = spawnSync(ibex, ['capsec', 'audit', 'entry.js'], {
     cwd: project,
-    env: {
-      ...process.env,
-      HOME: home,
-      EXACT_COMPAT_TEST: '1',
-      IBEX_SKIP_AGENT_SKILLS_SYNC: '1',
-    },
+    env,
     encoding: 'utf8',
     timeout: 120_000,
   });
@@ -87,7 +120,7 @@ function runIbex(ibex, project, home) {
       `Ibex graph run failed (status ${result.status})\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
     );
   }
-  return elapsedMs;
+  return { elapsedMs, stderr: result.stderr };
 }
 
 function summarize(values) {
@@ -102,7 +135,7 @@ function summarize(values) {
   };
 }
 
-function measureProfile(options, extension) {
+function measureProfile(options, extension, { bypassPreparation }) {
   const project = mkdtempSync(path.join(os.tmpdir(), `ibex-module-baseline-${extension}-`));
   createGraph(project, extension);
   const cold = [];
@@ -111,16 +144,27 @@ function measureProfile(options, extension) {
     for (let sample = 0; sample < options.samples; sample += 1) {
       const coldHome = mkdtempSync(path.join(os.tmpdir(), `ibex-module-cold-${extension}-`));
       try {
-        cold.push(runIbex(options.ibex, project, coldHome));
+        const run = runIbex(options.ibex, project, coldHome, { bypassPreparation });
+        cold.push(run.elapsedMs);
+        if (!bypassPreparation && findBundleManifests(coldHome).length === 0) {
+          throw new Error(
+            `prepared profile did not publish a digest-verified bundle artifact\nstderr:\n${run.stderr}`,
+          );
+        }
       } finally {
         rmSync(coldHome, { recursive: true, force: true });
       }
     }
     const warmHome = mkdtempSync(path.join(os.tmpdir(), `ibex-module-warm-${extension}-`));
     try {
-      runIbex(options.ibex, project, warmHome);
+      const primingRun = runIbex(options.ibex, project, warmHome, { bypassPreparation });
+      if (!bypassPreparation && findBundleManifests(warmHome).length === 0) {
+        throw new Error(
+          `prepared profile did not publish a digest-verified bundle artifact\nstderr:\n${primingRun.stderr}`,
+        );
+      }
       for (let sample = 0; sample < options.samples; sample += 1) {
-        warm.push(runIbex(options.ibex, project, warmHome));
+        warm.push(runIbex(options.ibex, project, warmHome, { bypassPreparation }).elapsedMs);
       }
     } finally {
       rmSync(warmHome, { recursive: true, force: true });
@@ -140,7 +184,7 @@ function main() {
   const options = parseArgs(process.argv.slice(2));
   const identity = JSON.parse(readFileSync(path.join(repoRoot, 'runtime-identity.json'), 'utf8'));
   const report = {
-    schema: 'ibex/module-loader-performance-baseline/1',
+    schema: 'ibex/module-loader-performance-baseline/2',
     runtimeIdentity: identity,
     platform: {
       os: process.platform,
@@ -152,9 +196,18 @@ function main() {
     rustc: commandOutput('rustc', ['--version']),
     ibexBinaryBytes: statSync(options.ibex).size,
     graphModules: 40,
+    measurementConditions: {
+      hostContentionObserved: options.hostContentionObserved,
+      usableForPerformanceBudget: !options.hostContentionObserved,
+      preparedProfileRequiresDigestVerifiedBundleArtifact: true,
+      note: options.hostContentionObserved
+        ? 'Unrelated build processes were active during runtime sampling; retain values as provenance, not as an accepted performance budget.'
+        : 'No unrelated build process was observed during runtime sampling.',
+    },
     profiles: {
-      directSourceMjs: measureProfile(options, 'mjs'),
-      swcSelectedTs: measureProfile(options, 'ts'),
+      directSourceMjs: measureProfile(options, 'mjs', { bypassPreparation: true }),
+      swcSelectedTs: measureProfile(options, 'ts', { bypassPreparation: true }),
+      preparedRolldownMjs: measureProfile(options, 'mjs', { bypassPreparation: false }),
     },
     compile: {
       cleanBuildSeconds: options.cleanBuildSeconds,
