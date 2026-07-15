@@ -46,6 +46,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -100,6 +101,7 @@ struct ExactHermesRuntime;
 
 struct ModuleFactoryEntry {
   uint64_t graph_generation{0};
+  uint8_t source_goal{0};
   uint32_t principal_id{0};
   std::string compartment_identity;
   std::string semantic_digest;
@@ -149,6 +151,27 @@ struct NativeModuleRecordEntry {
   std::shared_ptr<facebook::jsi::Function> declare_function;
   std::shared_ptr<facebook::jsi::Function> execute_function;
   std::string error_message;
+};
+
+enum class NativeCommonJsRecordState : uint8_t {
+  New,
+  Evaluating,
+  Evaluated,
+};
+
+struct NativeCommonJsRecordEntry {
+  uint64_t graph_generation{0};
+  std::string source_id;
+  uint64_t context_handle_id{0};
+  std::shared_ptr<facebook::jsi::Function> factory;
+  NativeCommonJsRecordState state{NativeCommonJsRecordState::New};
+  std::map<std::string, uint64_t> require_bindings;
+  std::set<std::string> detected_exports;
+  std::string filename;
+  std::string dirname;
+  std::shared_ptr<facebook::jsi::Object> module_object;
+  std::shared_ptr<facebook::jsi::Value> exports_value;
+  uint64_t adapter_record_id{0};
 };
 
 // A runtime address is not an identity: allocators routinely reuse the same
@@ -214,6 +237,7 @@ struct ExactHermesRuntime {
   std::unordered_map<uint64_t, ModuleFactoryEntry> module_factories;
   std::unordered_map<uint64_t, GraphContextEntry> graph_contexts;
   std::unordered_map<uint64_t, NativeModuleRecordEntry> module_records;
+  std::unordered_map<uint64_t, NativeCommonJsRecordEntry> commonjs_records;
   uint64_t next_timer_id{1};
   std::unordered_map<uint64_t, TimerEntry> timers;
   std::deque<NextTickEntry> next_tick;

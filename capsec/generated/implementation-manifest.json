@@ -114365,6 +114365,172 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u",
+      "observedKey": "host-abi:ex_hermes_commonjs_create_record",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_create_record"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_create_record"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_create_record"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_create_record"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_create_record"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_create_esm_adapter",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_create_esm_adapter"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_declare_export",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_declare_export"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_declare_export"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_declare_export"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_declare_export"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_declare_export"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_evaluate",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_evaluate"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_evaluate"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_link_require",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_link_require"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_link_require"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.create.04wgtwz",
       "observedKey": "host-abi:ex_hermes_create",
       "branchId": "surface.host.abi.ex.hermes.create.04wgtwz.default",
@@ -265431,6 +265597,8 @@
         "surface.cli.positional.ibex.20eval.code.value.name.code.0j3wy53",
         "surface.cli.repl.13s1r60",
         "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
+        "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
+        "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
         "surface.host.abi.ex.hermes.create.diagnostic.1t314ff",
         "surface.host.abi.ex.hermes.eval.1t7nlsx",
         "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
@@ -265446,7 +265614,7 @@
         "surface.startup.script.bytecode.1d41kkw",
         "surface.startup.script.eval.19993vd"
       ],
-      "rationale": "Closed by 47 observed surface edges."
+      "rationale": "Closed by 49 observed surface edges."
     },
     {
       "definitionId": "wasi:instantiate",
@@ -265524,44 +265692,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-sOmolWR9LRb9YCza0DXZ9lHlF_xzeT9k2EN_snzrBzU"
+      "rawContentDigest": "sha256-neqWHaZbMW-FyUo7G-5skQkDROk0YK0XEK4WxBrrt0I"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Cz2SG6haUzuRsZGL3YkhXfzvT_tOofXGHcENfKGe_8g"
+      "rawContentDigest": "sha256-p1z5Kt2-J6lGcTc8bY_OmYI_-Q2y93Ctsodxw9rJyJw"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-kRoj54_PyDgjMpUZ2mr1pIxfs1vg3hlywx41IhYwjaE"
+      "rawContentDigest": "sha256-JEB4MlQe3R6bhKmwSKHxc7wVRqXgDd_Y8uOyv1Mz57M"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-iHl98RFLFhl4dxxhnEFsxq2OpzczICFQaa5gft6hKXI"
+      "rawContentDigest": "sha256-nQ0DM3cKludlDIGB8eu_KLDvYypZ5g8UIhTZ2caSwuo"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-TSXcaVWc-600oZydab6bPbFWsqomCpUW4MB4tJMTiIg"
+      "rawContentDigest": "sha256-4V-qgyU-tpUeb1xq4YOjRaO-j33preEdUoUhfbiqSQ4"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-dwSV398DX2J5Oti37c4-9byzIeZ6HruGpxv3LsB2t20"
+      "rawContentDigest": "sha256-CPNbQ-LbN2wkmrux4t12UhyOrUYZkI3dWN4pxLWRtks"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-iq8ghZWCzSZMRBcQrVd_69G8p10HsBVi8U6VW2hSUPY"
+      "rawContentDigest": "sha256-9ekLb9OR7OefwIQevBc-mFqFWMo53K2fRW9DhvIx4XQ"
     }
   ],
   "counts": {
-    "observedReferences": 12810,
-    "logicalSurfaces": 7131,
-    "enforcementBranches": 7330,
-    "coverageEdges": 7131,
-    "targetCells": 7131
+    "observedReferences": 12815,
+    "logicalSurfaces": 7136,
+    "enforcementBranches": 7335,
+    "coverageEdges": 7136,
+    "targetCells": 7136
   }
 }

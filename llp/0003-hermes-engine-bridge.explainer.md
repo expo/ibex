@@ -91,6 +91,15 @@ then executes dependency-first in deterministic depth-first order. A retained
 success or failure makes repeated graph evaluation idempotent rather than
 partially re-running records.
 
+CommonJS records keep their mutable `module` object, current exports value, and
+detector-approved names in the same runtime-owned registry. The native
+`require` callback follows only prelinked record IDs. It recursively evaluates
+new targets, returns partial current exports for a cycle, retains replacement
+identity, and erases every throwing record on the propagation path. A completed
+record can mint one ESM adapter with frozen named snapshots plus `default` and
+`module.exports`; the adapter is an ordinary evaluated native ModuleRecord, so
+ESM consumers reuse the existing namespace/cell machinery.
+
 The engine uses Hermes through **JSI** (`<jsi/jsi.h>`) `[observed]`
 (`src/engine/hermes_runtime.cc:14-15`). Native functions are registered with
 `jsi::Function::createFromHostFunction` and set as properties on `rt.global()`

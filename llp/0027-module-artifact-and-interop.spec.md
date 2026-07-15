@@ -5,7 +5,8 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
+**Revised:** 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
+snapshot adapters); 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
 producer adapter, and tamper fixtures)
 **Related:** LLP 0012 (pinned Node compatibility target); LLP 0014 (reserved policy attributes); LLP 0023 (source identity); LLP 0026 (accepted module-runner architecture); ENG-25059; ENG-25061
 
@@ -130,6 +131,14 @@ CommonJS named exports use the pinned `cjs-module-lexer` behavior. Detected
 names are snapshots and do not update after later `module.exports` mutation.
 The ESM adapter for an evicted throwing CommonJS record follows CommonJS cache
 algebra and may observe re-evaluation rather than ESM sticky failure.
+
+The native implementation stamps factory handles with their admitted source
+goal, publishes the initial CommonJS record before execution, and resolves
+`require` only through authenticated links. A cycle observes the target's
+current `module.exports`, including replacement before the recursive require.
+A throw evicts and invalidates the handle; successful completion permits one
+stable ESM adapter containing the two identity entries and detector-approved
+named snapshots.
 
 For `require(ESM)`, an explicit ESM export named `'module.exports'` is returned
 directly. Otherwise the namespace object is returned, with `__esModule`

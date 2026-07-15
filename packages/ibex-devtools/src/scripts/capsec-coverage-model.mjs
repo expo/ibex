@@ -5098,6 +5098,11 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_android_initialize",
     "ex_hermes_bytecode_version",
     "ex_hermes_callback_backlog",
+    "ex_hermes_commonjs_create_record",
+    "ex_hermes_commonjs_record_create_esm_adapter",
+    "ex_hermes_commonjs_record_declare_export",
+    "ex_hermes_commonjs_record_evaluate",
+    "ex_hermes_commonjs_record_link_require",
     "ex_hermes_create",
     "ex_hermes_create_armed",
     "ex_hermes_create_diagnostic",
@@ -12120,6 +12125,9 @@ function classifyConcreteSurface(surface) {
     if (!REVIEWED_HOST_ABI_NAMES.has(surface.name)) return null;
     if (
       new Set([
+        "ex_hermes_commonjs_create_record",
+        "ex_hermes_commonjs_record_declare_export",
+        "ex_hermes_commonjs_record_link_require",
         "ex_hermes_graph_context_create",
         "ex_hermes_graph_context_retain",
         "ex_hermes_module_create_record",
@@ -12140,6 +12148,8 @@ function classifyConcreteSurface(surface) {
     }
     if (
       new Set([
+        "ex_hermes_commonjs_record_create_esm_adapter",
+        "ex_hermes_commonjs_record_evaluate",
         "ex_hermes_module_compile_factory",
         "ex_hermes_module_record_instantiate",
         "ex_hermes_module_record_run_declare",

@@ -109,10 +109,12 @@ int32_t ex_hermes_try_destroy(ExactHermesRuntime* runtime,
 /// Compile a verified UTF-8 module factory under a native-selected principal
 /// and compartment. This symbol is never installed on the JavaScript global.
 /// The caller must pass the live runtime nonce and an artifact semantic digest
-/// already admitted by the Rust ModuleArtifact verifier.
+/// already admitted by the Rust ModuleArtifact verifier. `source_goal` is 0
+/// for ESM Module factories and 1 for CommonJS body factories.
 int32_t ex_hermes_module_compile_factory(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
+    uint32_t source_goal,
     uint32_t principal_id,
     uint64_t graph_generation,
     const uint8_t* compartment_identity,
@@ -126,6 +128,57 @@ int32_t ex_hermes_module_compile_factory(
     const uint8_t* source_label,
     size_t source_label_len,
     ExactModuleRunnerHandle* out_factory,
+    char** out_error);
+
+/// Create one CommonJS cache record. The initial `exports` object is published
+/// natively before body execution so linked CommonJS cycles observe it.
+int32_t ex_hermes_commonjs_create_record(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle factory,
+    ExactModuleRunnerHandle context,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    const uint8_t* filename,
+    size_t filename_len,
+    const uint8_t* dirname,
+    size_t dirname_len,
+    ExactModuleRunnerHandle* out_record);
+
+/// Add one detector-authenticated CommonJS named-export snapshot key.
+int32_t ex_hermes_commonjs_record_declare_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len);
+
+/// Bind a CommonJS `require(specifier)` lookup to another authenticated
+/// CommonJS record. Package JavaScript cannot select an unlinked target.
+int32_t ex_hermes_commonjs_record_link_require(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
+/// Evaluate a CommonJS record synchronously. Re-entry returns the early
+/// published partial exports; a throw evicts the record and invalidates handle.
+int32_t ex_hermes_commonjs_record_evaluate(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    int32_t* out_evicted,
+    char** out_error);
+
+/// Freeze the completed CommonJS exports into an ESM adapter ModuleRecord with
+/// `default`, `module.exports`, and detector-authenticated named snapshots.
+int32_t ex_hermes_commonjs_record_create_esm_adapter(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    ExactModuleRunnerHandle* out_adapter,
     char** out_error);
 
 /// Release one factory/record/context capability. Stale, wrong-runtime, and

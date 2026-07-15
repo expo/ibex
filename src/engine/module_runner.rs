@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use anyhow::{anyhow, bail, Result};
 
-use crate::module_loader::artifact::VerifiedModuleArtifactV1;
+use crate::module_loader::artifact::{SourceGoalV1, VerifiedModuleArtifactV1};
 #[cfg(any(test, feature = "module-runner"))]
 use crate::module_loader::graph::SynchronousGraphPlan;
 use crate::module_loader::identity::SourceId;
@@ -28,6 +28,7 @@ unsafe extern "C" {
     fn ex_hermes_module_compile_factory(
         runtime: *mut c_void,
         runtime_nonce: u64,
+        source_goal: u32,
         principal_id: u32,
         graph_generation: u64,
         compartment_identity: *const u8,
@@ -64,6 +65,48 @@ unsafe extern "C" {
         runtime: *mut c_void,
         runtime_nonce: u64,
         context: NativeModuleHandle,
+    ) -> i32;
+    fn ex_hermes_commonjs_create_record(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        factory: NativeModuleHandle,
+        context: NativeModuleHandle,
+        source_id: *const u8,
+        source_id_len: usize,
+        filename: *const u8,
+        filename_len: usize,
+        dirname: *const u8,
+        dirname_len: usize,
+        out_record: *mut NativeModuleHandle,
+    ) -> i32;
+    fn ex_hermes_commonjs_record_declare_export(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        export_name: *const u8,
+        export_name_len: usize,
+    ) -> i32;
+    fn ex_hermes_commonjs_record_link_require(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
+    fn ex_hermes_commonjs_record_evaluate(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_evicted: *mut i32,
+        out_error: *mut *mut c_char,
+    ) -> i32;
+    fn ex_hermes_commonjs_record_create_esm_adapter(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_adapter: *mut NativeModuleHandle,
+        out_error: *mut *mut c_char,
     ) -> i32;
     fn ex_hermes_module_create_record(
         runtime: *mut c_void,
@@ -175,10 +218,53 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
         graph_generation: u64,
         source_label: &str,
     ) -> Result<CompiledModuleFactory<'runtime>> {
+        self.compile_verified_factory_for_goal(
+            verified,
+            SourceGoalV1::Module,
+            0,
+            principal_id,
+            compartment_identity,
+            graph_generation,
+            source_label,
+        )
+    }
+
+    pub fn compile_verified_commonjs_factory(
+        &'runtime self,
+        verified: VerifiedModuleArtifactV1<'_>,
+        principal_id: u32,
+        compartment_identity: Option<&str>,
+        graph_generation: u64,
+        source_label: &str,
+    ) -> Result<CompiledModuleFactory<'runtime>> {
+        self.compile_verified_factory_for_goal(
+            verified,
+            SourceGoalV1::CommonJs,
+            1,
+            principal_id,
+            compartment_identity,
+            graph_generation,
+            source_label,
+        )
+    }
+
+    fn compile_verified_factory_for_goal(
+        &'runtime self,
+        verified: VerifiedModuleArtifactV1<'_>,
+        expected_goal: SourceGoalV1,
+        native_goal: u32,
+        principal_id: u32,
+        compartment_identity: Option<&str>,
+        graph_generation: u64,
+        source_label: &str,
+    ) -> Result<CompiledModuleFactory<'runtime>> {
         if graph_generation == 0 {
             bail!("module graph generation must be nonzero");
         }
         let artifact = verified.artifact();
+        if artifact.semantics.source_goal != expected_goal {
+            bail!("factory compilation received the wrong source-goal artifact");
+        }
         let source = verified.inline_factory_source().ok_or_else(|| {
             anyhow!("prepared carrier factory bytes must be loaded and verified before compilation")
         })?;
@@ -191,6 +277,7 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
             ex_hermes_module_compile_factory(
                 self.raw.as_ptr(),
                 self.nonce,
+                native_goal,
                 principal_id,
                 graph_generation,
                 compartment.as_ptr(),
@@ -381,6 +468,51 @@ impl<'runtime> CompiledModuleFactory<'runtime> {
             handle: Some(record),
         })
     }
+
+    pub fn create_commonjs_record(
+        &self,
+        context: &NativeGraphContext<'runtime>,
+        source_id: &SourceId,
+        filename: &str,
+        dirname: &str,
+    ) -> Result<NativeCommonJsRecord<'runtime>> {
+        if !std::ptr::eq(self.runtime, context.runtime) {
+            bail!("factory and graph context belong to different runtime borrows");
+        }
+        if filename.is_empty() {
+            bail!("CommonJS filename must not be empty");
+        }
+        let factory = self
+            .handle
+            .ok_or_else(|| anyhow!("module factory capability was released"))?;
+        let context_handle = context
+            .handle
+            .ok_or_else(|| anyhow!("graph context capability was released"))?;
+        let source_id = source_id.encode()?;
+        let mut record = NativeModuleHandle::default();
+        let status = unsafe {
+            ex_hermes_commonjs_create_record(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                factory,
+                context_handle,
+                source_id.as_ptr(),
+                source_id.len(),
+                filename.as_ptr(),
+                filename.len(),
+                dirname.as_ptr(),
+                dirname.len(),
+                &mut record,
+            )
+        };
+        if status != 0 {
+            bail!("native CommonJS record creation refused ({status})");
+        }
+        Ok(NativeCommonJsRecord {
+            runtime: self.runtime,
+            handle: Some(record),
+        })
+    }
 }
 
 pub struct NativeGraphContext<'runtime> {
@@ -405,6 +537,104 @@ impl Clone for NativeGraphContext<'_> {
 pub struct NativeModuleRecord<'runtime> {
     runtime: &'runtime NativeModuleRuntime<'runtime>,
     handle: Option<NativeModuleHandle>,
+}
+
+pub struct NativeCommonJsRecord<'runtime> {
+    runtime: &'runtime NativeModuleRuntime<'runtime>,
+    handle: Option<NativeModuleHandle>,
+}
+
+// @ref LLP 0027#esmcommonjs-interop-matrix — native CommonJS records retain
+// early-publication/eviction semantics and mint snapshot ESM adapters.
+impl<'runtime> NativeCommonJsRecord<'runtime> {
+    fn live_handle(&self) -> Result<NativeModuleHandle> {
+        self.handle
+            .ok_or_else(|| anyhow!("native CommonJS record was evicted or released"))
+    }
+
+    pub fn declare_detected_export(&mut self, export_name: &str) -> Result<()> {
+        if export_name.is_empty() {
+            bail!("CommonJS detected export name must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_commonjs_record_declare_export(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                export_name.as_ptr(),
+                export_name.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native CommonJS export declaration refused ({status})");
+        }
+        Ok(())
+    }
+
+    pub fn link_require(
+        &mut self,
+        specifier: &str,
+        target: &NativeCommonJsRecord<'_>,
+    ) -> Result<()> {
+        if !std::ptr::eq(self.runtime, target.runtime) {
+            bail!("CommonJS records belong to different runtime borrows");
+        }
+        if specifier.is_empty() {
+            bail!("CommonJS require specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_commonjs_record_link_require(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                specifier.as_ptr(),
+                specifier.len(),
+                target.live_handle()?,
+            )
+        };
+        if status != 0 {
+            bail!("native CommonJS require link refused ({status})");
+        }
+        Ok(())
+    }
+
+    pub fn evaluate(&mut self) -> Result<()> {
+        let handle = self.live_handle()?;
+        let mut evicted = 0;
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_commonjs_record_evaluate(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                handle,
+                &mut evicted,
+                &mut error,
+            )
+        };
+        if evicted == 1 {
+            self.handle = None;
+        }
+        native_result(status, error, "CommonJS record evaluation")
+    }
+
+    pub fn create_esm_adapter(&self) -> Result<NativeModuleRecord<'runtime>> {
+        let mut adapter = NativeModuleHandle::default();
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_commonjs_record_create_esm_adapter(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                &mut adapter,
+                &mut error,
+            )
+        };
+        native_result(status, error, "CommonJS ESM-adapter creation")?;
+        Ok(NativeModuleRecord {
+            runtime: self.runtime,
+            handle: Some(adapter),
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -784,7 +1014,10 @@ fn release(runtime: &NativeModuleRuntime<'_>, handle: &mut Option<NativeModuleHa
     };
     let status =
         unsafe { ex_hermes_module_release_handle(runtime.raw.as_ptr(), runtime.nonce, handle) };
-    debug_assert_eq!(status, 0, "native module-runner handle release refused");
+    debug_assert!(
+        status == 0 || status == -2,
+        "native module-runner handle release refused ({status})"
+    );
 }
 
 impl Drop for CompiledModuleFactory<'_> {
@@ -800,6 +1033,12 @@ impl Drop for NativeGraphContext<'_> {
 }
 
 impl Drop for NativeModuleRecord<'_> {
+    fn drop(&mut self) {
+        release(self.runtime, &mut self.handle);
+    }
+}
+
+impl Drop for NativeCommonJsRecord<'_> {
     fn drop(&mut self) {
         release(self.runtime, &mut self.handle);
     }
@@ -831,9 +1070,10 @@ fn native_result(status: i32, error: *mut c_char, operation: &str) -> Result<()>
 mod tests {
     use super::*;
     use crate::module_loader::artifact::{
-        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, ExportDescriptorV1, ModuleArtifactV1,
-        ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1, SourceMapV1,
-        StaticEdgeV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, CommonJsExportsV1,
+        ExportDescriptorV1, ModuleArtifactV1, ModuleSemanticsV1, ProducerIdentityV1,
+        SourceDialectV1, SourceGoalV1, SourceMapV1, StaticEdgeV1, TransformFingerprintV1,
+        MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
     };
     use crate::module_loader::identity::ImportAttributes;
     use capsec_semantics::model::{Digest, NonEmptyString, PathComponent, Principal};
@@ -874,6 +1114,46 @@ mod tests {
         static_edges: Vec<StaticEdgeV1>,
         export_descriptors: Vec<ExportDescriptorV1>,
     ) -> ModuleArtifactV1 {
+        test_artifact_for_goal(
+            source_id,
+            factory,
+            SourceGoalV1::Module,
+            static_edges,
+            export_descriptors,
+            None,
+        )
+    }
+
+    fn test_commonjs_artifact(
+        source_id: SourceId,
+        factory: &str,
+        detected_names: &[&str],
+    ) -> ModuleArtifactV1 {
+        test_artifact_for_goal(
+            source_id,
+            factory,
+            SourceGoalV1::CommonJs,
+            Vec::new(),
+            Vec::new(),
+            Some(CommonJsExportsV1 {
+                detector: NonEmptyString::new("cjs-module-lexer").unwrap(),
+                detector_version: NonEmptyString::new("2.1.0").unwrap(),
+                names: detected_names
+                    .iter()
+                    .map(|name| NonEmptyString::new(*name).unwrap())
+                    .collect(),
+            }),
+        )
+    }
+
+    fn test_artifact_for_goal(
+        source_id: SourceId,
+        factory: &str,
+        source_goal: SourceGoalV1,
+        static_edges: Vec<StaticEdgeV1>,
+        export_descriptors: Vec<ExportDescriptorV1>,
+        commonjs_exports: Option<CommonJsExportsV1>,
+    ) -> ModuleArtifactV1 {
         let fingerprint = TransformFingerprintV1 {
             producer: NonEmptyString::new("test-producer").unwrap(),
             parser_version: NonEmptyString::new("oxc-test").unwrap(),
@@ -889,13 +1169,13 @@ mod tests {
         ModuleArtifactV1::new_inline(
             ModuleSemanticsV1 {
                 source_id: CanonicalSourceId(source_id.clone()),
-                source_goal: SourceGoalV1::Module,
+                source_goal,
                 dialect: Some(SourceDialectV1::Js),
                 source_integrity: digest("source"),
                 transform_fingerprint: fingerprint,
                 static_edges,
                 export_descriptors,
-                commonjs_exports: None,
+                commonjs_exports,
                 has_top_level_await: false,
                 factory_digest: digest_bytes(MODULE_ARTIFACT_FACTORY_DOMAIN_V1, factory.as_bytes())
                     .unwrap(),
@@ -1109,6 +1389,138 @@ mod tests {
             );
 
             drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn commonjs_cycles_publish_early_exports_and_build_snapshot_adapters() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let a_id = SourceId::synthetic("module-runner-test", "commonjs-a").unwrap();
+            let b_id = SourceId::synthetic("module-runner-test", "commonjs-b").unwrap();
+            let a_artifact = test_commonjs_artifact(
+                a_id.clone(),
+                "function (require, module, exports) { module.exports = { ready: false }; const b = require('./b'); module.exports.fromB = b.sawA; module.exports.ready = true; }",
+                &["fromB", "ready"],
+            );
+            let b_artifact = test_commonjs_artifact(
+                b_id.clone(),
+                "function (require, module, exports) { exports.sawA = require('./a').ready; }",
+                &["sawA"],
+            );
+            let a_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(a_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let b_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(b_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let a_factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&a_artifact),
+                    0,
+                    None,
+                    1,
+                    "commonjs-a.cjs",
+                )
+                .unwrap();
+            let b_factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&b_artifact),
+                    0,
+                    None,
+                    1,
+                    "commonjs-b.cjs",
+                )
+                .unwrap();
+            let mut a = a_factory
+                .create_commonjs_record(&a_context, &a_id, "/pkg/a.cjs", "/pkg")
+                .unwrap();
+            let mut b = b_factory
+                .create_commonjs_record(&b_context, &b_id, "/pkg/b.cjs", "/pkg")
+                .unwrap();
+            a.declare_detected_export("fromB").unwrap();
+            a.declare_detected_export("ready").unwrap();
+            b.declare_detected_export("sawA").unwrap();
+            a.link_require("./b", &b).unwrap();
+            b.link_require("./a", &a).unwrap();
+
+            a.evaluate().unwrap();
+            b.evaluate().unwrap();
+            let a_adapter = a.create_esm_adapter().unwrap();
+            let b_adapter = b.create_esm_adapter().unwrap();
+            assert_eq!(
+                a_adapter.namespace_json().unwrap(),
+                r#"{"default":{"ready":true,"fromB":false},"fromB":false,"module.exports":{"ready":true,"fromB":false},"ready":true}"#
+            );
+            assert_eq!(
+                b_adapter.namespace_json().unwrap(),
+                r#"{"default":{"sawA":false},"module.exports":{"sawA":false},"sawA":false}"#
+            );
+
+            drop(b_adapter);
+            drop(a_adapter);
+            drop(b);
+            drop(a);
+            drop(b_factory);
+            drop(a_factory);
+            drop(b_context);
+            drop(a_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn throwing_commonjs_record_is_evicted_and_can_be_recreated() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let source_id = SourceId::synthetic("module-runner-test", "commonjs-throw").unwrap();
+            let artifact = test_commonjs_artifact(
+                source_id.clone(),
+                "function () { throw new Error('cjs boom'); }",
+                &["never"],
+            );
+            let context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&artifact),
+                    0,
+                    None,
+                    1,
+                    "commonjs-throw.cjs",
+                )
+                .unwrap();
+            for _ in 0..2 {
+                let mut record = factory
+                    .create_commonjs_record(&context, &source_id, "/pkg/throw.cjs", "/pkg")
+                    .unwrap();
+                let error = record.evaluate().unwrap_err().to_string();
+                assert!(error.contains("cjs boom"), "unexpected error: {error}");
+                assert!(record.create_esm_adapter().is_err());
+            }
+
+            drop(factory);
+            drop(context);
             drop(runtime);
             ex_hermes_destroy(raw);
         }

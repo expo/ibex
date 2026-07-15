@@ -116,18 +116,30 @@ runtime owner thread.
 ModuleRecord setup is deliberately split into native-only operations:
 declare the record's canonical export-cell set, link indirect, resolved-star,
 and namespace exports as live views of authenticated target record/cell
-handles, bind authenticated imports to those handles, instantiate the factory, then run `declare` and
-`execute`. Instantiation creates one stable null-prototype, non-extensible
+handles, bind authenticated imports to those handles, instantiate the factory,
+then run `declare` and `execute`. Instantiation creates one stable
+null-prototype, non-extensible
 namespace whose enumerable getters read checked cells. Uninitialized reads
 throw the TDZ error; export updates mutate the same cells, so later importer
 and re-export reads observe live values. Package factories cannot write through
 an indirect export. Import lookup keys and all link targets are installed by
 the native graph owner rather than accepted from package JavaScript.
 
+CommonJS uses a distinct native record kind and a source-goal-stamped factory
+handle. Record creation publishes the initial `module.exports` object before
+body execution; `require` can reach only native-installed CommonJS record
+links, and re-entry reads the target's current `module.exports`, including an
+early replacement. Success retains the final value. A throw deletes the native
+record, releases its context reference, and makes its opaque handle stale so a
+later request must create a fresh record. After success, one native operation
+creates an ESM adapter ModuleRecord whose `default` and `module.exports` cells
+hold the final value and whose detector-approved named cells are snapshots.
+
 The CapSec registry classifies graph/context construction and link setup as
 authority-control-plane operations, release as authority release, factory
-compile/instantiate/declare/execute as closed `vm:evaluate`, and diagnostic
-namespace serialization as closed `runtime:inspect`. The experimental runner
+compile/instantiate/declare/execute, CommonJS evaluation, and CommonJS adapter
+creation as closed `vm:evaluate`, and diagnostic namespace serialization as
+closed `runtime:inspect`. The experimental runner
 cannot silently acquire evaluator or inspection authority before ENG-25062
 lands its exact graph authorization profile.
 

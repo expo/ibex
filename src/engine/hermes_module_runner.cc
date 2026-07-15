@@ -61,6 +61,14 @@ uint64_t nextHandleId(ExactHermesRuntime* runtime) {
   return id;
 }
 
+void releaseContextReference(ExactHermesRuntime* runtime, uint64_t contextId) {
+  auto context = runtime->graph_contexts.find(contextId);
+  if (context != runtime->graph_contexts.end() &&
+      --context->second.references == 0) {
+    runtime->graph_contexts.erase(context);
+  }
+}
+
 NativeModuleRecordEntry* recordFor(
     ExactHermesRuntime* runtime, ExactModuleRunnerHandle handle) {
   if (runtime == nullptr || handle.opaque[0] != runtime->runtime_nonce ||
@@ -73,6 +81,111 @@ NativeModuleRecordEntry* recordFor(
     return nullptr;
   }
   return &it->second;
+}
+
+NativeCommonJsRecordEntry* commonJsRecordFor(
+    ExactHermesRuntime* runtime, ExactModuleRunnerHandle handle) {
+  if (runtime == nullptr || handle.opaque[0] != runtime->runtime_nonce ||
+      handle.opaque[1] == 0 || handle.opaque[2] == 0) {
+    return nullptr;
+  }
+  auto it = runtime->commonjs_records.find(handle.opaque[2]);
+  if (it == runtime->commonjs_records.end() ||
+      it->second.graph_generation != handle.opaque[1]) {
+    return nullptr;
+  }
+  return &it->second;
+}
+
+// @ref LLP 0026#7-commonjs-interop — publish before execution, expose current
+// partial exports to cycles, and evict every throwing record.
+facebook::jsi::Value evaluateCommonJsRecord(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t recordId) {
+  auto found = runtime->commonjs_records.find(recordId);
+  if (found == runtime->commonjs_records.end()) {
+    throw facebook::jsi::JSError(rt, "CommonJS record is stale");
+  }
+  auto& record = found->second;
+  if (record.state == NativeCommonJsRecordState::Evaluating) {
+    if (!record.module_object) {
+      throw facebook::jsi::JSError(rt, "CommonJS module object is unavailable");
+    }
+    auto currentExports = record.module_object->getProperty(rt, "exports");
+    record.exports_value =
+        std::make_shared<facebook::jsi::Value>(rt, currentExports);
+    return facebook::jsi::Value(rt, *record.exports_value);
+  }
+  if (record.state == NativeCommonJsRecordState::Evaluated) {
+    if (!record.exports_value) {
+      throw facebook::jsi::JSError(rt, "CommonJS exports are unavailable");
+    }
+    return facebook::jsi::Value(rt, *record.exports_value);
+  }
+  if (!record.factory || !record.module_object || !record.exports_value) {
+    throw facebook::jsi::JSError(rt, "CommonJS record is incomplete");
+  }
+
+  const uint64_t graphGeneration = record.graph_generation;
+  const auto target = exactRuntimeCallbackTarget(runtime);
+  record.state = NativeCommonJsRecordState::Evaluating;
+  try {
+    auto requireFunction = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "commonJsRequire"),
+        1,
+        [target, graphGeneration, recordId](
+            facebook::jsi::Runtime& rt,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value* args,
+            size_t count) -> facebook::jsi::Value {
+          if (!runtimeIsAlive(target) ||
+              target.runtime->runtime_thread != std::this_thread::get_id()) {
+            throw facebook::jsi::JSError(rt, "stale CommonJS require callback");
+          }
+          auto current = target.runtime->commonjs_records.find(recordId);
+          if (current == target.runtime->commonjs_records.end() ||
+              current->second.graph_generation != graphGeneration) {
+            throw facebook::jsi::JSError(rt, "stale CommonJS require owner");
+          }
+          if (count != 1 || !args[0].isString()) {
+            throw facebook::jsi::JSError(
+                rt, "CommonJS require expects one string specifier");
+          }
+          const std::string specifier = args[0].asString(rt).utf8(rt);
+          auto binding = current->second.require_bindings.find(specifier);
+          if (binding == current->second.require_bindings.end()) {
+            throw facebook::jsi::JSError(
+                rt, "CommonJS require target is not linked");
+          }
+          auto dependency =
+              target.runtime->commonjs_records.find(binding->second);
+          if (dependency == target.runtime->commonjs_records.end() ||
+              dependency->second.graph_generation != graphGeneration) {
+            throw facebook::jsi::JSError(rt, "CommonJS require target is stale");
+          }
+          return evaluateCommonJsRecord(rt, target.runtime, binding->second);
+        });
+    auto result = record.factory->call(
+        rt,
+        requireFunction,
+        *record.module_object,
+        *record.exports_value,
+        facebook::jsi::String::createFromUtf8(rt, record.filename),
+        facebook::jsi::String::createFromUtf8(rt, record.dirname));
+    (void)result;
+    auto finalExports = record.module_object->getProperty(rt, "exports");
+    record.exports_value =
+        std::make_shared<facebook::jsi::Value>(rt, finalExports);
+    record.state = NativeCommonJsRecordState::Evaluated;
+    return facebook::jsi::Value(rt, *record.exports_value);
+  } catch (...) {
+    const uint64_t contextId = record.context_handle_id;
+    runtime->commonjs_records.erase(recordId);
+    releaseContextReference(runtime, contextId);
+    throw;
+  }
 }
 
 NativeModuleRecordEntry* callbackRecordFor(
@@ -156,6 +269,7 @@ int32_t reportRecordError(
 extern "C" int32_t ex_hermes_module_compile_factory(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
+    uint32_t source_goal,
     uint32_t principal_id,
     uint64_t graph_generation,
     const uint8_t* compartment_identity,
@@ -175,7 +289,8 @@ extern "C" int32_t ex_hermes_module_compile_factory(
 
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
-  if (runtime_nonce == 0 || graph_generation == 0 || out_factory == nullptr ||
+  if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 1 ||
+      out_factory == nullptr ||
       semantic_digest == nullptr || factory_source == nullptr ||
       source_id == nullptr || source_id_len == 0 || factory_source_len == 0 ||
       source_label == nullptr ||
@@ -265,6 +380,7 @@ extern "C" int32_t ex_hermes_module_compile_factory(
     uint64_t id = nextHandleId(runtime);
     ModuleFactoryEntry entry;
     entry.graph_generation = graph_generation;
+    entry.source_goal = static_cast<uint8_t>(source_goal);
     entry.principal_id = principal_id;
     entry.compartment_identity = compartment;
     entry.semantic_digest = digest;
@@ -302,6 +418,235 @@ extern "C" int32_t ex_hermes_module_compile_factory(
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
 
+extern "C" int32_t ex_hermes_commonjs_create_record(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle factory,
+    ExactModuleRunnerHandle context,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    const uint8_t* filename,
+    size_t filename_len,
+    const uint8_t* dirname,
+    size_t dirname_len,
+    ExactModuleRunnerHandle* out_record) {
+  if (out_record) *out_record = ExactModuleRunnerHandle{{0, 0, 0}};
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (out_record == nullptr || source_id == nullptr || source_id_len == 0 ||
+      filename == nullptr || filename_len == 0 || dirname == nullptr ||
+      factory.opaque[0] != runtime_nonce || context.opaque[0] != runtime_nonce ||
+      factory.opaque[1] == 0 || factory.opaque[1] != context.opaque[1]) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  auto factoryIt = runtime->module_factories.find(factory.opaque[2]);
+  auto contextIt = runtime->graph_contexts.find(context.opaque[2]);
+  if (factoryIt == runtime->module_factories.end() ||
+      contextIt == runtime->graph_contexts.end() ||
+      factoryIt->second.source_goal != 1 ||
+      factoryIt->second.graph_generation != factory.opaque[1] ||
+      contextIt->second.graph_generation != context.opaque[1] ||
+      factoryIt->second.source_id !=
+          std::string(reinterpret_cast<const char*>(source_id), source_id_len) ||
+      contextIt->second.references == std::numeric_limits<uint32_t>::max()) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    facebook::jsi::Object initialExports(rt);
+    facebook::jsi::Object module(rt);
+    module.setProperty(rt, "exports", initialExports);
+    NativeCommonJsRecordEntry entry;
+    entry.graph_generation = factory.opaque[1];
+    entry.source_id.assign(
+        reinterpret_cast<const char*>(source_id), source_id_len);
+    entry.context_handle_id = context.opaque[2];
+    entry.factory = factoryIt->second.factory;
+    entry.filename.assign(reinterpret_cast<const char*>(filename), filename_len);
+    entry.dirname.assign(reinterpret_cast<const char*>(dirname), dirname_len);
+    entry.module_object =
+        std::make_shared<facebook::jsi::Object>(std::move(module));
+    entry.exports_value =
+        std::make_shared<facebook::jsi::Value>(rt, initialExports);
+    const uint64_t id = nextHandleId(runtime);
+    ++contextIt->second.references;
+    runtime->commonjs_records.emplace(id, std::move(entry));
+    out_record->opaque[0] = runtime_nonce;
+    out_record->opaque[1] = factory.opaque[1];
+    out_record->opaque[2] = id;
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (...) {
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+}
+
+extern "C" int32_t ex_hermes_commonjs_record_declare_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = commonJsRecordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeCommonJsRecordState::New ||
+      export_name == nullptr || export_name_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string name(
+      reinterpret_cast<const char*>(export_name), export_name_len);
+  if (name == "default" || name == "module.exports" ||
+      !entry->detected_exports.insert(name).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_commonjs_record_link_require(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = commonJsRecordFor(runtime, record);
+  auto* target = commonJsRecordFor(runtime, target_record);
+  if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeCommonJsRecordState::New || specifier == nullptr ||
+      specifier_len == 0 ||
+      entry->graph_generation != target->graph_generation) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string name(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  if (!entry->require_bindings.emplace(name, target_record.opaque[2]).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_commonjs_record_evaluate(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    int32_t* out_evicted,
+    char** out_error) {
+  if (out_evicted) *out_evicted = 0;
+  if (out_error) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (out_evicted == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
+  auto* entry = commonJsRecordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  try {
+    evaluateCommonJsRecord(*runtime->runtime, runtime, record.opaque[2]);
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (const facebook::jsi::JSError& error) {
+    *out_evicted = 1;
+    writeError(out_error, error.getMessage());
+  } catch (const std::exception& error) {
+    *out_evicted = 1;
+    writeError(out_error, error.what());
+  } catch (...) {
+    *out_evicted = 1;
+    writeError(out_error, "unknown CommonJS evaluation failure");
+  }
+  return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+}
+
+extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    ExactModuleRunnerHandle* out_adapter,
+    char** out_error) {
+  if (out_adapter) *out_adapter = ExactModuleRunnerHandle{{0, 0, 0}};
+  if (out_error) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* commonjs = commonJsRecordFor(runtime, record);
+  if (commonjs == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (out_adapter == nullptr ||
+      commonjs->state != NativeCommonJsRecordState::Evaluated ||
+      !commonjs->exports_value || commonjs->adapter_record_id != 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  auto context = runtime->graph_contexts.find(commonjs->context_handle_id);
+  if (context == runtime->graph_contexts.end() ||
+      context->second.references == std::numeric_limits<uint32_t>::max()) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  try {
+    auto& rt = *runtime->runtime;
+    NativeModuleRecordEntry adapter;
+    adapter.graph_generation = commonjs->graph_generation;
+    adapter.source_id = commonjs->source_id;
+    adapter.context_handle_id = commonjs->context_handle_id;
+    adapter.state = NativeModuleRecordState::Evaluated;
+    for (const auto& name : commonjs->detected_exports) {
+      facebook::jsi::Value snapshot = facebook::jsi::Value::undefined();
+      if (commonjs->exports_value->isObject()) {
+        snapshot = commonjs->exports_value->asObject(rt).getProperty(
+            rt, name.c_str());
+      }
+      NativeModuleBindingCell cell;
+      cell.initialized = true;
+      cell.value =
+          std::make_shared<facebook::jsi::Value>(rt, snapshot);
+      adapter.export_cells.emplace(name, std::move(cell));
+    }
+    for (const std::string name : {"default", "module.exports"}) {
+      NativeModuleBindingCell cell;
+      cell.initialized = true;
+      cell.value = std::make_shared<facebook::jsi::Value>(
+          rt, *commonjs->exports_value);
+      adapter.export_cells.emplace(name, std::move(cell));
+    }
+
+    auto objectConstructor = rt.global().getPropertyAsObject(rt, "Object");
+    auto create = objectConstructor.getPropertyAsFunction(rt, "create");
+    auto defineProperty =
+        objectConstructor.getPropertyAsFunction(rt, "defineProperty");
+    auto preventExtensions =
+        objectConstructor.getPropertyAsFunction(rt, "preventExtensions");
+    auto namespaceObject =
+        create.call(rt, facebook::jsi::Value::null()).asObject(rt);
+    for (const auto& [name, cell] : adapter.export_cells) {
+      facebook::jsi::Object descriptor(rt);
+      descriptor.setProperty(rt, "enumerable", true);
+      descriptor.setProperty(rt, "configurable", false);
+      descriptor.setProperty(rt, "writable", false);
+      descriptor.setProperty(rt, "value", *cell.value);
+      defineProperty.call(
+          rt,
+          namespaceObject,
+          facebook::jsi::String::createFromUtf8(rt, name),
+          descriptor);
+    }
+    preventExtensions.call(rt, namespaceObject);
+    adapter.namespace_object =
+        std::make_shared<facebook::jsi::Object>(std::move(namespaceObject));
+    const uint64_t id = nextHandleId(runtime);
+    ++context->second.references;
+    runtime->module_records.emplace(id, std::move(adapter));
+    commonjs->adapter_record_id = id;
+    out_adapter->opaque[0] = runtime_nonce;
+    out_adapter->opaque[1] = commonjs->graph_generation;
+    out_adapter->opaque[2] = id;
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (const facebook::jsi::JSError& error) {
+    writeError(out_error, error.getMessage());
+  } catch (const std::exception& error) {
+    writeError(out_error, error.what());
+  } catch (...) {
+    writeError(out_error, "unknown CommonJS adapter failure");
+  }
+  return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+}
+
 extern "C" int32_t ex_hermes_module_release_handle(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -321,13 +666,21 @@ extern "C" int32_t ex_hermes_module_release_handle(
   auto record = runtime->module_records.find(handle.opaque[2]);
   if (record != runtime->module_records.end() &&
       record->second.graph_generation == handle.opaque[1]) {
-    auto retainedContext =
-        runtime->graph_contexts.find(record->second.context_handle_id);
-    if (retainedContext != runtime->graph_contexts.end() &&
-        --retainedContext->second.references == 0) {
-      runtime->graph_contexts.erase(retainedContext);
+    for (auto& [_, commonjs] : runtime->commonjs_records) {
+      if (commonjs.adapter_record_id == handle.opaque[2]) {
+        commonjs.adapter_record_id = 0;
+        break;
+      }
     }
+    releaseContextReference(runtime, record->second.context_handle_id);
     runtime->module_records.erase(record);
+    return EXACT_RUNTIME_DRIVE_OK;
+  }
+  auto commonjs = runtime->commonjs_records.find(handle.opaque[2]);
+  if (commonjs != runtime->commonjs_records.end() &&
+      commonjs->second.graph_generation == handle.opaque[1]) {
+    releaseContextReference(runtime, commonjs->second.context_handle_id);
+    runtime->commonjs_records.erase(commonjs);
     return EXACT_RUNTIME_DRIVE_OK;
   }
   auto context = runtime->graph_contexts.find(handle.opaque[2]);
@@ -426,6 +779,7 @@ extern "C" int32_t ex_hermes_module_create_record(
   auto contextIt = runtime->graph_contexts.find(context.opaque[2]);
   if (factoryIt == runtime->module_factories.end() ||
       contextIt == runtime->graph_contexts.end() ||
+      factoryIt->second.source_goal != 0 ||
       factoryIt->second.graph_generation != factory.opaque[1] ||
       contextIt->second.graph_generation != context.opaque[1] ||
       factoryIt->second.source_id !=

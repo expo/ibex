@@ -139930,6 +139930,56 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_commonjs_create_record"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_commonjs_record_create_esm_adapter"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "The experimental native graph runner compiles or executes authenticated module factories; it remains closed until the graph authorization profile lands."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_commonjs_record_declare_export"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_commonjs_record_evaluate"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "The experimental native graph runner compiles or executes authenticated module factories; it remains closed until the graph authorization profile lands."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_commonjs_record_link_require"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.create.04wgtwz",
       "classification": "non-capability",
       "surface": {
