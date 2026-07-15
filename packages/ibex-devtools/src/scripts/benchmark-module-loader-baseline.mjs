@@ -254,7 +254,7 @@ function main() {
       cleanBuildSeconds: options.cleanBuildSeconds,
       note: options.cleanBuildSeconds === null
         ? 'Populate from a clean CARGO_TARGET_DIR build on each supported desktop target; runtime timing never fabricates compile data.'
-        : 'Measured with /usr/bin/time -p, a fresh CARGO_TARGET_DIR, cargo build --release --bin ibex, and matching authenticated Hermes compiler/headers/framework inputs.',
+        : 'Measured around cargo build --release --bin ibex in a fresh CARGO_TARGET_DIR, with matching authenticated Hermes compiler/headers/framework inputs.',
     },
   };
   const rendered = `${JSON.stringify(report, null, 2)}\n`;

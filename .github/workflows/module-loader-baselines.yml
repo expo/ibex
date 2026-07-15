@@ -1,0 +1,92 @@
+name: Module loader baselines
+
+# @ref LLP 0026#phase-0-baseline-the-current-contract — collect native,
+# fail-loud loader-path evidence where this repository publishes patched
+# Hermes runtime artifacts. LLP 0001 keeps Windows visible as a missing full
+# runtime row rather than pretending its staging-only CI is execution parity.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/module-loader-baselines.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "build.rs"
+      - "llp/0026-esm-module-runner.rfc.md"
+      - "packages/ibex-devtools/src/scripts/benchmark-module-loader-baseline.mjs"
+      - "packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs"
+      - "src/module_loader/**"
+      - "tests/fixtures/module-semantics/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: module-loader-baselines-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  collect:
+    name: ${{ matrix.report }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            report: performance-macos-arm64
+            platform: darwin
+            arch: arm64
+          - os: ubuntu-latest
+            report: performance-linux-x64
+            platform: linux
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal
+          rustup default 1.93.1
+
+      - name: Install Node compatibility target
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.1
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev pkg-config
+
+      - name: Install patched Hermes artifacts
+        run: ./scripts/download-hermes.sh
+
+      - name: Install JavaScript toolchain
+        run: bun install --frozen-lockfile
+
+      - name: Collect fail-loud clean-build and loader baseline
+        run: |
+          node packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs \
+            --samples 5 \
+            --expect-os "${{ matrix.platform }}" \
+            --expect-arch "${{ matrix.arch }}" \
+            --write "$RUNNER_TEMP/${{ matrix.report }}.json"
+
+      - name: Upload baseline evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.report }}
+          path: ${{ runner.temp }}/${{ matrix.report }}.json
+          if-no-files-found: error
+          retention-days: 30

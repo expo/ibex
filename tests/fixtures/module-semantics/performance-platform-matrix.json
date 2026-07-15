@@ -1,0 +1,30 @@
+{
+  "schema": "ibex/module-loader-performance-platform-matrix/1",
+  "authority": "LLP 0001",
+  "targets": [
+    {
+      "id": "macos-arm64",
+      "runner": "macos-14",
+      "runtimeEvidence": "tests/fixtures/module-semantics/performance-macos-arm64.json",
+      "collectionWorkflow": ".github/workflows/module-loader-baselines.yml",
+      "status": "provisional",
+      "note": "Checked runtime samples exist, but the current report is explicitly host-contended and unusable for an accepted budget."
+    },
+    {
+      "id": "linux-x64",
+      "runner": "ubuntu-latest",
+      "runtimeEvidence": null,
+      "collectionWorkflow": ".github/workflows/module-loader-baselines.yml",
+      "status": "pending-ci",
+      "note": "The repository publishes a patched Linux Hermes bundle; the workflow collects the native row without fallback or zero-case success."
+    },
+    {
+      "id": "windows-x64",
+      "runner": "windows-latest",
+      "runtimeEvidence": null,
+      "collectionWorkflow": null,
+      "status": "missing-runtime-artifact",
+      "note": "LLP 0001 records only staging behavior in current Windows CI. No patched Windows Hermes runtime bundle or full runtime row exists, so module-loader execution metrics cannot yet be claimed."
+    }
+  ]
+}
