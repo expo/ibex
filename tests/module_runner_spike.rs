@@ -6,6 +6,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use serde_json::Value;
+
 fn hermes_binary(root: &Path) -> PathBuf {
     std::env::var_os("IBEX_HERMES_BIN")
         .map(PathBuf::from)
@@ -71,4 +73,43 @@ fn predeclared_test262_threshold_passes_on_real_hermes() {
         summary.contains("20/20") && summary.contains("threshold 18/20 (met)"),
         "unexpected summary: {summary}"
     );
+}
+
+#[test]
+fn compile_and_binary_measurements_exclude_contended_samples() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let report: Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            root.join("tests/fixtures/module-runner-spike/performance-macos-arm64.json"),
+        )
+        .expect("read producer-spike performance report"),
+    )
+    .expect("parse producer-spike performance report");
+
+    assert_eq!(
+        report["schema"],
+        "ibex/module-runner-producer-spike-performance/2"
+    );
+    for build in ["defaultBuild", "spikeFeatureBuild"] {
+        let samples = report[build]["samples"]
+            .as_array()
+            .expect("non-vacuous build samples");
+        assert!(samples.iter().any(|sample| {
+            sample["usableForCompileBudget"] == true
+                && sample["hostContentionObserved"] == false
+                && sample["realSeconds"]
+                    .as_f64()
+                    .is_some_and(|value| value > 0.0)
+                && sample["binaryBytes"]
+                    .as_u64()
+                    .is_some_and(|value| value > 0)
+        }));
+    }
+    assert!(report["defaultBuild"]["samples"]
+        .as_array()
+        .expect("default samples")
+        .iter()
+        .any(|sample| {
+            sample["hostContentionObserved"] == true && sample["usableForCompileBudget"] == false
+        }));
 }
