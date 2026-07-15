@@ -20,6 +20,13 @@ pub struct ExportTarget {
     pub binding: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ImportBindingPlan {
+    pub specifier: String,
+    pub imported: String,
+    pub target: ExportTarget,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GraphErrorCode {
     ModuleLink,
@@ -113,6 +120,84 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             }
         }
         Ok(Self { records: planned })
+    }
+
+    pub fn artifact(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<VerifiedModuleArtifactV1<'artifact>, GraphError> {
+        Ok(self.record(source_id)?.artifact)
+    }
+
+    /// Dependency-first execution order for the entry's reachable closure.
+    /// A visiting record is reused, so cycles append each record exactly once.
+    pub fn evaluation_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
+        let mut visiting = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        let mut order = Vec::new();
+        self.visit_for_evaluation(entry, &mut visiting, &mut visited, &mut order)?;
+        Ok(order)
+    }
+
+    /// Resolve every factory import read to an authenticated ultimate cell or
+    /// namespace. Re-export-only and side-effect edges do not create reads.
+    pub fn import_bindings(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<ImportBindingPlan>, GraphError> {
+        let record = self.record(source_id)?;
+        let mut bindings = BTreeMap::new();
+        for edge in &record.artifact.artifact().semantics.static_edges {
+            let (specifier, imported) = match edge {
+                StaticEdgeV1::Default { specifier, .. } => (specifier.as_str(), "default"),
+                StaticEdgeV1::Namespace { specifier, .. } => (specifier.as_str(), "*"),
+                StaticEdgeV1::Named {
+                    specifier,
+                    imported,
+                    ..
+                } => (specifier.as_str(), imported.as_str()),
+                StaticEdgeV1::SideEffect { .. }
+                | StaticEdgeV1::ReExportNamed { .. }
+                | StaticEdgeV1::ReExportStar { .. }
+                | StaticEdgeV1::ReExportNamespace { .. } => continue,
+            };
+            let target_record = self.edge_target(record, specifier)?;
+            let target = if imported == "*" {
+                ExportTarget {
+                    record: target_record.clone(),
+                    binding: "*".into(),
+                }
+            } else {
+                match self.resolve_export(target_record, imported, &mut BTreeSet::new())? {
+                    Resolution::Found(target) => target,
+                    Resolution::Missing | Resolution::Ambiguous => {
+                        return Err(GraphError::link(format!(
+                            "import {imported:?} from {specifier:?} of {source_id:?} does not resolve uniquely"
+                        )));
+                    }
+                }
+            };
+            let key = (specifier.to_owned(), imported.to_owned());
+            match bindings.get(&key) {
+                Some(existing) if existing != &target => {
+                    return Err(GraphError::link(format!(
+                        "duplicate import binding {key:?} of {source_id:?} disagrees"
+                    )));
+                }
+                Some(_) => {}
+                None => {
+                    bindings.insert(key, target);
+                }
+            }
+        }
+        Ok(bindings
+            .into_iter()
+            .map(|((specifier, imported), target)| ImportBindingPlan {
+                specifier,
+                imported,
+                target,
+            })
+            .collect())
     }
 
     pub fn namespace(
@@ -274,6 +359,31 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         })
     }
 
+    fn visit_for_evaluation(
+        &self,
+        source_id: &SourceId,
+        visiting: &mut BTreeSet<SourceId>,
+        visited: &mut BTreeSet<SourceId>,
+        order: &mut Vec<SourceId>,
+    ) -> Result<(), GraphError> {
+        if visited.contains(source_id) || !visiting.insert(source_id.clone()) {
+            return Ok(());
+        }
+        let record = self.record(source_id)?;
+        let mut seen_targets = BTreeSet::new();
+        for edge in &record.artifact.artifact().semantics.static_edges {
+            let target = self.edge_target(record, &edge_specifier(edge))?;
+            if seen_targets.insert(target.clone()) {
+                self.visit_for_evaluation(target, visiting, visited, order)?;
+            }
+        }
+        visiting.remove(source_id);
+        if visited.insert(source_id.clone()) {
+            order.push(source_id.clone());
+        }
+        Ok(())
+    }
+
     fn edge_target<'a>(
         &self,
         record: &'a PlannedRecord<'artifact>,
@@ -331,6 +441,23 @@ mod tests {
     fn edge(specifier: &str) -> StaticEdgeV1 {
         StaticEdgeV1::ReExportStar {
             specifier: name(specifier),
+            attributes: ImportAttributes::default(),
+        }
+    }
+
+    fn named_edge(specifier: &str, imported: &str, local: &str) -> StaticEdgeV1 {
+        StaticEdgeV1::Named {
+            specifier: name(specifier),
+            imported: name(imported),
+            local: name(local),
+            attributes: ImportAttributes::default(),
+        }
+    }
+
+    fn namespace_edge(specifier: &str, local: &str) -> StaticEdgeV1 {
+        StaticEdgeV1::Namespace {
+            specifier: name(specifier),
+            local: name(local),
             attributes: ImportAttributes::default(),
         }
     }
@@ -473,7 +600,7 @@ mod tests {
             false,
         );
         let plan = SynchronousGraphPlan::new([
-            (verify(&a), BTreeMap::from([("./b".into(), b_id)])),
+            (verify(&a), BTreeMap::from([("./b".into(), b_id.clone())])),
             (verify(&b), BTreeMap::from([("./a".into(), a_id.clone())])),
         ])
         .unwrap();
@@ -484,6 +611,69 @@ mod tests {
                 .cloned()
                 .collect::<Vec<_>>(),
             ["a", "b"]
+        );
+        assert_eq!(plan.evaluation_order(&a_id).unwrap(), [b_id, a_id]);
+    }
+
+    #[test]
+    fn import_reads_resolve_to_ultimate_cells_and_stable_namespaces() {
+        let leaf_id = source("leaf");
+        let hub_id = source("hub");
+        let entry_id = source("entry");
+        let leaf = artifact(leaf_id.clone(), vec![local("value")], vec![], false);
+        let hub = artifact(
+            hub_id.clone(),
+            vec![star("./leaf")],
+            vec![edge("./leaf")],
+            false,
+        );
+        let entry = artifact(
+            entry_id.clone(),
+            vec![],
+            vec![
+                named_edge("./hub", "value", "first"),
+                named_edge("./hub", "value", "second"),
+                namespace_edge("./hub", "hub"),
+            ],
+            false,
+        );
+        let plan = SynchronousGraphPlan::new([
+            (verify(&leaf), BTreeMap::new()),
+            (
+                verify(&hub),
+                BTreeMap::from([("./leaf".into(), leaf_id.clone())]),
+            ),
+            (
+                verify(&entry),
+                BTreeMap::from([("./hub".into(), hub_id.clone())]),
+            ),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            plan.import_bindings(&entry_id).unwrap(),
+            [
+                ImportBindingPlan {
+                    specifier: "./hub".into(),
+                    imported: "*".into(),
+                    target: ExportTarget {
+                        record: hub_id.clone(),
+                        binding: "*".into(),
+                    },
+                },
+                ImportBindingPlan {
+                    specifier: "./hub".into(),
+                    imported: "value".into(),
+                    target: ExportTarget {
+                        record: leaf_id.clone(),
+                        binding: "value".into(),
+                    },
+                },
+            ]
+        );
+        assert_eq!(
+            plan.evaluation_order(&entry_id).unwrap(),
+            [leaf_id, hub_id, entry_id]
         );
     }
 

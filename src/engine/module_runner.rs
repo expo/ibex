@@ -4,6 +4,8 @@
 //! raw/deserialized artifacts cannot reach the C++ compiler through this API.
 //! @ref LLP 0027#canonical-encoding-and-validation
 
+#[cfg(any(test, feature = "module-runner"))]
+use std::collections::BTreeMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -12,6 +14,8 @@ use std::rc::Rc;
 use anyhow::{anyhow, bail, Result};
 
 use crate::module_loader::artifact::VerifiedModuleArtifactV1;
+#[cfg(any(test, feature = "module-runner"))]
+use crate::module_loader::graph::SynchronousGraphPlan;
 use crate::module_loader::identity::SourceId;
 
 #[repr(C)]
@@ -300,6 +304,41 @@ impl GraphEvaluationContext {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct NativeModuleRecordConfig {
+    pub principal_id: u32,
+    pub compartment_identity: Option<String>,
+    pub evaluation_context: GraphEvaluationContext,
+    pub source_label: String,
+    pub meta_url: String,
+}
+
+impl NativeModuleRecordConfig {
+    pub fn new(
+        principal_id: u32,
+        compartment_identity: Option<String>,
+        evaluation_context: GraphEvaluationContext,
+        source_label: impl Into<String>,
+        meta_url: impl Into<String>,
+    ) -> Result<Self> {
+        let value = Self {
+            principal_id,
+            compartment_identity,
+            evaluation_context,
+            source_label: source_label.into(),
+            meta_url: meta_url.into(),
+        };
+        if value.source_label.is_empty() {
+            bail!("module source label must not be empty");
+        }
+        if value.meta_url.is_empty() {
+            bail!("module import.meta URL must not be empty");
+        }
+        value.evaluation_context.validate()?;
+        Ok(value)
+    }
+}
+
 /// Owner-thread, runtime-generation-scoped callable factory capability.
 pub struct CompiledModuleFactory<'runtime> {
     runtime: &'runtime NativeModuleRuntime<'runtime>,
@@ -412,6 +451,21 @@ impl NativeModuleRecord<'_> {
         if specifier.is_empty() || imported_name.is_empty() || target_export.is_empty() {
             bail!("module import binding strings must not be empty");
         }
+        self.link_import_handle(
+            specifier,
+            imported_name,
+            target.live_handle()?,
+            target_export,
+        )
+    }
+
+    fn link_import_handle(
+        &mut self,
+        specifier: &str,
+        imported_name: &str,
+        target: NativeModuleHandle,
+        target_export: &str,
+    ) -> Result<()> {
         let status = unsafe {
             ex_hermes_module_record_link_import(
                 self.runtime.raw.as_ptr(),
@@ -421,7 +475,7 @@ impl NativeModuleRecord<'_> {
                 specifier.len(),
                 imported_name.as_ptr(),
                 imported_name.len(),
-                target.live_handle()?,
+                target,
                 target_export.as_ptr(),
                 target_export.len(),
             )
@@ -447,6 +501,15 @@ impl NativeModuleRecord<'_> {
         if export_name.is_empty() || target_export.is_empty() {
             bail!("module export binding strings must not be empty");
         }
+        self.link_export_handle(export_name, target.live_handle()?, target_export)
+    }
+
+    fn link_export_handle(
+        &mut self,
+        export_name: &str,
+        target: NativeModuleHandle,
+        target_export: &str,
+    ) -> Result<()> {
         let status = unsafe {
             ex_hermes_module_record_link_export(
                 self.runtime.raw.as_ptr(),
@@ -454,7 +517,7 @@ impl NativeModuleRecord<'_> {
                 self.live_handle()?,
                 export_name.as_ptr(),
                 export_name.len(),
-                target.live_handle()?,
+                target,
                 target_export.as_ptr(),
                 target_export.len(),
             )
@@ -541,6 +604,180 @@ impl NativeModuleRecord<'_> {
     }
 }
 
+/// Fully linked synchronous graph whose reachable records have all completed
+/// factory instantiation and declaration before any module body may execute.
+// @ref LLP 0026#5-esm-record-lifecycle — full-closure linking precedes body
+// evaluation, and cycles reuse the already-created native records.
+#[cfg(any(test, feature = "module-runner"))]
+pub struct NativeSynchronousGraph<'runtime> {
+    entry: SourceId,
+    evaluation_order: Vec<SourceId>,
+    records: BTreeMap<SourceId, NativeModuleRecord<'runtime>>,
+    evaluation_outcome: Option<std::result::Result<(), String>>,
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+impl<'runtime> NativeSynchronousGraph<'runtime> {
+    pub fn link(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+    ) -> Result<Self> {
+        let evaluation_order = plan.evaluation_order(entry)?;
+        let generation = configs
+            .get(entry)
+            .ok_or_else(|| anyhow!("entry ModuleRecord has no native configuration"))?
+            .evaluation_context
+            .graph_generation;
+        let mut records = BTreeMap::new();
+        let mut meta_urls = BTreeMap::new();
+
+        // Create every reachable record before publishing cells or links. The
+        // native record retains its context and callable factory handles.
+        for source_id in &evaluation_order {
+            let config = configs.remove(source_id).ok_or_else(|| {
+                anyhow!("reachable ModuleRecord {source_id:?} has no native configuration")
+            })?;
+            if config.evaluation_context.requesting_record != *source_id {
+                bail!("ModuleRecord context requester does not match {source_id:?}");
+            }
+            if config.evaluation_context.graph_generation != generation {
+                bail!("synchronous graph mixes execution generations");
+            }
+            let context = runtime.create_graph_context(config.evaluation_context)?;
+            let factory = runtime.compile_verified_factory(
+                plan.artifact(source_id)?,
+                config.principal_id,
+                config.compartment_identity.as_deref(),
+                generation,
+                &config.source_label,
+            )?;
+            let record = factory.create_record(&context, source_id)?;
+            records.insert(source_id.clone(), record);
+            meta_urls.insert(source_id.clone(), config.meta_url);
+        }
+        if !configs.is_empty() {
+            bail!(
+                "native configuration contains records outside the entry closure: {:?}",
+                configs.keys().collect::<Vec<_>>()
+            );
+        }
+
+        // Materialize every namespace shape before linking any aliases. This
+        // is the cycle boundary: every record identity and cell already exists.
+        for source_id in &evaluation_order {
+            let namespace = plan.namespace(source_id)?;
+            let record = records
+                .get_mut(source_id)
+                .expect("evaluation order was used to create every record");
+            for export_name in namespace.keys() {
+                record.declare_export(export_name)?;
+            }
+        }
+
+        for source_id in &evaluation_order {
+            for (export_name, target) in plan.namespace(source_id)? {
+                if target.record == *source_id && target.binding == export_name {
+                    continue;
+                }
+                let target_handle = records
+                    .get(&target.record)
+                    .ok_or_else(|| anyhow!("export target is outside the entry closure"))?
+                    .live_handle()?;
+                records
+                    .get_mut(source_id)
+                    .expect("evaluation order was used to create every record")
+                    .link_export_handle(&export_name, target_handle, &target.binding)?;
+            }
+            for binding in plan.import_bindings(source_id)? {
+                let target_handle = records
+                    .get(&binding.target.record)
+                    .ok_or_else(|| anyhow!("import target is outside the entry closure"))?
+                    .live_handle()?;
+                records
+                    .get_mut(source_id)
+                    .expect("evaluation order was used to create every record")
+                    .link_import_handle(
+                        &binding.specifier,
+                        &binding.imported,
+                        target_handle,
+                        &binding.target.binding,
+                    )?;
+            }
+        }
+
+        // Complete graph-wide instantiation and declaration before the first
+        // body executes. Dependency-first order also matches the synchronous
+        // DFS evaluation order for cycles and acyclic graphs.
+        for source_id in &evaluation_order {
+            let meta_url = meta_urls
+                .get(source_id)
+                .expect("every configured record has an import.meta URL");
+            records
+                .get_mut(source_id)
+                .expect("evaluation order was used to create every record")
+                .instantiate(meta_url, source_id == entry)?;
+        }
+        for source_id in &evaluation_order {
+            records
+                .get_mut(source_id)
+                .expect("evaluation order was used to create every record")
+                .run_declare()?;
+        }
+
+        Ok(Self {
+            entry: entry.clone(),
+            evaluation_order,
+            records,
+            evaluation_outcome: None,
+        })
+    }
+
+    pub fn evaluate(&mut self) -> Result<()> {
+        if let Some(outcome) = &self.evaluation_outcome {
+            return outcome.clone().map_err(|detail| anyhow!(detail));
+        }
+        let outcome = (|| {
+            for source_id in &self.evaluation_order {
+                let kind = self
+                    .records
+                    .get_mut(source_id)
+                    .expect("linked graph retains every reachable record")
+                    .run_execute()?;
+                if kind == ModuleExecutionKind::Asynchronous {
+                    bail!(
+                        "ERR_REQUIRE_ASYNC_MODULE: synchronous artifact returned a promise in {source_id:?}"
+                    );
+                }
+            }
+            Ok(())
+        })();
+        match outcome {
+            Ok(()) => {
+                self.evaluation_outcome = Some(Ok(()));
+                Ok(())
+            }
+            Err(error) => {
+                let detail = error.to_string();
+                self.evaluation_outcome = Some(Err(detail.clone()));
+                Err(anyhow!(detail))
+            }
+        }
+    }
+
+    pub fn entry(&self) -> &SourceId {
+        &self.entry
+    }
+
+    pub fn namespace_json(&self, source_id: &SourceId) -> Result<String> {
+        self.records
+            .get(source_id)
+            .ok_or_else(|| anyhow!("namespace requested outside the linked entry closure"))?
+            .namespace_json()
+    }
+}
+
 fn release(runtime: &NativeModuleRuntime<'_>, handle: &mut Option<NativeModuleHandle>) {
     let Some(handle) = handle.take() else {
         return;
@@ -596,8 +833,9 @@ mod tests {
     use crate::module_loader::artifact::{
         digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, ExportDescriptorV1, ModuleArtifactV1,
         ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1, SourceMapV1,
-        TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+        StaticEdgeV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
     };
+    use crate::module_loader::identity::ImportAttributes;
     use capsec_semantics::model::{Digest, NonEmptyString, PathComponent, Principal};
 
     #[allow(clashing_extern_declarations)]
@@ -615,6 +853,26 @@ mod tests {
         source_id: SourceId,
         factory: &str,
         exports: &[&str],
+    ) -> ModuleArtifactV1 {
+        test_graph_artifact(
+            source_id,
+            factory,
+            Vec::new(),
+            exports
+                .iter()
+                .map(|name| ExportDescriptorV1::Local {
+                    exported: NonEmptyString::new(*name).unwrap(),
+                    local: NonEmptyString::new(*name).unwrap(),
+                })
+                .collect(),
+        )
+    }
+
+    fn test_graph_artifact(
+        source_id: SourceId,
+        factory: &str,
+        static_edges: Vec<StaticEdgeV1>,
+        export_descriptors: Vec<ExportDescriptorV1>,
     ) -> ModuleArtifactV1 {
         let fingerprint = TransformFingerprintV1 {
             producer: NonEmptyString::new("test-producer").unwrap(),
@@ -635,14 +893,8 @@ mod tests {
                 dialect: Some(SourceDialectV1::Js),
                 source_integrity: digest("source"),
                 transform_fingerprint: fingerprint,
-                static_edges: Vec::new(),
-                export_descriptors: exports
-                    .iter()
-                    .map(|name| ExportDescriptorV1::Local {
-                        exported: NonEmptyString::new(*name).unwrap(),
-                        local: NonEmptyString::new(*name).unwrap(),
-                    })
-                    .collect(),
+                static_edges,
+                export_descriptors,
                 commonjs_exports: None,
                 has_top_level_await: false,
                 factory_digest: digest_bytes(MODULE_ARTIFACT_FACTORY_DOMAIN_V1, factory.as_bytes())
@@ -749,6 +1001,114 @@ mod tests {
             drop(factory);
             drop(retained_context);
             drop(context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn synchronous_graph_links_every_record_before_dependency_first_evaluation() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let target_id = SourceId::synthetic("module-runner-test", "driver-target").unwrap();
+            let reexport_id = SourceId::synthetic("module-runner-test", "driver-reexport").unwrap();
+            let entry_id = SourceId::synthetic("module-runner-test", "driver-entry").unwrap();
+            let target = test_artifact_with_factory(
+                target_id.clone(),
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 42); } }; }",
+                &["value"],
+            );
+            let reexport = test_graph_artifact(
+                reexport_id.clone(),
+                "function () { return { declare: function () {}, execute: function () {} }; }",
+                vec![StaticEdgeV1::ReExportNamed {
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                    imported: NonEmptyString::new("value").unwrap(),
+                    exported: NonEmptyString::new("answer").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+                vec![ExportDescriptorV1::Indirect {
+                    exported: NonEmptyString::new("answer").unwrap(),
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                    imported: NonEmptyString::new("value").unwrap(),
+                }],
+            );
+            let entry = test_graph_artifact(
+                entry_id.clone(),
+                "function ($export, context) { return { declare: function () {}, execute: function () { $export('observed', context.importValue('./reexport', 'answer')); } }; }",
+                vec![StaticEdgeV1::Named {
+                    specifier: NonEmptyString::new("./reexport").unwrap(),
+                    imported: NonEmptyString::new("answer").unwrap(),
+                    local: NonEmptyString::new("answer").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+                vec![ExportDescriptorV1::Local {
+                    exported: NonEmptyString::new("observed").unwrap(),
+                    local: NonEmptyString::new("observed").unwrap(),
+                }],
+            );
+            let plan = SynchronousGraphPlan::new([
+                (verify_test_artifact(&target), BTreeMap::new()),
+                (
+                    verify_test_artifact(&reexport),
+                    BTreeMap::from([("./target".into(), target_id.clone())]),
+                ),
+                (
+                    verify_test_artifact(&entry),
+                    BTreeMap::from([("./reexport".into(), reexport_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    format!("{label}.mjs"),
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph = NativeSynchronousGraph::link(
+                &runtime,
+                &plan,
+                &entry_id,
+                BTreeMap::from([
+                    (
+                        target_id.clone(),
+                        config(target_id.clone(), "driver-target"),
+                    ),
+                    (
+                        reexport_id.clone(),
+                        config(reexport_id.clone(), "driver-reexport"),
+                    ),
+                    (entry_id.clone(), config(entry_id.clone(), "driver-entry")),
+                ]),
+            )
+            .unwrap();
+            assert_eq!(graph.entry(), &entry_id);
+            assert!(graph
+                .namespace_json(&entry_id)
+                .unwrap_err()
+                .to_string()
+                .contains("before initialization"));
+            graph.evaluate().unwrap();
+            graph.evaluate().unwrap();
+            assert_eq!(
+                graph.namespace_json(&reexport_id).unwrap(),
+                r#"{"answer":42}"#
+            );
+            assert_eq!(
+                graph.namespace_json(&entry_id).unwrap(),
+                r#"{"observed":42}"#
+            );
+
+            drop(graph);
             drop(runtime);
             ex_hermes_destroy(raw);
         }
