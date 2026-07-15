@@ -5,8 +5,8 @@
 **Systems:** Module Loader, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-07 (ENG-22991: first-class TypeScript runtime direction clarified without reopening the transform-engine choice)
-**Related:** LLP 0007
+**Revised:** 2026-07-15 (LLP 0026 adoption admits the ModuleRunner architecture as the selected replacement path); 2026-07-07 (ENG-22991: first-class TypeScript runtime direction clarified without reopening the transform-engine choice)
+**Related:** LLP 0007; LLP 0026 (accepted ModuleRunner architecture); LLP 0027 (artifact and interop contract)
 
 ## Decision
 
@@ -21,6 +21,13 @@ TypeScript stripping, JSX, diagnostics, and target behavior in the embedded
 runtime, but it must fail clearly when general ESM import/export lowering or
 top-level await handling is required. SWC remains the compatibility path for
 the current synchronous CommonJS loader contract.
+
+The accepted successor architecture is LLP 0026's ESM ModuleRunner. Its
+Rust/Oxc producer emits versioned `ModuleArtifact`s for a native-owned graph
+and a Hermes-owned runner rather than lowering each ESM file into an isolated
+CommonJS wrapper. This decision still governs the compatibility period: SWC
+remains the default file-at-a-time engine until LLP 0026's staged correctness,
+security, performance, and platform gates permit the default switch.
 
 ## TypeScript runtime direction
 
@@ -60,14 +67,12 @@ parity fixtures, but it cannot honestly claim to replace SWC for runtime-loaded
 - `EXACT_TRANSPILE_SCRIPT` remains the explicit subprocess override.
 - `IBEX_RUNTIME_TRANSFORM=oxc` is useful for fixture work and future migration
   spikes, not production default behavior.
-- The default switch is blocked on either a Rolldown/Oxc path compatible with
-  the pinned Rust toolchain and synchronous loader contract, or a later
-  ModuleRunner-style loader redesign.
+- The default switch is blocked on the accepted LLP 0026 ModuleRunner passing
+  its staged gates; adopting the architecture does not itself retire SWC.
 
 ## Follow-ups
 
 - Re-test Rolldown once the repo can move to a Rust toolchain that supports the
   current Oxc/Rolldown crates.
-- Decide separately whether the runtime loader should become async or
-  ModuleRunner-shaped to make Vite/Rolldown semantics the actual execution
-  model instead of a file-by-file CommonJS transform.
+- Implement the accepted LLP 0026 ModuleRunner program and preserve this
+  decision's compatibility boundary until its default-switch gate.

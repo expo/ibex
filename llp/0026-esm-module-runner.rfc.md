@@ -1,12 +1,12 @@
 # LLP 0026: ESM Module Runner and Runtime Module Graph
 
 **Type:** RFC
-**Status:** Review
+**Status:** Accepted
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
-**Related:** LLP 0002 (host embedding ABI); LLP 0003 (Hermes engine bridge); LLP 0004 (module loading); LLP 0005 (hermetic build); LLP 0006 (native-first diagnostics); LLP 0007 (transform convergence); LLP 0009 (runtime transform scope); LLP 0012 (runtime identity / Node compatibility target); LLP 0013 (package compartments); LLP 0014 (import policy); LLP 0018 (fail-loud agent tooling); LLP 0019 (Hermes-compat transform authority); LLP 0021 (CapSec effect model); LLP 0022 (REPL behavior); LLP 0023 (source identity); LLP 0024 (structured evaluation); LLP 0025 (terminal session ownership)
+**Revised:** 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
+**Related:** LLP 0002 (host embedding ABI); LLP 0003 (Hermes engine bridge); LLP 0004 (module loading); LLP 0005 (hermetic build); LLP 0006 (native-first diagnostics); LLP 0007 (transform convergence); LLP 0009 (runtime transform scope); LLP 0012 (runtime identity / Node compatibility target); LLP 0013 (package compartments); LLP 0014 (import policy); LLP 0018 (fail-loud agent tooling); LLP 0019 (Hermes-compat transform authority); LLP 0021 (CapSec effect model); LLP 0022 (REPL behavior); LLP 0023 (source identity); LLP 0024 (structured evaluation); LLP 0025 (terminal session ownership); LLP 0027 (artifact wire and ESM/CommonJS interop contract)
 
 ## Summary
 
@@ -1103,13 +1103,15 @@ cases, following LLP 0018.
 ### Adoption gate
 
 Implementation beyond spike scope starts only after the governing decisions
-are reconciled, not at retirement time: this RFC reaches `Accepted` (or a
-separate Decision adopts it); LLP 0009's scope decision is amended to admit
-the ModuleRunner architecture; LLP 0007 records that its open fork resolved to
-this branch; LLP 0019 gains its third (Rust/Oxc in-process) tier in the same
-change that introduces the pass; LLP 0021 gains the initialization
-task-boundary and trusted-loader registry amendments of §4; and LLP 0014
-gains the initialization-triggering amendment to its import-grant rule (§4).
+are reconciled, not at retirement time. The 2026-07-15 adoption set completed
+that gate: this RFC reached `Accepted`; LLP 0009 admitted the ModuleRunner
+architecture; LLP 0007 resolved its open fork to this branch; LLP 0019 gained
+its third (Rust/Oxc in-process) tier with the spike pass; LLP 0021 gained the
+initialization task-boundary and trusted-loader registry amendments of §4;
+LLP 0014 gained the initialization-triggering amendment to its import-grant
+rule (§4); LLPs 0002 and 0003 gained the owner-thread-only serialized runtime-
+drive contract required by §6; and LLP 0027 became the Spec-type home for the
+versioned wire and interop contract.
 Phase 5's document updates are then descriptive shipped-state edits, not
 retroactive authorization. The intended
 LLP 0019 end state is two tiers again — the build-time Node/Bun authority and
@@ -1126,9 +1128,8 @@ composed source maps. The spike's exit bar is falsifiable, not
 Phase 1) that must execute, plus a recorded minimum pass rate on test262
 `language/module-code` and top-level-await under the expected-divergence
 mechanism, set when the spike begins. Plausibility arguments do not
-substitute for the spike. At acceptance, the artifact wire schema and the
-interop contract split into a Spec-type LLP; this document remains the
-architecture and migration authority.
+substitute for the spike. LLP 0027 owns the artifact wire schema and interop
+contract; this document remains the architecture and migration authority.
 
 The bounded spike freezes those two bars before its test262 run. The canonical
 list is the 12 fixtures in
@@ -1144,15 +1145,22 @@ the upstream path and SHA-256 of every source; the expected-divergence list is
 empty at spike start, so any later exception must be named and reviewed rather
 than selected after observing failures.
 
+The completed spike passed all 12 canonical fixtures and all 20 frozen test262
+cases on real Hermes, exceeding the precommitted 18/20 minimum without adding
+an expected divergence. Those results are adoption evidence, not a claim that
+the later implementation phases are complete.
+
 Reconciliation is phase-specific, not wholesale. The LLP 0024 TLA and
 failure-caching amendments land with the first consumer that adopts the
 runner (Phases 2–3); the LLP 0023/0024 generation amendments land before
 Phase 4's HMR work *and before any session consumer adopts the runner's ESM
-failure caching* (§5's rule); LLP 0002 is touched when resolver or runner ABI
-claims change; and LLP 0014 is touched when import attributes and direct-file
-grant handling land. LLP 0003 is touched when the engine bridge gains
-compile/load-factory and context-token operations, and LLP 0005 when chunk
-and HBC carriers change the prepared pipeline.
+failure caching* (§5's rule); LLP 0002's owner-thread contract is already
+amended and is touched again when resolver or runner ABI symbols change; and
+LLP 0014 is touched again when import attributes and direct-file grant handling
+land. LLP 0003's owner-thread contract is likewise already amended and is
+touched again when the engine bridge gains compile/load-factory and context-
+token operations, and LLP 0005 when chunk and HBC carriers change the prepared
+pipeline.
 
 ### Phase 0: Baseline the current contract
 

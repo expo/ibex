@@ -5,8 +5,8 @@
 **Systems:** Build, Module Loader, Runtime, CLI
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
-**Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests)
+**Revised:** 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
+**Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests); LLP 0026 (module-runner initialization authority)
 
 > **Current implementation (2026-07-11):** authoring produces the versioned,
 > digest-bound canonical typed policy defined by LLP 0021. References below to
@@ -146,6 +146,24 @@ capability system — and a hijacked release that adds a builtin import
 surfaces as a `--check` **expansion** review tripwire, so the new reach is
 never rubber-stamped silently. Computed/obfuscated specifiers contribute
 nothing and are denied at runtime.
+
+### Import-edge initialization authority
+
+An authorized import edge carries one bounded authority beyond mere namespace
+reachability: it may trigger the target module's once-per-execution-generation
+initialization at the target's own authenticated principal and grants. This is
+not a host-capability grant to the importer and does not let the importer
+select, borrow, amplify, or suppress the target's authority. It only lets the
+importer choose when a cold, already-authorized edge causes the target's
+ordinary module initialization; subsequent imports reuse the record.
+
+The policy generator therefore treats review of an import edge as review of
+that trigger. The edge must still pass the immutable armed import graph, and
+the target's effects remain bounded by its own policy and compartment. A
+minimal-authority importer triggering a privileged target and an attempted
+sticky-error poisoning import are required adversarial fixtures under
+LLP 0026. Calls made after initialization retain the ordinary full live-chain
+deputy intersection; this exception does not become ambient delegation.
 
 ## Transitive grants and co-located exceptions
 
