@@ -110,6 +110,39 @@ fn delayed_fetch_and_host_call_completions_resolve_target_before_deref() {
 }
 
 #[test]
+fn fetch_completion_publishes_callback_before_releasing_pending_keepalive() {
+    let fetch = source("src/engine/hermes_runtime_fetch.cc");
+    let handoff = fetch
+        .split("auto target = takeFetchTarget(req_id);")
+        .nth(1)
+        .and_then(|tail| tail.split("auto cancelFn =").next())
+        .expect("native fetch completion handoff");
+    let enqueue = handoff
+        .find("pushRuntimeCallback(")
+        .expect("fetch completion callback enqueue");
+    let erase = handoff
+        .rfind("wrapper->fetchCallbacks.erase(req_id);")
+        .expect("pending fetch cleanup after callback publication");
+    let release_notify = handoff
+        .rfind("ex_hermes_notify_callback();")
+        .expect("wake after pending fetch cleanup");
+    let extraction = handoff
+        .split("bool alive = withRuntimePinned")
+        .nth(1)
+        .and_then(|tail| tail.split("if (!alive)").next())
+        .expect("pending fetch callback extraction");
+
+    assert!(
+        enqueue < erase && erase < release_notify,
+        "fetch completion must publish, release its keepalive, then wake the runtime"
+    );
+    assert!(
+        !extraction.contains("fetchCallbacks.erase"),
+        "extracting the completion must not erase its pending-fetch keepalive"
+    );
+}
+
+#[test]
 fn websocket_final_release_is_marshaled_without_a_leak_fallback() {
     let runtime = source("src/engine/hermes_runtime.cc");
     let websocket = source("src/engine/hermes_runtime_websocket.cc");

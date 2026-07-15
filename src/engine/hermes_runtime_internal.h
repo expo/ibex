@@ -1133,6 +1133,7 @@ void emitNewScripts(ExactHermesRuntime* runtime,
 void pushRuntimeCallback(RuntimeCallbackTarget target,
                          std::function<void(facebook::jsi::Runtime&)> fn,
                          bool* accepted = nullptr);
+extern "C" void ex_hermes_notify_callback();
 
 // Enqueue a native-resource finalizer without transferring ownership on
 // failure. A successful enqueue guarantees `fn` runs on the runtime thread,
