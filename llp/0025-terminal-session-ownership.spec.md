@@ -5,6 +5,13 @@
 **Systems:** CLI Runtime, REPL, Runtime, Security
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-13 (non-review implementation sync: discharges
+`OBL-CONSTANTS-ANNEX` with canonical `session/session-constants.v1.json`, its
+strict schema, generated Rust module, and code/model drift gate; records the
+already-landed interrupt model artifacts; delivers the runtime half of
+`OBL-UNIT-PUBLICATION` with the bounded native work-unit event ABI, exact
+executing-target cancellation, and timer `Due{sched}`/Undue publication; no
+normative value from the reviewed design changed.)
 **Revised:** 2026-07-12 (round-10, terminal. Families **split** — Fable `READY`, Codex `NOT READY` — so `Status` stays
 `Draft` (no both-READY on one revision). Codex's single Blocking was the scoped downstream straggler: `idle × CompletionQueued`
 resolved two ways (rule 4 → idle prompt → `Orderly`; the "idle, work in flight" row → `Interrupt(130)`). Fixed single-valued
@@ -473,15 +480,16 @@ alone (§7).
 
 ### 6. Interruption and cancellation
 
-**This machine will be generated, not written.** *Five* successive hand-written versions of this section were each
+**This machine is generated, not written.** *Five* successive hand-written versions of this section were each
 falsified on review — by a stale latch, by an unbounded `setInterval` turnover storm, by typed-ahead, by a class-flip
 that reset escalation, and by a `credit ≻ promise` precedence that let a credit press override a promised status — and
 each time the prose looked right to its author. The transition relation is therefore **owner-authored data**: states, an
 event alphabet, and transitions, from which the table below, the implementation's dispatch, and AC 7's exhaustive
 trajectory enumeration are all **generated**, and over which the invariants are **model-checked** against an adversarial
-scheduler. The data, its generator, and the checker are named in §12 and gated in CI; until that source is checked in,
-the tables below are the specification and the generation obligation is outstanding (`OBL-INTERRUPT-MODEL`) — this
-document does not claim an artifact it does not have.
+scheduler. The owner-authored source is `session/interrupt-machine.v1.json`; its deterministic generator and checker are
+`packages/ibex-devtools/src/scripts/generate-interrupt-machine.mjs`, and the Rust dispatch plus checked trajectories live
+under `vendored-generated/`. The tables below are the human-readable projection of that checked relation
+(`OBL-INTERRUPT-MODEL`).
 
 This is the same reasoning that already governs the fd-0 route table, the command table, and the path observables:
 a security-relevant table that is maintained by hand drifts. The interrupt machine was the last one still written in
@@ -1122,7 +1130,7 @@ text before acting on any row.
 
 | Id | Obligation | Owner | Verified at |
 | --- | --- | --- | --- |
-| `OBL-UNIT-PUBLICATION` | **Native begin/end publication** of every unit of work so a target id can name one unit; **and due/undue transitions carrying the scheduling identity `sched`**, since begin/end alone cannot populate `Due{sched}` before begin and the native `TimerEntry.id` is not exposed (`ex_hermes_next_timer` gives only the earliest deadline). A Rust id wrapped around the FFI call cannot do this: one native poll drains a whole callback queue and several timers | LLP 0024 (engine seam) | `0024@6416ccb8c3c2` — begin/end **delivered**; the **due/undue seam is not yet exposed** |
+| `OBL-UNIT-PUBLICATION` | **Native begin/end publication** of every unit of work so a target id can name one unit; **and due/undue transitions carrying the scheduling identity `sched`**, since begin/end alone cannot populate `Due{sched}` before begin and the native `TimerEntry.id` is not exposed (`ex_hermes_next_timer` gives only the earliest deadline). A Rust id wrapped around the FFI call cannot do this: one native poll drains a whole callback queue and several timers | LLP 0024 (engine seam) | **runtime half delivered** — the bounded `ExHermesWorkUnitEvent` queue publishes evaluation, callback, timer, and microtask-drain boundaries independently of submissions; timer `Due`/`Undue` records carry `TimerEntry.id`, and overflow is explicit. The native/Rust fixtures cover exact any-thread timer cancellation, stale-target refusal, two distinct due identities, undue-before-begin, and overflow. The completion-query producer remains coupled to `OBL-EDITOR-ASYNC`; the ABI reserves its kind but does not fabricate events for a producer that does not yet exist |
 | `OBL-CANCEL-EDGES` | Cancellation edge semantics: `accepted` is **target-generic** (for a callback or query it means the unit returned; the structured `cancelled` *outcome* belongs to evaluations only); a consistency-check failure resolves **`failed` immediately**, not only at teardown; teardown failure is reserved for requests still `Pending` | LLP 0024 ↔ §6 | `0024@6416ccb8c3c2` — both documents were loose here; §6 now states the edges and 0024 must agree |
 | `OBL-SEQUENCE-ALLOCATOR` | Sequence numbers assigned at **session-layer receipt**, never minted by the worker | LLP 0024 | `0024@6416ccb8c3c2` — **0024 is right and this document was wrong**; §3 now adopts it. A hostile worker must not be able to forge ordering |
 | `OBL-SUSPENDED-UNIT` | The **unit boundary** for an input suspended at top-level `await`: is the callback that settles its promise part of that unit, or a separate unit? §6 no longer *raises a request* against a suspended unit (the credit and promise carry it), so this no longer blocks §6 — but a fuller future selector would need it | LLP 0024 | `0024@6416ccb8c3c2` — open, no longer blocking |
@@ -1136,8 +1144,8 @@ text before acting on any row.
 | `OBL-CLI-SURFACE` | `--history` rows on both spellings; the **keybinding manifest** (incl. `Ctrl+Z`) beside the command table | CLI surface manifest (LLP 0010) | `runtime-surface.json`@blob:2ad526bc2fa9 (2026-07-12) — clap surface only; no history option, no keybinding section |
 | `OBL-LAUNCHER-SIGNALS` | Mediated interrupt propagation for launcher routes (`ibex run <bare-name>`, `--watch`): Ibex holding `SIGINT` while it waits on the child so `128 + signal` is real on `Ctrl+C`, rather than both dying of the group signal. §1's matrix describes current kernel-default behavior and names this as the target | this document + `src/bin/ibex/main.rs` | `main.rs`@blob:`09e0b170d16b` (2026-07-12) — no handler on the run/watch paths today |
 | `OBL-FRESH-NONCE` | §7's control records authenticate with an **armed session nonce**. The armed-snapshot schema checks only that it is base64url; nothing checks **freshness or uniqueness**. A nonce that is a fixed constant authenticates nothing — and note §7's own limit: authentication proves channel membership, not truthfulness | LLP 0021 / runtime | `armed-snapshot.schema.json`@blob:7d7784994b9e (2026-07-12) — checks base64url only; no freshness/uniqueness check |
-| `OBL-INTERRUPT-MODEL` | The §6 transition data, its generator, and the model checker — checked in, digest-bound, CI-gated, with `interrupts_without_editor_input ≤ 3` and `promised_next_exit ⇒ next interrupt terminal` as checked temporal properties. **Until this lands, §6's tables are the specification and nothing is generated.** This document does not claim the artifact it does not have | this document + tooling | not started |
-| `OBL-CONSTANTS-ANNEX` | `session-constants.json` (§12) as a real, digest-bound file, cited by 0022 and 0024 rather than re-deferred | this document + tooling | **does not exist yet** — §12's values are normative *here*; the file is owed |
+| `OBL-INTERRUPT-MODEL` | The §6 transition data, its generator, and the model checker — checked in, digest-bound, CI-gated, with `interrupts_without_editor_input ≤ 3` and `promised_next_exit ⇒ next interrupt terminal` as checked temporal properties | this document + tooling | **delivered** — `session/interrupt-machine.v1.json`, `packages/ibex-devtools/src/scripts/generate-interrupt-machine.mjs`, and the generated dispatch/manifest/table/trajectories under `vendored-generated/` |
+| `OBL-CONSTANTS-ANNEX` | `session/session-constants.v1.json` (§12) as a real, digest-bound file, cited by 0022 and 0024 rather than re-deferred | this document + tooling | **delivered** — strict schema at `session/schema/session-constants.schema.json`; deterministic generator/check at `packages/ibex-devtools/src/scripts/generate-session-constants.mjs`; Rust projection at `vendored-generated/session_constants.generated.rs` |
 | `OBL-ENV-INVENTORY` | The §2 post-arming environment inventory as a named artifact with a schema, so an un-dispositioned variable fails the build | this document + tooling | not started |
 | `OBL-EDITOR-ASYNC` | A non-blocking editor integration. **This is a release gate, not a preference**: the shipping completer blocks inside rustyline's synchronous `Completer::complete`, so while a completion query is wedged the editor cannot consume a `Ctrl+C` byte *at all* — the physical keypress never becomes a machine event, and §6's completion-query row is unimplementable | this document + tooling | `repl/mod.rs`@blob:c4bcf99bbcb7 (2026-07-12) — completer blocks synchronously |
 | `OBL-LEDGER-CHECK` | Obligation-id machinery in `./ref-check` that recomputes each row's digest and **fails the build on a mismatch**, so this ledger becomes a control rather than a comment | process tooling | not started |
@@ -1148,8 +1156,12 @@ Bounds that are **user-visible and independent of the engine** are pinned **now*
 and a conformance suite cannot assert a truncation marker it has not been given. An earlier draft claimed these were "pinned constants with a version" while supplying neither values nor an
 artifact; that claim was simply false, and saying so is cheaper than leaving a reader to discover it.
 
-They are normative **here and now**. The **file** that will carry them — `session-constants.json`, version 1, digest-bound, owned by this document and cited by the siblings rather than
-re-deferred — **does not exist yet**, and this document does not claim it does (`OBL-CONSTANTS-ANNEX`). The values below are the contract; the file is owed.
+They are normative **here and now**. The canonical file carrying them is
+`session/session-constants.v1.json`, owned by this document and cited by the siblings rather
+than re-deferred. Its strict schema is `session/schema/session-constants.schema.json`; the
+deterministic generator embeds source, schema, and generator SHA-256 digests in
+`vendored-generated/session_constants.generated.rs` and audits the Rust consumer and interrupt
+status vocabulary for drift (`OBL-CONSTANTS-ANNEX`). The values below remain the contract.
 
 | Constant | v1 value | on overflow |
 | --- | --- | --- |
@@ -1174,8 +1186,8 @@ record over its maximum is **rejected** (truncating a recalled command would be 
 over its size renders opaque. Each constant's overflow column above is normative.
 
 These are revisable by bumping the annex version; they are not revisable by an implementation choosing differently. The budgets whose right values genuinely depend on the **cancellation
-prototype** remain open — the shutdown drain, the cancellation budget, the completion budget, and the async-storm coalescing window; the **renderer/wire-format version** is owed with the annex
-file (`OBL-CONSTANTS-ANNEX`), not asserted here. Everything else user-visible and engine-independent — the flush budget, the history-lock bound, and maximum input size included, since they depend
+prototype** remain open — the shutdown drain, the cancellation budget, the completion budget, and the async-storm coalescing window — and v1 records each as explicitly unbound. The annex pins
+the renderer/wire-format as little-endian **IBDX v1**, including field widths and node tags. Everything else user-visible and engine-independent — the flush budget, the history-lock bound, and maximum input size included, since they depend
 on I/O or parse cost and not on Hermes — is pinned above, and **every criterion that depends on a budget runs against a deterministic test clock**, so conformance does not wait even on the open ones.
 
 ## Acceptance criteria
@@ -1277,8 +1289,7 @@ any of this.
 9. What are the **engine-dependent** budgets — shutdown drain, cancellation budget, completion budget, async-storm window? §12 pins every engine-independent constant now (the flush and history-lock bounds included); only these four wait on OQ 1's prototype.
 10. For a suspended top-level `await`, is the callback that settles its promise part of the same **unit** for target-id purposes, or a separate unit? This is the boundary `OBL-SUSPENDED-UNIT` must publish.
 11. What would a deliberate **PTY hand-off** to a child look like, given §3 now forbids inheriting the session's descriptors? A full-screen child at the prompt is a real capability this version removes.
-12. Should the display tree, the supervisor event stream, and the framed transcript protocol be literally **one** versioned wire format? And should `session-constants.json` (§12) absorb the siblings' bounds, so that one
-    annex answers the question all three documents currently defer to each other?
+12. Should the display tree, the supervisor event stream, and the framed transcript protocol be literally **one** versioned wire format, or should `session/session-constants.v1.json` continue to bind the shared constants and IBDX display tree while the other protocols version independently?
 13. **Should a compromised native worker be contained, and at what platform cost?** §7 claims only stuck/crashed engines and hostile JavaScript behind intact mediation. A same-UID native
     process defeats the fd allowlist and knows the session nonce. Genuine containment needs per-platform sandboxing, credential separation, and process-tree denial — a real cost against a
     threat the initial profile may reasonably decline. Decide explicitly rather than by silence.

@@ -16,7 +16,7 @@ Each patch is classified in its header:
 A cross-cutting rewrite (realm-shaped) is prohibited by this discipline — that
 is the line between "carrying patches" and "maintaining a divergent engine."
 
-## Applied patches (Phases 2, 3 + 5)
+## Applied patches (Phases 2, 3 + 5, structured evaluation)
 
 | # | File | Class | What |
 |---|---|---|---|
@@ -28,11 +28,17 @@ is the line between "carrying patches" and "maintaining a divergent engine."
 | 0006 | `0006-eval-binding-and-native-deep-freeze.patch` | B (+1 A export) | `eval`/`Function` compartment binding + native deep-freeze (Phase 3). `evalInEnvironment` captures the caller's principal + compartment (frame still current there) into a GC-rooted `Runtime::pendingCompartment_`; `runBytecode` stamps both onto the minted Domain, so eval/`new Function` code inherits the caller's compartment and cannot escape it. Adds `clearPendingPackageId()` / `ex_hermes_vm_clear_pending_package_id` (clearing ≠ pinning 0). Adds `__exactDeepFreeze(obj)` — a native SES-style transitive freeze that walks descriptors (getters/setters read without invoking) + prototype via an iterative worklist with an explicit visited set (GC-safe; distinct from the frozen bit; no recursion-depth cap) — for a native boot-time lockdown (`IBEX_NATIVE_LOCKDOWN`). |
 | 0007 | `0007-fail-closed-async-deputy-attribution.patch` | B | Fails closed on the async/deputy attribution boundary. `getCurrentPackageId` now returns a distinct `kNoUserPrincipal` (`0xFFFFFFFE`) when the walk finds NO user frame (vs. the old `0`, which the host trusts as first-party root) — so a package cannot launder a deputy op detached from its own frame (`Promise.resolve(x).then(fs.readFileSync)`) into trusted root. And the internal bytecode (Hermes's JS Promise impl) is stamped with the runtime principal at load, so its reaction trampoline (`tryCallOne`) is skipped as a deputy instead of appearing as packageId 0 on every microtask. |
 | 0008 | `0008-schedule-time-principal-capture.patch` | B | Completes 0007 for the deputy-class case (ENG-22631). 0007 fails closed only when the detached callback is *native* (empty stack); a detached JS deputy method (`Promise.resolve(x).then(deputy.readFor)` under `deputyClasses`) drains with the deputy's own frame live, so `collectStackPackageIds` returns `[deputy]` (len 1) and the stack-AND is skipped. This patch captures the SCHEDULING principal at `enqueueJob` (the scheduler's frame is still live there), carries it in a `jobSchedulerQueue_` kept in lockstep with `jobQueue_`, restores it as ambient `Runtime` state across `drainJobs`, and has `collectStackPackageIds` APPEND it — so the detached read collects `[deputy, scheduler]` and the AND denies for an ungranted scheduler while a granted package's own continuation (scheduler == running principal) collapses and is not false-denied. Ibex arms capture whenever the patched engine is present because deputy classes may be configured after engine creation and native-resolved continuations may otherwise report `kNoUserPrincipal`; the host consumes the captured scheduler for live deputy stacks and that no-user fallback. |
+| 0009 | `0009-raw-throw-capture.patch` | B | Adds an owner-thread scoped Hermes control that suppresses `.message` / `.stack` property reads and `String` coercion while a pending exception crosses JSI. The structured evaluator can therefore retain the exact thrown value without invoking project code; legacy evaluation keeps Hermes' default diagnostics. |
+| 0010 | `0010-completion-record-discriminator.patch` | B | Preserves the VM's `Empty` completion discriminator across the JSI conversion that otherwise collapses it into `undefined`. Structured evaluation can now distinguish a declaration/empty completion from the JavaScript value `undefined` without a syntactic last-expression heuristic. |
+| 0011 | `0011-structured-async-failure-provenance.patch` | B | Captures Promise-job scheduler, job identity, and associated evaluation at enqueue time; exposes failed-job context to the host; adds a poll-checkpoint rejection tracker that cancels by Promise identity; and extracts Error message/stack from engine-owned slots and stack records without invoking project code. |
 
-All eight apply clean from pristine (`scripts/apply-hermes-patches.sh`) and
+All eleven apply clean from pristine (`scripts/apply-hermes-patches.sh`) and
 compile into a working `hermesvm.framework` exporting the `ex_hermes_vm_*`
 symbols (`current_package_id`, `set_pending_package_id`, `clear_pending_package_id`,
-`set_default_package_id`, `collect_package_ids`, `set_job_scheduler_capture`),
+`set_default_package_id`, `collect_package_ids`, `set_job_scheduler_capture`,
+`current_job_scheduler_principal`, `current_job_identity`,
+`current_job_associated_evaluation`, `set_job_associated_evaluation`,
+`set_embedder_job_scheduler_principal`, and `take_failed_job_context`),
 verified against the pinned checkout (`ac8c6e6c80ec…`, HEAD of
 `origin/260318099.0.0-stable`).
 

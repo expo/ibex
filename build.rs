@@ -236,6 +236,19 @@ fn main() {
                 hermes_include_dir.clone()
             }
         });
+    // Installed Hermes SDKs co-locate `hermes/Public` below the configured
+    // include root. A source checkout instead splits it into the sibling
+    // `public/` tree while keeping the JSI/API headers under `API/`. Detect
+    // that layout once and use it for both compilation and feature probes.
+    let hermes_source_public_include_dir = hermes_include_dir.parent().and_then(|parent| {
+        let candidate = parent.join("public");
+        candidate
+            .join("hermes")
+            .join("Public")
+            .join("HermesExport.h")
+            .exists()
+            .then_some(candidate)
+    });
     let default_ios_lib = repo_root.join("ios").join("Frameworks");
     let default_linux_lib = repo_root.join("linux").join("lib");
     let default_windows_lib = default_windows_root.join("lib");
@@ -345,9 +358,11 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_session_conformance.cc");
     // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
     // native registry IDs are committed generated input to the C++ archive.
     println!("cargo:rerun-if-changed=src/engine/capsec_registry_generated.h");
+    println!("cargo:rerun-if-changed=src/engine/root_global_disposition.generated.h");
     println!("cargo:rerun-if-changed=src/engine/hermes_bootstrap.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_utils.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_dns.cc");
@@ -374,6 +389,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_android.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_templates.inl");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_internal.h");
+    println!("cargo:rerun-if-changed=src/engine/exact_runtime_c_abi_check.c");
+    println!("cargo:rerun-if-changed=include/exact_runtime.h");
     println!("cargo:rerun-if-changed=src/host/mod.rs");
     println!("cargo:rerun-if-changed=src/sync.rs");
     println!("cargo:rerun-if-changed=src/cdp/mod.rs");
@@ -562,6 +579,10 @@ fn main() {
                     .arg(&builtins_src)
                     .arg("--out-dir")
                     .arg(&builtins_out)
+                    // Bun may mark an inherited stdout open-file description
+                    // nonblocking. The build script's stdout is Cargo's
+                    // directive channel, so give generators an isolated sink.
+                    .stdout(std::process::Stdio::null())
                     .status();
                 // The primary-checkout substitute exists for worktrees whose
                 // JS deps were never installed. When the local pipeline is
@@ -725,6 +746,7 @@ fn main() {
     }
 
     let bootstrap_files = [
+        ("import-grant-keys.generated.js", "IMPORT_GRANT_KEYS"),
         ("module-loader.js", "MODULE_LOADER"),
         ("bootstrap-globals.js", "BOOTSTRAP_GLOBALS"),
         ("console-enhance.js", "CONSOLE_ENHANCE"),
@@ -926,6 +948,16 @@ fn main() {
         }
     }
 
+    // Compile the public header as an independent C11 consumer before the C++
+    // adapter. This catches accidental C++-only declarations and freezes the
+    // structured-evaluation field layout at the language boundary.
+    // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+    cc::Build::new()
+        .file("src/engine/exact_runtime_c_abi_check.c")
+        .include("include")
+        .warnings(true)
+        .compile("exact_runtime_c_abi_check");
+
     // Compile Hermes runtime adapter sources.
     let mut build = cc::Build::new();
     build
@@ -944,10 +976,15 @@ fn main() {
         .include(&jsi_include_dir)
         .include(&out_dir); // For bootstrap_bytecode.h
 
+    if let Some(public_include_dir) = hermes_source_public_include_dir.as_ref() {
+        build.include(public_include_dir);
+    }
+
     build.std("c++17");
 
     if std::env::var_os("CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER").is_some() {
         build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
+        build.file("src/engine/hermes_session_conformance.cc");
     }
 
     if target_os == "windows" {
@@ -1108,12 +1145,27 @@ fn main() {
         build.define("EXACT_NO_OPENSSL", None);
     }
 
-    let jsi_header = hermes_include_dir.join("jsi").join("jsi.h");
+    let jsi_header = jsi_include_dir.join("jsi").join("jsi.h");
     let hermes_header = hermes_include_dir.join("hermes").join("hermes.h");
-    let runtime_config_header = hermes_include_dir
+    let installed_runtime_config_header = hermes_include_dir
         .join("hermes")
         .join("Public")
         .join("RuntimeConfig.h");
+    // A Hermes source checkout keeps public VM headers beside `API/`, while
+    // installed SDKs place them under the configured include root. Probe both
+    // layouts so a separate JSI include root cannot enable queueMicrotask
+    // without also enabling the VM queue it requires.
+    let runtime_config_header = if installed_runtime_config_header.exists() {
+        installed_runtime_config_header
+    } else {
+        hermes_source_public_include_dir
+            .as_ref()
+            .map(|public| public.join("hermes").join("Public").join("RuntimeConfig.h"))
+            .unwrap_or(installed_runtime_config_header)
+    };
+    for probed_header in [&jsi_header, &hermes_header, &runtime_config_header] {
+        println!("cargo:rerun-if-changed={}", probed_header.display());
+    }
     // @ref LLP 0005#c-compilation — Ibex supports both Hermes 0.11 headers
     // and newer ReactNative.Hermes.Windows headers; probe the vendored SDK
     // surface instead of keying these C++ code paths on target OS.
@@ -1165,6 +1217,21 @@ fn main() {
         println!("cargo:rustc-cfg=exact_frame_attribution");
     }
     println!("cargo:rustc-check-cfg=cfg(exact_frame_attribution)");
+    // Patches 0003/0008 and 0011 are intentionally probed separately. An
+    // engine may carry package attribution while predating the structured
+    // async-provenance exports; compiling direct calls from newer headers
+    // against that engine would otherwise link weakly and jump through null.
+    // @ref LLP 0024#9-asynchronous-failures
+    let enable_structured_async_provenance = enable_frame_attribution
+        && hermes_macos_binary
+            .as_deref()
+            .map(macos_hermes_has_structured_async_provenance)
+            .unwrap_or(false);
+    if enable_structured_async_provenance {
+        build.define("EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE", None);
+        println!("cargo:rustc-cfg=exact_structured_async_provenance");
+    }
+    println!("cargo:rustc-check-cfg=cfg(exact_structured_async_provenance)");
     // No-op `ex_host_http_*` stubs are compiled exactly when no real
     // implementation is linked, i.e. when the `host-http-server` feature is
     // off. Non-MSVC builds mark them weak so an external strong implementation
@@ -1984,6 +2051,9 @@ fn build_runtime_bundle_source(
             .arg("iife")
             .arg("--lower-classes")
             .current_dir(devtools_dir)
+            // Keep JS-runner descriptor flag changes away from Cargo's
+            // build-script protocol stream; build.rs reports status itself.
+            .stdout(std::process::Stdio::null())
             .status();
 
         if matches!(status, Ok(result) if result.success()) {
@@ -2595,6 +2665,37 @@ fn macos_hermes_has_frame_attribution(binary_path: &Path) -> bool {
     }
 
     String::from_utf8_lossy(&output.stdout).contains("ex_hermes_vm_current_package_id")
+}
+
+fn macos_hermes_has_structured_async_provenance(binary_path: &Path) -> bool {
+    let output = std::process::Command::new("nm")
+        .args(["-gU", binary_path.to_string_lossy().as_ref()])
+        .output()
+        .or_else(|_| {
+            std::process::Command::new("xcrun")
+                .arg("nm")
+                .arg("-gU")
+                .arg(binary_path)
+                .output()
+        });
+
+    let Ok(output) = output else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let symbols = String::from_utf8_lossy(&output.stdout);
+    [
+        "ex_hermes_vm_current_job_scheduler_principal",
+        "ex_hermes_vm_current_job_identity",
+        "ex_hermes_vm_current_job_associated_evaluation",
+        "ex_hermes_vm_set_job_associated_evaluation",
+        "ex_hermes_vm_set_embedder_job_scheduler_principal",
+        "ex_hermes_vm_take_failed_job_context",
+    ]
+    .into_iter()
+    .all(|symbol| symbols.contains(symbol))
 }
 
 fn should_enable_hermes_debugger(target_os: &str, hermes_macos_binary: Option<&Path>) -> bool {

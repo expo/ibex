@@ -5,7 +5,12 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-12 (round-8 dual-model review, **terminal** — both NOT READY,
+**Revised:** 2026-07-14 (production generated-form narrowing and cache-authorship
+correction: the authenticated runtime admits only a freshly compiled, non-reusable,
+source-backed single-original CJS form; persistent cache hashes are freshness data,
+not proof of compiler authorship; flattened multi-original chunks and provenance-
+bearing HBC remain closed and use the already-authenticated raw source route).
+2026-07-12 (round-8 dual-model review, **terminal** — both NOT READY,
 reconciled as a **ledger-and-stop**, the honest end of the loop. Fable and Codex
 converged on substance ("everything architectural, safety-relevant, and ledger-relevant
 verifies") and on the same fixable trio: **AC 18a** still mandated the shared hard-link
@@ -755,6 +760,89 @@ they share a SourceId. It is also **build-computable and machine-portable**, whi
 an object-derived key would not be: a provenance manifest generated on one machine
 must name the same modules on another.
 
+**The production generated route is deliberately narrower than this algebra while
+the full per-original compiler boundary is unfinished.** The algebra above remains
+the target: a forty-original chunk carries forty SourceIds and must eventually
+materialize forty ordinary module-cache entries. But executing today's flattened
+Rolldown chunk as one CommonJS module would do the opposite: one wrapper would choose
+one cache entry, one defining principal, and one compartment for code originating in
+several modules. The emitted chunk also does not expose a native-verifiable,
+independently invocable initializer for each original. Giving project JavaScript a
+registry or evaluator that could select those originals would turn the identity
+mechanism into a capability leak. Therefore the production route MUST keep every
+multi-original or extra-runtime-chunk form closed until the compiler emits a closed,
+authenticated per-original initializer representation consumed only by the loader's
+native-private dispatcher.
+
+The interim generated form is exact and fail-closed:
+
+- The runtime first authenticates the ordinary raw file request. Its source bytes,
+  SourceId, defining principal, SourceLabel, virtual path, referrer, and argv remain
+  the credential; a generated artifact cannot mint or replace any of them.
+- Only a fresh, authority-bound v4 CJS provenance artifact with **one dependency,
+  one provenance row at `depIndex: 0`, one entry chunk, and no output other than that
+  entry plus its optional source map** is eligible. The row's raw-source SHA-256,
+  exact SourceId cache spelling, defining principal, SourceLabel, virtual path, and
+  dependency path must all reproduce the authenticated raw request. **No preexisting
+  persistent-cache artifact is eligible for this route.** Its manifest, provenance,
+  and graph hashes are public and self-consistent: a cache writer can replace generated
+  code and recompute all of them, so they establish freshness and field consistency,
+  not compiler authorship. For each eligible request native creates an unpredictable,
+  create-new process-private staging root (mode `0700` on Unix), invokes the captured
+  compiler/toolchain there, and refuses a graph-named publication collision rather
+  than treating it as a hit. The selected canonical runner and its repository scripts,
+  lockfile, Rolldown installation, and native dependencies are hashed before and after
+  the invocation. Ambient Node/Bun preload, module-path, user-config, transpiler-cache,
+  and dynamic-loader injection variables are removed; Bun receives an explicit empty
+  private config and no env-file loading, and runner home/config/cache state points at
+  the fresh root.
+
+  At the final execution-admission boundary, native performs an independent one-shot
+  capture: it opens the one manifest and every admitted output once as bounded regular
+  files, with final-component no-follow semantics on Unix and Windows. Earlier
+  compiler-publication checks are not execution evidence. Admission parses that exact
+  captured manifest once, hashes the exact bytes read from those descriptors, checks
+  those bytes and the raw dependency row against the current authenticated request and
+  retained authority, and passes only the owned entry bytes to the engine. The staging
+  tree is then irrelevant and is removed best-effort; no execution lease or later
+  pathname reopen participates in admission.
+
+  This boundary assumes the operator-selected launch runner and other processes under
+  the same OS account are trusted. Toolchain hashing detects change during the
+  invocation but does not turn an arbitrary runner selected by a hostile launch
+  `PATH` into an authorized compiler. Nor can a filesystem protocol protect a process
+  from an actively hostile same-UID process that can mutate its files or inspect its
+  memory while it runs; defending that actor requires an OS sandbox/account boundary.
+  Project JavaScript and persistent-cache writers are inside the boundary closed here:
+  neither can select the runner, staging root, manifest, or bytes admitted by a later
+  generated evaluation.
+- The loader-private dispatcher publishes the result under that same SourceId,
+  registers the row's exact package name/locator/integrity where it is package-owned,
+  binds the compiled body to that package's exact compartment, and exposes neither
+  the dispatcher nor a generated-module registry to project code. Raw-first and
+  generated-first loads therefore converge on the identical exports object. Native
+  owns the cache transaction through typed-outcome materialization: a throw,
+  cancellation, or engine fault aborts the exact SourceId reservation; only a
+  committing outcome makes it durable.
+- Any missing field, mismatch, stale artifact, alias remap, multi-original manifest,
+  additional runtime chunk, or unsupported engine selects the **already-authenticated
+  raw source route**. This is a safe representation fallback, not a fallback to a
+  weaker evaluator. Once generated evaluation has begun, it never retries the body
+  through raw source.
+
+**Provenance-bearing HBC is closed in this interim form.** An HBC file for a flattened
+bundle does not prove that evaluating it yields exactly one initializer Function for
+the authenticated original; treating its completion value or side effects as that
+initializer would bypass the loader-private principal, compartment, and cache
+transaction above. The engine therefore refuses a generated bytecode payload rather
+than executing it or silently interpreting it as source. HBC may enter this route
+only after a versioned wrapper format authenticates that its evaluated value is
+**exactly one** private initializer Function for the single SourceId, and native can
+invoke that Function without making it or the dispatcher JavaScript-reachable. Until
+then, the raw authenticated source route remains the semantic fallback. This
+narrowing is an honest partial implementation of AC 18, not a claim that the
+multi-original and bytecode portions of AC 18 are complete.
+
 **`SourceId` is not `SourceLabel`.** Identity and display are different problems
 and must not share a value. `SourceId` is opaque, authenticated, and keys the
 module cache. **`SourceLabel`** is the deterministic human- and tool-facing
@@ -942,6 +1030,19 @@ On a volume with no aliasing, canonicalization is the identity function and cost
 nothing. Display spelling is unaffected — the operator sees what they typed. This
 changes LLP 0021's decoded-byte-identity rule and its containment vectors, and is
 rowed as `OBL-ALIAS-CANON` (§9).
+
+**Current candidate-target seam (ENG-24578).** The macOS adapter admits modern
+APFS, pins canonical decomposition to Unicode 9, and selects its case-sensitive
+or case-insensitive identity from the bound volume. The case-insensitive adapter
+implements ASCII folding plus Unicode-9 decomposition (therefore covering common
+precomposed Latin aliases); if a remaining non-ASCII scalar has a case-fold
+mapping, it refuses instead of borrowing a newer Unicode table or falling back to
+byte equality. A bound root is also a single-volume subtree in this seam: a nested
+mount on another volume refuses at arming/path projection, and a staged parent or
+final object whose volume differs from the root binding refuses. Supplied snapshot
+rows are re-probed from the independently authenticated bindings. These are
+deliberate fail-closed limitations until the snapshot carries authenticated mount
+boundaries and a complete pinned Apple case-fold table.
 
 **Component and input rules.** These bind **adapter inputs** — the path arguments
 of `fs`, file URLs, module specifiers, and every other surface that takes a path
@@ -1480,10 +1581,21 @@ observable. Each row carries a disposition drawn from a closed set:
 whether an *unmarked* field (`process.pid`, `os.cpus()[0].model`) is path-bearing
 or merely un-triaged, so "an unmarked new field escapes silently" would remain true
 *of the dataset itself* — the exact failure this mechanism exists to prevent. The
-dataset is therefore **total** over the canonical tuple `(stable surface id, field or return-shape, alias, mode, source kind, return variant)` — the same spelling used in §8 and the §9 ledger row —
-for every surface in the registry, and the build fails on any **un-dispositioned**
-field, not merely on a path-bearing one lacking a disposition. Judging a field
-`non-path` is a recorded decision someone signs, not a silence.
+dataset is therefore **total** over the canonical tuple `(stable surface id,
+field or return-shape, alias, mode, source kind, return variant, execution
+context id)` — the same spelling used in §8 and the §9 ledger row — for every
+**actual output slot** discovered for a registry surface, and the build fails on
+any **un-dispositioned** field, not merely on a path-bearing one lacking a
+disposition. Judging a field `non-path` is a recorded decision someone signs,
+not a silence.
+
+Output-slot totality is paired with **surface-account totality**. Every coverage
+surface id appears exactly once in the catalog as `output-bearing`,
+`structural-only`, or `unresolved`. An output-bearing account has at least one
+catalog row; a structural-only account has none and carries source evidence for
+why that registry edge is not itself a value boundary; an unresolved account has
+none and makes the catalog unpromotable. A zero-output surface therefore does
+**not** acquire a synthetic `[[return]]` merely to make the row counts line up.
 
 **Totality needs an independent universe, which the registry does not yet supply,
 and the table below is an *illustrative interim projection* — not the normative
@@ -1491,10 +1603,14 @@ totality.** The coverage schema records a surface's *kind and name*, not its fie
 return shapes (`capsec/schema/coverage-edge.schema.json`), so a dataset joined only
 against that cannot prove its own completeness — an omitted field is indistinguishable
 from a nonexistent one. The left side of the join must therefore be an **independently
-generated output-shape catalog** — a live descriptor sweep of runtime exports, object
-properties, and return-record shapes, plus the native bridge registrar ids — against
-which the disposition dataset is checked *bidirectionally*: every catalog field has a
-disposition, and every dispositioned field exists.
+generated output-shape catalog** — a live descriptor sweep of runtime exports,
+object properties, and return-record shapes, plus the native bridge registrar ids
+as discovery and provenance inputs — against which the disposition dataset is
+checked *bidirectionally*: every catalog field has a disposition, and every
+dispositioned field exists. A registrar id proves that a bridge exists; it does
+not prove that the bridge has a value-bearing return or satisfy live value
+evidence. Native output rows come from source-derived return/out/callback roles
+and are then verified by execution.
 
 Repeated review rounds each found the hand-written table missing or double-valuing a
 surface in a *new* spelling — `Dir.path`, `module.__exactPackageRoot`, the watch-event
@@ -1511,8 +1627,8 @@ marked a synthetic id when it is `argv[1]`) — the same defect a hand-written t
 keeps re-committing in a new cell each round. So the **generated `OBL-DISPOSITION-DATASET`**
 (§9) is normative for **both membership and value**, producing each disposition from
 **live execution** keyed by the one canonical tuple `(stable surface id, field or
-return-shape, alias, mode, source kind, return variant)`, with the build failing on
-any un-dispositioned catalog field, any duplicate key, and any dataset value that
+return-shape, alias, mode, source kind, return variant, execution context id)`, with
+the build failing on any un-dispositioned catalog field, any duplicate key, and any dataset value that
 disagrees with the executed surface. The table below is an **illustrative interim
 projection**: its values are corrected where round 8 executed them, but where a value
 depends on mode/kind/variant the **dataset's executed value governs**. Every surface
@@ -1528,10 +1644,10 @@ Its v1 content:
 | `process.argv[1]` | per mode | see the mode table below |
 | `process.execArgv` | `non-path` (premise) | its values are runtime flags, not paths (registry edge: authorizable `sys:read`, not `closed`). The `non-path` disposition **rests on the premise** that armed `execArgv` contains no path-valued flag — but `build_exec_argv` (`src/bin/ibex/runtime.rs:942`) splices operator-supplied `EXACT_COMPAT_EXEC_ARGV` through unvalidated, and a future `--project <hostdir>` there would falsify it. The dataset records the premise so `non-path` is **re-forced** if a path-valued flag is added; operator-supplied values are the operator's own data (like user argv), not a runtime-originated host path |
 | `__filename` / `__dirname` | `virtual-absolute` / `absent` | virtual spellings in **file-backed** modules; **absent** in a module with no file (`ibex:stdin`) and where there is no module |
-| `import.meta.url` | `virtual-absolute` / `synthetic-source-id` | the module's virtual `file:///project/…` URL for a **file-backed** module; the **synthetic identity** for a synthetic one — `import.meta.url === "ibex:stdin"` in program mode, as LLP 0022 and LLP 0024 require. It is not always a file URL. |
-| `import.meta.path`, `.filename` | `virtual-absolute` / `absent` | the virtual path; **absent** where the module has no file |
-| `import.meta.dirname`, `.dir` | `virtual-absolute` / `absent` | the virtual directory; **absent** where the module has no file |
-| `import.meta.file` | `virtual-basename` | **the basename only** — it is `__filename.split('/').pop()` today (`src/engine/bootstrap/module-loader.js:3563`), not a path, and the table must say so |
+| `import.meta.url` | `virtual-absolute` / `synthetic-source-id` / `refused` | the module's virtual `file:///project/…` URL for a **file-backed** module; `"ibex:stdin"` for program-stdin's module-goal synthetic source; and the named `IBEX_SCRIPT_IMPORT_META_NOT_ALLOWED` source-admission refusal in script-goal eval and REPL, as LLP 0022 §5 and LLP 0024 §3 require. It is not always a file URL. |
+| `import.meta.path`, `.filename` | `virtual-absolute` / `absent` | the virtual path; **absent** for the program-stdin module source, which has no file. Script-goal eval and REPL reject `import.meta` before property access. |
+| `import.meta.dirname`, `.dir` | `virtual-absolute` / `absent` | the virtual directory; **absent** for the program-stdin module source, which has no file. Script-goal eval and REPL reject `import.meta` before property access. |
+| `import.meta.file` | `virtual-basename` / `empty` | **the basename only** for a file-backed module — it is `__filename.split('/').pop()` today (`src/engine/bootstrap/module-loader.js:3563`), not a path — and the empty basename value for program-stdin's module source. Script-goal eval and REPL reject `import.meta` before property access. |
 | `require.resolve` — **file-backed** result | `virtual-absolute` | a resolved file path |
 | `require.resolve` — **builtin** result | `synthetic-source-id` | returns the builtin **id**, e.g. `require.resolve("fs") === "fs"` (`module-loader.js:5786`), not a path |
 | `module.paths` | `virtual-absolute` | virtual spellings |
@@ -1616,6 +1732,28 @@ private bootstrap capture or converted to take and return typed logical values.
 LLP 0022 §7 owns the **single generated inventory** of every root-reachable native
 bridge; this document's bridge rows are a **projection of that one inventory**, not
 a second list.
+
+The POSIX armed realpath adapter uses one such private conversion boundary:
+`ibex_private_vfs_project_realpath(runtime_nonce, requested_virtual,
+canonical_backing, out_virtual, out_virtual_len, out_errno)` consumes the canonical
+identity of an already-retained native target, revalidates the exact runtime VFS
+session and authenticated mount, and transfers only an explicit-length canonical
+virtual spelling. Its status is the versioned VFS result discriminant and its output
+buffer is freed with `ex_host_free_buffer`; every failure initializes the output to
+null/zero. It is deliberately an internal `ibex_private_*` linker symbol, not an
+embedder ABI. The historical `ex_host_fs_realpath`,
+`ex_host_fs_mkdir_recursive_result`, recursive form of `ex_host_fs_mkdir`, and
+`ex_host_fs_mkdtemp` are diagnostic/unarmed compatibility bridges: an armed Host
+returns `EPERM` before lookup, randomness, or creation. Thus an armed route can
+neither obtain a backing spelling from those legacy symbols nor bypass the v1
+closed-operation ordering for recursive mkdir or `mkdtemp`.
+
+The Windows realpath route is narrower and remains unpromotable: it canonicalizes
+the backing path and projects only the virtual spelling, so it closes the raw-path
+disclosure, but it does not yet retain a target handle or revalidate object identity
+before and after canonicalization. Windows target promotion therefore requires a
+handle-based retained-target implementation and a rename/symlink-race fixture; the
+string projection alone is not an object-identity proof.
 
 ### 7. The typed logical-path ABI, runtime locality, and errors
 
@@ -1992,12 +2130,19 @@ Therefore:
   the "join" §6 depends on has no left-hand side, and an unmarked new field would
   escape silently — the exact failure §6 exists to prevent. The registry therefore
   gains a dataset keyed by the **one canonical tuple** `(stable surface id, field or
-  return-shape, alias, mode, source kind, return variant)` — the identical spelling in
-  §6 and the §9 ledger row — carrying a **mandatory** disposition from §6's closed set,
-  generated from **live execution**. Validation fails the build on any un-dispositioned
-  field, any duplicate key, or any value disagreeing with the executed surface. §6's
-  table, the bridge-sealing assertions, and the fixtures are all projections of this
-  dataset.
+  return-shape, alias, mode, source kind, return variant, execution context id)` — the
+  identical spelling in §6 and the §9 ledger row — carrying a **mandatory** disposition
+  from §6's closed set, generated from **live execution**. The context id binds the
+  principal class, access phase, runtime state, and target scope, so a cold package
+  import, a trusted preload/cache read, and a callable invocation cannot collapse into
+  one `mode: all` result. Alongside the rows, the catalog carries the exact one-per-id
+  surface accounts defined in §6; any unresolved account prevents promotion.
+  Validation fails the build on any missing or duplicate account, any output row on a
+  non-output account, any output-bearing account without a row, any un-dispositioned
+  field, any duplicate key, or any value disagreeing with the executed surface. A
+  compiled registrar can satisfy structural provenance only, never a value observation.
+  §6's table, the bridge-sealing assertions, and the fixtures are all projections of
+  this dataset.
 - **The arming containment invariant** (§1.2) is a new armed-snapshot invariant.
   LLP 0021's invariant list should absorb it so the two documents cannot drift on
   what arming refuses.
@@ -2073,7 +2218,7 @@ not survive reading past the quoted line.
 | `OBL-CWD-ACTIONS` | The two authorable cwd actions and their resources, globality, and channels (§8); retire the deny-only `process:cwd` row | **LLP 0021** registry | no | `commit:3060574776a3` |
 | `OBL-CWD-SCHEMA` | Version the capability schema, selector/occurrence unions, Rust model, canonical bytes, containment, and cache identity to admit a `session-state` resource kind, a `session-scoped` globality, and a **core-enforced root-only predicate** — none of which exist today (§8). Also: the stricter non-root profile is a **no-effect constant projection** to `/project`, not a denial — a binary denial cannot produce the sanitized success AC 13 requires. | **LLP 0021** schema | no | `commit:3060574776a3` |
 | `OBL-CWD-FLOOR` | Synthesize the universal static-floor row admitting every principal to `path:cwd-observe` — `sys:read` permits it, but no shipped artifact authors one (§8) | **LLP 0014** generator | no | `commit:3060574776a3` |
-| `OBL-DISPOSITION-DATASET` | The output-disposition dataset keyed by the **one canonical tuple** `(stable surface id, field or return-shape, alias, mode, source kind, return variant)` — the identical spelling in §6, §8, and here. It carries the independent output-shape **catalog** (the join's left side), the **bidirectional** validation, and generates each disposition **from live execution**, with the build failing on any un-dispositioned catalog field, any **duplicate key**, and any dataset **value** disagreeing with the executed surface. Includes the `non-path`/`typed-logical`/`reserved-constant` members. | **LLP 0021** registry | no | `commit:3060574776a3` |
+| `OBL-DISPOSITION-DATASET` | The output-disposition dataset keyed by the **one canonical tuple** `(stable surface id, field or return-shape, alias, mode, source kind, return variant, execution context id)` — the identical spelling in §6, §8, and here. It carries the independent output-shape **catalog** (the join's left side), exactly one source-derived account for every coverage surface id (`output-bearing` / `structural-only` / `unresolved`), and the **bidirectional** validation. An unresolved account prevents promotion; structural registrar presence never satisfies a value row. Each disposition is generated **from live execution**, with the build failing on any missing/duplicate account, un-dispositioned catalog field, **duplicate key**, or dataset **value** disagreeing with the executed surface. Includes the `non-path`/`typed-logical`/`reserved-constant` members. | **LLP 0021** registry | no | `commit:3060574776a3` |
 | `OBL-BRIDGE-PROJECTION` | This document's path-bearing bridge rows are a projection of LLP 0022 §7's single generated inventory, not a second list (§6) | **LLP 0022** | no | `sha256:88decefdc683` (0022) |
 | `OBL-MODULE-IDENTITY` | Keep LLP 0024's module-identity text aligned with §2.3. §7.9 defers correctly, but at the stamped revision **three 0024-side edits are outstanding**: its "one instance however it was spelled / across spellings" contradicts §2.3's **case-alias split**; its AC pluralizes synthetic modules where only `ibex:stdin` is one; and its OQ 10 (`0024:2139`) still says LLP 0023 leaves canonical display labeling open, though §2.3 now **pins** `SourceLabel`. | **LLP 0024** | 0024 edits outstanding | `sha256:6416ccb8c3c2` (0024) |
 | `OBL-ERROR-ORDER` | §7.2 owns the total order; 0024 §2 defers to it ("LLP 0023 §7.2 owns the total order … this document does not restate it") — **0024 half landed**. The **0022 half is outstanding**: LLP 0022:471 says habitual host spellings produce the outside-mount error "from watches and every effectful filesystem operation," which is order-relevant and **inconsistent** with §4.1/§7.2 closing `watch` with `EPERM` *before* path work. A 0022 edit (drop "watches", since watch is closed pre-classification) is owed. *(A prior draft of this row claimed the 0022 half was "discharged by absence" — that was **itself a false whole-document attestation**, the third instance of the completion-detector-can't-detect-its-own-incompleteness bug, and the reason `OBL-LEDGER-CHECK` below must be a reviewer-performed semantic step, not a mechanical one.)* | **LLP 0024**, **LLP 0022** | 0024 **yes**, 0022 no | `sha256:6416ccb8c3c2` (0024), `sha256:88decefdc683` (0022) |
@@ -2230,6 +2375,22 @@ vendored-generated builtins run the same fixtures. All armed execution modes
     agree **per entry** in both load orders — the round-8 correction of a prior draft
     that shared one lexically-least label across the entries and thereby re-collided
     them.
+18b. **Safe staged generated admission, without claiming full AC 18 (§2.3):** a
+    source-backed v4 CJS artifact is admitted only from the exact fresh, non-reusable
+    compiler transaction and one-dependency, one-provenance-row, one-entry-chunk form
+    above; a self-consistent preexisting cache artifact is never executable evidence.
+    The exact captured manifest and owned output bytes are descriptor-read once and
+    digest-checked against the current authenticated raw request. Raw-first and generated-first
+    execution return the identical exports object under the same SourceId; a package
+    row is registered under its exact name/locator/integrity and compiled in its exact
+    compartment; the second raw load uses the authenticated route memo and performs
+    no resolver lookup; and throw, cancellation, explicit abort, or outcome
+    materialization failure removes a new reservation. Multi-original/chunk-runtime
+    forms fall back to the authenticated raw route. A provenance-bearing HBC payload
+    is refused until the exact-single-initializer wrapper format exists. Tests MUST
+    also show that ordinary resolver output cannot mint the private generated schema
+    and that generated project code receives no dispatcher or original-module
+    registry capability.
 19r. **Resolve-only module bridges are gated (§7.2):** `require.resolve` for a
     package **not in the caller's authorized view** yields `out-of-snapshot` with **no
     resolver probe** — asserted by syscall observation, so a resolve-only route cannot
@@ -2269,12 +2430,19 @@ vendored-generated builtins run the same fixtures. All armed execution modes
     resolver `path`/`pkgRoot` payloads. The table is verified to be *generated* from
     the output-disposition dataset, and the build **fails on any un-dispositioned
     field** — not merely on a path-bearing one lacking a disposition — which
-    requires the `non-path` member to exist. `require.cache` is asserted **closed**,
+    requires the `non-path` member to exist. The catalog's surface-account ids are
+    set-equal to the coverage registry with no duplicates; every output-bearing
+    account has a row, structural-only accounts have none, and any unresolved account
+    prevents promotion. No synthetic return is created for a structural edge, and a
+    registrar-only observation cannot satisfy a value row. `require.cache` is asserted **closed**,
     and closing it is asserted **not** to close the per-module `module` object,
     which carries its own dispositions.
 22a. **`import.meta.url` is not always a file URL:** in program-stdin mode it is
-    `ibex:stdin` and `__filename`/`__dirname` are absent, exactly as LLP 0022 and
-    LLP 0024 require.
+    `ibex:stdin` and `__filename`/`__dirname` are absent. Eval and REPL are
+    script-goal entry points and refuse `import.meta` at source admission with
+    `IBEX_SCRIPT_IMPORT_META_NOT_ALLOWED`; they do not synthesize `ibex:eval` or
+    `repl:<ordinal>` as an `import.meta.url` value. This is exactly what LLP 0022
+    and LLP 0024 require.
 23. Raw path-bearing bridges (`__exactRealpath`, `__exactModuleResolve`,
     `__exactModuleResolveMeta`) are unreachable from JavaScript or return typed
     logical values only; a red-team fixture asserts each by name and fails closed;

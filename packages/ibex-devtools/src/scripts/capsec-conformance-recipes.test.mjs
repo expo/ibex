@@ -12,7 +12,9 @@ import {
   fixtureCatalogForTarget,
   fixtureExecutionPlans,
 } from "./capsec-conformance.mjs";
+import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
+import { authoredTargetAbsenceOutputBindings } from "./capsec-target-absence-output-templates.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -335,7 +337,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_834);
+    expect(callbackRecipes).toHaveLength(2_882);
     expect(
       Object.fromEntries(
         [
@@ -352,13 +354,51 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 551,
-      "generation-recheck": 551,
-      "principal-restore": 551,
-      "snapshot-mismatch-deny": 551,
-      "cannot-widen-authority": 315,
-      "post-lockdown-invariant": 315,
+      "attribution-missing-deny": 553,
+      "generation-recheck": 553,
+      "principal-restore": 553,
+      "snapshot-mismatch-deny": 553,
+      "cannot-widen-authority": 335,
+      "post-lockdown-invariant": 335,
     });
+    for (const terminalObservedKey of [
+      "native-op:__exactOnRejectionHandled",
+      "native-op:__exactOnUnhandledRejection",
+    ]) {
+      expect(
+        callbackRecipes
+          .filter(
+            (recipe) => recipe.terminalObservedKey === terminalObservedKey,
+          )
+          .map((recipe) => recipe.scenario)
+          .sort(),
+      ).toEqual([
+        "attribution-missing-deny",
+        "generation-recheck",
+        "principal-restore",
+        "snapshot-mismatch-deny",
+      ]);
+    }
+    expect(
+      callbackRecipes
+        .filter(
+          (recipe) =>
+            recipe.terminalObservedKey ===
+            "host-abi:ex_hermes_structured_session_bind",
+        )
+        .map((recipe) => recipe.scenario)
+        .sort(),
+    ).toEqual(["cannot-widen-authority", "post-lockdown-invariant"]);
+    expect(
+      callbackRecipes
+        .filter(
+          (recipe) =>
+            recipe.terminalObservedKey ===
+            "host-abi:ex_host_authorize_typed_listen_stack",
+        )
+        .map((recipe) => recipe.scenario)
+        .sort(),
+    ).toEqual(["cannot-widen-authority", "post-lockdown-invariant"]);
     for (const terminalObservedKey of [
       "native-op:__ibexCompartmentBaselineFinalized",
       "native-op:__ibexCompartmentRegistryReady",
@@ -559,6 +599,16 @@ describe("exact-target CapSec executable recipes", () => {
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
     );
+    const outputCatalog = readJson("capsec/generated/output-shape-catalog.json");
+    const coverage = readJson("capsec/registry/coverage-edges.json");
+    const rules = readJson("capsec/registry/policy-rules.json");
+    const target = rules.initialProfile.candidateTargets[0];
+    const bindings = authoredTargetAbsenceOutputBindings({
+      catalog: outputCatalog,
+      recipeCatalog: recipes,
+      coverage,
+      target,
+    });
     const ios = rows.find(
       (recipe) =>
         recipe.publicSurfaceProbe.invocation.surfaceName ===
@@ -644,6 +694,80 @@ describe("exact-target CapSec executable recipes", () => {
         expectedTypedDecisionCount: 0,
       },
     });
+
+    expect(bindings).toHaveLength(110);
+    expect(
+      bindings.filter((binding) => binding.key.sourceKind === "host-abi"),
+    ).toHaveLength(56);
+    expect(
+      bindings.filter((binding) => binding.key.sourceKind === "native-op"),
+    ).toHaveLength(54);
+    expect(
+      bindings.filter(
+        (binding) =>
+          binding.invocationSchema ===
+          "ibex/capsec-target-absence-invocation/1",
+      ),
+    ).toHaveLength(102);
+    expect(
+      bindings.filter(
+        (binding) =>
+          binding.invocationSchema ===
+          "ibex/capsec-native-global-invocation/1",
+      ),
+    ).toHaveLength(8);
+
+    const policy = readJson("capsec/registry/output-disposition-policy.json");
+    const targetAbsentSurfaceIds = new Set(
+      bindings.map((binding) => binding.key.surfaceId),
+    );
+    const targetAbsentDecisions = policy.overrides.filter((decision) =>
+      targetAbsentSurfaceIds.has(decision.key.surfaceId),
+    );
+    const expectedKeys = bindings.map((binding) =>
+      canonicalOutputDispositionKey(binding.key),
+    );
+    const actualKeys = targetAbsentDecisions
+      .map((decision) => canonicalOutputDispositionKey(decision.key))
+      .sort();
+    expect(actualKeys).toEqual(expectedKeys);
+    expect(targetAbsentDecisions).toHaveLength(110);
+    expect(
+      targetAbsentDecisions.every(
+        (decision) =>
+          decision.disposition === "absent" &&
+          decision.expectation.outcome === "absent" &&
+          decision.expectation.normalizedValue === "absent" &&
+          /target-absence recipe/u.test(decision.rationale),
+      ),
+    ).toBe(true);
+
+    const windowsCryptoId =
+      "surface.loader.function.javascript.makewindowscryptomodule.0029u8l";
+    expect(targetAbsentSurfaceIds.has(windowsCryptoId)).toBe(false);
+    expect(
+      policy.overrides.some(
+        (decision) =>
+          decision.key.surfaceId === windowsCryptoId &&
+          decision.disposition === "absent",
+      ),
+    ).toBe(false);
+    const implementation = readJson(
+      "capsec/generated/implementation-manifest.json",
+    );
+    expect(
+      implementation.surfaces
+        .filter((surface) => surface.edgeId === windowsCryptoId)
+        .map((surface) => surface.targetVariant),
+    ).toEqual(["all"]);
+    const loaderSource = fs.readFileSync(
+      path.join(repoRoot, "src/engine/bootstrap/module-loader.js"),
+      "utf8",
+    );
+    expect(loaderSource).toContain("function makeWindowsCryptoModule() {");
+    expect(loaderSource).toContain(
+      "if (isWindowsRuntime()) {\n    internalModules.crypto = makeWindowsCryptoModule();",
+    );
   });
 
   test("binds closed startup environment controls to the production entry", () => {
@@ -767,7 +891,12 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.classification === "effects" &&
         recipe.terminalObservedKey.startsWith("startup:env:"),
     );
-    expect(startupEnvironmentRecipes).toHaveLength(668);
+    expect(startupEnvironmentRecipes).toHaveLength(680);
+    expect(
+      startupEnvironmentRecipes.filter(
+        (recipe) => recipe.terminalObservedKey === "startup:env:CLICOLOR_FORCE",
+      ),
+    ).toHaveLength(12);
     const authored = startupEnvironmentRecipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
@@ -869,7 +998,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(659);
+    ).toHaveLength(671);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>
@@ -1059,7 +1188,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "cli-control",
     );
-    expect(rows).toHaveLength(134);
+    expect(rows).toHaveLength(114);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
     );
@@ -1094,24 +1223,48 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       },
     });
-    const evalCommand = rows.find(
-      (recipe) => recipe.terminalObservedKey === "cli:command:ibex%20eval",
+    // Eval and REPL are authenticated product ingress now, not closed CLI
+    // controls. Their 20 parser/command spellings must not be claimed by the
+    // production-closure harness.
+    const authenticatedIngressCliSurfaces = new Set([
+      "cli:argument-parser:ibex:eval_code:utf8-string",
+      "cli:argument-parser:ibex:print_eval:utf8-string",
+      "cli:command:ibex%20eval",
+      "cli:command:ibex%20repl",
+      "cli:eval",
+      "cli:option:ibex:eval_code:action:Set",
+      "cli:option:ibex:eval_code:arity:1:1",
+      "cli:option:ibex:eval_code:value-name:CODE",
+      "cli:option:ibex:print_eval:action:Set",
+      "cli:option:ibex:print_eval:arity:1:1",
+      "cli:option:ibex:print_eval:value-name:CODE",
+      "cli:option-name:ibex:eval_code:-e",
+      "cli:option-name:ibex:eval_code:--eval",
+      "cli:option-name:ibex:print_eval:-p",
+      "cli:option-name:ibex:print_eval:--print",
+      "cli:positional:ibex%20eval:code",
+      "cli:positional:ibex%20eval:code:action:Set",
+      "cli:positional:ibex%20eval:code:arity:1:1",
+      "cli:positional:ibex%20eval:code:value-name:CODE",
+      "cli:repl",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          !authenticatedIngressCliSurfaces.has(recipe.terminalObservedKey),
+      ),
+    ).toBe(true);
+    const authenticatedIngressRows = recipes.recipes.filter((recipe) =>
+      authenticatedIngressCliSurfaces.has(recipe.terminalObservedKey),
     );
-    expect(evalCommand.publicSurfaceProbe.invocation.operation).toMatchObject({
-      kind: "cli-control",
-      argumentVectors: [
-        {
-          spelling: "ibex eval",
-          args: [
-            "eval",
-            "globalThis.__IBEX_CAPSEC_CLOSED_CLI_EVALUATED__ = true",
-          ],
-        },
-      ],
-      expectedRejectionFragments: [
-        "closes ad-hoc evaluation, REPL, and debug commands",
-      ],
-    });
+    expect(authenticatedIngressRows).toHaveLength(20);
+    expect(
+      authenticatedIngressRows.every(
+        (recipe) =>
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability",
+      ),
+    ).toBe(true);
     expect(
       rows.filter(
         (recipe) =>
@@ -1578,10 +1731,18 @@ describe("exact-target CapSec executable recipes", () => {
     );
   });
 
-  test("binds direct system-info calls to exact typed selectors and stages", () => {
-    for (const { globalName, name } of [
-      { globalName: "__exactGetProcessRSS", name: "memory" },
-      { globalName: "__exactGetCwd", name: "cwd" },
+  test("binds direct system-state calls to exact typed selectors and stages", () => {
+    for (const { globalName, actionId, resource } of [
+      {
+        globalName: "__exactGetProcessRSS",
+        actionId: "sys:read",
+        resource: { kind: "system-info", name: "memory" },
+      },
+      {
+        globalName: "__exactGetCwd",
+        actionId: "path:cwd-observe",
+        resource: { kind: "session-state", name: "cwd" },
+      },
     ]) {
       const directSystemInfo = recipes.recipes.filter(
         (recipe) =>
@@ -1594,18 +1755,18 @@ describe("exact-target CapSec executable recipes", () => {
       ]);
       for (const recipe of directSystemInfo) {
         expect(recipe).toMatchObject({
-          actionIds: ["sys:read"],
+          actionIds: [actionId],
           status: "fully-executable",
           residualReasons: [],
           publicSurfaceProbe: {
             invocation: {
               requiredFloor: [
                 {
-                  cap: "sys:read",
-                  resource: { kind: "system-info", name },
+                  cap: actionId,
+                  resource,
                 },
               ],
-              expectedActionIds: ["sys:read"],
+              expectedActionIds: [actionId],
             },
           },
         });

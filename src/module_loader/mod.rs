@@ -28,6 +28,83 @@ pub enum ModuleKind {
     Builtin,
 }
 
+/// Opaque compatibility referrer for an unarmed/dev Host. The backing path is
+/// retained in the Host registry and never serialized; the virtual spelling is
+/// a synthetic display identity only. Armed records always use
+/// [`crate::vfs::ResolverLogicalPath`] instead.
+#[derive(Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PrivateResolverPath {
+    schema: String,
+    session_handle: String,
+    handle: String,
+    virtual_path: String,
+}
+
+impl PrivateResolverPath {
+    pub(crate) fn new(
+        session_handle: String,
+        handle: String,
+        virtual_path: String,
+    ) -> anyhow::Result<Self> {
+        if !resolver_session_handle_is_canonical(&session_handle)
+            || !private_resolver_handle_is_canonical(&handle)
+            || virtual_path != format!("/project/.ibex-resolver/{handle}")
+        {
+            anyhow::bail!("invalid private resolver path record");
+        }
+        Ok(Self {
+            schema: "ibex/private-resolver-ref/1".into(),
+            session_handle,
+            handle,
+            virtual_path,
+        })
+    }
+
+    pub fn schema(&self) -> &str {
+        &self.schema
+    }
+
+    pub fn handle(&self) -> &str {
+        &self.handle
+    }
+
+    pub fn session_handle(&self) -> &str {
+        &self.session_handle
+    }
+
+    pub fn virtual_path(&self) -> &str {
+        &self.virtual_path
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        if self.schema != "ibex/private-resolver-ref/1"
+            || !resolver_session_handle_is_canonical(&self.session_handle)
+            || !private_resolver_handle_is_canonical(&self.handle)
+            || self.virtual_path != format!("/project/.ibex-resolver/{}", self.handle)
+        {
+            anyhow::bail!("invalid private resolver path record");
+        }
+        Ok(())
+    }
+}
+
+fn resolver_session_handle_is_canonical(handle: &str) -> bool {
+    handle.len() == 19
+        && handle.starts_with("mrs")
+        && handle[3..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn private_resolver_handle_is_canonical(handle: &str) -> bool {
+    handle.len() == 17
+        && handle.starts_with('r')
+        && handle[1..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 #[derive(Debug, Clone)]
 pub struct ResolvedModule {
     pub id: String,
@@ -55,14 +132,39 @@ pub struct ResolvedModule {
     /// resolver leaves this unset; `Host::resolve_module_meta` fills it only
     /// after matching the exact verified package-root binding.
     pub package_integrity: Option<String>,
+    /// Authenticated module-cache identity. Builtins receive their manifest
+    /// source key immediately; armed file modules receive identity only after
+    /// their canonical path and bytes have been reauthenticated.
+    pub source_id: Option<crate::vfs::SourceId>,
+    /// Deterministic virtual display identity paired with a file `source_id`.
+    pub source_label: Option<crate::vfs::SourceLabel>,
+    /// Virtual absolute path used by module/import-meta observables. It is
+    /// deliberately separate from the native-only resolver path above.
+    pub virtual_path: Option<String>,
+    /// Host-independent path record serialized as resolver `path`. The native
+    /// host path above is retained only inside Rust and never crosses into JS.
+    pub resolver_path: Option<crate::vfs::ResolverLogicalPath>,
+    /// Host-independent package binding root serialized as resolver `pkgRoot`.
+    /// Project and builtin records leave this absent.
+    pub resolver_package_root: Option<crate::vfs::ResolverLogicalPath>,
+    /// Opaque unarmed/dev fallback retained by Host. Mutually exclusive with
+    /// `resolver_path`; it contains no backing spelling.
+    pub private_resolver_path: Option<PrivateResolverPath>,
+    pub private_resolver_package_root: Option<PrivateResolverPath>,
 }
 
 pub struct ModuleLoader {
-    builtins: HashMap<String, String>,
+    builtins: HashMap<String, BuiltinModule>,
     resolver: Resolver,
     /// Memoized `version` per package root dir (the nearest `package.json`), so
     /// version derivation is one read per package, not per module. (ENG-22621)
     package_versions: std::sync::RwLock<HashMap<PathBuf, Option<String>>>,
+}
+
+#[derive(Clone)]
+struct BuiltinModule {
+    source_key: &'static str,
+    source: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -99,47 +201,84 @@ impl Default for ModuleLoader {
     }
 }
 
+fn module_resolve_options(module_type: bool) -> ResolveOptions {
+    ResolveOptions {
+        extensions: vec![
+            ".js".into(),
+            ".cjs".into(),
+            ".mjs".into(),
+            ".ts".into(),
+            ".tsx".into(),
+            ".jsx".into(),
+            ".mts".into(),
+            ".cts".into(),
+            ".json".into(),
+        ],
+        condition_names: vec![
+            "node".into(),
+            "require".into(),
+            "import".into(),
+            "default".into(),
+        ],
+        module_type,
+        // TS NodeNext convention: `./x.js` in TS sources refers to `./x.ts`
+        // on disk. Real `.js` files keep priority, mirroring Vite's resolution
+        // on the web side. @ref LLP 0004#the-oxc_resolver-configuration
+        extension_alias: vec![
+            (
+                ".js".into(),
+                vec![".js".into(), ".ts".into(), ".tsx".into()],
+            ),
+            (".mjs".into(), vec![".mjs".into(), ".mts".into()]),
+            (".cjs".into(), vec![".cjs".into(), ".cts".into()]),
+        ],
+        ..ResolveOptions::default()
+    }
+}
+
 impl ModuleLoader {
     pub fn new() -> Self {
         let builtins = build_builtin_registry(BUILTIN_MANIFEST_REGISTRATIONS);
 
-        let options = ResolveOptions {
-            extensions: vec![
-                ".js".into(),
-                ".cjs".into(),
-                ".mjs".into(),
-                ".ts".into(),
-                ".tsx".into(),
-                ".jsx".into(),
-                ".mts".into(),
-                ".cts".into(),
-                ".json".into(),
-            ],
-            condition_names: vec![
-                "node".into(),
-                "require".into(),
-                "import".into(),
-                "default".into(),
-            ],
-            // TS NodeNext convention: `./x.js` in TS sources refers to `./x.ts`
-            // on disk. Real `.js` files keep priority, mirroring Vite's
-            // resolution on the web side. @ref LLP 0004#the-oxc_resolver-configuration
-            extension_alias: vec![
-                (
-                    ".js".into(),
-                    vec![".js".into(), ".ts".into(), ".tsx".into()],
-                ),
-                (".mjs".into(), vec![".mjs".into(), ".mts".into()]),
-                (".cjs".into(), vec![".cjs".into(), ".cts".into()]),
-            ],
-            ..ResolveOptions::default()
-        };
-
         Self {
             builtins,
-            resolver: Resolver::new(options),
+            resolver: Resolver::new(module_resolve_options(false)),
             package_versions: std::sync::RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Resolve only the kind metadata for one already-authorized direct file.
+    /// The ordinary synchronous loader intentionally keeps its historical
+    /// resolver configuration; direct `.js` ingress opts into OXC package
+    /// `type` classification so the Host, rather than operator input or source
+    /// sniffing, closes the authenticated ESM/CommonJS shape.
+    ///
+    /// The caller must complete target authorization before invoking this
+    /// method because OXC may inspect an enclosing package manifest.
+    /// @ref LLP 0024#4-grammar-selection
+    pub(crate) fn resolve_direct_file_meta(&self, path: &Path) -> Result<ResolvedModule> {
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow!("direct file has no parent directory"))?;
+        let name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or_else(|| anyhow!("direct file name is not UTF-8"))?;
+        let resolver = Resolver::new(module_resolve_options(true));
+        let resolved =
+            self.resolve_with_resolver_at(&resolver, &format!("./{name}"), parent, false)?;
+        let expected = std::fs::canonicalize(path)
+            .with_context(|| format!("failed to authenticate direct file {}", path.display()))?;
+        let actual = resolved
+            .path
+            .as_deref()
+            .ok_or_else(|| anyhow!("direct file resolver returned no path"))?
+            .canonicalize()
+            .with_context(|| "failed to authenticate resolved direct file")?;
+        if actual != expected {
+            anyhow::bail!("direct file resolver selected a different path");
+        }
+        Ok(resolved)
     }
 
     /// The `version` of the package that owns `path`, when `path` is under a
@@ -185,6 +324,12 @@ impl ModuleLoader {
         if specifier.is_empty() {
             return Err(anyhow!("Empty module specifier"));
         }
+        // A query or fragment decorates a file-module request; it is not part
+        // of the authenticated file identity or the resolver lookup. Keep
+        // package imports/builtins untouched so `#imports` and authored
+        // builtin names cannot be reinterpreted as paths.
+        // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+        let specifier = strip_file_module_decorations(specifier);
         if specifier.starts_with('#') {
             if let Some(referrer_path) = referrer {
                 if let Some(module) = self.resolve_package_import(specifier, referrer_path) {
@@ -193,16 +338,23 @@ impl ModuleLoader {
             }
             return Err(anyhow!("Failed to resolve package import {}", specifier));
         }
-        if let Some(source) = self.builtins.get(specifier) {
+        if let Some(builtin) = self.builtins.get(specifier) {
             return Ok(ResolvedModule {
                 id: specifier.to_string(),
                 kind: ModuleKind::Builtin,
                 path: None,
-                source: Some(source.clone()),
+                source: Some(builtin.source.clone()),
                 package_name: None,
                 package_root: None,
                 package_version: None,
                 package_integrity: None,
+                source_id: Some(crate::vfs::SourceId::builtin(builtin.source_key)),
+                source_label: None,
+                virtual_path: None,
+                resolver_path: None,
+                resolver_package_root: None,
+                private_resolver_path: None,
+                private_resolver_package_root: None,
             });
         }
 
@@ -307,6 +459,13 @@ impl ModuleLoader {
             package_root: package_root_for_record,
             package_version,
             package_integrity: None,
+            source_id: None,
+            source_label: None,
+            virtual_path: None,
+            resolver_path: None,
+            resolver_package_root: None,
+            private_resolver_path: None,
+            private_resolver_package_root: None,
         })
     }
 
@@ -318,9 +477,12 @@ impl ModuleLoader {
             .path
             .as_ref()
             .ok_or_else(|| anyhow!("Module path missing"))?;
-        let source = self
+        let (source, downleveled) = self
             .load_module_source(path)
             .with_context(|| format!("Failed to read module {}", path.display()))?;
+        if downleveled {
+            module.kind = ModuleKind::CommonJs;
+        }
         module.source = Some(source);
         Ok(module)
     }
@@ -340,26 +502,29 @@ impl ModuleLoader {
             .ok_or_else(|| anyhow!("Module path missing"))?;
         let source = String::from_utf8(bytes)
             .with_context(|| format!("Module source is not valid UTF-8: {}", path.display()))?;
-        let source = if Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source) {
+        let downleveled = Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source);
+        let source = if downleveled {
             let target = Self::transpile_target_for_source(&source);
             self.transpile_module(path, target, &source)?
         } else {
             source
         };
-        // Discard any resolver prefetch: only the bytes captured by the
-        // integrity traversal are eligible for execution.
+        if downleveled {
+            module.kind = ModuleKind::CommonJs;
+        }
         module.source = Some(source);
         Ok(module)
     }
 
-    fn load_module_source(&self, path: &Path) -> Result<String> {
+    fn load_module_source(&self, path: &Path) -> Result<(String, bool)> {
         let source = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read module {}", path.display()))?;
-        if Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source) {
+        let downleveled = Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source);
+        if downleveled {
             let target = Self::transpile_target_for_source(&source);
-            return self.transpile_module(path, target, &source);
+            return Ok((self.transpile_module(path, target, &source)?, true));
         }
-        Ok(source)
+        Ok((source, false))
     }
 
     fn needs_transpile(path: &Path) -> bool {
@@ -867,7 +1032,17 @@ impl ModuleLoader {
         base_dir: &Path,
         retry_bare_as_relative: bool,
     ) -> Result<ResolvedModule> {
-        let resolution = match self.resolver.resolve(&base_dir, specifier) {
+        self.resolve_with_resolver_at(&self.resolver, specifier, base_dir, retry_bare_as_relative)
+    }
+
+    fn resolve_with_resolver_at(
+        &self,
+        resolver: &Resolver,
+        specifier: &str,
+        base_dir: &Path,
+        retry_bare_as_relative: bool,
+    ) -> Result<ResolvedModule> {
+        let resolution = match resolver.resolve(&base_dir, specifier) {
             Ok(resolution) => resolution,
             Err(err) => {
                 // Native hosts pass referrer-relative entry paths without a
@@ -882,7 +1057,7 @@ impl ModuleLoader {
                     && !Path::new(specifier).is_absolute()
                     && base_dir.join(specifier).exists();
                 if path_like {
-                    self.resolver
+                    resolver
                         .resolve(&base_dir, &format!("./{specifier}"))
                         .with_context(|| format!("Failed to resolve module {}", specifier))?
                 } else {
@@ -926,24 +1101,15 @@ impl ModuleLoader {
         if full_path.extension().and_then(|e| e.to_str()) == Some("json") {
             kind = ModuleKind::Json;
         }
-        // Classify an ESM candidate with a SINGLE source read and reuse it.
-        // A TS/JSX module is detected by extension (no read) and served as CJS.
-        // Otherwise read the source once: a module that needs JS downleveling
-        // flips to CJS and is (re)read by the transpile path; a plain ESM module
-        // is served verbatim, so we stash the source we already read on the
-        // resolved module and let `load_source` skip the redundant second read
-        // and downlevel re-scan on the hot path (modern ESM-heavy node_modules).
-        let mut prefetched_source: Option<String> = None;
-        if kind == ModuleKind::Esm {
-            if Self::needs_transpile(&full_path) {
-                kind = ModuleKind::CommonJs;
-            } else if let Ok(source) = std::fs::read_to_string(&full_path) {
-                if Self::needs_js_downlevel(&full_path, &source) {
-                    kind = ModuleKind::CommonJs;
-                } else {
-                    prefetched_source = Some(source);
-                }
-            }
+        // Metadata-only resolution must never open the module body. Armed
+        // callers have completed only the requested stage here; source bytes
+        // are read after discovery/commit through `load_source` or supplied by
+        // the authenticated package/VFS traversal through `load_source_bytes`.
+        // Content-dependent downlevel classification is deferred to that same
+        // authorized read so metadata resolution cannot become a read bypass.
+        // @ref LLP 0023#21-staged-authorization-identity
+        if kind == ModuleKind::Esm && Self::needs_transpile(&full_path) {
+            kind = ModuleKind::CommonJs;
         }
 
         let (mut package_name, mut package_root) =
@@ -971,11 +1137,18 @@ impl ModuleLoader {
             id: full_path.to_string_lossy().to_string(),
             kind,
             path: Some(full_path),
-            source: prefetched_source,
+            source: None,
             package_name,
             package_root,
             package_version,
             package_integrity: None,
+            source_id: None,
+            source_label: None,
+            virtual_path: None,
+            resolver_path: None,
+            resolver_package_root: None,
+            private_resolver_path: None,
+            private_resolver_package_root: None,
         })
     }
 }
@@ -990,11 +1163,111 @@ fn read_package_manifest(path: &Path) -> Result<Value> {
 
 /// Hash the complete installed package content tree using the same record
 /// format as the policy generator. Nested `node_modules` and VCS metadata are
-/// separate graph/store state; symlinks and special files are rejected rather
-/// than allowing content identity to escape the authenticated root.
+/// separate graph/store state. Regular files bind their bytes; symlinks bind
+/// their raw target spelling so workspace/store layouts remain usable without
+/// treating first-party targets as package-owned source.
 /// @ref LLP 0021#decision-staging-and-principal-semantics
 pub fn package_tree_integrity(root: &Path) -> Result<String> {
-    package_tree_integrity_and_source(root, None, None).map(|(integrity, _)| integrity)
+    package_tree_integrity_and_source(root, None, None, false, None)
+        .map(|(integrity, _, _)| integrity)
+}
+
+/// One exact source object observed by the arming-time package integrity walk.
+/// The generation is either the platform's stable inode generation or the
+/// fixed retained-descriptor marker backed by a live descriptor in the
+/// returned inventory.
+/// @ref LLP 0023#42-authenticated-package-source-is-immutable
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct AuthenticatedPackageObject {
+    pub(crate) object: capsec_semantics::model::ObjectIdentity,
+    pub(crate) verification_generation: capsec_semantics::model::NonEmptyString,
+}
+
+/// Integrity proof and the exact object/generation set produced by the same
+/// traversal. Retained descriptors are intentionally opaque to callers; their
+/// lifetime is the armed Host lifetime and prevents reuse of an object number
+/// on platforms without a reliable generation counter.
+/// @ref LLP 0023#42-authenticated-package-source-is-immutable
+pub(crate) struct AuthenticatedPackageInventory {
+    pub(crate) integrity: String,
+    pub(crate) objects: Vec<AuthenticatedPackageObject>,
+    #[cfg(unix)]
+    pub(crate) retained_descriptors: Vec<std::fs::File>,
+}
+
+/// Authenticated binding topology used to decide the defining principal of a
+/// symlink target. Paths beneath the most-specific package binding are package
+/// source; paths only beneath the project binding remain first-party source.
+/// @ref LLP 0023#42-authenticated-package-source-is-immutable
+pub(crate) struct AuthenticatedPackageMembership {
+    project_root: PathBuf,
+    package_roots: Vec<PathBuf>,
+}
+
+impl AuthenticatedPackageMembership {
+    pub(crate) fn new(project_root: &Path, package_roots: &[PathBuf]) -> Result<Self> {
+        let project_root = std::fs::canonicalize(project_root).with_context(|| {
+            format!(
+                "failed to canonicalize authenticated project root {}",
+                project_root.display()
+            )
+        })?;
+        let mut package_roots = package_roots
+            .iter()
+            .map(|root| {
+                std::fs::canonicalize(root).with_context(|| {
+                    format!(
+                        "failed to canonicalize authenticated package root {}",
+                        root.display()
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if let Some(outside) = package_roots
+            .iter()
+            .find(|root| !root.starts_with(&project_root))
+        {
+            anyhow::bail!(
+                "authenticated package root {} is outside project root {}",
+                outside.display(),
+                project_root.display()
+            );
+        }
+        package_roots.sort_by_key(|root| std::cmp::Reverse(root.components().count()));
+        package_roots.dedup();
+        Ok(Self {
+            project_root,
+            package_roots,
+        })
+    }
+
+    fn target_is_package_defined(&self, target: &Path) -> Result<bool> {
+        if !target.starts_with(&self.project_root) {
+            anyhow::bail!(
+                "package symlink target {} leaves authenticated project root {}",
+                target.display(),
+                self.project_root.display()
+            );
+        }
+        Ok(self
+            .package_roots
+            .iter()
+            .any(|root| target.starts_with(root)))
+    }
+}
+
+pub(crate) fn authenticated_package_inventory(
+    root: &Path,
+    expected_root: &capsec_semantics::model::ObjectIdentity,
+    membership: &AuthenticatedPackageMembership,
+) -> Result<AuthenticatedPackageInventory> {
+    let (integrity, _, inventory) =
+        package_tree_integrity_and_source(root, None, Some(expected_root), true, Some(membership))?;
+    let mut inventory = inventory.ok_or_else(|| {
+        anyhow!("package integrity traversal did not produce an authenticated object set")
+    })?;
+    inventory.integrity = integrity;
+    Ok(inventory)
 }
 
 #[cfg(test)]
@@ -1051,19 +1324,38 @@ fn package_tree_integrity_and_source(
     root: &Path,
     source_path: Option<&Path>,
     expected_root: Option<&capsec_semantics::model::ObjectIdentity>,
-) -> Result<(String, Option<Vec<u8>>)> {
+    capture_inventory: bool,
+    membership: Option<&AuthenticatedPackageMembership>,
+) -> Result<(
+    String,
+    Option<Vec<u8>>,
+    Option<AuthenticatedPackageInventory>,
+)> {
     #[cfg(unix)]
     {
-        package_tree_integrity_and_source_unix(root, source_path, expected_root)
+        package_tree_integrity_and_source_unix(
+            root,
+            source_path,
+            expected_root,
+            capture_inventory,
+            membership,
+        )
     }
     #[cfg(not(unix))]
     {
+        if capture_inventory {
+            anyhow::bail!(
+                "armed package immutability requires an object-generation adapter on this target"
+            );
+        }
+        let _ = membership;
         if expected_root.is_some() {
             anyhow::bail!(
                 "armed package source authentication requires a root-relative object handle on this target"
             );
         }
-        package_tree_integrity_and_source_path(root, source_path)
+        let (integrity, source) = package_tree_integrity_and_source_path(root, source_path)?;
+        Ok((integrity, source, None))
     }
 }
 
@@ -1072,10 +1364,16 @@ fn package_tree_integrity_and_source_unix(
     root: &Path,
     source_path: Option<&Path>,
     expected_root: Option<&capsec_semantics::model::ObjectIdentity>,
-) -> Result<(String, Option<Vec<u8>>)> {
+    capture_inventory: bool,
+    membership: Option<&AuthenticatedPackageMembership>,
+) -> Result<(
+    String,
+    Option<Vec<u8>>,
+    Option<AuthenticatedPackageInventory>,
+)> {
     use std::ffi::{CStr, CString};
     use std::os::fd::{AsRawFd, FromRawFd, RawFd};
-    use std::os::unix::ffi::OsStringExt;
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1118,6 +1416,36 @@ fn package_tree_integrity_and_source_unix(
         })
     }
 
+    fn verification_generation(fd: RawFd) -> Result<capsec_semantics::model::NonEmptyString> {
+        use capsec_semantics::model::NonEmptyString;
+
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        {
+            let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
+            if unsafe { libc::fstat(fd, status.as_mut_ptr()) } != 0 {
+                return Err(std::io::Error::last_os_error())
+                    .context("reading package object generation");
+            }
+            let status = unsafe { status.assume_init() };
+            // Apple documents st_gen as super-user-only. Unprivileged armed
+            // execution commonly observes zero, which is not a generation.
+            // In that case the Host-lifetime retained descriptor prevents the
+            // dev/inode pair from being recycled beneath the exact guard.
+            // @ref LLP 0023#42-authenticated-package-source-is-immutable
+            if status.st_gen != 0 {
+                return NonEmptyString::new(format!("apple-st-gen:{}", status.st_gen))
+                    .map_err(anyhow::Error::msg);
+            }
+            return NonEmptyString::new("retained-descriptor-v1").map_err(anyhow::Error::msg);
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        {
+            let _ = fd;
+            NonEmptyString::new("retained-descriptor-v1").map_err(anyhow::Error::msg)
+        }
+    }
+
     fn directory_names(fd: RawFd) -> Result<Vec<Vec<u8>>> {
         let dot = b".\0";
         let enumeration_fd = unsafe {
@@ -1153,14 +1481,273 @@ fn package_tree_integrity_and_source_unix(
         Ok(names)
     }
 
-    fn walk(
+    fn open_entry_no_follow(directory_fd: RawFd, name: &CString) -> Result<std::fs::File> {
+        let fd = unsafe {
+            libc::openat(
+                directory_fd,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+            )
+        };
+        if fd >= 0 {
+            return Ok(unsafe { std::fs::File::from_raw_fd(fd) });
+        }
+        let ordinary_error = std::io::Error::last_os_error();
+        if ordinary_error.raw_os_error() != Some(libc::ELOOP) {
+            return Err(ordinary_error).context("opening package entry without following it");
+        }
+
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let link_flags = libc::O_PATH | libc::O_CLOEXEC | libc::O_NOFOLLOW;
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        // O_SYMLINK is itself the Apple no-follow contract for opening the
+        // link object. Combining it with O_NOFOLLOW makes openat reject the
+        // symlink with ELOOP instead of returning its descriptor.
+        let link_flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_SYMLINK;
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "ios"
+        )))]
+        {
+            return Err(ordinary_error)
+                .context("this target cannot retain a no-follow package symlink handle");
+        }
+
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "ios"
+        ))]
+        {
+            let link_fd = unsafe { libc::openat(directory_fd, name.as_ptr(), link_flags) };
+            if link_fd < 0 {
+                return Err(std::io::Error::last_os_error())
+                    .context("opening package symlink object without following it");
+            }
+            Ok(unsafe { std::fs::File::from_raw_fd(link_fd) })
+        }
+    }
+
+    fn read_link_at(directory_fd: RawFd, name: &CString) -> Result<Vec<u8>> {
+        let mut capacity = 256usize;
+        loop {
+            let mut bytes = vec![0u8; capacity];
+            let length = unsafe {
+                libc::readlinkat(
+                    directory_fd,
+                    name.as_ptr(),
+                    bytes.as_mut_ptr().cast(),
+                    bytes.len(),
+                )
+            };
+            if length < 0 {
+                return Err(std::io::Error::last_os_error())
+                    .context("reading package symlink target");
+            }
+            let length = usize::try_from(length).context("invalid package symlink length")?;
+            if length < bytes.len() {
+                bytes.truncate(length);
+                return Ok(bytes);
+            }
+            capacity = capacity
+                .checked_mul(2)
+                .filter(|capacity| *capacity <= 1024 * 1024)
+                .ok_or_else(|| anyhow!("package symlink target exceeds the fixed size bound"))?;
+        }
+    }
+
+    fn stable_path_link(path: &Path) -> Result<(Vec<u8>, std::fs::Metadata)> {
+        let before = std::fs::symlink_metadata(path)
+            .with_context(|| format!("inspecting package symlink {}", path.display()))?;
+        if !before.file_type().is_symlink() {
+            anyhow::bail!("package symlink changed while resolving {}", path.display());
+        }
+        let first = std::fs::read_link(path)
+            .with_context(|| format!("reading package symlink {}", path.display()))?;
+        let after = std::fs::symlink_metadata(path)
+            .with_context(|| format!("revalidating package symlink {}", path.display()))?;
+        let second = std::fs::read_link(path)
+            .with_context(|| format!("re-reading package symlink {}", path.display()))?;
+        if stamp(&before) != stamp(&after)
+            || object_identity(&before)? != object_identity(&after)?
+            || first != second
+        {
+            anyhow::bail!("package symlink changed while resolving {}", path.display());
+        }
+        Ok((first.as_os_str().as_bytes().to_vec(), after))
+    }
+
+    fn normalize_absolute(path: &Path) -> Result<PathBuf> {
+        if !path.is_absolute() {
+            anyhow::bail!("package symlink resolution requires an absolute path");
+        }
+        let mut normalized = PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+        for component in path.components() {
+            match component {
+                std::path::Component::RootDir | std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    normalized.pop();
+                }
+                std::path::Component::Normal(component) => normalized.push(component),
+                std::path::Component::Prefix(_) => {
+                    anyhow::bail!("unexpected prefix in Unix package symlink")
+                }
+            }
+        }
+        Ok(normalized)
+    }
+
+    struct ResolvedPackageLink {
+        path: PathBuf,
+        metadata: Option<std::fs::Metadata>,
+    }
+
+    /// Resolve a link with Ibex's fixed 32-expansion bound instead of relying
+    /// on a platform-dependent `realpath(3)` limit. Every encountered link is
+    /// bracketed by identity/target checks and repeated objects are refused.
+    fn resolve_package_link(
+        link_path: &Path,
+        target: &[u8],
+        link_metadata: &std::fs::Metadata,
+    ) -> Result<ResolvedPackageLink> {
+        const MAX_SYMLINK_EXPANSIONS: usize = 32;
+
+        let target = PathBuf::from(std::ffi::OsString::from_vec(target.to_vec()));
+        let mut candidate = if target.is_absolute() {
+            target
+        } else {
+            link_path
+                .parent()
+                .ok_or_else(|| anyhow!("package symlink has no parent"))?
+                .join(target)
+        };
+        let mut expansions = 1usize;
+        let mut visited = std::collections::BTreeSet::new();
+        visited.insert(object_identity(link_metadata)?);
+
+        loop {
+            candidate = normalize_absolute(&candidate)?;
+            let components = candidate
+                .components()
+                .filter_map(|component| match component {
+                    std::path::Component::Normal(component) => Some(component.to_os_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let mut prefix = PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+            let mut expanded = false;
+            for (index, component) in components.iter().enumerate() {
+                prefix.push(component);
+                let metadata = match std::fs::symlink_metadata(&prefix) {
+                    Ok(metadata) => metadata,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        return Ok(ResolvedPackageLink {
+                            path: candidate,
+                            metadata: None,
+                        });
+                    }
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!("resolving package symlink target {}", prefix.display())
+                        });
+                    }
+                };
+                if !metadata.file_type().is_symlink() {
+                    continue;
+                }
+                if expansions >= MAX_SYMLINK_EXPANSIONS {
+                    anyhow::bail!(
+                        "package symlink target exceeds the fixed {MAX_SYMLINK_EXPANSIONS}-expansion bound"
+                    );
+                }
+                let (nested_target, stable_metadata) = stable_path_link(&prefix)?;
+                if !visited.insert(object_identity(&stable_metadata)?) {
+                    anyhow::bail!("package symlink cycle detected at {}", prefix.display());
+                }
+                expansions += 1;
+                let nested_target = PathBuf::from(std::ffi::OsString::from_vec(nested_target));
+                let mut replacement = if nested_target.is_absolute() {
+                    nested_target
+                } else {
+                    prefix
+                        .parent()
+                        .ok_or_else(|| anyhow!("package symlink has no parent"))?
+                        .join(nested_target)
+                };
+                for remaining in &components[index + 1..] {
+                    replacement.push(remaining);
+                }
+                candidate = replacement;
+                expanded = true;
+                break;
+            }
+            if expanded {
+                continue;
+            }
+            let metadata = match std::fs::symlink_metadata(&candidate) {
+                Ok(metadata) => Some(metadata),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("inspecting package symlink target {}", candidate.display())
+                    });
+                }
+            };
+            return Ok(ResolvedPackageLink {
+                path: candidate,
+                metadata,
+            });
+        }
+    }
+
+    fn open_path_no_follow(path: &Path) -> Result<std::fs::File> {
+        let mut options = std::fs::OpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        options
+            .open(path)
+            .with_context(|| format!("opening resolved package object {}", path.display()))
+    }
+
+    fn retain_authenticated_object(
+        opened: &std::fs::File,
+        metadata: &std::fs::Metadata,
+        display_path: &Path,
+        objects: &mut std::collections::BTreeSet<AuthenticatedPackageObject>,
+        retained_descriptors: &mut Vec<std::fs::File>,
+    ) -> Result<()> {
+        let generation = verification_generation(opened.as_raw_fd())?;
+        let authenticated = AuthenticatedPackageObject {
+            object: object_identity(metadata)?,
+            verification_generation: generation,
+        };
+        if objects.insert(authenticated) {
+            retained_descriptors.push(opened.try_clone().with_context(|| {
+                format!(
+                    "retaining authenticated package object {}",
+                    display_path.display()
+                )
+            })?);
+        }
+        Ok(())
+    }
+
+    fn walk_authenticated_package_tree(
         root: &Path,
         directory_fd: RawFd,
         relative_directory: &Path,
         source_relative: Option<&Path>,
         capture_source: bool,
+        capture_inventory: bool,
+        membership: Option<&AuthenticatedPackageMembership>,
         records: &mut Vec<(String, String)>,
         captured_source: &mut Option<Vec<u8>>,
+        objects: &mut std::collections::BTreeSet<AuthenticatedPackageObject>,
+        retained_descriptors: &mut Vec<std::fs::File>,
     ) -> Result<()> {
         let before_fd = unsafe { libc::dup(directory_fd) };
         if before_fd < 0 {
@@ -1179,24 +1766,14 @@ fn package_tree_integrity_and_source_unix(
                 pause_before_authenticated_source_open(&root.join(&relative_path));
             }
             let c_name = CString::new(name.clone())?;
-            let fd = unsafe {
-                libc::openat(
-                    directory_fd,
-                    c_name.as_ptr(),
-                    libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+            let mut opened = open_entry_no_follow(directory_fd, &c_name).with_context(|| {
+                format!(
+                    "package entry changed while opening {}",
+                    root.join(relative_directory)
+                        .join(std::ffi::OsString::from_vec(name.clone()))
+                        .display()
                 )
-            };
-            if fd < 0 {
-                return Err(std::io::Error::last_os_error()).with_context(|| {
-                    format!(
-                        "package entry changed while opening {}",
-                        root.join(relative_directory)
-                            .join(std::ffi::OsString::from_vec(name.clone()))
-                            .display()
-                    )
-                });
-            }
-            let mut opened = unsafe { std::fs::File::from_raw_fd(fd) };
+            })?;
             let metadata_before = opened.metadata()?;
             let relative = relative_path
                 .to_str()
@@ -1208,16 +1785,21 @@ fn package_tree_integrity_and_source_unix(
                 })?
                 .replace(std::path::MAIN_SEPARATOR, "/");
             if metadata_before.is_dir() {
-                walk(
+                walk_authenticated_package_tree(
                     root,
                     opened.as_raw_fd(),
                     &relative_path,
                     source_relative,
                     capture_source,
+                    capture_inventory,
+                    membership,
                     records,
                     captured_source,
+                    objects,
+                    retained_descriptors,
                 )?;
             } else if metadata_before.is_file() {
+                let generation_before = verification_generation(opened.as_raw_fd())?;
                 let mut digest = Sha256::new();
                 let mut bytes = capture.then(Vec::new);
                 let mut buffer = [0u8; 64 * 1024];
@@ -1234,8 +1816,10 @@ fn package_tree_integrity_and_source_unix(
                     }
                 }
                 let metadata_after = opened.metadata()?;
+                let generation_after = verification_generation(opened.as_raw_fd())?;
                 if stamp(&metadata_before) != stamp(&metadata_after)
                     || metadata_before.len() != metadata_after.len()
+                    || generation_before != generation_after
                 {
                     return Err(anyhow!(
                         "Package file changed while authenticating {}",
@@ -1251,9 +1835,133 @@ fn package_tree_integrity_and_source_unix(
                     relative,
                     format!("sha256-{}", URL_SAFE_NO_PAD.encode(digest.finalize())),
                 ));
+                if capture_inventory {
+                    retain_authenticated_object(
+                        &opened,
+                        &metadata_after,
+                        &root.join(&relative_path),
+                        objects,
+                        retained_descriptors,
+                    )?;
+                }
+            } else if metadata_before.file_type().is_symlink() {
+                let target_before = read_link_at(directory_fd, &c_name)?;
+                let reopened = open_entry_no_follow(directory_fd, &c_name)?;
+                let metadata_after = reopened.metadata()?;
+                let target_after = read_link_at(directory_fd, &c_name)?;
+                if !metadata_after.file_type().is_symlink()
+                    || stamp(&metadata_before) != stamp(&metadata_after)
+                    || object_identity(&metadata_before)? != object_identity(&metadata_after)?
+                    || target_before != target_after
+                {
+                    return Err(anyhow!(
+                        "Package symlink changed while authenticating {}",
+                        relative_path.display()
+                    ));
+                }
+                records.push((
+                    relative,
+                    format!(
+                        "symlink-sha256-{}",
+                        URL_SAFE_NO_PAD.encode(Sha256::digest(&target_before))
+                    ),
+                ));
+
+                if capture_inventory {
+                    retain_authenticated_object(
+                        &opened,
+                        &metadata_before,
+                        &root.join(&relative_path),
+                        objects,
+                        retained_descriptors,
+                    )?;
+                }
+
+                if capture || capture_inventory {
+                    let absolute_link = root.join(&relative_path);
+                    let resolved =
+                        resolve_package_link(&absolute_link, &target_before, &metadata_before)?;
+                    if capture {
+                        if !resolved.path.starts_with(root) {
+                            anyhow::bail!(
+                                "authenticated package source symlink leaves its defining package: {}",
+                                absolute_link.display()
+                            );
+                        }
+                        let mut target = open_path_no_follow(&resolved.path)?;
+                        let target_before_metadata = target.metadata()?;
+                        if !target_before_metadata.is_file() {
+                            anyhow::bail!(
+                                "authenticated package source symlink does not resolve to a file: {}",
+                                absolute_link.display()
+                            );
+                        }
+                        let mut bytes = Vec::new();
+                        target.read_to_end(&mut bytes).with_context(|| {
+                            format!(
+                                "reading authenticated package source {}",
+                                resolved.path.display()
+                            )
+                        })?;
+                        let target_after_metadata = target.metadata()?;
+                        let revalidated =
+                            resolve_package_link(&absolute_link, &target_after, &metadata_after)?;
+                        if resolved.path != revalidated.path
+                            || stamp(&target_before_metadata) != stamp(&target_after_metadata)
+                            || object_identity(&target_before_metadata)?
+                                != object_identity(&target_after_metadata)?
+                            || revalidated.metadata.as_ref().is_none_or(|metadata| {
+                                object_identity(metadata).ok()
+                                    != object_identity(&target_after_metadata).ok()
+                            })
+                        {
+                            anyhow::bail!(
+                                "authenticated package source symlink changed while reading {}",
+                                absolute_link.display()
+                            );
+                        }
+                        if captured_source.replace(bytes).is_some() {
+                            return Err(anyhow!("Package source appeared more than once"));
+                        }
+                    }
+
+                    if capture_inventory {
+                        let membership = membership.ok_or_else(|| {
+                            anyhow!("package inventory lacks authenticated binding membership")
+                        })?;
+                        let package_defined =
+                            membership.target_is_package_defined(&resolved.path)?;
+                        if package_defined {
+                            if let Some(metadata) = resolved
+                                .metadata
+                                .as_ref()
+                                .filter(|metadata| metadata.is_file())
+                            {
+                                let target = open_path_no_follow(&resolved.path)?;
+                                let opened_metadata = target.metadata()?;
+                                if stamp(metadata) != stamp(&opened_metadata)
+                                    || object_identity(metadata)?
+                                        != object_identity(&opened_metadata)?
+                                {
+                                    anyhow::bail!(
+                                        "package symlink target changed while authenticating {}",
+                                        resolved.path.display()
+                                    );
+                                }
+                                retain_authenticated_object(
+                                    &target,
+                                    &opened_metadata,
+                                    &resolved.path,
+                                    objects,
+                                    retained_descriptors,
+                                )?;
+                            }
+                        }
+                    }
+                }
             } else {
                 return Err(anyhow!(
-                    "Package content contains a symlink or unsupported file type: {relative}"
+                    "Package content contains an unsupported file type: {relative}"
                 ));
             }
         }
@@ -1277,6 +1985,16 @@ fn package_tree_integrity_and_source_unix(
 
     let root = std::fs::canonicalize(root)
         .with_context(|| format!("Failed to canonicalize package root {}", root.display()))?;
+    if capture_inventory {
+        let membership = membership
+            .ok_or_else(|| anyhow!("package inventory lacks authenticated binding membership"))?;
+        if !membership.target_is_package_defined(&root)? {
+            anyhow::bail!(
+                "package inventory root {} is not owned by an authenticated package binding",
+                root.display()
+            );
+        }
+    }
     let source_relative = source_path
         .map(|source| {
             let normalized = match (source.parent(), source.file_name()) {
@@ -1327,25 +2045,39 @@ fn package_tree_integrity_and_source_unix(
         }
     }
 
-    let inventory = |capture_source: bool| -> Result<(Vec<(String, String)>, Option<Vec<u8>>)> {
+    let inventory = |capture_source: bool,
+                     capture_objects: bool|
+     -> Result<(
+        Vec<(String, String)>,
+        Option<Vec<u8>>,
+        std::collections::BTreeSet<AuthenticatedPackageObject>,
+        Vec<std::fs::File>,
+    )> {
         let mut records = Vec::new();
         let mut captured = None;
-        walk(
+        let mut objects = std::collections::BTreeSet::new();
+        let mut retained_descriptors = Vec::new();
+        walk_authenticated_package_tree(
             &root,
             root_handle.as_raw_fd(),
             Path::new(""),
             source_relative.as_deref(),
             capture_source,
+            capture_objects,
+            membership,
             &mut records,
             &mut captured,
+            &mut objects,
+            &mut retained_descriptors,
         )?;
         records.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
-        Ok((records, captured))
+        Ok((records, captured, objects, retained_descriptors))
     };
-    let (first, _) = inventory(false)?;
+    let (first, _, _, _) = inventory(false, false)?;
     #[cfg(test)]
     pause_package_hook(&PACKAGE_INVENTORY_PASS_HOOK, &root);
-    let (second, captured_source) = inventory(source_relative.is_some())?;
+    let (second, captured_source, objects, retained_descriptors) =
+        inventory(source_relative.is_some(), capture_inventory)?;
     if first != second {
         return Err(anyhow!(
             "Package content changed between authenticated inventory passes"
@@ -1357,10 +2089,13 @@ fn package_tree_integrity_and_source_unix(
         ));
     }
     let bytes = serde_json::to_vec(&second)?;
-    Ok((
-        format!("sha256-{}", URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))),
-        captured_source,
-    ))
+    let integrity = format!("sha256-{}", URL_SAFE_NO_PAD.encode(Sha256::digest(bytes)));
+    let inventory = capture_inventory.then(|| AuthenticatedPackageInventory {
+        integrity: integrity.clone(),
+        objects: objects.into_iter().collect(),
+        retained_descriptors,
+    });
+    Ok((integrity, captured_source, inventory))
 }
 
 /// Authenticate the complete package tree and optionally retain the exact
@@ -1420,7 +2155,7 @@ fn package_tree_integrity_and_source_path(
         ))
     }
 
-    fn walk(
+    fn walk_package_tree_by_path(
         root: &Path,
         current: &Path,
         source_relative: Option<&Path>,
@@ -1461,7 +2196,7 @@ fn package_tree_integrity_and_source_path(
                 ));
             }
             if metadata.is_dir() {
-                walk(root, &path, source_relative, records, captured_source)?;
+                walk_package_tree_by_path(root, &path, source_relative, records, captured_source)?;
             } else if metadata.is_file() {
                 let capture = source_relative.is_some_and(|source| source == relative_path);
                 let (digest, bytes) = digest_file(&path, capture)?;
@@ -1506,7 +2241,7 @@ fn package_tree_integrity_and_source_path(
         .transpose()?;
     let mut records = Vec::new();
     let mut captured_source = None;
-    walk(
+    walk_package_tree_by_path(
         &root,
         &root,
         source_relative.as_deref(),
@@ -1532,8 +2267,13 @@ pub(crate) fn authenticated_package_source(
     expected_integrity: &str,
     expected_root: &capsec_semantics::model::ObjectIdentity,
 ) -> Result<Vec<u8>> {
-    let (actual, source) =
-        package_tree_integrity_and_source(root, Some(source_path), Some(expected_root))?;
+    let (actual, source, _) = package_tree_integrity_and_source(
+        root,
+        Some(source_path),
+        Some(expected_root),
+        false,
+        None,
+    )?;
     if actual != expected_integrity {
         return Err(anyhow!(
             "Installed package content changed after arming: expected {expected_integrity}, observed {actual}"
@@ -1777,7 +2517,7 @@ fn capture_transpile_tool_directory(
     const MAX_FILES: usize = 4096;
     const MAX_BYTES: u64 = 256 * 1024 * 1024;
 
-    fn walk(
+    fn walk_transpile_tool_directory(
         root: &Path,
         directory: &Path,
         files: &mut Vec<CapturedTranspileToolFile>,
@@ -1796,7 +2536,7 @@ fn capture_transpile_tool_directory(
                 );
             }
             if metadata.is_dir() {
-                walk(root, &path, files, total)?;
+                walk_transpile_tool_directory(root, &path, files, total)?;
                 continue;
             }
             if !metadata.is_file() {
@@ -1830,7 +2570,7 @@ fn capture_transpile_tool_directory(
 
     let mut files = Vec::new();
     let mut total = 0;
-    walk(root, root, &mut files, &mut total)?;
+    walk_transpile_tool_directory(root, root, &mut files, &mut total)?;
     files.sort_by(|left, right| left.relative.cmp(&right.relative));
     let mut hasher = Sha256::new();
     hasher.update(b"transpile-tool-directory-v1\0");
@@ -2428,7 +3168,7 @@ pub fn builtin_module_debug_entries() -> &'static [BuiltinManifestDebugEntry] {
 
 fn build_builtin_registry(
     registrations: &[BuiltinManifestRegistration],
-) -> HashMap<String, String> {
+) -> HashMap<String, BuiltinModule> {
     let mut builtins = HashMap::new();
     let mut source_cache: HashMap<&'static str, String> = HashMap::new();
 
@@ -2446,10 +3186,41 @@ fn build_builtin_registry(
             source_cache.insert(registration.source_key, source.clone());
             source
         };
-        builtins.insert(registration.specifier.to_string(), source);
+        builtins.insert(
+            registration.specifier.to_string(),
+            BuiltinModule {
+                source_key: registration.source_key,
+                source,
+            },
+        );
     }
 
     builtins
+}
+
+/// Strip URL decorations only from syntax which already denotes a file
+/// location. Bare package names and package-import aliases keep their exact
+/// spelling. This makes the native resolver agree with the VFS file-URL path
+/// parser and, consequently, makes all decorations converge on one SourceId.
+/// @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+fn strip_file_module_decorations(specifier: &str) -> &str {
+    let bytes = specifier.as_bytes();
+    let windows_drive = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\');
+    let file_backed = specifier.starts_with('.')
+        || specifier.starts_with('/')
+        || specifier.starts_with('\\')
+        || specifier
+            .get(..5)
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file:"))
+        || windows_drive;
+    if !file_backed {
+        return specifier;
+    }
+    let end = specifier.find(['?', '#']).unwrap_or(specifier.len());
+    &specifier[..end]
 }
 
 #[cfg(test)]
@@ -2486,6 +3257,24 @@ mod tests {
         use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
         use std::os::unix::fs::MetadataExt;
         let metadata = std::fs::metadata(path).unwrap();
+        ObjectIdentity {
+            platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+                ObjectPlatform::Apple
+            } else if cfg!(target_os = "android") {
+                ObjectPlatform::Android
+            } else {
+                ObjectPlatform::Unix
+            },
+            volume: NonEmptyString::new(format!("dev:{}", metadata.dev())).unwrap(),
+            file: NonEmptyString::new(format!("ino:{}", metadata.ino())).unwrap(),
+        }
+    }
+
+    #[cfg(unix)]
+    fn test_link_object_identity(path: &Path) -> capsec_semantics::model::ObjectIdentity {
+        use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::symlink_metadata(path).unwrap();
         ObjectIdentity {
             platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
                 ObjectPlatform::Apple
@@ -2631,6 +3420,59 @@ mod tests {
         assert!(
             meta.source.is_none(),
             "resolve_meta must not load the module body"
+        );
+
+        // A plain ESM file exercises the resolver's `ModuleKind::Esm` branch.
+        // Metadata-only resolution must not use a speculative source prefetch:
+        // the armed Host has not completed discovery/commit authorization yet.
+        let esm_file = dir.path().join("plain.mjs");
+        std::fs::write(&esm_file, "export const value = 1;\n").unwrap();
+        let module_type_loader = ModuleLoader {
+            resolver: Resolver::new(ResolveOptions {
+                module_type: true,
+                ..ResolveOptions::default()
+            }),
+            ..test_loader()
+        };
+        let esm_meta = module_type_loader
+            .resolve_meta("./plain.mjs", Some(&dir.path().join("entry.mjs")))
+            .expect("resolve_meta must not open a plain ESM body");
+        assert_eq!(
+            esm_meta.path.as_ref().unwrap().canonicalize().unwrap(),
+            esm_file.canonicalize().unwrap()
+        );
+        assert!(
+            esm_meta.source.is_none(),
+            "resolve_meta must not prefetch a plain ESM body"
+        );
+    }
+
+    #[test]
+    fn direct_file_metadata_uses_authenticated_package_type_for_js() {
+        let dir = tempdir().unwrap();
+        let commonjs = dir.path().join("commonjs");
+        let module = dir.path().join("module");
+        std::fs::create_dir_all(&commonjs).unwrap();
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(commonjs.join("package.json"), r#"{"type":"commonjs"}"#).unwrap();
+        std::fs::write(module.join("package.json"), r#"{"type":"module"}"#).unwrap();
+        std::fs::write(commonjs.join("entry.js"), "module.exports = 1;\n").unwrap();
+        std::fs::write(module.join("entry.js"), "export default 1;\n").unwrap();
+
+        let loader = test_loader();
+        assert_eq!(
+            loader
+                .resolve_direct_file_meta(&commonjs.join("entry.js"))
+                .unwrap()
+                .kind,
+            ModuleKind::CommonJs
+        );
+        assert_eq!(
+            loader
+                .resolve_direct_file_meta(&module.join("entry.js"))
+                .unwrap()
+                .kind,
+            ModuleKind::Esm
         );
     }
 
@@ -3044,6 +3886,20 @@ mod tests {
         assert_eq!(process.source, node_process.source);
         assert_eq!(bun_fs.source, node_fs.source);
         assert_eq!(bun_fs_promises.source, fs_promises.source);
+
+        assert_eq!(path.source_id.as_ref(), node_path.source_id.as_ref());
+        assert_eq!(process.source_id.as_ref(), node_process.source_id.as_ref());
+        assert_eq!(bun_fs.source_id.as_ref(), node_fs.source_id.as_ref());
+        assert_eq!(
+            bun_fs_promises.source_id.as_ref(),
+            fs_promises.source_id.as_ref()
+        );
+        assert!(path
+            .source_id
+            .as_ref()
+            .unwrap()
+            .cache_key()
+            .starts_with("ibex-source-id-v1:"));
     }
 
     #[test]
@@ -3525,6 +4381,161 @@ for (let i = 0; i < 3; i++) {
     }
 
     #[test]
+    fn file_module_decorations_strip_without_rewriting_package_syntax() {
+        for (decorated, expected) in [
+            ("./x.js?v=1", "./x.js"),
+            ("../x.js#fragment", "../x.js"),
+            ("/project/x.js?v=1#fragment", "/project/x.js"),
+            ("file:///project/x.js#fragment", "file:///project/x.js"),
+            (r"C:\project\x.js?v=1", r"C:\project\x.js"),
+            (r"\\server\share\x.js#fragment", r"\\server\share\x.js"),
+        ] {
+            assert_eq!(strip_file_module_decorations(decorated), expected);
+        }
+        for untouched in [
+            "pkg?v=1",
+            "node:fs#fragment",
+            "#internal",
+            "@scope/pkg/x?v=1",
+        ] {
+            assert_eq!(strip_file_module_decorations(untouched), untouched);
+        }
+    }
+
+    #[test]
+    fn decorated_relative_file_requests_resolve_to_one_native_entry() {
+        let dir = tempdir().unwrap();
+        let entry = dir.path().join("entry.js");
+        let module = dir.path().join("module.js");
+        std::fs::write(&entry, "").unwrap();
+        std::fs::write(&module, "module.exports = 1;\n").unwrap();
+        let loader = test_loader();
+
+        let plain = loader.resolve_meta("./module.js", Some(&entry)).unwrap();
+        let query = loader
+            .resolve_meta("./module.js?v=1", Some(&entry))
+            .unwrap();
+        let fragment = loader
+            .resolve_meta("./module.js#fragment", Some(&entry))
+            .unwrap();
+        assert_eq!(plain.path, query.path);
+        assert_eq!(plain.path, fragment.path);
+        assert_eq!(plain.id, query.id);
+        assert_eq!(plain.id, fragment.id);
+    }
+
+    #[test]
+    fn authenticated_cache_route_skips_repeat_resolver_lookup() {
+        let (runner, _) = find_js_runner().expect("JavaScript runner");
+        let loader_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/bootstrap/module-loader.js");
+        let loader_path = serde_json::to_string(loader_path.to_str().unwrap()).unwrap();
+        let script = r#"
+const fs = require('fs');
+const loader = fs.readFileSync(__LOADER_PATH__, 'utf8');
+let dispatch = null;
+let dependencyResolves = 0;
+let currentCwd = '/project';
+globalThis.__exactHasSharedRuntimeBundle = true;
+globalThis.__exactCaptureSessionStaticImport = function(fn) {
+  dispatch = fn;
+  return {
+    resolve: nativeResolve,
+    resolveMeta: nativeResolve
+  };
+};
+globalThis.__exactGetCwd = function() { return currentCwd; };
+function logical(path) {
+  return {
+    schema: 'ibex/logical-path/1',
+    sessionHandle: 'mrs0123456789abcdef',
+    virtualPath: path,
+    logicalPath: {
+      root: 'project',
+      components: path.slice(9).split('/').filter(Boolean).map(function(value) {
+        return { encoding: 'utf8', value: value };
+      }),
+      hostBound: null
+    },
+    bindingOwner: null
+  };
+}
+let nativeResolve = function(specifier) {
+  if (specifier !== './dep space.js') throw new Error('unexpected resolver request: ' + specifier);
+  dependencyResolves++;
+  return JSON.stringify({
+    schema: 'ibex/module-resolution/1',
+    id: '/project/dep space.js',
+    kind: 'cjs',
+    path: logical('/project/dep space.js'),
+    pkgName: null,
+    pkgRoot: null,
+    pkgVersion: null,
+    pkgIntegrity: null,
+    source: 'globalThis.__depRuns=(globalThis.__depRuns||0)+1;module.exports={run:globalThis.__depRuns,meta:import.meta.url,where:function(){throw new Error("label");}};',
+    sourceId: 'ibex-source-id-v1:dep',
+    sourceLabel: 'file:///project/dep%20space.js',
+    virtualPath: '/project/dep space.js'
+  });
+};
+globalThis.__exactNativeModuleResolve = nativeResolve;
+globalThis.__exactNativeModuleResolveMeta = nativeResolve;
+(0, eval)(loader);
+dispatch('reserve-entry', 'ibex-source-id-v1:entry', 'file:///project/entry.js', '/project/entry.js');
+dispatch(
+  'evaluate-commonjs-entry',
+  'var a=require("./dep space.js?v=1");var b=require("./dep space.js#fragment");globalThis.__memoResult=[a===b,a.run,b.run,a.meta];',
+  'file:///project/entry.js',
+  '/project/entry.js',
+  JSON.stringify(logical('/project/entry.js'))
+);
+dispatch('commit-entry');
+var topOne = globalThis.require('./dep space.js?v=top');
+var topTwo = globalThis.require('./dep space.js#top');
+currentCwd = '/project/other';
+var afterCwdChange = globalThis.require('./dep space.js?v=other-cwd');
+var labelStack = '';
+try { topOne.where(); } catch (error) { labelStack = String(error && error.stack || error); }
+if (dependencyResolves !== 3 || globalThis.__depRuns !== 1 ||
+    String(globalThis.__memoResult) !== 'true,1,1,file:///project/dep%20space.js' ||
+    topOne !== topTwo || topOne !== afterCwdChange ||
+    labelStack.indexOf('file:///project/dep%20space.js') === -1) {
+  throw new Error(JSON.stringify({
+    dependencyResolves: dependencyResolves,
+    runs: globalThis.__depRuns,
+    result: globalThis.__memoResult,
+    topSame: topOne === topTwo,
+    cwdSame: topOne === afterCwdChange,
+    labelStack: labelStack
+  }));
+}
+fs.writeFileSync(__MARKER_PATH__, 'authenticated-cache-route-ok');
+"#
+        .replace("__LOADER_PATH__", &loader_path);
+        let fixture = tempdir().unwrap();
+        let script_path = fixture.path().join("authenticated-cache-route.cjs");
+        let marker_path = fixture.path().join("authenticated-cache-route.ok");
+        let marker_literal = serde_json::to_string(marker_path.to_str().unwrap()).unwrap();
+        let script = script.replace("__MARKER_PATH__", &marker_literal);
+        std::fs::write(&script_path, script).unwrap();
+        let output = Command::new(&runner)
+            .arg(&script_path)
+            .output()
+            .expect("run module-loader cache fixture");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "cache fixture failed with {}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+            runner.display()
+        );
+        assert_eq!(
+            std::fs::read_to_string(marker_path).unwrap(),
+            "authenticated-cache-route-ok"
+        );
+    }
+
+    #[test]
     fn resolves_directory_import_to_index_ts() {
         // @ref LLP 0004#resolution-order
         let dir = tempdir().unwrap();
@@ -3744,11 +4755,13 @@ for (let i = 0; i < 3; i++) {
 
             let first = loader.resolve(specifiers[0], None).unwrap();
             let first_source = first.source.clone();
+            let first_source_id = first.source_id.clone();
 
             for specifier in &specifiers[1..] {
                 let resolved = loader.resolve(specifier, None).unwrap();
                 assert_ne!(resolved.id, first.id, "{}", specifier);
                 assert_eq!(resolved.source, first_source, "{}", specifier);
+                assert_eq!(resolved.source_id, first_source_id, "{}", specifier);
             }
         }
     }
@@ -3847,12 +4860,9 @@ for (let i = 0; i < 3; i++) {
     }
 
     // ENG-22950: a module that needs no transpile/downlevel is served verbatim.
-    // NOTE: the resolver runs with `module_type` detection disabled
-    // (ResolveOptions.module_type = false), so modules classify as CommonJs and
-    // the resolve-time single-read + prefetch branch (`kind == Esm`) is dormant
-    // in this configuration. Regardless of classification, a plain module must
-    // round-trip its source unchanged — this guards that the loader never
-    // corrupts or needlessly transpiles a pass-through module.
+    // Resolution is metadata-only; the full `resolve` path performs the single
+    // authorized source read in `load_source`. A pass-through module must still
+    // round-trip unchanged rather than being needlessly transpiled.
     #[test]
     fn serves_plain_module_source_verbatim() {
         let dir = tempdir().unwrap();
@@ -3925,6 +4935,188 @@ for (let i = 0; i < 3; i++) {
             error.to_string().contains("changed after arming"),
             "{error:#}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_package_source_reads_a_stable_internal_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("package");
+        std::fs::create_dir(&root).unwrap();
+        let manifest = br#"{"name":"pkg","version":"1.0.0"}"#;
+        std::fs::write(root.join("package.json"), manifest).unwrap();
+        let target = root.join("index.js");
+        let alias = root.join("alias.js");
+        let source = b"module.exports = 'linked';\n";
+        std::fs::write(&target, source).unwrap();
+        symlink("index.js", &alias).unwrap();
+        let integrity = package_tree_integrity(&root).unwrap();
+        let explicit_records = vec![
+            (
+                "alias.js",
+                format!(
+                    "symlink-sha256-{}",
+                    URL_SAFE_NO_PAD.encode(Sha256::digest(b"index.js"))
+                ),
+            ),
+            (
+                "index.js",
+                format!("sha256-{}", URL_SAFE_NO_PAD.encode(Sha256::digest(source))),
+            ),
+            (
+                "package.json",
+                format!(
+                    "sha256-{}",
+                    URL_SAFE_NO_PAD.encode(Sha256::digest(manifest))
+                ),
+            ),
+        ];
+        assert_eq!(
+            integrity,
+            format!(
+                "sha256-{}",
+                URL_SAFE_NO_PAD.encode(Sha256::digest(
+                    serde_json::to_vec(&explicit_records).unwrap()
+                ))
+            ),
+            "Rust must use the same sorted JSON link-record vector pinned by the JS generator test"
+        );
+
+        assert_eq!(
+            authenticated_package_source(&root, &alias, &integrity, &test_object_identity(&root),)
+                .unwrap(),
+            b"module.exports = 'linked';\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_package_inventory_pins_each_exact_file_object_once() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("package");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        let source = root.join("index.js");
+        std::fs::write(&source, "module.exports = 'authenticated';\n").unwrap();
+        std::fs::hard_link(&source, root.join("index-alias.js")).unwrap();
+
+        let integrity = package_tree_integrity(&root).unwrap();
+        let membership =
+            AuthenticatedPackageMembership::new(dir.path(), std::slice::from_ref(&root)).unwrap();
+        let inventory =
+            authenticated_package_inventory(&root, &test_object_identity(&root), &membership)
+                .expect("the integrity walk must return its exact object set");
+        assert_eq!(inventory.integrity, integrity);
+
+        let source_object = test_object_identity(&source);
+        let source_rows = inventory
+            .objects
+            .iter()
+            .filter(|row| row.object == source_object)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            source_rows.len(),
+            1,
+            "hard-link spellings must not duplicate an exact object guard"
+        );
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        assert!(
+            matches!(
+                source_rows[0].verification_generation.as_str(),
+                "retained-descriptor-v1"
+            ) || source_rows[0]
+                .verification_generation
+                .as_str()
+                .starts_with("apple-st-gen:")
+        );
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        assert_eq!(
+            source_rows[0].verification_generation.as_str(),
+            "retained-descriptor-v1"
+        );
+        assert_eq!(
+            inventory.retained_descriptors.len(),
+            inventory.objects.len(),
+            "every unique package object needs a Host-lifetime descriptor"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_package_inventory_follows_defining_principal_for_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let project = dir.path().join("project");
+        let root = project.join("node_modules/pkg");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        let package_source = root.join("index.js");
+        std::fs::write(&package_source, "module.exports = 'package';\n").unwrap();
+        let package_link = root.join("package-alias.js");
+        symlink("index.js", &package_link).unwrap();
+        let first_party_source = project.join("app.js");
+        std::fs::write(&first_party_source, "module.exports = 'first-party';\n").unwrap();
+        let first_party_link = root.join("first-party-alias.js");
+        symlink("../../app.js", &first_party_link).unwrap();
+
+        let membership =
+            AuthenticatedPackageMembership::new(&project, std::slice::from_ref(&root)).unwrap();
+        let inventory =
+            authenticated_package_inventory(&root, &test_object_identity(&root), &membership)
+                .unwrap();
+        let guarded = inventory
+            .objects
+            .iter()
+            .map(|object| object.object.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert!(guarded.contains(&test_object_identity(&package_source)));
+        assert!(guarded.contains(&test_link_object_identity(&package_link)));
+        assert!(guarded.contains(&test_link_object_identity(&first_party_link)));
+        assert!(
+            !guarded.contains(&test_object_identity(&first_party_source)),
+            "reachability from a package must not freeze root-principal source"
+        );
+        assert_eq!(
+            inventory.retained_descriptors.len(),
+            inventory.objects.len()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_package_inventory_refuses_a_symlink_cycle_at_fixed_resolution() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("package");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        symlink("b.js", root.join("a.js")).unwrap();
+        symlink("a.js", root.join("b.js")).unwrap();
+        let membership =
+            AuthenticatedPackageMembership::new(dir.path(), std::slice::from_ref(&root)).unwrap();
+
+        let error =
+            authenticated_package_inventory(&root, &test_object_identity(&root), &membership)
+                .err()
+                .expect("a package symlink cycle must be refused");
+        assert!(error.to_string().contains("symlink cycle"), "{error:#}");
     }
 
     #[test]

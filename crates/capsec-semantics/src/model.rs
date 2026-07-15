@@ -983,6 +983,27 @@ pub enum StorageStore {
     Persistent,
 }
 
+/// The three lifecycle operations deliberately share one capability action
+/// while retaining distinct, exact resource identities. An exit request is
+/// never interchangeable with observing or changing the orderly-exit code.
+// @ref LLP 0025#10-registry-obligations — lifecycle:exit carries separate
+// request, exitCode getter, and exitCode setter dispositions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LifecycleDisposition {
+    ExitRequest,
+    ExitCodeGet,
+    ExitCodeSet,
+}
+
+/// Runtime-generation-local state whose identity is authenticated by the
+/// native session handle rather than supplied by JavaScript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SessionStateName {
+    Cwd,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum StorageNamespace {
@@ -1102,6 +1123,12 @@ pub enum SelectorResource {
         store: StorageStore,
         namespace: StorageNamespace,
     },
+    SessionLifecycle {
+        disposition: LifecycleDisposition,
+    },
+    SessionState {
+        name: SessionStateName,
+    },
     ClosedSurface {
         surface_class: ClosedSurfaceClass,
     },
@@ -1127,6 +1154,8 @@ impl SelectorResource {
             Self::Microphone { .. } => "microphone",
             Self::Clipboard { .. } => "clipboard",
             Self::StorageNamespace { .. } => "storage-namespace",
+            Self::SessionLifecycle { .. } => "session-lifecycle",
+            Self::SessionState { .. } => "session-state",
             Self::ClosedSurface { .. } => "closed-surface",
         }
     }
@@ -1300,6 +1329,7 @@ pub enum FollowMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ObjectState {
+    Unknown,
     Existing,
     AbsentCreate,
 }
@@ -1331,6 +1361,15 @@ pub enum OccurrenceResource {
         parent_object: Option<ObjectIdentity>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         final_object: Option<ObjectIdentity>,
+        /// Object-reuse discriminator observed from the retained final handle.
+        /// Apple adapters carry `st_gen`; platforms without a reliable
+        /// generation use the armed host's lifetime-retained descriptor token.
+        /// It is intentionally separate from `ObjectIdentity`: existing
+        /// snapshot/root identities remain platform+volume+file coordinates,
+        /// while commit guards can require the stronger pair.
+        /// @ref LLP 0023#42-authenticated-package-source-is-immutable
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        final_object_generation: Option<NonEmptyString>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         retained_handle: Option<NonEmptyString>,
     },
@@ -1398,6 +1437,12 @@ pub enum OccurrenceResource {
         requested: Box<SelectorResource>,
         namespace_owner: Principal,
     },
+    LifecycleOccurrence {
+        requested: Box<SelectorResource>,
+    },
+    SessionStateOccurrence {
+        requested: Box<SelectorResource>,
+    },
     ClosedOccurrence {
         requested: Box<SelectorResource>,
         surface: NonEmptyString,
@@ -1443,6 +1488,8 @@ impl OccurrenceResource {
             | Self::SystemInfoOccurrence { requested }
             | Self::DeviceOccurrence { requested, .. }
             | Self::StorageOccurrence { requested, .. }
+            | Self::LifecycleOccurrence { requested }
+            | Self::SessionStateOccurrence { requested }
             | Self::ClosedOccurrence { requested, .. } => Some((**requested).clone()),
         }
     }
@@ -1465,6 +1512,8 @@ impl OccurrenceResource {
             | Self::SystemInfoOccurrence { requested }
             | Self::DeviceOccurrence { requested, .. }
             | Self::StorageOccurrence { requested, .. }
+            | Self::LifecycleOccurrence { requested }
+            | Self::SessionStateOccurrence { requested }
             | Self::ClosedOccurrence { requested, .. } => Some(requested.kind_name()),
         }
     }

@@ -26,6 +26,8 @@
         { "$ref": "#/$defs/microphone" },
         { "$ref": "#/$defs/clipboard" },
         { "$ref": "#/$defs/storageNamespace" },
+        { "$ref": "#/$defs/sessionLifecycle" },
+        { "$ref": "#/$defs/sessionState" },
         { "$ref": "#/$defs/closedSurface" }
       ]
     }
@@ -392,6 +394,26 @@
             }
           ]
         }
+      },
+      "additionalProperties": false
+    },
+    "sessionLifecycle": {
+      "type": "object",
+      "required": ["kind", "disposition"],
+      "properties": {
+        "kind": { "const": "session-lifecycle" },
+        "disposition": {
+          "enum": ["exit-request", "exit-code-get", "exit-code-set"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "sessionState": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "const": "session-state" },
+        "name": { "enum": ["cwd"] }
       },
       "additionalProperties": false
     },

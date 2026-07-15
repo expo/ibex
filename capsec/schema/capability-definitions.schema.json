@@ -39,7 +39,7 @@
         "lifecycle": { "enum": ["authorable", "deny-only", "planned"] },
         "stability": { "enum": ["stable", "provisional"] },
         "globality": {
-          "enum": ["resource", "shared-process-read", "shared-process-mutation", "terminal"]
+          "enum": ["resource", "session-scoped", "shared-process-read", "shared-process-mutation", "terminal"]
         },
         "resourceKinds": {
           "type": "array",
@@ -61,6 +61,8 @@
               "microphone",
               "path-exact",
               "path-tree",
+              "session-state",
+              "session-lifecycle",
               "stdio",
               "storage-namespace",
               "system-info"
@@ -83,6 +85,7 @@
           "additionalProperties": false
         },
         "staticOnly": { "type": "boolean" },
+        "principalConstraint": { "enum": ["root-only"] },
         "selectorConstraints": {
           "type": "object",
           "properties": {

@@ -1267,10 +1267,6 @@ function streamPrototypeSpec(exportName) {
   // `default.prototype` property at runtime. The inventory's module-value
   // alias is exact for the root constructor but not for prototype traversal.
   if (ownerExportName === "default") return null;
-  // Duplex copies Writable prototype descriptors dynamically. Until that
-  // copy idiom is represented by the inventory, its inherited _undestroy
-  // descriptor would deliberately fail the exact own/inherited access check.
-  if (ownerExportName === "Duplex" && methodName === "_undestroy") return null;
   if (methodName === "constructor") return constructTarget([]);
   if (methodName === "_close") {
     return streamOwnerCall(ownerExportName, [jsonArgument(true)], "undefined");
@@ -1634,6 +1630,66 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
   return descriptor;
 }
 
+function authoredNonCapabilityBuiltinInvocationDefinition({ surface, target }) {
+  const readDescriptor = sourceDescriptor(
+    surface,
+    target,
+    new Set(["accessor", "data"]),
+  );
+  const readEligible =
+    readDescriptor &&
+    new Set(["export-property", "module-value"]).has(
+      readDescriptor.access.kind,
+    ) &&
+    (readDescriptor.valueShape !== "accessor" ||
+      readDescriptor.access.kind === "export-property");
+  const callDescriptor = readEligible
+    ? null
+    : sourceDescriptor(surface, target, new Set(["callable"]));
+  const callTemplate = callDescriptor
+    ? callTemplateFor(callDescriptor)
+    : null;
+  const descriptor = readEligible ? readDescriptor : callDescriptor;
+  if (!descriptor || (!readEligible && !callTemplate)) return null;
+  const moduleSpecifier = canonicalModuleSpecifier(descriptor.moduleSpecifiers);
+  const invocation = {
+    invocationSchema: readEligible
+      ? READ_INVOCATION_SCHEMA
+      : CALL_INVOCATION_SCHEMA,
+    kind: readEligible ? "builtin-export-read" : "builtin-export-call",
+    moduleSpecifier,
+    exportName: descriptor.exportName,
+    sourceDescriptor: descriptor,
+    sourceDescriptorDigest: taggedDigest(descriptor),
+    ...(!readEligible ? { templateId: callTemplate.templateId } : {}),
+    arguments: readEligible ? [] : callTemplate.arguments,
+    setup: readEligible ? { kind: "none" } : callTemplate.setup,
+    completion: { ...EVENT_LOOP_COMPLETION },
+  };
+  return {
+    invocation,
+    bodyEntryProof: readEligible ? null : callTemplate.bodyEntryProof,
+    expectedResult: readEligible ? "return" : "normal-return",
+  };
+}
+
+/**
+ * Return only the source-authored operation recipe needed to execute a public
+ * non-capability builtin output. Conformance expectations and reviewed output
+ * dispositions are deliberately absent so output-shape plans cannot echo
+ * either policy into the loaded-engine executor.
+ */
+export function authoredNonCapabilityBuiltinOutputInvocation({
+  surface,
+  target,
+}) {
+  const definition = authoredNonCapabilityBuiltinInvocationDefinition({
+    surface,
+    target,
+  });
+  return definition ? structuredClone(definition.invocation) : null;
+}
+
 export function authoredNonCapabilityBuiltinProbe({
   plan,
   scenario,
@@ -1664,69 +1720,22 @@ export function authoredNonCapabilityBuiltinProbe({
   if (!surfaceObservedKey.startsWith("builtin:export:")) {
     return null;
   }
-  const readDescriptor = sourceDescriptor(
+  const definition = authoredNonCapabilityBuiltinInvocationDefinition({
     surface,
     target,
-    new Set(["accessor", "data"]),
-  );
-  const readEligible =
-    readDescriptor &&
-    new Set(["export-property", "module-value"]).has(
-      readDescriptor.access.kind,
-    ) &&
-    (readDescriptor.valueShape !== "accessor" ||
-      readDescriptor.access.kind === "export-property");
-  const callDescriptor = readEligible
-    ? null
-    : sourceDescriptor(surface, target, new Set(["callable"]));
-  const callTemplate = callDescriptor
-    ? callTemplateFor(callDescriptor)
-    : null;
-  const descriptor = readEligible ? readDescriptor : callDescriptor;
-  if (!descriptor || (!readEligible && !callTemplate)) return null;
-  const moduleSpecifier = canonicalModuleSpecifier(descriptor.moduleSpecifiers);
-  if (readEligible) {
-    return {
-      kind: "public-surface-invocation",
-      surfaceObservedKey,
-      command: [...BUILTIN_BATCH_COMMAND],
-      invocation: {
-        invocationSchema: READ_INVOCATION_SCHEMA,
-        kind: "builtin-export-read",
-        moduleSpecifier,
-        exportName: descriptor.exportName,
-        sourceDescriptor: descriptor,
-        sourceDescriptorDigest: taggedDigest(descriptor),
-        arguments: [],
-        setup: { kind: "none" },
-        completion: { ...EVENT_LOOP_COMPLETION },
-        requiredAuthority: [],
-        expectedResult: "return",
-        expectedTypedDecisionCount: 0,
-        expectedTypedStages: [],
-        allowedCoverageEdgeIds: [],
-        expectedActionIds: [],
-      },
-    };
-  }
+  });
+  if (!definition) return null;
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
     command: [...BUILTIN_BATCH_COMMAND],
     invocation: {
-      invocationSchema: CALL_INVOCATION_SCHEMA,
-      kind: "builtin-export-call",
-      moduleSpecifier,
-      exportName: descriptor.exportName,
-      sourceDescriptor: descriptor,
-      sourceDescriptorDigest: taggedDigest(descriptor),
-      templateId: callTemplate.templateId,
-      arguments: callTemplate.arguments,
-      setup: callTemplate.setup,
-      bodyEntryProof: callTemplate.bodyEntryProof,
-      completion: { ...EVENT_LOOP_COMPLETION },
+      ...structuredClone(definition.invocation),
+      ...(definition.bodyEntryProof
+        ? { bodyEntryProof: structuredClone(definition.bodyEntryProof) }
+        : {}),
       requiredAuthority: [],
-      expectedResult: "normal-return",
+      expectedResult: definition.expectedResult,
       expectedTypedDecisionCount: 0,
       expectedTypedStages: [],
       allowedCoverageEdgeIds: [],

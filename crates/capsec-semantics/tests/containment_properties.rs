@@ -41,7 +41,7 @@ fn requested_path_occurrence(parts: &[String]) -> EffectOccurrence {
             "kind": "path-occurrence",
             "requested": { "root": "project", "components": components(parts) },
             "followMode": "follow-final",
-            "objectState": "existing"
+            "objectState": "unknown"
         }
     }))
     .expect("generated occurrence is valid")

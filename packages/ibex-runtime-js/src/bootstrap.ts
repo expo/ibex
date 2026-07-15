@@ -333,7 +333,10 @@ function ensureCryptoInitialized(): any {
  * Essential (immediate): process, __exactRuntimeLoaded, capabilities, fs bridge
  * Lazy (on first access): crypto, streams, fetch, inspect
  */
+let globalsInstalledByThisBundle = false;
+
 export function installGlobals(): void {
+  if (globalsInstalledByThisBundle) return;
   const g = globalThis as any;
   if (g.__exactLoadTimings) g.__exactLoadTimings.installGlobalsStart = Date.now();
 
@@ -1598,11 +1601,18 @@ export function installGlobals(): void {
   }
   // Bun.password - argon2/bcrypt (stub - rejects since we lack native support)
   if (g.Exact && !g.Exact.password) {
+    const passwordUnavailable = () => {
+      const error = new Error('Bun.password not available in Ibex runtime') as Error & {
+        code: string;
+      };
+      error.code = 'ERR_IBEX_PASSWORD_UNAVAILABLE';
+      return error;
+    };
     g.Exact.password = {
       hash: () => Promise.reject(new Error('Bun.password not available in Ibex runtime')),
       verify: () => Promise.reject(new Error('Bun.password not available in Ibex runtime')),
-      hashSync: () => { throw new Error('Bun.password not available in Ibex runtime'); },
-      verifySync: () => { throw new Error('Bun.password not available in Ibex runtime'); },
+      hashSync: () => { throw passwordUnavailable(); },
+      verifySync: () => { throw passwordUnavailable(); },
     };
   }
   // Bun.semver - semver comparison utilities
@@ -1984,6 +1994,7 @@ export function installGlobals(): void {
   // ========================================
   installPromiseRejectionTracking();
   if (g.__exactLoadTimings) g.__exactLoadTimings.installGlobalsEnd = Date.now();
+  globalsInstalledByThisBundle = true;
 }
 
 // Stub exports to prevent import errors

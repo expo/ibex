@@ -69,8 +69,11 @@ void installProcessSetup(ExactHermesRuntime* handle) {
           }
         }
         handle->next_tick.push_back(
-            NextTickEntry{currentPrincipalId(), exactCollectTypedPrincipalStack(),
-                          std::move(callback), std::move(callbackArgs)});
+            NextTickEntry{exactAllocateAsyncEventIdentity(handle),
+                          currentPrincipalId(),
+                          exactCurrentAsyncEvaluationAssociation(handle),
+                          exactCollectTypedPrincipalStack(), std::move(callback),
+                          std::move(callbackArgs)});
         return facebook::jsi::Value::undefined();
       });
   processObj.setProperty(rt, "nextTick", std::move(nextTickFn));
@@ -188,11 +191,8 @@ void installProcessSetup(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
-        char buffer[PATH_MAX];
-        if (getcwd(buffer, sizeof(buffer))) {
-          return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, buffer));
-        }
-        return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(runtime, "/"));
+        return facebook::jsi::Value(facebook::jsi::String::createFromUtf8(
+            runtime, exactGetVfsCwd(runtime)));
       });
   processObj.setProperty(rt, "cwd", std::move(cwdFn));
 
@@ -208,39 +208,98 @@ void installProcessSetup(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "The first argument must be of type string");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
-        // @ref LLP 0013#policy — process-global cwd mutation is ambient host
-        // authority; enforce the canonical process:cwd gate before chdir().
-        if (!checkCapability("process:cwd")) {
-          throw facebook::jsi::JSError(
-              runtime,
-              "Permission denied: process:cwd capability required");
+        if (ex_host_is_armed() == 1) {
+          auto principals = exactCollectTypedPrincipalStack();
+          const bool rootOnly = currentPrincipalId() == 0 &&
+              std::all_of(
+                  principals.begin(), principals.end(),
+                  [](uint64_t principal) { return principal == 0; });
+          if (!rootOnly) {
+            throw facebook::jsi::JSError(
+                runtime, "EACCES: chdir: root principal required");
+          }
         }
-        if (chdir(path.c_str()) != 0) {
-          throw facebook::jsi::JSError(
-              runtime, "Failed to change directory: " + std::string(strerror(errno)));
-        }
+        (void)exactSetVfsCwd(runtime, path);
         return facebook::jsi::Value::undefined();
       });
   processObj.setProperty(rt, "chdir", std::move(chdirFn));
 
-  auto exitFn = makeHardExitFn(rt);
+  auto exitFn = makeProcessExitFn(handle, rt);
   processObj.setProperty(rt, "exit", std::move(exitFn));
-  try {
-    auto markerBuffer = std::make_shared<facebook::jsi::StringBuffer>(
-        R"EXACT_MARKER_JS(
-(function() {
-  if (typeof process !== 'object' || process === null) return;
-  if (process.exit) {
-    try { process.exit.__exactHostExit = true; } catch (_) {}
-  }
-})();
-)EXACT_MARKER_JS");
-    rt.evaluateJavaScript(markerBuffer, "<process-exit-marker>");
-  } catch (...) {
-    if (handle->armed) throw;
-  }
 
-  auto makeStream = [&rt](int fd) {
+  auto objectCtor = rt.global().getPropertyAsObject(rt, "Object");
+  auto defineProperty = objectCtor.getPropertyAsFunction(rt, "defineProperty");
+  enum class StdioQueryField { IsTty, Columns, Rows };
+  auto installStdioQueryAccessor =
+      [&rt, &defineProperty](facebook::jsi::Object& stream,
+                            int fd,
+                            const char* name,
+                            StdioQueryField field) {
+        auto getter = facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forUtf8(
+                rt, std::string("get ") + name),
+            0,
+            [fd, field](facebook::jsi::Runtime&,
+                        const facebook::jsi::Value&,
+                        const facebook::jsi::Value*,
+                        size_t) -> facebook::jsi::Value {
+              // A denied terminal-fact query is represented as a non-TTY or
+              // an absent dimension, never as an exception.  The Host ABI
+              // supplies the supervisor's authenticated worker view; ordinary
+              // in-process embedders fall back to their native descriptors.
+              // @ref LLP 0025#1-modes-descriptors-and-topology
+              if (!checkCapability("stdio:query")) {
+                return field == StdioQueryField::IsTty
+                    ? facebook::jsi::Value(false)
+                    : facebook::jsi::Value::undefined();
+              }
+              int32_t isTty = 0;
+              uint16_t columns = 0;
+              uint16_t rows = 0;
+              int32_t managed = ex_host_terminal_session_stdio_query(
+                  fd, &isTty, &columns, &rows);
+              if (managed < 0) {
+                return field == StdioQueryField::IsTty
+                    ? facebook::jsi::Value(false)
+                    : facebook::jsi::Value::undefined();
+              }
+              if (managed == 0) {
+                isTty = ::isatty(fd) != 0;
+                if (isTty) {
+                  struct winsize ws {};
+                  if (::ioctl(fd, TIOCGWINSZ, &ws) == 0) {
+                    columns = ws.ws_col;
+                    rows = ws.ws_row;
+                  }
+                }
+              }
+              switch (field) {
+                case StdioQueryField::IsTty:
+                  return facebook::jsi::Value(isTty != 0);
+                case StdioQueryField::Columns:
+                  return isTty != 0 && columns != 0
+                      ? facebook::jsi::Value(static_cast<int>(columns))
+                      : facebook::jsi::Value::undefined();
+                case StdioQueryField::Rows:
+                  return isTty != 0 && rows != 0
+                      ? facebook::jsi::Value(static_cast<int>(rows))
+                      : facebook::jsi::Value::undefined();
+              }
+              return facebook::jsi::Value::undefined();
+            });
+        facebook::jsi::Object descriptor(rt);
+        descriptor.setProperty(rt, "get", std::move(getter));
+        descriptor.setProperty(rt, "enumerable", true);
+        descriptor.setProperty(rt, "configurable", true);
+        defineProperty.call(
+            rt,
+            stream,
+            facebook::jsi::String::createFromUtf8(rt, name),
+            descriptor);
+      };
+
+  auto makeStream = [&rt, &installStdioQueryAccessor](int fd) {
     facebook::jsi::Object stream(rt);
     auto writeFn = facebook::jsi::Function::createFromHostFunction(
         rt,
@@ -279,17 +338,10 @@ void installProcessSetup(ExactHermesRuntime* handle) {
         });
     stream.setProperty(rt, "write", std::move(writeFn));
 
-    bool isTTY = ::isatty(fd) != 0;
-    stream.setProperty(rt, "isTTY", facebook::jsi::Value(isTTY));
     stream.setProperty(rt, "fd", facebook::jsi::Value(fd));
-
-    if (isTTY) {
-      struct winsize ws;
-      if (::ioctl(fd, TIOCGWINSZ, &ws) == 0) {
-        stream.setProperty(rt, "columns", facebook::jsi::Value(static_cast<int>(ws.ws_col)));
-        stream.setProperty(rt, "rows", facebook::jsi::Value(static_cast<int>(ws.ws_row)));
-      }
-    }
+    installStdioQueryAccessor(stream, fd, "isTTY", StdioQueryField::IsTty);
+    installStdioQueryAccessor(stream, fd, "columns", StdioQueryField::Columns);
+    installStdioQueryAccessor(stream, fd, "rows", StdioQueryField::Rows);
 
     stream.setProperty(rt, "writable", facebook::jsi::Value(true));
     stream.setProperty(rt, "writableEnded", facebook::jsi::Value(false));
@@ -307,8 +359,8 @@ void installProcessSetup(ExactHermesRuntime* handle) {
   {
     facebook::jsi::Object stdinObj(rt);
     stdinObj.setProperty(rt, "readable", facebook::jsi::Value(true));
-    stdinObj.setProperty(rt, "isTTY", facebook::jsi::Value(::isatty(0) != 0));
     stdinObj.setProperty(rt, "fd", facebook::jsi::Value(0));
+    installStdioQueryAccessor(stdinObj, 0, "isTTY", StdioQueryField::IsTty);
     auto stdinDestroyFn = facebook::jsi::Function::createFromHostFunction(
         rt,
         facebook::jsi::PropNameID::forAscii(rt, "destroy"),

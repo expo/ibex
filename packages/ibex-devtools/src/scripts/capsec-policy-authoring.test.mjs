@@ -6,6 +6,7 @@ import {
   intersectAuthorities,
   packageIntegrity,
   resolveTypedDelegations,
+  withV1CwdObserveFloor,
 } from './capsec-policy-authoring.mjs';
 
 const authority = {
@@ -39,9 +40,69 @@ test('buildCanonicalPolicy emits deterministic typed rows and a self-digest', ()
   const second = buildCanonicalPolicy([principal([row])]);
   expect(first).toEqual(second);
   expect(first.mode).toBe('enforce');
+  expect(first.rootImports).toEqual([]);
   expect(first.principals[0].floor).toHaveLength(1);
   expect(first.policyDigest).toMatch(/^sha256-/);
 }, 30_000);
+
+test('root import provenance is explicit, canonical, and drift-classified', () => {
+  const policy = buildCanonicalPolicy(
+    [principal()],
+    ['image-lib@1.0.0', 'image-lib@1.0.0'],
+  );
+  expect(policy.rootImports).toEqual(['image-lib@1.0.0']);
+  const closed = buildCanonicalPolicy([principal()]);
+  expect(classifyPolicyDrift(closed, policy).expansions)
+    .toContain('rootImports image-lib@1.0.0');
+  expect(classifyPolicyDrift(policy, closed).narrowings)
+    .toContain('rootImports image-lib@1.0.0');
+});
+
+test('the v1 generator floor grants cwd observation to every admitted package', () => {
+  const existing = {
+    authority,
+    provenance: [{ kind: 'import-site', source: 'src/app.mjs:1' }],
+  };
+  expect(withV1CwdObserveFloor([])).toEqual([
+    {
+      authority: {
+        cap: 'path:cwd-observe',
+        resource: { kind: 'session-state', name: 'cwd' },
+      },
+      provenance: [
+        {
+          kind: 'macro-expansion',
+          source: 'profile:path.cwd.v1:universal-observe',
+        },
+      ],
+    },
+  ]);
+  expect(withV1CwdObserveFloor([existing])).toEqual([
+    existing,
+    expect.objectContaining({
+      authority: expect.objectContaining({ cap: 'path:cwd-observe' }),
+    }),
+  ]);
+});
+
+test('package policy cannot author the core-root-only cwd mutation action', () => {
+  expect(() =>
+    buildCanonicalPolicy([
+      principal([
+        {
+          authority: {
+            cap: 'path:cwd-mutate',
+            resource: {
+              kind: 'path-exact',
+              path: { root: 'project', components: [] },
+            },
+          },
+          provenance: [{ kind: 'import-site', source: 'src/app.mjs:1' }],
+        },
+      ]),
+    ]),
+  ).toThrow(/path:cwd-mutate is restricted to root principals/);
+});
 
 test('buildCanonicalPolicy rejects action/resource mismatches', () => {
   const bad = { ...authority, cap: 'network:fetch' };
@@ -74,8 +135,8 @@ test('production authoring enforces action-specific selector constraints', () =>
       },
     },
     {
-      cap: 'process:cwd',
-      resource: { kind: 'closed-surface', surfaceClass: 'process-identity' },
+      cap: 'process:identity',
+      resource: { kind: 'closed-surface', surfaceClass: 'process-cwd' },
     },
     {
       cap: 'storage:persist',
@@ -90,7 +151,7 @@ test('production authoring enforces action-specific selector constraints', () =>
     expect(() => buildCanonicalPolicy([principal([{
       authority: bad,
       provenance: [{ kind: 'import-site', source: `src/app.mjs:${index + 1}` }],
-    }])])).toThrow(/rejects/);
+    }])])).toThrow(/rejects|deny-only action/);
   }
 });
 

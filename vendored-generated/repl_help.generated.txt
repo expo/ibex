@@ -1,0 +1,15 @@
+REPL Commands:
+  .help (.h)         Show every command, alias, and published keybinding
+  .exit (.quit, .q)  End the session through orderly shutdown
+  .clear (.cls)      Clear an interactive display without resetting session state
+  .load <path>       Read a virtual path through typed authority and evaluate its supported contents
+  .time <input>      Evaluate input with prompt semantics and report elapsed time
+  .break             Abandon a pending multiline continuation
+  .mounts            Show the virtual mount table and virtual current directory
+
+Keybindings:
+  Tab     Complete without authorizing effects or evaluating user code
+  Ctrl+C  Cancel, discard, or escalate according to session state
+  Ctrl+D  Exit at an empty prompt; otherwise delete forward
+  Ctrl+R  Search session history in reverse
+  Ctrl+Z  Restore the terminal, suspend, and recapture on resume

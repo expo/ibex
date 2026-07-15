@@ -31,6 +31,16 @@ function SQLiteError(message, errno, code, byteOffset) {
 }
 SQLiteError.prototype = Object.create(Error.prototype);
 SQLiteError.prototype.constructor = SQLiteError;
+// Lazy builtin evaluation runs after primordial prototypes are locked. Keep
+// the source-inventoried own constructor even when Error.prototype.constructor
+// is non-writable.
+// @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
+Object.defineProperty(SQLiteError.prototype, 'constructor', {
+  value: SQLiteError,
+  writable: true,
+  configurable: true,
+  enumerable: false,
+});
 
 // ============================================================================
 // Constants
@@ -197,11 +207,21 @@ Statement.prototype.finalize = function() {
   state.finalized = true;
 };
 
-Statement.prototype.toString = function() {
+var statementToString = function() {
   this._checkFinalized();
   if (g.__exactSqliteExpandedSql) return g.__exactSqliteExpandedSql(statementAuthorityState(this).handle);
   return this._sql;
 };
+Statement.prototype.toString = statementToString;
+// Object.prototype.toString is locked before this lazy builtin loads, so a
+// sloppy inherited assignment is not sufficient to install the own override.
+// @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
+Object.defineProperty(Statement.prototype, 'toString', {
+  value: statementToString,
+  writable: true,
+  configurable: true,
+  enumerable: true,
+});
 
 Statement.prototype.as = function(Class) {
   var self = this;

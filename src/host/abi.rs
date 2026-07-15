@@ -25,6 +25,7 @@ use std::collections::HashMap;
 use std::ffi::c_int;
 use std::ffi::{c_char, CStr, CString};
 use std::io::{self, Write};
+use std::num::NonZeroU64;
 use std::ptr;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 #[cfg(unix)]
@@ -38,6 +39,575 @@ thread_local! {
     /// them directly. The worker-pool caller consumes this immediately after
     /// a failed ABI call on the same thread.
     static LAST_FS_ERROR: Cell<i32> = const { Cell::new(0) };
+}
+
+// @ref LLP 0025#1-modes-descriptors-and-topology — JavaScript may write the
+// broker-owned standard outputs but cannot close or replace them.
+static TERMINAL_SESSION_OUTPUT_CLOSE_GUARD: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+// The authenticated CLI worker replaces the embedding host's lossy async
+// console queue with a synchronous, counted relay. This host-owned bit is
+// available in both the library and CLI crates; the non-cloneable guard keeps
+// its lifetime paired with the relay adapter.
+static AUTHENTICATED_WORKER_CONSOLE_RELAY_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Worker-local live terminal facts used by the typed `stdio:query` surface.
+///
+/// The authenticated worker deliberately has pipes on fd 1/fd 2 and no
+/// controlling terminal, so asking its kernel descriptors would report the
+/// transport topology instead of the operator's presentation topology.  The
+/// supervisor supplies live dimensions over the authenticated control lane;
+/// getters may read this state without taking the Runtime lock.
+/// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+/// @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
+struct TerminalSessionStdioQueryState {
+    stdin_is_tty: bool,
+    stdout_is_tty: bool,
+    stderr_is_tty: bool,
+    dimensions: std::sync::atomic::AtomicU32,
+}
+
+impl TerminalSessionStdioQueryState {
+    const fn pack_dimensions(columns: u16, rows: u16) -> u32 {
+        columns as u32 | ((rows as u32) << 16)
+    }
+
+    fn update_dimensions(&self, columns: u16, rows: u16) {
+        self.dimensions.store(
+            Self::pack_dimensions(columns, rows),
+            std::sync::atomic::Ordering::Release,
+        );
+    }
+
+    fn query(&self, fd: i32) -> Option<(bool, u16, u16)> {
+        let is_tty = match fd {
+            0 => self.stdin_is_tty,
+            1 => self.stdout_is_tty,
+            2 => self.stderr_is_tty,
+            _ => return None,
+        };
+        let dimensions = self.dimensions.load(std::sync::atomic::Ordering::Acquire);
+        Some((is_tty, dimensions as u16, (dimensions >> 16) as u16))
+    }
+}
+
+static TERMINAL_SESSION_STDIO_QUERY_STATE: Mutex<Option<Arc<TerminalSessionStdioQueryState>>> =
+    Mutex::new(None);
+
+/// Exclusive worker-side lifetime for the supervisor-authenticated terminal
+/// facts.  This is installed before Runtime construction and retained by the
+/// verified worker endpoint.
+pub struct TerminalSessionStdioQueryGuard {
+    state: Arc<TerminalSessionStdioQueryState>,
+}
+
+pub fn arm_terminal_session_stdio_query(
+    stdin_is_tty: bool,
+    stdout_is_tty: bool,
+    stderr_is_tty: bool,
+) -> io::Result<TerminalSessionStdioQueryGuard> {
+    let state = Arc::new(TerminalSessionStdioQueryState {
+        stdin_is_tty,
+        stdout_is_tty,
+        stderr_is_tty,
+        dimensions: std::sync::atomic::AtomicU32::new(0),
+    });
+    let mut installed = TERMINAL_SESSION_STDIO_QUERY_STATE
+        .lock()
+        .map_err(|_| io::Error::other("terminal stdio query state lock is poisoned"))?;
+    if installed.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "terminal stdio query state is already active",
+        ));
+    }
+    *installed = Some(Arc::clone(&state));
+    Ok(TerminalSessionStdioQueryGuard { state })
+}
+
+impl TerminalSessionStdioQueryGuard {
+    pub fn update_dimensions(&self, columns: u16, rows: u16) {
+        self.state.update_dimensions(columns, rows);
+    }
+}
+
+impl Drop for TerminalSessionStdioQueryGuard {
+    fn drop(&mut self) {
+        match TERMINAL_SESSION_STDIO_QUERY_STATE.lock() {
+            Ok(mut installed) => {
+                if installed
+                    .as_ref()
+                    .is_some_and(|state| Arc::ptr_eq(state, &self.state))
+                {
+                    *installed = None;
+                }
+            }
+            Err(poisoned) => *poisoned.into_inner() = None,
+        }
+    }
+}
+
+/// Read the worker's supervisor-authenticated typed stdio state.
+///
+/// Returns 1 when a session state supplied all outputs, 0 when no worker state
+/// is installed (the native adapter must query its own descriptor), and -1 for
+/// an invalid descriptor or pointer. Unknown dimensions are returned as zero.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_terminal_session_stdio_query(
+    fd: i32,
+    out_is_tty: *mut i32,
+    out_columns: *mut u16,
+    out_rows: *mut u16,
+) -> i32 {
+    if !matches!(fd, 0..=2) || out_is_tty.is_null() || out_columns.is_null() || out_rows.is_null() {
+        return -1;
+    }
+    let query = match TERMINAL_SESSION_STDIO_QUERY_STATE.lock() {
+        Ok(installed) => match installed.as_ref() {
+            Some(state) => state.query(fd),
+            None => return 0,
+        },
+        Err(_) => return -1,
+    };
+    let Some((is_tty, columns, rows)) = query else {
+        return -1;
+    };
+    // SAFETY: non-null output pointers are part of this C ABI's caller
+    // contract and each points to one writable scalar.
+    unsafe {
+        *out_is_tty = i32::from(is_tty);
+        *out_columns = columns;
+        *out_rows = rows;
+    }
+    1
+}
+
+#[doc(hidden)]
+pub struct AuthenticatedWorkerConsoleRelayGuard {
+    _private: (),
+}
+
+#[doc(hidden)]
+pub fn arm_authenticated_worker_console_relay() -> io::Result<AuthenticatedWorkerConsoleRelayGuard>
+{
+    AUTHENTICATED_WORKER_CONSOLE_RELAY_ACTIVE
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        )
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "an authenticated worker console relay is already active",
+            )
+        })?;
+    Ok(AuthenticatedWorkerConsoleRelayGuard { _private: () })
+}
+
+impl Drop for AuthenticatedWorkerConsoleRelayGuard {
+    fn drop(&mut self) {
+        AUTHENTICATED_WORKER_CONSOLE_RELAY_ACTIVE
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+/// Closed route values shared with the native engine adapters. Unknown values
+/// are deliberately absent: native callers treat anything other than an
+/// explicitly permitted route as refusal.
+pub const SESSION_DESCRIPTOR_ROUTE_REFUSED: i32 = -1;
+pub const SESSION_DESCRIPTOR_ROUTE_NATIVE: i32 = 0;
+pub const SESSION_DESCRIPTOR_ROUTE_VIRTUAL: i32 = 1;
+
+#[derive(Debug)]
+struct TerminalSessionDescriptorPolicy {
+    seals_javascript_stdin: bool,
+    protected_descriptors: Box<[i32]>,
+}
+
+impl TerminalSessionDescriptorPolicy {
+    fn new(
+        seals_javascript_stdin: bool,
+        protected_descriptors: impl IntoIterator<Item = i32>,
+    ) -> io::Result<Self> {
+        let mut protected_descriptors = protected_descriptors.into_iter().collect::<Vec<_>>();
+        if protected_descriptors
+            .iter()
+            .any(|descriptor| *descriptor <= 2)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a terminal-session protected descriptor must be greater than fd 2",
+            ));
+        }
+        protected_descriptors.sort_unstable();
+        let original_len = protected_descriptors.len();
+        protected_descriptors.dedup();
+        if protected_descriptors.len() != original_len {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a terminal-session protected descriptor was registered twice",
+            ));
+        }
+        Ok(Self {
+            seals_javascript_stdin,
+            protected_descriptors: protected_descriptors.into_boxed_slice(),
+        })
+    }
+
+    fn is_protected(&self, descriptor: i32) -> bool {
+        self.protected_descriptors
+            .binary_search(&descriptor)
+            .is_ok()
+    }
+
+    fn read_route(&self, descriptor: i32) -> i32 {
+        if self.is_protected(descriptor) {
+            SESSION_DESCRIPTOR_ROUTE_REFUSED
+        } else if descriptor == 0 && self.seals_javascript_stdin {
+            SESSION_DESCRIPTOR_ROUTE_VIRTUAL
+        } else {
+            SESSION_DESCRIPTOR_ROUTE_NATIVE
+        }
+    }
+
+    fn write_route(&self, descriptor: i32) -> i32 {
+        if self.is_protected(descriptor) {
+            SESSION_DESCRIPTOR_ROUTE_REFUSED
+        } else {
+            SESSION_DESCRIPTOR_ROUTE_NATIVE
+        }
+    }
+
+    fn close_route(&self, descriptor: i32) -> i32 {
+        if self.is_protected(descriptor) {
+            SESSION_DESCRIPTOR_ROUTE_REFUSED
+        } else if matches!(descriptor, 1 | 2) || (descriptor == 0 && self.seals_javascript_stdin) {
+            SESSION_DESCRIPTOR_ROUTE_VIRTUAL
+        } else {
+            SESSION_DESCRIPTOR_ROUTE_NATIVE
+        }
+    }
+
+    fn alias_source_route(&self, descriptor: i32) -> i32 {
+        if self.is_protected(descriptor) || matches!(descriptor, 1 | 2) {
+            SESSION_DESCRIPTOR_ROUTE_REFUSED
+        } else if descriptor == 0 && self.seals_javascript_stdin {
+            SESSION_DESCRIPTOR_ROUTE_VIRTUAL
+        } else {
+            SESSION_DESCRIPTOR_ROUTE_NATIVE
+        }
+    }
+
+    fn alias_target_route(&self, descriptor: i32) -> i32 {
+        if self.is_protected(descriptor) || matches!(descriptor, 0..=2) {
+            SESSION_DESCRIPTOR_ROUTE_REFUSED
+        } else {
+            SESSION_DESCRIPTOR_ROUTE_NATIVE
+        }
+    }
+}
+
+// @ref LLP 0025#1-modes-descriptors-and-topology — the authenticated worker
+// installs one process-wide descriptor policy before Runtime construction.
+// A mutex makes installation exclusive and keeps every native query coherent
+// with the RAII lifetime transition.
+static TERMINAL_SESSION_DESCRIPTOR_POLICY: Mutex<Option<TerminalSessionDescriptorPolicy>> =
+    Mutex::new(None);
+
+/// Exclusive native descriptor-policy lifetime. This value is intentionally
+/// neither cloneable nor constructible outside this module; dropping it is the
+/// only normal route that uninstalls the process-wide policy.
+pub struct TerminalSessionDescriptorPolicyGuard {
+    _private: (),
+}
+
+pub fn arm_terminal_session_descriptor_policy(
+    seals_javascript_stdin: bool,
+    protected_descriptors: impl IntoIterator<Item = i32>,
+) -> io::Result<TerminalSessionDescriptorPolicyGuard> {
+    let policy =
+        TerminalSessionDescriptorPolicy::new(seals_javascript_stdin, protected_descriptors)?;
+    let mut installed = TERMINAL_SESSION_DESCRIPTOR_POLICY
+        .lock()
+        .map_err(|_| io::Error::other("terminal-session descriptor policy lock is poisoned"))?;
+    if installed.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "a terminal-session descriptor policy is already active",
+        ));
+    }
+    *installed = Some(policy);
+    Ok(TerminalSessionDescriptorPolicyGuard { _private: () })
+}
+
+impl Drop for TerminalSessionDescriptorPolicyGuard {
+    fn drop(&mut self) {
+        match TERMINAL_SESSION_DESCRIPTOR_POLICY.lock() {
+            Ok(mut installed) => *installed = None,
+            Err(poisoned) => *poisoned.into_inner() = None,
+        }
+    }
+}
+
+fn terminal_session_descriptor_route(
+    descriptor: i32,
+    classify: impl FnOnce(&TerminalSessionDescriptorPolicy, i32) -> i32,
+) -> i32 {
+    match TERMINAL_SESSION_DESCRIPTOR_POLICY.lock() {
+        Ok(installed) => installed
+            .as_ref()
+            .map_or(SESSION_DESCRIPTOR_ROUTE_NATIVE, |policy| {
+                classify(policy, descriptor)
+            }),
+        // If native code cannot observe a coherent policy, it cannot prove a
+        // descriptor operation safe. Refuse instead of falling through.
+        Err(_) => SESSION_DESCRIPTOR_ROUTE_REFUSED,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_session_descriptor_is_protected(descriptor: i32) -> i32 {
+    match TERMINAL_SESSION_DESCRIPTOR_POLICY.lock() {
+        Ok(installed) => i32::from(
+            installed
+                .as_ref()
+                .is_some_and(|policy| policy.is_protected(descriptor)),
+        ),
+        // Lock poisoning is an indeterminate policy state, so every descriptor
+        // is treated as protected until process teardown.
+        Err(_) => 1,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_session_descriptor_read_route(descriptor: i32) -> i32 {
+    terminal_session_descriptor_route(descriptor, TerminalSessionDescriptorPolicy::read_route)
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_session_descriptor_write_route(descriptor: i32) -> i32 {
+    terminal_session_descriptor_route(descriptor, TerminalSessionDescriptorPolicy::write_route)
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_session_descriptor_close_route(descriptor: i32) -> i32 {
+    let route =
+        terminal_session_descriptor_route(descriptor, TerminalSessionDescriptorPolicy::close_route);
+    if route == SESSION_DESCRIPTOR_ROUTE_NATIVE
+        && matches!(descriptor, 1 | 2)
+        && TERMINAL_SESSION_OUTPUT_CLOSE_GUARD.load(std::sync::atomic::Ordering::Acquire)
+    {
+        SESSION_DESCRIPTOR_ROUTE_VIRTUAL
+    } else {
+        route
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_session_descriptor_alias_source_route(descriptor: i32) -> i32 {
+    terminal_session_descriptor_route(
+        descriptor,
+        TerminalSessionDescriptorPolicy::alias_source_route,
+    )
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_session_descriptor_alias_target_route(descriptor: i32) -> i32 {
+    terminal_session_descriptor_route(
+        descriptor,
+        TerminalSessionDescriptorPolicy::alias_target_route,
+    )
+}
+
+/// Closed acknowledgement returned by the authenticated worker's native
+/// supervisor channel. `Acknowledged` means the supervisor durably accepted
+/// the exact record before the callback returned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorkerLifecycleAcknowledgement {
+    Acknowledged,
+    Unacknowledged,
+}
+
+/// Authorized, normalized `process.exitCode` mutation handed to a worker's
+/// native supervisor channel. The private field prevents callers from
+/// manufacturing an authorization result; only the Host ABI constructs it
+/// after both typed lifecycle stages allow the live principal stack.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AuthorizedWorkerExitCodeMirror {
+    status: i32,
+}
+
+impl AuthorizedWorkerExitCodeMirror {
+    pub fn status(self) -> i32 {
+        self.status
+    }
+}
+
+/// Authorized cooperative lifecycle record handed to a worker's native
+/// supervisor channel. The binary-side callback adds its current write-time
+/// relay counters plus the authenticated channel envelope before sending it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AuthorizedWorkerLifecycleCommit {
+    request_id: u64,
+    status: i32,
+}
+
+impl AuthorizedWorkerLifecycleCommit {
+    pub fn request_id(self) -> u64 {
+        self.request_id
+    }
+
+    pub fn status(self) -> i32 {
+        self.status
+    }
+}
+
+type WorkerExitCodeMirrorCallback = dyn Fn(AuthorizedWorkerExitCodeMirror) -> WorkerLifecycleAcknowledgement
+    + Send
+    + Sync
+    + 'static;
+type WorkerLifecycleCommitCallback = dyn Fn(AuthorizedWorkerLifecycleCommit) -> WorkerLifecycleAcknowledgement
+    + Send
+    + Sync
+    + 'static;
+
+/// Native-only authenticated worker lifecycle callbacks.
+///
+/// The binary installs this port only after authenticating its supervisor
+/// channel and before constructing `Runtime`. Callbacks execute synchronously
+/// on the engine thread and therefore must not re-enter `Runtime`, the Host
+/// ABI, or the session lifecycle port. They may perform only the bounded
+/// control-channel send/ack exchange. JavaScript has no installation or direct
+/// invocation surface.
+pub struct AuthenticatedWorkerLifecyclePort {
+    mirror_exit_code: Box<WorkerExitCodeMirrorCallback>,
+    commit_lifecycle: Box<WorkerLifecycleCommitCallback>,
+}
+
+impl AuthenticatedWorkerLifecyclePort {
+    pub fn new<Mirror, Commit>(mirror_exit_code: Mirror, commit_lifecycle: Commit) -> Self
+    where
+        Mirror: Fn(AuthorizedWorkerExitCodeMirror) -> WorkerLifecycleAcknowledgement
+            + Send
+            + Sync
+            + 'static,
+        Commit: Fn(AuthorizedWorkerLifecycleCommit) -> WorkerLifecycleAcknowledgement
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self {
+            mirror_exit_code: Box::new(mirror_exit_code),
+            commit_lifecycle: Box::new(commit_lifecycle),
+        }
+    }
+
+    fn mirror_exit_code(
+        &self,
+        mutation: AuthorizedWorkerExitCodeMirror,
+    ) -> WorkerLifecycleAcknowledgement {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            (self.mirror_exit_code)(mutation)
+        }))
+        .unwrap_or(WorkerLifecycleAcknowledgement::Unacknowledged)
+    }
+
+    fn commit_lifecycle(
+        &self,
+        commit: AuthorizedWorkerLifecycleCommit,
+    ) -> WorkerLifecycleAcknowledgement {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            (self.commit_lifecycle)(commit)
+        }))
+        .unwrap_or(WorkerLifecycleAcknowledgement::Unacknowledged)
+    }
+}
+
+// @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker — a
+// worker installs exactly one authenticated native control port for the
+// Runtime lifetime; JavaScript receives no callback handle or channel token.
+static AUTHENTICATED_WORKER_LIFECYCLE_PORT: Mutex<Option<Arc<AuthenticatedWorkerLifecyclePort>>> =
+    Mutex::new(None);
+
+/// Exclusive RAII lifetime for the authenticated worker lifecycle port.
+#[must_use = "dropping this guard removes the worker lifecycle bridge"]
+pub struct AuthenticatedWorkerLifecyclePortGuard {
+    _private: (),
+}
+
+/// Install an authenticated worker lifecycle port around one `Runtime`
+/// lifetime. Installation is process-exclusive and refuses a poisoned or
+/// already-active port instead of replacing it.
+pub fn install_authenticated_worker_lifecycle_port(
+    port: AuthenticatedWorkerLifecyclePort,
+) -> io::Result<AuthenticatedWorkerLifecyclePortGuard> {
+    let mut installed = AUTHENTICATED_WORKER_LIFECYCLE_PORT
+        .lock()
+        .map_err(|_| io::Error::other("authenticated worker lifecycle port lock is poisoned"))?;
+    if installed.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "an authenticated worker lifecycle port is already active",
+        ));
+    }
+    *installed = Some(Arc::new(port));
+    Ok(AuthenticatedWorkerLifecyclePortGuard { _private: () })
+}
+
+impl Drop for AuthenticatedWorkerLifecyclePortGuard {
+    fn drop(&mut self) {
+        match AUTHENTICATED_WORKER_LIFECYCLE_PORT.lock() {
+            Ok(mut installed) => *installed = None,
+            Err(poisoned) => *poisoned.into_inner() = None,
+        }
+    }
+}
+
+fn authenticated_worker_lifecycle_port() -> io::Result<Option<Arc<AuthenticatedWorkerLifecyclePort>>>
+{
+    AUTHENTICATED_WORKER_LIFECYCLE_PORT
+        .lock()
+        .map(|installed| installed.clone())
+        .map_err(|_| io::Error::other("authenticated worker lifecycle port lock is poisoned"))
+}
+
+/// Native-only lifetime guard used by the CLI terminal adapter. JavaScript
+/// can query neither this type nor its activation path; the engine bridge can
+/// only ask whether closing fd 1/fd 2 is currently a no-op.
+pub struct TerminalSessionOutputCloseGuard {
+    _private: (),
+}
+
+pub fn arm_terminal_session_output_close_guard() -> io::Result<TerminalSessionOutputCloseGuard> {
+    TERMINAL_SESSION_OUTPUT_CLOSE_GUARD
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        )
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "a terminal-session output adapter is already active",
+            )
+        })?;
+    Ok(TerminalSessionOutputCloseGuard { _private: () })
+}
+
+impl Drop for TerminalSessionOutputCloseGuard {
+    fn drop(&mut self) {
+        TERMINAL_SESSION_OUTPUT_CLOSE_GUARD.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_terminal_session_close_is_noop(fd: i32) -> i32 {
+    i32::from(ex_host_session_descriptor_close_route(fd) == SESSION_DESCRIPTOR_ROUTE_VIRTUAL)
 }
 
 fn normalized_io_error_code(err: &std::io::Error) -> i32 {
@@ -87,6 +657,35 @@ fn normalized_io_error_code(err: &std::io::Error) -> i32 {
 
 fn record_fs_error(code: i32) {
     LAST_FS_ERROR.with(|slot| slot.set(code));
+}
+
+#[inline]
+fn set_fs_error_code(code: i32) {
+    record_fs_error(code);
+    #[cfg(all(
+        unix,
+        not(target_os = "android"),
+        not(target_os = "macos"),
+        not(target_os = "ios"),
+        not(target_os = "tvos"),
+        not(target_os = "watchos")
+    ))]
+    unsafe {
+        *libc::__errno_location() = code;
+    }
+    #[cfg(target_os = "android")]
+    unsafe {
+        *libc::__errno() = code;
+    }
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos"
+    ))]
+    unsafe {
+        *libc::__error() = code;
+    }
 }
 
 #[no_mangle]
@@ -148,13 +747,56 @@ use std::os::unix::fs::MetadataExt;
 
 pub const EXACT_HOST_ABI_VERSION: u32 = 1;
 
+/// Version-1 typed result discriminants for the private runtime VFS bridge.
+/// Zero is success; every non-zero value is a stable refusal/error class.
+pub const EX_HOST_VFS_RESULT_OK: u32 = 0;
+pub const EX_HOST_VFS_RESULT_CLOSED_OPERATION: u32 = 1;
+pub const EX_HOST_VFS_RESULT_STALE_SESSION: u32 = 2;
+pub const EX_HOST_VFS_RESULT_MALFORMED_INPUT: u32 = 3;
+pub const EX_HOST_VFS_RESULT_ENCODED_SEPARATOR: u32 = 4;
+pub const EX_HOST_VFS_RESULT_OUTSIDE_MOUNT: u32 = 5;
+pub const EX_HOST_VFS_RESULT_SYNTHETIC_NODE: u32 = 6;
+pub const EX_HOST_VFS_RESULT_POLICY_DENIED: u32 = 7;
+pub const EX_HOST_VFS_RESULT_ABSENT: u32 = 8;
+pub const EX_HOST_VFS_RESULT_SYMLINK_DEPTH: u32 = 9;
+pub const EX_HOST_VFS_RESULT_UNMAPPABLE_LINK: u32 = 10;
+pub const EX_HOST_VFS_RESULT_STALE_IDENTITY: u32 = 11;
+pub const EX_HOST_VFS_RESULT_INPUT_TOO_LARGE: u32 = 12;
+pub const EX_HOST_VFS_RESULT_HOST_ERROR: u32 = 13;
+
+fn vfs_result_discriminant(error: &crate::vfs::VfsError) -> u32 {
+    match error.reason() {
+        crate::vfs::VfsReason::ClosedOperation => EX_HOST_VFS_RESULT_CLOSED_OPERATION,
+        crate::vfs::VfsReason::StaleSession => EX_HOST_VFS_RESULT_STALE_SESSION,
+        crate::vfs::VfsReason::MalformedInput => EX_HOST_VFS_RESULT_MALFORMED_INPUT,
+        crate::vfs::VfsReason::EncodedSeparator => EX_HOST_VFS_RESULT_ENCODED_SEPARATOR,
+        crate::vfs::VfsReason::OutsideMount => EX_HOST_VFS_RESULT_OUTSIDE_MOUNT,
+        crate::vfs::VfsReason::SyntheticNode => EX_HOST_VFS_RESULT_SYNTHETIC_NODE,
+        crate::vfs::VfsReason::PolicyDenied => EX_HOST_VFS_RESULT_POLICY_DENIED,
+        crate::vfs::VfsReason::Absent => EX_HOST_VFS_RESULT_ABSENT,
+        crate::vfs::VfsReason::SymlinkDepthExceeded => EX_HOST_VFS_RESULT_SYMLINK_DEPTH,
+        crate::vfs::VfsReason::UnmappableLink => EX_HOST_VFS_RESULT_UNMAPPABLE_LINK,
+        crate::vfs::VfsReason::StaleIdentity => EX_HOST_VFS_RESULT_STALE_IDENTITY,
+        crate::vfs::VfsReason::InputTooLarge => EX_HOST_VFS_RESULT_INPUT_TOO_LARGE,
+        crate::vfs::VfsReason::HostError => EX_HOST_VFS_RESULT_HOST_ERROR,
+    }
+}
+
 static HOST: OnceLock<RwLock<Host>> = OnceLock::new();
 struct HostContextRecord {
     host: Arc<Host>,
     claimed: bool,
+    runtime_nonce: Option<u64>,
 }
 
 static HOST_CONTEXTS: OnceLock<RwLock<HashMap<u64, HostContextRecord>>> = OnceLock::new();
+
+struct RuntimeVfsBinding {
+    context_id: u64,
+    session: Arc<crate::vfs::RuntimeVfsSession>,
+}
+
+static RUNTIME_VFS_SESSIONS: OnceLock<RwLock<HashMap<u64, RuntimeVfsBinding>>> = OnceLock::new();
 
 struct PendingHostContext(Cell<u64>);
 
@@ -301,6 +943,7 @@ fn insert_host_context(host: Arc<Host>, claimed: bool) -> u64 {
             HostContextRecord {
                 host: Arc::clone(&host),
                 claimed,
+                runtime_nonce: None,
             },
         );
         return context_id;
@@ -406,6 +1049,38 @@ fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     }
 }
 
+/// Resolve one native schedule-time principal against the exact Host context
+/// and runtime generation that captured it. This is an internal authenticated
+/// event bridge, not ambient-host fallback: a stale/mismatched context returns
+/// `None` and callers must surface attribution as unavailable.
+/// @ref LLP 0024#9-asynchronous-failures
+#[doc(hidden)]
+pub fn authenticated_principal_for_host_context(
+    context_id: u64,
+    runtime_nonce: u64,
+    principal_id: u64,
+) -> Option<capsec_semantics::model::Principal> {
+    const RUNTIME_PRINCIPAL_ID: u64 = 0xFFFF_FFFF;
+    const NO_USER_PRINCIPAL_ID: u64 = 0xFFFF_FFFE;
+
+    if context_id == 0 || runtime_nonce == 0 || principal_id == NO_USER_PRINCIPAL_ID {
+        return None;
+    }
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        let contexts = contexts.read().ok()?;
+        let record = contexts.get(&context_id)?;
+        (record.claimed && record.runtime_nonce == Some(runtime_nonce))
+            .then(|| Arc::clone(&record.host))
+    })?;
+    if principal_id == RUNTIME_PRINCIPAL_ID {
+        return Some(capsec_semantics::model::Principal::Runtime {
+            identity: capsec_semantics::model::NonEmptyString::new("ibex-runtime-internal")
+                .expect("static runtime principal identity is non-empty"),
+        });
+    }
+    host.typed_principal_for_module(&principal_id.to_string())
+}
+
 fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
     let context_id = PENDING_HOST_CONTEXT.with(|pending| pending.0.get());
     if context_id == 0 {
@@ -452,6 +1127,112 @@ fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
     context_id
 }
 
+fn bind_runtime_vfs_session(
+    context_id: u64,
+    runtime_nonce: u64,
+) -> Result<(), crate::vfs::VfsError> {
+    let runtime_nonce = NonZeroU64::new(runtime_nonce)
+        .ok_or_else(|| crate::vfs::VfsError::stale_session("bind", None))?;
+    let host = HOST_CONTEXTS
+        .get()
+        .and_then(|contexts| {
+            contexts.read().ok()?.get(&context_id).and_then(|record| {
+                (record.claimed && record.runtime_nonce.is_none()).then(|| record.host.clone())
+            })
+        })
+        .ok_or_else(|| crate::vfs::VfsError::stale_session("bind", None))?;
+    let session = Arc::new(host.runtime_vfs_session(runtime_nonce)?);
+
+    // Every path that needs both registries takes them in this order. The
+    // context is revalidated after session construction so release racing bind
+    // cannot publish an orphaned runtime generation.
+    let sessions = RUNTIME_VFS_SESSIONS.get_or_init(|| RwLock::new(HashMap::new()));
+    let mut sessions = match sessions.write() {
+        Ok(sessions) => sessions,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let contexts = HOST_CONTEXTS
+        .get()
+        .ok_or_else(|| crate::vfs::VfsError::stale_session("bind", None))?;
+    let mut contexts = match contexts.write() {
+        Ok(contexts) => contexts,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let record = contexts
+        .get_mut(&context_id)
+        .filter(|record| {
+            record.claimed && record.runtime_nonce.is_none() && Arc::ptr_eq(&record.host, &host)
+        })
+        .ok_or_else(|| crate::vfs::VfsError::stale_session("bind", None))?;
+    if sessions.contains_key(&runtime_nonce.get()) {
+        return Err(crate::vfs::VfsError::stale_session("bind", None));
+    }
+    record.runtime_nonce = Some(runtime_nonce.get());
+    sessions.insert(
+        runtime_nonce.get(),
+        RuntimeVfsBinding {
+            context_id,
+            session,
+        },
+    );
+    Ok(())
+}
+
+fn runtime_vfs_session(
+    runtime_nonce: u64,
+    operation: &str,
+) -> Result<Arc<crate::vfs::RuntimeVfsSession>, crate::vfs::VfsError> {
+    let runtime_nonce = NonZeroU64::new(runtime_nonce)
+        .ok_or_else(|| crate::vfs::VfsError::stale_session(operation, None))?;
+    let binding = RUNTIME_VFS_SESSIONS
+        .get()
+        .and_then(|sessions| {
+            sessions
+                .read()
+                .ok()?
+                .get(&runtime_nonce.get())
+                .map(|binding| (binding.context_id, Arc::clone(&binding.session)))
+        })
+        .ok_or_else(|| crate::vfs::VfsError::stale_session(operation, None))?;
+    let active_context = ACTIVE_HOST_CONTEXT.with(Cell::get);
+    if active_context != 0 && active_context != binding.0 {
+        return Err(crate::vfs::VfsError::stale_session(operation, None));
+    }
+    if binding.1.runtime_nonce() != runtime_nonce {
+        return Err(crate::vfs::VfsError::stale_session(operation, None));
+    }
+    Ok(binding.1)
+}
+
+fn unbind_runtime_vfs_session(runtime_nonce: u64) -> bool {
+    if runtime_nonce == 0 {
+        return false;
+    }
+    let Some(sessions) = RUNTIME_VFS_SESSIONS.get() else {
+        return false;
+    };
+    let mut sessions = match sessions.write() {
+        Ok(sessions) => sessions,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let Some(binding) = sessions.remove(&runtime_nonce) else {
+        return false;
+    };
+    if let Some(contexts) = HOST_CONTEXTS.get() {
+        let mut contexts = match contexts.write() {
+            Ok(contexts) => contexts,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(context) = contexts.get_mut(&binding.context_id) {
+            if context.runtime_nonce == Some(runtime_nonce) {
+                context.runtime_nonce = None;
+            }
+        }
+    }
+    binding.session.close();
+    true
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_claim_armed_context(digest: *const c_char) -> u64 {
     if digest.is_null() {
@@ -490,15 +1271,375 @@ pub extern "C" fn ex_host_restore_context(previous: u64) {
 
 #[no_mangle]
 pub extern "C" fn ex_host_release_context(context_id: u64) {
-    if let Some(contexts) = HOST_CONTEXTS.get() {
-        match contexts.write() {
-            Ok(mut contexts) => {
-                contexts.remove(&context_id);
-            }
-            Err(poisoned) => {
-                poisoned.into_inner().remove(&context_id);
+    let mut removed_sessions = Vec::new();
+    if let Some(sessions) = RUNTIME_VFS_SESSIONS.get() {
+        let mut sessions = match sessions.write() {
+            Ok(sessions) => sessions,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let runtime_nonces = sessions
+            .iter()
+            .filter_map(|(nonce, binding)| (binding.context_id == context_id).then_some(*nonce))
+            .collect::<Vec<_>>();
+        for runtime_nonce in runtime_nonces {
+            if let Some(binding) = sessions.remove(&runtime_nonce) {
+                removed_sessions.push(binding.session);
             }
         }
+    }
+    if let Some(contexts) = HOST_CONTEXTS.get() {
+        let mut contexts = match contexts.write() {
+            Ok(contexts) => contexts,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        contexts.remove(&context_id);
+    }
+    for session in removed_sessions {
+        session.close();
+    }
+}
+
+fn vfs_error_result(error: &crate::vfs::VfsError, out_errno: *mut i32) -> u32 {
+    let errno = error.host_errno().unwrap_or(0);
+    if !out_errno.is_null() {
+        // SAFETY: callers pass an optional writable scalar; non-null is the
+        // complete output-pointer contract for this field.
+        unsafe { *out_errno = errno };
+    }
+    if errno != 0 {
+        record_fs_error(errno);
+    }
+    vfs_result_discriminant(error)
+}
+
+unsafe fn initialize_vfs_output(
+    out_data: *mut *mut u8,
+    out_len: *mut u64,
+) -> Result<(), crate::vfs::VfsError> {
+    if out_data.is_null() || out_len.is_null() {
+        return Err(crate::vfs::VfsError::malformed("vfs-output"));
+    }
+    // SAFETY: both pointers were checked above and the ABI requires one
+    // writable pointer-sized value plus one writable u64.
+    unsafe {
+        *out_data = ptr::null_mut();
+        *out_len = 0;
+    }
+    Ok(())
+}
+
+unsafe fn write_vfs_output(bytes: Vec<u8>, out_data: *mut *mut u8, out_len: *mut u64) {
+    if bytes.is_empty() {
+        return;
+    }
+    let boxed = bytes.into_boxed_slice();
+    let len = boxed.len() as u64;
+    let data = Box::into_raw(boxed) as *mut u8;
+    // SAFETY: initialize_vfs_output validated both pointers for this call.
+    unsafe {
+        *out_data = data;
+        *out_len = len;
+    }
+}
+
+unsafe fn vfs_input_bytes(
+    input: *const u8,
+    input_len: u64,
+    operation: &str,
+) -> Result<Vec<u8>, crate::vfs::VfsError> {
+    let input_len =
+        usize::try_from(input_len).map_err(|_| crate::vfs::VfsError::malformed(operation))?;
+    if input_len == 0 {
+        return Ok(Vec::new());
+    }
+    if input.is_null() {
+        return Err(crate::vfs::VfsError::malformed(operation));
+    }
+    // SAFETY: the native caller promises `input_len` readable bytes for the
+    // duration of this synchronous call. No reference escapes the call.
+    Ok(unsafe { std::slice::from_raw_parts(input, input_len) }.to_vec())
+}
+
+fn typed_principals_for_ids(
+    host: &Host,
+    module_ids: &[u64],
+) -> Option<Vec<capsec_semantics::model::Principal>> {
+    let principals = module_ids
+        .iter()
+        .map(|id| host.typed_principal_for_module(&id.to_string()))
+        .collect::<Option<Vec<_>>>()?;
+    capsec_semantics::model::canonicalize_principal_set(principals).ok()
+}
+
+/// Bind an authenticated Host context and its `/project` mount to one exact
+/// engine runtime generation. This must run during armed runtime construction,
+/// after the nonce is minted and before any bootstrap or user evaluation.
+/// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+#[no_mangle]
+pub extern "C" fn ex_host_vfs_bind_runtime(context_id: u64, runtime_nonce: u64) -> u32 {
+    match bind_runtime_vfs_session(context_id, runtime_nonce) {
+        Ok(()) => EX_HOST_VFS_RESULT_OK,
+        Err(error) => vfs_error_result(&error, ptr::null_mut()),
+    }
+}
+
+/// Close and remove the exact runtime generation's VFS state. A second call is
+/// a stale-session failure rather than a success against a recycled nonce.
+#[no_mangle]
+pub extern "C" fn ex_host_vfs_unbind_runtime(runtime_nonce: u64) -> u32 {
+    if unbind_runtime_vfs_session(runtime_nonce) {
+        EX_HOST_VFS_RESULT_OK
+    } else {
+        EX_HOST_VFS_RESULT_STALE_SESSION
+    }
+}
+
+/// Return a malloc-independent, explicit-length copy of the runtime's virtual
+/// cwd. The caller frees a non-empty output with `ex_host_free_buffer`.
+/// @abi-output ex_host_vfs_get_cwd out_virtual role=output kind=buffer length=out_virtual_len ownership=caller-frees:ex_host_free_buffer
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_vfs_get_cwd(
+    runtime_nonce: u64,
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    out_virtual: *mut *mut u8,
+    out_virtual_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if let Err(error) = unsafe { initialize_vfs_output(out_virtual, out_virtual_len) } {
+        return vfs_error_result(&error, out_errno);
+    }
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return EX_HOST_VFS_RESULT_POLICY_DENIED;
+    }
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let result = runtime_vfs_session(runtime_nonce, "cwd").and_then(|session| {
+        with_host(
+            |host| {
+                use capsec_semantics::decision::DecisionOutcome;
+                use capsec_semantics::model::Stage;
+                let principals = typed_principals_for_ids(host, module_ids).ok_or_else(|| {
+                    crate::vfs::VfsError::policy_denied(
+                        "cwd",
+                        Arc::from("/project"),
+                        "path:cwd-observe",
+                    )
+                })?;
+                for stage in [Stage::Requested, Stage::Commit] {
+                    let decision = host.authorize_typed_cwd_observe_stage(
+                        &module_id.to_string(),
+                        principals.clone(),
+                        stage,
+                    );
+                    if !matches!(decision, Ok(decision) if decision.outcome == DecisionOutcome::Allow)
+                    {
+                        return Err(crate::vfs::VfsError::policy_denied(
+                            "cwd",
+                            Arc::from("/project"),
+                            "path:cwd-observe",
+                        ));
+                    }
+                }
+                session.current_cwd()
+            },
+            Err(crate::vfs::VfsError::stale_session("cwd", None)),
+        )
+    });
+    match result {
+        Ok(virtual_path) => {
+            unsafe { write_vfs_output(virtual_path, out_virtual, out_virtual_len) };
+            EX_HOST_VFS_RESULT_OK
+        }
+        Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
+/// Change only this runtime generation's virtual cwd. The target bytes are
+/// borrowed and explicit-length; successful output is the canonical virtual
+/// spelling, never a host path. Native code must perform the typed cwd and
+/// directory-metadata decisions before calling this private commit operation.
+/// @abi-output ex_host_vfs_chdir out_virtual role=output kind=buffer length=out_virtual_len ownership=caller-frees:ex_host_free_buffer
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_vfs_chdir(
+    runtime_nonce: u64,
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    input: *const u8,
+    input_len: u64,
+    out_virtual: *mut *mut u8,
+    out_virtual_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if let Err(error) = unsafe { initialize_vfs_output(out_virtual, out_virtual_len) } {
+        return vfs_error_result(&error, out_errno);
+    }
+    let input = match unsafe { vfs_input_bytes(input, input_len, "chdir") } {
+        Ok(input) => input,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return EX_HOST_VFS_RESULT_POLICY_DENIED;
+    }
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    let result = runtime_vfs_session(runtime_nonce, "chdir").and_then(|session| {
+        with_host(
+            |host| {
+                use capsec_semantics::decision::DecisionOutcome;
+                use capsec_semantics::model::{NonEmptyString, Stage};
+                let principals = typed_principals_for_ids(host, module_ids).ok_or_else(|| {
+                    crate::vfs::VfsError::policy_denied(
+                        "chdir",
+                        Arc::from("/project"),
+                        "path:cwd-mutate",
+                    )
+                })?;
+                session.chdir_authorized(
+                    &input,
+                    |stage, path, namespace, final_object| {
+                        let retained_handle = if stage == Stage::Commit {
+                            NonEmptyString::new(format!("vfs-cwd:{runtime_nonce}"))
+                                .map(Some)
+                                .map_err(|_| {
+                                    crate::vfs::VfsError::stale_session(
+                                        "chdir",
+                                        Some(Arc::from(namespace.virtual_path())),
+                                    )
+                                })?
+                        } else {
+                            None
+                        };
+                        let decision = host.authorize_typed_cwd_mutate_stage(
+                            &module_id.to_string(),
+                            principals.clone(),
+                            path,
+                            stage,
+                            final_object.cloned(),
+                            retained_handle,
+                        );
+                        if matches!(decision, Ok(decision) if decision.outcome == DecisionOutcome::Allow)
+                        {
+                            Ok(())
+                        } else {
+                            Err(crate::vfs::VfsError::policy_denied(
+                                "chdir",
+                                Arc::from(namespace.virtual_path()),
+                                "path:cwd-mutate+fs:list",
+                            ))
+                        }
+                    },
+                )
+            },
+            Err(crate::vfs::VfsError::stale_session("chdir", None)),
+        )
+    });
+    match result {
+        Ok(virtual_path) => {
+            unsafe { write_vfs_output(virtual_path, out_virtual, out_virtual_len) };
+            EX_HOST_VFS_RESULT_OK
+        }
+        Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
+/// Resolve lexical virtual syntax against the runtime's sealed cwd. The
+/// backing bytes are for private native adapter use only; `out_virtual` is the
+/// separate safe spelling for JavaScript-visible fields and diagnostics.
+/// @abi-output ex_host_vfs_resolve_path out_backing role=output kind=buffer length=out_backing_len ownership=caller-frees:ex_host_free_buffer
+/// @abi-output ex_host_vfs_resolve_path out_virtual role=output kind=buffer length=out_virtual_len ownership=caller-frees:ex_host_free_buffer
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_vfs_resolve_path(
+    runtime_nonce: u64,
+    input: *const u8,
+    input_len: u64,
+    out_backing: *mut *mut u8,
+    out_backing_len: *mut u64,
+    out_virtual: *mut *mut u8,
+    out_virtual_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if let Err(error) = unsafe { initialize_vfs_output(out_backing, out_backing_len) } {
+        return vfs_error_result(&error, out_errno);
+    }
+    if let Err(error) = unsafe { initialize_vfs_output(out_virtual, out_virtual_len) } {
+        return vfs_error_result(&error, out_errno);
+    }
+    let input = match unsafe { vfs_input_bytes(input, input_len, "resolve") } {
+        Ok(input) => input,
+        Err(error) => return vfs_error_result(&error, out_errno),
+    };
+    let result = runtime_vfs_session(runtime_nonce, "resolve")
+        .and_then(|session| session.resolve_private_path(&input));
+    match result {
+        Ok(resolved) => {
+            let (backing_path, virtual_path) = resolved.into_parts();
+            unsafe {
+                write_vfs_output(backing_path, out_backing, out_backing_len);
+                write_vfs_output(virtual_path, out_virtual, out_virtual_len);
+            }
+            EX_HOST_VFS_RESULT_OK
+        }
+        Err(error) => vfs_error_result(&error, out_errno),
+    }
+}
+
+/// Private native realpath projector. The caller supplies the canonical
+/// backing identity of an already-retained target plus its requested virtual
+/// spelling; the only output is the runtime/session-bound logical spelling.
+/// A non-empty output is owned by the caller and must be released with
+/// `ex_host_free_buffer` using the exact returned length.
+///
+/// This symbol is intentionally outside the public `ex_host_*` ABI inventory:
+/// it is an implementation bridge between the native filesystem adapter and
+/// the Rust VFS session, not an embedder surface.
+/// @ref LLP 0023#6-path-bearing-observables
+/// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+#[export_name = "ibex_private_vfs_project_realpath"]
+pub(crate) unsafe extern "C" fn private_vfs_project_realpath(
+    runtime_nonce: u64,
+    requested_virtual: *const u8,
+    requested_virtual_len: u64,
+    canonical_backing: *const u8,
+    canonical_backing_len: u64,
+    out_virtual: *mut *mut u8,
+    out_virtual_len: *mut u64,
+    out_errno: *mut i32,
+) -> u32 {
+    if !out_errno.is_null() {
+        unsafe { *out_errno = 0 };
+    }
+    if let Err(error) = unsafe { initialize_vfs_output(out_virtual, out_virtual_len) } {
+        return vfs_error_result(&error, out_errno);
+    }
+    let requested_virtual =
+        match unsafe { vfs_input_bytes(requested_virtual, requested_virtual_len, "realpath") } {
+            Ok(input) => input,
+            Err(error) => return vfs_error_result(&error, out_errno),
+        };
+    let canonical_backing =
+        match unsafe { vfs_input_bytes(canonical_backing, canonical_backing_len, "realpath") } {
+            Ok(input) => input,
+            Err(error) => return vfs_error_result(&error, out_errno),
+        };
+    let result = runtime_vfs_session(runtime_nonce, "realpath").and_then(|session| {
+        session.project_realpath_identity(&requested_virtual, &canonical_backing)
+    });
+    match result {
+        Ok(virtual_path) => {
+            unsafe { write_vfs_output(virtual_path, out_virtual, out_virtual_len) };
+            EX_HOST_VFS_RESULT_OK
+        }
+        Err(error) => vfs_error_result(&error, out_errno),
     }
 }
 
@@ -597,6 +1738,25 @@ fn write_stderr_line(msg: &str) {
     let _ = write_stdio_line(&mut stderr, msg);
 }
 
+fn worker_output_relay_is_active() -> bool {
+    AUTHENTICATED_WORKER_CONSOLE_RELAY_ACTIVE.load(std::sync::atomic::Ordering::Acquire)
+}
+
+fn write_counted_worker_console_record(level: i32, payload: &[u8]) {
+    let write = |writer: &mut dyn Write| -> io::Result<()> {
+        writer.write_all(payload)?;
+        writer.write_all(b"\n")?;
+        writer.flush()
+    };
+    if level == 1 {
+        let mut stderr = io::stderr().lock();
+        let _ = write(&mut stderr);
+    } else {
+        let mut stdout = io::stdout().lock();
+        let _ = write(&mut stdout);
+    }
+}
+
 // @ref LLP 0006#degrade-diagnostics-never-the-caller — console output is mirrored to stdio from the JS
 // thread, which is the app host's main thread. stdout there is a PTY or pipe
 // drained by a console UI (Xcode) or a script wrapper; when the consumer
@@ -621,7 +1781,7 @@ struct ConsoleQueue {
 // `ex_host_console_flush` waits (bounded) on this reaching zero so
 // process.exit does not discard output enqueued in the same tick — the
 // writer thread otherwise races process teardown, and on Windows
-// (exactHostExit -> ExitProcess) it loses deterministically. (ENG-23639)
+// (legacyUnarmedExit -> ExitProcess) it loses deterministically. (ENG-23639)
 static CONSOLE_PENDING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl ConsoleQueue {
@@ -674,7 +1834,7 @@ fn console_queue() -> &'static ConsoleQueue {
 }
 
 /// Wait (bounded by `timeout_ms`) for the console writer thread to drain
-/// every line already accepted into the queue. Called by `exactHostExit`
+/// every line already accepted into the queue. Called by `legacyUnarmedExit`
 /// before terminating so `console.log(...); process.exit(0)` cannot lose
 /// the log line; a stalled stdio consumer only delays exit by the timeout,
 /// never wedges it. (ENG-23639)
@@ -856,6 +2016,46 @@ fn sqlite_authorizer(ctx: AuthContext<'_>) -> Authorization {
 
 fn install_sqlite_authorizer(db: &Connection) {
     db.authorizer(Some(sqlite_authorizer));
+}
+
+fn sqlite_isolated_io_authorizer(ctx: AuthContext<'_>) -> Authorization {
+    match ctx.action {
+        AuthAction::Pragma {
+            pragma_name,
+            pragma_value: Some(_),
+        } if pragma_name.eq_ignore_ascii_case("journal_mode")
+            || pragma_name.eq_ignore_ascii_case("temp_store") =>
+        {
+            Authorization::Deny
+        }
+        AuthAction::Pragma { pragma_name, .. }
+            if pragma_name.eq_ignore_ascii_case("temp_store_directory")
+                || pragma_name.eq_ignore_ascii_case("data_store_directory") =>
+        {
+            Authorization::Deny
+        }
+        _ => sqlite_authorizer(ctx),
+    }
+}
+
+/// Pin every SQLite-owned auxiliary byte to memory before user SQL can run.
+/// File-backed armed connections enter through an already authorized retained
+/// descriptor; permitting rollback journals, WAL/SHM, or temp databases to
+/// derive sibling pathnames would escape that checked object.
+// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+fn configure_sqlite_isolated_io(db: &Connection) -> rusqlite::Result<()> {
+    let journal_mode: String =
+        db.pragma_update_and_check(None, "journal_mode", "MEMORY", |row| row.get(0))?;
+    if !journal_mode.eq_ignore_ascii_case("memory") {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    db.pragma_update(None, "temp_store", "MEMORY")?;
+    let temp_store: i64 = db.pragma_query_value(None, "temp_store", |row| row.get(0))?;
+    if temp_store != 2 {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    db.authorizer(Some(sqlite_isolated_io_authorizer));
+    Ok(())
 }
 
 fn stable_legacy_json_text(value: &serde_json::Value, output: &mut String) {
@@ -1312,6 +2512,311 @@ pub unsafe extern "C" fn ex_host_evaluate_typed_decision(
     }
 }
 
+fn authorize_typed_lifecycle(
+    host: &Host,
+    actor: u64,
+    module_ids: &[u64],
+    disposition: capsec_semantics::model::LifecycleDisposition,
+    operation_key: &str,
+    coverage_edge_id: &str,
+) -> bool {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::Stage;
+
+    let Some(principals) = module_ids
+        .iter()
+        .map(|id| host.typed_principal_for_module(&id.to_string()))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let Ok(principals) = capsec_semantics::model::canonicalize_principal_set(principals) else {
+        return false;
+    };
+    for stage in [Stage::Requested, Stage::Commit] {
+        let decision = host.authorize_typed_lifecycle_stage(
+            &actor.to_string(),
+            operation_key,
+            coverage_edge_id,
+            principals.clone(),
+            disposition,
+            stage,
+        );
+        if !matches!(decision, Ok(decision) if decision.outcome == DecisionOutcome::Allow) {
+            return false;
+        }
+    }
+    true
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LifecycleExitSurface {
+    ProcessExit,
+    ExactExit,
+}
+
+impl LifecycleExitSurface {
+    fn from_abi(value: u32) -> Option<Self> {
+        match value {
+            1 => Some(Self::ProcessExit),
+            2 => Some(Self::ExactExit),
+            _ => None,
+        }
+    }
+
+    fn operation_key(self) -> &'static str {
+        match self {
+            Self::ProcessExit => "lifecycle-process-exit-request",
+            Self::ExactExit => "lifecycle-exact-exit-request",
+        }
+    }
+
+    fn coverage_edge_id(self) -> Option<&'static str> {
+        match self {
+            Self::ProcessExit => {
+                super::generated_coverage_edge_id("native-op", "global:process.exit")
+            }
+            Self::ExactExit => super::generated_coverage_edge_id("native-op", "__exactExit"),
+        }
+    }
+}
+
+#[cold]
+fn park_after_acknowledged_worker_lifecycle_commit() -> ! {
+    // The supervisor owns teardown. An unpark or spurious wake cannot return
+    // control to the engine frame that requested exit.
+    loop {
+        std::thread::park();
+    }
+}
+
+#[cold]
+fn terminate_unacknowledged_worker_lifecycle_commit() -> ! {
+    let status = crate::session_constants::EXIT_STATUS_WORKER_COMMIT_UNACKNOWLEDGED;
+    #[cfg(unix)]
+    unsafe {
+        libc::_exit(status)
+    }
+    #[cfg(not(unix))]
+    std::process::exit(status)
+}
+
+/// Hand an authorized, idempotent record to the authenticated supervisor
+/// channel. The callback returns only after the acknowledgement exchange; an
+/// acknowledgement parks this engine thread forever, while every other result
+/// takes LLP 0025's reserved worker-fatal disposition.
+// @ref LLP 0025#8-exit-and-lifecycle — the authenticated worker commits and is
+// acknowledged before parking; it never takes the in-process teardown path.
+fn commit_worker_lifecycle_and_park(
+    port: Arc<AuthenticatedWorkerLifecyclePort>,
+    commit: AuthorizedWorkerLifecycleCommit,
+) -> ! {
+    match port.commit_lifecycle(commit) {
+        WorkerLifecycleAcknowledgement::Acknowledged => {
+            park_after_acknowledged_worker_lifecycle_commit()
+        }
+        WorkerLifecycleAcknowledgement::Unacknowledged => {
+            terminate_unacknowledged_worker_lifecycle_commit()
+        }
+    }
+}
+
+/// Authorize a cooperative exit request against the authenticated live frame
+/// set. The code is deliberately not a selector dimension: all normalized
+/// i32 exit statuses exercise the same exact exit-request disposition.
+/// Returns 1 only for a fully staged typed allow; every other state denies.
+// @ref LLP 0025#8-exit-and-lifecycle — package, missing, ambiguous, and mixed
+// attribution all deny before the native runtime records an exit request.
+///
+/// # Safety
+/// `module_ids` must reference `module_ids_len` u64 values for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_lifecycle_exit_stack(
+    actor: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    surface: u32,
+    requested_code: i32,
+    has_requested_code: u32,
+    out_code: *mut i32,
+) -> i32 {
+    if module_ids.is_null()
+        || out_code.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || has_requested_code > 1
+    {
+        return 0;
+    }
+    let Some(surface) = LifecycleExitSurface::from_abi(surface) else {
+        return 0;
+    };
+    let Some(coverage_edge_id) = surface.coverage_edge_id() else {
+        return 0;
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let effective_code = if has_requested_code == 1 {
+                requested_code
+            } else {
+                host.lifecycle_exit_code()
+            };
+            if !authorize_typed_lifecycle(
+                host,
+                actor,
+                module_ids,
+                capsec_semantics::model::LifecycleDisposition::ExitRequest,
+                surface.operation_key(),
+                coverage_edge_id,
+            ) {
+                return 0;
+            }
+            let worker_port = match authenticated_worker_lifecycle_port() {
+                Ok(port) => port,
+                // An indeterminate scoped port cannot safely fall through to
+                // the in-process lifecycle realization.
+                Err(_) => return 0,
+            };
+            let lifecycle = host.session_lifecycle();
+            let request = match lifecycle.request_exit(
+                crate::session_lifecycle::LifecyclePrincipal::Root,
+                effective_code,
+            ) {
+                crate::session_lifecycle::LifecycleRequestDisposition::Accepted { request } => {
+                    request
+                }
+                crate::session_lifecycle::LifecycleRequestDisposition::AlreadyInProgress => {
+                    let Some(request) = lifecycle.latched_request() else {
+                        return 0;
+                    };
+                    request
+                }
+                crate::session_lifecycle::LifecycleRequestDisposition::Denied => return 0,
+            };
+            if let Some(worker_port) = worker_port {
+                commit_worker_lifecycle_and_park(
+                    worker_port,
+                    AuthorizedWorkerLifecycleCommit {
+                        request_id: request.request_id,
+                        status: request.status,
+                    },
+                );
+            }
+            unsafe { out_code.write(request.status) };
+            1
+        },
+        0,
+    )
+}
+
+/// Authorize and return the supervisor-authoritative orderly-exit code.
+/// `out_code` is untouched on denial.
+///
+/// # Safety
+/// Pointer arguments must remain valid for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_lifecycle_exit_code_get_stack(
+    actor: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    out_code: *mut i32,
+) -> i32 {
+    if module_ids.is_null() || out_code.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return 0;
+    }
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let Some(edge) =
+                super::generated_coverage_edge_id("native-op", "global:process.exitCode")
+            else {
+                return 0;
+            };
+            if !authorize_typed_lifecycle(
+                host,
+                actor,
+                module_ids,
+                capsec_semantics::model::LifecycleDisposition::ExitCodeGet,
+                "lifecycle-exit-code-get",
+                edge,
+            ) {
+                return 0;
+            }
+            let crate::session_lifecycle::LifecycleGetDisposition::Value(code) = host
+                .session_lifecycle()
+                .get_exit_code(crate::session_lifecycle::LifecyclePrincipal::Root)
+            else {
+                return 0;
+            };
+            unsafe { out_code.write(code) };
+            1
+        },
+        0,
+    )
+}
+
+/// Authorize and synchronously mirror the orderly-exit code before returning
+/// to JavaScript. Returns 1 only after the atomic store has completed.
+///
+/// # Safety
+/// `module_ids` must reference `module_ids_len` u64 values for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_lifecycle_exit_code_set_stack(
+    actor: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    code: i32,
+) -> i32 {
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return 0;
+    }
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let Some(edge) =
+                super::generated_coverage_edge_id("native-op", "global:process.exitCode")
+            else {
+                return 0;
+            };
+            if !authorize_typed_lifecycle(
+                host,
+                actor,
+                module_ids,
+                capsec_semantics::model::LifecycleDisposition::ExitCodeSet,
+                "lifecycle-exit-code-set",
+                edge,
+            ) {
+                return 0;
+            }
+            let worker_port = match authenticated_worker_lifecycle_port() {
+                Ok(port) => port,
+                // Never reinterpret an indeterminate worker bridge as an
+                // in-process Host mutation.
+                Err(_) => return 0,
+            };
+            let lifecycle = host.session_lifecycle();
+            let disposition = if let Some(worker_port) = worker_port {
+                lifecycle.set_exit_code_with_synchronous_mirror(
+                    crate::session_lifecycle::LifecyclePrincipal::Root,
+                    code,
+                    |status| {
+                        worker_port.mirror_exit_code(AuthorizedWorkerExitCodeMirror { status })
+                            == WorkerLifecycleAcknowledgement::Acknowledged
+                    },
+                )
+            } else {
+                lifecycle.set_exit_code(crate::session_lifecycle::LifecyclePrincipal::Root, code)
+            };
+            i32::from(matches!(
+                disposition,
+                crate::session_lifecycle::LifecycleSetDisposition::Accepted { .. }
+            ))
+        },
+        0,
+    )
+}
+
 /// Authorize one stage of the native `fs.open` branch against authenticated
 /// logical roots, a retained parent directory, and the actual descriptor.
 /// Returns 1 allow, 0 deny, and -1 for malformed/unsupported adapter input.
@@ -1373,9 +2878,27 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
             "surface.native.op.exactfsstatasync.0b0hr8s",
         ),
         12 => ("fs-mkdir", "surface.native.op.exactmkdir.021eaz0"),
+        13 => ("fs-access", "surface.native.op.exactaccess.1a12cmn"),
+        14 => ("fs-opendir", "surface.native.op.exactopendir.0eh7ha4"),
+        15 => ("fs-readlink", "surface.native.op.exactreadlink.1p5ozx1"),
+        16 => ("fs-truncate", "surface.native.op.exacttruncate.13gh223"),
+        17 => ("fs-statfs", "surface.native.op.exactstatfs.151kkzo"),
+        18 => ("sqlite-open", "surface.native.op.exactsqliteopen.0a20llh"),
+        19 => (
+            "sqlite-prepare",
+            "surface.native.op.exactsqliteprepare.10ue6lk",
+        ),
+        20 => ("sqlite-all", "surface.native.op.exactsqliteall.0gw7b3k"),
+        21 => ("sqlite-get", "surface.native.op.exactsqliteget.1ihlki3"),
+        22 => ("sqlite-run", "surface.native.op.exactsqliterun.0nde0wm"),
+        23 => (
+            "sqlite-values",
+            "surface.native.op.exactsqlitevalues.03uveqn",
+        ),
+        24 => ("sqlite-exec", "surface.native.op.exactsqliteexec.0oogg80"),
         _ => return -1,
     };
-    let follow_mode = if matches!(surface, 10 | 11) {
+    let follow_mode = if matches!(surface, 10 | 11 | 15) {
         capsec_semantics::model::FollowMode::NoFollowFinal
     } else {
         capsec_semantics::model::FollowMode::FollowFinal
@@ -1403,84 +2926,105 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
         }
     };
     let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
-    let (stage, object_state, disclosure_only, parent_object, final_object, retained_handle) =
-        if stage == 0 {
+    let (
+        stage,
+        object_state,
+        disclosure_only,
+        parent_object,
+        final_object,
+        final_object_generation,
+        retained_handle,
+    ) = if stage == 0 {
+        (
+            Stage::Requested,
+            // No lookup has occurred yet, so existence is not an
+            // authenticated fact at the requested stage.
+            // @ref LLP 0023#21-staged-authorization-identity
+            capsec_semantics::model::ObjectState::Unknown,
+            true,
+            None,
+            None,
+            None,
+            None,
+        )
+    } else if matches!(stage, 3 | 4) {
+        #[cfg(unix)]
+        {
+            if parent_fd < 0 {
+                return -1;
+            }
+            let Some(parent_object) = object_identity_for_fd(parent_fd) else {
+                return 0;
+            };
+            let (object_state, final_object, final_object_generation) = match object_identity_at(
+                parent_fd,
+                &path,
+                follow_mode == capsec_semantics::model::FollowMode::FollowFinal,
+            ) {
+                Ok(Some((identity, generation))) => (
+                    capsec_semantics::model::ObjectState::Existing,
+                    Some(identity),
+                    Some(generation),
+                ),
+                Ok(None) => (
+                    capsec_semantics::model::ObjectState::AbsentCreate,
+                    None,
+                    None,
+                ),
+                Err(()) => return 0,
+            };
             (
-                Stage::Requested,
-                capsec_semantics::model::ObjectState::Existing,
-                true,
-                None,
-                None,
+                Stage::Discovery,
+                object_state,
+                stage == 3,
+                Some(parent_object),
+                final_object,
+                final_object_generation,
                 None,
             )
-        } else if matches!(stage, 3 | 4) {
-            #[cfg(unix)]
-            {
-                if parent_fd < 0 {
-                    return -1;
-                }
-                let Some(parent_object) = object_identity_for_fd(parent_fd) else {
-                    return 0;
-                };
-                let (object_state, final_object) = match object_identity_at(
-                    parent_fd,
-                    &path,
-                    follow_mode == capsec_semantics::model::FollowMode::FollowFinal,
-                ) {
-                    Ok(Some(identity)) => (
-                        capsec_semantics::model::ObjectState::Existing,
-                        Some(identity),
-                    ),
-                    Ok(None) => (capsec_semantics::model::ObjectState::AbsentCreate, None),
-                    Err(()) => return 0,
-                };
-                (
-                    Stage::Discovery,
-                    object_state,
-                    stage == 3,
-                    Some(parent_object),
-                    final_object,
-                    None,
-                )
-            }
-            #[cfg(not(unix))]
-            {
+        }
+        #[cfg(not(unix))]
+        {
+            return -1;
+        }
+    } else {
+        if parent_fd < 0 || fd < 0 {
+            return -1;
+        }
+        #[cfg(unix)]
+        {
+            let Some(final_object) = object_identity_for_fd(fd) else {
                 return -1;
-            }
-        } else {
-            if parent_fd < 0 || fd < 0 {
+            };
+            let Some(final_object_generation) = object_verification_generation_for_fd(fd) else {
                 return -1;
-            }
-            #[cfg(unix)]
-            {
-                let Some(final_object) = object_identity_for_fd(fd) else {
-                    return -1;
-                };
-                let Some(parent_object) = object_identity_for_fd(parent_fd) else {
-                    return -1;
-                };
-                let retained = match NonEmptyString::new(format!("fd:{fd}")) {
-                    Ok(value) => value,
-                    Err(_) => return -1,
-                };
-                (
-                    if stage == 1 {
-                        Stage::Commit
-                    } else {
-                        Stage::Repeat
-                    },
-                    capsec_semantics::model::ObjectState::Existing,
-                    stage == 5,
-                    Some(parent_object),
-                    Some(final_object),
-                    Some(retained),
-                )
-            }
-            #[cfg(not(unix))]
-            {
+            };
+            let Some(parent_object) = object_identity_for_fd(parent_fd) else {
                 return -1;
-            }
-        };
+            };
+            let retained = match NonEmptyString::new(format!("fd:{fd}")) {
+                Ok(value) => value,
+                Err(_) => return -1,
+            };
+            (
+                if stage == 1 {
+                    Stage::Commit
+                } else {
+                    Stage::Repeat
+                },
+                capsec_semantics::model::ObjectState::Existing,
+                stage == 5,
+                Some(parent_object),
+                Some(final_object),
+                Some(final_object_generation),
+                Some(retained),
+            )
+        }
+        #[cfg(not(unix))]
+        {
+            return -1;
+        }
+    };
     let resolved_parent_path = if stage == Stage::Requested {
         None
     } else {
@@ -1553,6 +3097,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
                 needs_write != 0,
                 parent_object,
                 final_object,
+                final_object_generation,
                 retained_handle,
                 presented,
             ) {
@@ -2071,6 +3616,205 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
     )
 }
 
+/// Authorize one staged TCP-listen occurrence from an engine adapter.
+///
+/// `operation_kind` is 0 for `__exactTcpListen` and 1 for
+/// `__exactHttpServe`. `port == 0` denotes an ephemeral requested port.
+/// Requested-stage calls omit every late fact. Commit calls provide the exact
+/// bound address/port and listener id. Delivery/repeat calls additionally
+/// provide the accepted peer address/port.
+///
+/// Returns 1 allow, 0 deny, and -1 for malformed or unsupported input.
+///
+/// # Safety
+/// All pointer/length pairs and C strings must remain valid for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_listen_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    operation_kind: u32,
+    host: *const c_char,
+    port: u16,
+    dual_stack: i32,
+    stage: u32,
+    bound_address: *const c_char,
+    bound_port: u16,
+    listener_id: *const c_char,
+    accepted_address: *const c_char,
+    accepted_port: u16,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{
+        BoundEndpoint, IpAddress, ListenBind, ListenPort, ListenTransport, NonEmptyString,
+        PeerClass, Port, Stage, VerifiedPeer,
+    };
+
+    if module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || host.is_null()
+        || operation_kind > 1
+        || !matches!(dual_stack, 0 | 1)
+        || !matches!(stage, 0 | 2 | 3 | 4)
+    {
+        return -1;
+    }
+    let stage = match stage {
+        0 => Stage::Requested,
+        2 => Stage::Commit,
+        3 => Stage::Delivery,
+        4 => Stage::Repeat,
+        _ => return -1,
+    };
+    let host_text = unsafe { CStr::from_ptr(host) }.to_string_lossy();
+    let host_address = match host_text.parse::<std::net::IpAddr>() {
+        Ok(address) if IpAddress::new(address).to_string() == host_text => IpAddress::new(address),
+        _ => return -1,
+    };
+    let bind = if host_address.get().is_unspecified() {
+        ListenBind::AllInterfaces
+    } else {
+        ListenBind::Address {
+            address: host_address,
+        }
+    };
+    let peer_classes = if host_address.get().is_loopback() {
+        vec![PeerClass::Loopback]
+    } else {
+        // Canonical JSON string order, not enum declaration order.
+        vec![
+            PeerClass::CarrierGradeNat,
+            PeerClass::LinkLocal,
+            PeerClass::Loopback,
+            PeerClass::Metadata,
+            PeerClass::Multicast,
+            PeerClass::Private,
+            PeerClass::Public,
+            PeerClass::Reserved,
+            PeerClass::UniqueLocal,
+            PeerClass::Unspecified,
+        ]
+    };
+    let requested_port = if port == 0 {
+        ListenPort::Ephemeral
+    } else {
+        let Some(value) = Port::new(port) else {
+            return -1;
+        };
+        ListenPort::Exact { value }
+    };
+    let parse_ip = |value: *const c_char| -> Option<Option<IpAddress>> {
+        if value.is_null() {
+            return Some(None);
+        }
+        let text = unsafe { CStr::from_ptr(value) }.to_string_lossy();
+        let address = text.parse::<std::net::IpAddr>().ok()?;
+        (IpAddress::new(address).to_string() == text).then_some(Some(IpAddress::new(address)))
+    };
+    let Some(bound_address) = parse_ip(bound_address) else {
+        return -1;
+    };
+    let Some(accepted_address) = parse_ip(accepted_address) else {
+        return -1;
+    };
+    let listener_id = if listener_id.is_null() {
+        None
+    } else {
+        match NonEmptyString::new(
+            unsafe { CStr::from_ptr(listener_id) }
+                .to_string_lossy()
+                .into_owned(),
+        ) {
+            Ok(value) => Some(value),
+            Err(_) => return -1,
+        }
+    };
+    let bound_endpoints = match (bound_address, Port::new(bound_port)) {
+        (Some(address), Some(port)) => Some(vec![BoundEndpoint {
+            address,
+            port,
+            interface: None,
+        }]),
+        (None, None) if bound_port == 0 => None,
+        _ => return -1,
+    };
+    let accepted_peer = match (accepted_address, Port::new(accepted_port)) {
+        (Some(address), Some(port)) => Some(VerifiedPeer { address, port }),
+        (None, None) if accepted_port == 0 => None,
+        _ => return -1,
+    };
+    let late_facts_valid = match stage {
+        Stage::Requested => {
+            bound_endpoints.is_none() && listener_id.is_none() && accepted_peer.is_none()
+        }
+        Stage::Commit => {
+            bound_endpoints.is_some() && listener_id.is_some() && accepted_peer.is_none()
+        }
+        Stage::Delivery | Stage::Repeat => {
+            bound_endpoints.is_some() && listener_id.is_some() && accepted_peer.is_some()
+        }
+        _ => false,
+    };
+    if !late_facts_valid {
+        return -1;
+    }
+
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            let (operation_key, coverage_edge_id) = match operation_kind {
+                0 => ("tcp-listen", "surface.native.op.exacttcplisten.0mfz04n"),
+                1 => ("http-serve", "surface.native.op.exacthttpserve.1eq8wio"),
+                _ => return -1,
+            };
+            match host.authorize_typed_listen_stage(
+                &module_id.to_string(),
+                operation_key,
+                coverage_edge_id,
+                constrained_principals,
+                ListenTransport::Tcp,
+                bind,
+                requested_port,
+                dual_stack == 1,
+                peer_classes,
+                stage,
+                bound_endpoints,
+                listener_id,
+                accepted_peer,
+            ) {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed listen authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
 /// Authorize one literal-destination UDP datagram across requested, candidate,
 /// and commit stages while parsing and attributing its inputs only once.
 ///
@@ -2173,7 +3917,20 @@ fn object_identity_for_fd(fd: i32) -> Option<capsec_semantics::model::ObjectIden
     if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
         return None;
     }
-    object_identity_from_stat(unsafe { stat.assume_init() })
+    object_identity_from_stat(&unsafe { stat.assume_init() })
+}
+
+#[cfg(unix)]
+// @ref LLP 0023#42-authenticated-package-source-is-immutable — commit-stage
+// object evidence carries the same generation primitive used by arming.
+fn object_verification_generation_for_fd(
+    fd: i32,
+) -> Option<capsec_semantics::model::NonEmptyString> {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    object_verification_generation_from_stat(&unsafe { stat.assume_init() })
 }
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -2199,7 +3956,13 @@ fn object_identity_at(
     parent_fd: i32,
     path: &std::path::Path,
     follow_final: bool,
-) -> Result<Option<capsec_semantics::model::ObjectIdentity>, ()> {
+) -> Result<
+    Option<(
+        capsec_semantics::model::ObjectIdentity,
+        capsec_semantics::model::NonEmptyString,
+    )>,
+    (),
+> {
     use std::os::unix::ffi::OsStrExt;
     let name = path
         .file_name()
@@ -2212,7 +3975,10 @@ fn object_identity_at(
         libc::AT_SYMLINK_NOFOLLOW
     };
     if unsafe { libc::fstatat(parent_fd, name.as_ptr(), stat.as_mut_ptr(), flags) } == 0 {
-        return Ok(object_identity_from_stat(unsafe { stat.assume_init() }));
+        let stat = unsafe { stat.assume_init() };
+        let identity = object_identity_from_stat(&stat).ok_or(())?;
+        let generation = object_verification_generation_from_stat(&stat).ok_or(())?;
+        return Ok(Some((identity, generation)));
     }
     match std::io::Error::last_os_error().raw_os_error() {
         Some(libc::ENOENT) => Ok(None),
@@ -2221,7 +3987,30 @@ fn object_identity_at(
 }
 
 #[cfg(unix)]
-fn object_identity_from_stat(stat: libc::stat) -> Option<capsec_semantics::model::ObjectIdentity> {
+fn object_verification_generation_from_stat(
+    stat: &libc::stat,
+) -> Option<capsec_semantics::model::NonEmptyString> {
+    use capsec_semantics::model::NonEmptyString;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        // Apple documents st_gen as super-user-only. Zero is therefore not a
+        // usable generation for ordinary armed execution; the inventory keeps
+        // the original object alive with a Host-lifetime descriptor instead.
+        // @ref LLP 0023#42-authenticated-package-source-is-immutable
+        if stat.st_gen != 0 {
+            return NonEmptyString::new(format!("apple-st-gen:{}", stat.st_gen)).ok();
+        }
+        return NonEmptyString::new("retained-descriptor-v1").ok();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        let _ = stat;
+        NonEmptyString::new("retained-descriptor-v1").ok()
+    }
+}
+
+#[cfg(unix)]
+fn object_identity_from_stat(stat: &libc::stat) -> Option<capsec_semantics::model::ObjectIdentity> {
     object_identity(stat.st_dev as u64, stat.st_ino)
 }
 
@@ -2231,6 +4020,8 @@ fn object_identity(dev: u64, ino: u64) -> Option<capsec_semantics::model::Object
     Some(ObjectIdentity {
         platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
             ObjectPlatform::Apple
+        } else if cfg!(target_os = "android") {
+            ObjectPlatform::Android
         } else {
             ObjectPlatform::Unix
         },
@@ -3003,25 +4794,101 @@ fn module_resolve_args(
 /// bridges: everything except the module `source`. `require.resolve` needs only
 /// these; the full `require`/`import` load path additionally attaches `source`.
 fn module_meta_json(module: &crate::module_loader::ResolvedModule) -> serde_json::Value {
+    let typed_path = module.resolver_path.as_ref();
+    let public_id = typed_path
+        .map(crate::vfs::ResolverLogicalPath::virtual_path)
+        .or_else(|| {
+            module
+                .private_resolver_path
+                .as_ref()
+                .map(crate::module_loader::PrivateResolverPath::virtual_path)
+        })
+        .unwrap_or_else(|| {
+            if module.kind == crate::module_loader::ModuleKind::Builtin {
+                module.id.as_str()
+            } else {
+                "ibex:invalid-module-record"
+            }
+        });
+    let serialized_path = typed_path
+        .map(|path| json!(path))
+        .or_else(|| {
+            module
+                .private_resolver_path
+                .as_ref()
+                .map(|path| json!(path))
+        })
+        .unwrap_or(serde_json::Value::Null);
+    let serialized_package_root = module
+        .resolver_package_root
+        .as_ref()
+        .map(|path| json!(path))
+        .or_else(|| {
+            module
+                .private_resolver_package_root
+                .as_ref()
+                .map(|path| json!(path))
+        })
+        .unwrap_or(serde_json::Value::Null);
     json!({
-        "id": module.id,
+        "schema": "ibex/module-resolution/1",
+        "id": public_id,
         "kind": match module.kind {
             crate::module_loader::ModuleKind::Builtin => "builtin",
             crate::module_loader::ModuleKind::CommonJs => "cjs",
             crate::module_loader::ModuleKind::Json => "json",
             crate::module_loader::ModuleKind::Esm => "esm",
         },
-        "path": module.path.as_ref().map(|p| p.to_string_lossy().to_string()),
+        // Armed records carry versioned logical identities. The physical
+        // resolver path remains in `ResolvedModule` as private native state and
+        // is never serialized into the loader realm.
+        // @ref LLP 0023#6-path-bearing-observables
+        "path": serialized_path,
         // Resolver-owned package metadata. The JS loader must not decide
         // root-vs-package trust solely from the path shape because symlinked
         // and realpathed dependencies can live outside `node_modules`.
         "pkgName": module.package_name,
-        "pkgRoot": module.package_root.as_ref().map(|p| p.to_string_lossy().to_string()),
+        "pkgRoot": serialized_package_root,
         // The resolved package's own version (node_modules packages only),
         // so the loader can form the `name@version` runtime identity for
         // version-distinguished principals/compartments. (ENG-22621)
         "pkgVersion": module.package_version,
         "pkgIntegrity": module.package_integrity,
+        // Armed file records key the private loader cache by authenticated
+        // VFS SourceId. `path` remains resolver-local native state; project
+        // code observes only the paired virtual path/label.
+        // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+        "sourceId": module.source_id.as_ref().map(crate::vfs::SourceId::cache_key),
+        "sourceLabel": module.source_label.as_ref().map(crate::vfs::SourceLabel::as_str),
+        "virtualPath": module.virtual_path.as_deref(),
+    })
+}
+
+/// Keep resolver failures useful without returning the resolver's native error
+/// chain. That chain may name a probed backing path; it is host-private for the
+/// same reason as `ResolvedModule::path`. The few semantic errors consumed by
+/// the structured loader retain stable public codes and messages, while all
+/// other resolver/library diagnostics collapse to one non-path-bearing class.
+/// @ref LLP 0023#72-the-structured-result-and-its-error-classes
+fn module_resolution_error_json(error: &anyhow::Error) -> serde_json::Value {
+    let detail = format!("{error:#}");
+    let (code, message) = if detail.contains("IBEX_DEPENDENCY_TOP_LEVEL_AWAIT") {
+        (
+            "IBEX_DEPENDENCY_TOP_LEVEL_AWAIT",
+            "IBEX_DEPENDENCY_TOP_LEVEL_AWAIT: static dependency top-level await is unavailable",
+        )
+    } else if detail.contains("Import denied by authenticated package graph") {
+        (
+            "ERR_IBEX_IMPORT_DENIED",
+            "Import denied by authenticated package graph",
+        )
+    } else {
+        ("ERR_IBEX_MODULE_RESOLUTION", "Module resolution failed")
+    };
+    json!({
+        "schema": "ibex/module-resolution/1",
+        "error": message,
+        "errorCode": code,
     })
 }
 
@@ -3044,7 +4911,10 @@ pub extern "C" fn ex_host_module_resolve(
 
     let resolved = with_host(
         |host| {
-            let path = referrer.as_ref().map(std::path::PathBuf::from);
+            let path = referrer
+                .as_deref()
+                .map(|encoded| host.module_referrer_path(encoded))
+                .transpose()?;
             host.resolve_module_for_principal(
                 &spec,
                 path.as_deref(),
@@ -3060,11 +4930,114 @@ pub extern "C" fn ex_host_module_resolve(
             record["source"] = json!(module.source.unwrap_or_default());
             record
         }
-        Err(err) => json!({
-            "error": format!("{err:#}")
-        }),
+        Err(err) => module_resolution_error_json(&err),
     };
 
+    module_resolve_cstring(&payload)
+}
+
+/// C-only structured-session resolver. The referrer is a canonical
+/// `LogicalPath` copied from the already-authenticated source request; unlike
+/// the public loader bridge, no caller-controlled host pathname enters this
+/// seam. Native phase 4 passes the returned full record only to the captured
+/// loader closure, never to a realm-global require function.
+/// @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+#[no_mangle]
+pub extern "C" fn ex_host_session_static_import_resolve(
+    logical_referrer: *const u8,
+    logical_referrer_length: usize,
+    specifier: *const u8,
+    specifier_length: usize,
+) -> *mut c_char {
+    let payload = (|| -> anyhow::Result<serde_json::Value> {
+        if logical_referrer.is_null()
+            || logical_referrer_length == 0
+            || specifier.is_null()
+            || specifier_length == 0
+        {
+            anyhow::bail!("invalid structured static-import resolver input");
+        }
+        let referrer_bytes =
+            unsafe { std::slice::from_raw_parts(logical_referrer, logical_referrer_length) };
+        let referrer_text = std::str::from_utf8(referrer_bytes)
+            .map_err(|_| anyhow::anyhow!("static-import logical referrer is not UTF-8"))?;
+        let referrer_value = capsec_semantics::strict_json::parse_strict(referrer_text)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        let referrer: capsec_semantics::model::LogicalPath = serde_json::from_value(referrer_value)
+            .map_err(|error| anyhow::anyhow!("invalid static-import referrer: {error}"))?;
+        if !referrer.is_canonical() {
+            anyhow::bail!("static-import logical referrer is not canonical");
+        }
+        let specifier =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(specifier, specifier_length) })
+                .map_err(|_| anyhow::anyhow!("static-import specifier is not UTF-8"))?;
+        if specifier.as_bytes().contains(&0) {
+            anyhow::bail!("static-import specifier contains NUL");
+        }
+        let module = with_host(
+            |host| host.resolve_session_static_import(specifier, &referrer),
+            Err(anyhow::anyhow!("Host not initialized")),
+        )?;
+        let mut record = module_meta_json(&module);
+        record["source"] = json!(module.source.unwrap_or_default());
+        Ok(record)
+    })();
+
+    let payload = match payload {
+        Ok(payload) => payload,
+        Err(error) => module_resolution_error_json(&error),
+    };
+    module_resolve_cstring(&payload)
+}
+
+/// C-only metadata route for authenticated direct-CommonJS
+/// `require.resolve()`. It accepts the same canonical logical-referrer
+/// credential as the full session static-import resolver, but deliberately
+/// omits source loading and serialization.
+/// @ref LLP 0023#72-the-structured-result-and-its-error-classes
+#[no_mangle]
+pub extern "C" fn ex_host_session_static_import_resolve_meta(
+    logical_referrer: *const u8,
+    logical_referrer_length: usize,
+    specifier: *const u8,
+    specifier_length: usize,
+) -> *mut c_char {
+    let payload = (|| -> anyhow::Result<serde_json::Value> {
+        if logical_referrer.is_null()
+            || logical_referrer_length == 0
+            || specifier.is_null()
+            || specifier_length == 0
+        {
+            anyhow::bail!("invalid session-root metadata resolver input");
+        }
+        let referrer_bytes =
+            unsafe { std::slice::from_raw_parts(logical_referrer, logical_referrer_length) };
+        let referrer_text = std::str::from_utf8(referrer_bytes)
+            .map_err(|_| anyhow::anyhow!("session-root logical referrer is not UTF-8"))?;
+        let referrer_value = capsec_semantics::strict_json::parse_strict(referrer_text)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        let referrer: capsec_semantics::model::LogicalPath = serde_json::from_value(referrer_value)
+            .map_err(|error| anyhow::anyhow!("invalid session-root referrer: {error}"))?;
+        if !referrer.is_canonical() {
+            anyhow::bail!("session-root logical referrer is not canonical");
+        }
+        let specifier =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(specifier, specifier_length) })
+                .map_err(|_| anyhow::anyhow!("session-root specifier is not UTF-8"))?;
+        if specifier.as_bytes().contains(&0) {
+            anyhow::bail!("session-root specifier contains NUL");
+        }
+        let module = with_host(
+            |host| host.resolve_session_static_import_meta(specifier, &referrer),
+            Err(anyhow::anyhow!("Host not initialized")),
+        )?;
+        Ok(module_meta_json(&module))
+    })();
+
+    let payload = match payload {
+        Ok(payload) => payload,
+        Err(error) => module_resolution_error_json(&error),
+    };
     module_resolve_cstring(&payload)
 }
 
@@ -3093,9 +5066,7 @@ pub extern "C" fn ex_host_resolve_manifest_builtin_internal(
             record["source"] = json!(module.source.unwrap_or_default());
             record
         }
-        Err(err) => json!({
-            "error": format!("{err:#}")
-        }),
+        Err(err) => module_resolution_error_json(&err),
     };
     module_resolve_cstring(&payload)
 }
@@ -3118,7 +5089,10 @@ pub extern "C" fn ex_host_module_resolve_meta(
 
     let resolved = with_host(
         |host| {
-            let path = referrer.as_ref().map(std::path::PathBuf::from);
+            let path = referrer
+                .as_deref()
+                .map(|encoded| host.module_referrer_path(encoded))
+                .transpose()?;
             host.resolve_module_meta_for_principal(
                 &spec,
                 path.as_deref(),
@@ -3130,9 +5104,7 @@ pub extern "C" fn ex_host_module_resolve_meta(
 
     let payload = match resolved {
         Ok(module) => module_meta_json(&module),
-        Err(err) => json!({
-            "error": err.to_string()
-        }),
+        Err(err) => module_resolution_error_json(&err),
     };
 
     module_resolve_cstring(&payload)
@@ -3464,6 +5436,9 @@ pub extern "C" fn ex_host_fs_readdir(path: *const c_char) -> *mut c_char {
 /// Returns 0 on success, -1 on error.
 #[no_mangle]
 pub extern "C" fn ex_host_fs_mkdir(path: *const c_char, recursive: i32) -> i32 {
+    if recursive != 0 && refuse_armed_legacy_path_output() {
+        return -1;
+    }
     if path.is_null() {
         return -1;
     }
@@ -3484,12 +5459,24 @@ pub extern "C" fn ex_host_fs_mkdir(path: *const c_char, recursive: i32) -> i32 {
     }
 }
 
+fn refuse_armed_legacy_path_output() -> bool {
+    if ex_host_is_armed() != 1 {
+        return false;
+    }
+    set_fs_error_code(libc::EPERM);
+    true
+}
+
 /// Recursively create a directory and return the highest missing path that
 /// this call created (Node's recursive-mkdir result), or an empty string when
-/// the full path already existed. Caller frees the result with
-/// `ex_host_free_string`.
+/// the full path already existed. This is a diagnostic/unarmed compatibility
+/// bridge; an armed Host refuses before inspecting or creating any path.
+/// Caller frees the result with `ex_host_free_string`.
 #[no_mangle]
 pub extern "C" fn ex_host_fs_mkdir_recursive_result(path: *const c_char) -> *mut c_char {
+    if refuse_armed_legacy_path_output() {
+        return ptr::null_mut();
+    }
     if path.is_null() {
         return ptr::null_mut();
     }
@@ -3791,9 +5778,15 @@ pub extern "C" fn ex_host_fs_statfs(path: *const c_char) -> *mut c_char {
     as_json_cstring(&payload)
 }
 
-/// Return the canonical absolute path. Caller must free with `ex_host_free_string`.
+/// Return the canonical host path for diagnostic/unarmed compatibility.
+/// Armed runtimes use the session-bound private VFS projector and this legacy
+/// bridge refuses before filesystem lookup. Caller must free with
+/// `ex_host_free_string`.
 #[no_mangle]
 pub extern "C" fn ex_host_fs_realpath(path: *const c_char) -> *mut c_char {
+    if refuse_armed_legacy_path_output() {
+        return ptr::null_mut();
+    }
     if path.is_null() {
         return ptr::null_mut();
     }
@@ -3917,9 +5910,14 @@ pub extern "C" fn ex_host_fs_chmod(path: *const c_char, mode: u32) -> i32 {
 }
 
 /// Create a temporary directory with the given prefix.
+/// This is a diagnostic/unarmed compatibility bridge. An armed Host refuses
+/// before reading the prefix, generating randomness, or creating a directory.
 /// Caller must free the returned path with `ex_host_free_string`.
 #[no_mangle]
 pub extern "C" fn ex_host_fs_mkdtemp(prefix: *const c_char, module_id: u64) -> *mut c_char {
+    if refuse_armed_legacy_path_output() {
+        return ptr::null_mut();
+    }
     let prefix_str = if prefix.is_null() {
         "tmp".to_string()
     } else {
@@ -4020,6 +6018,10 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
     };
     install_sqlite_authorizer(&db);
 
+    register_sqlite_connection(db)
+}
+
+fn register_sqlite_connection(db: Connection) -> u64 {
     with_sqlite_state(|state| {
         let Some(handle) = state.allocate_db_handle() else {
             return 0;
@@ -4027,6 +6029,54 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
         state.dbs.insert(handle, Arc::new(Mutex::new(db)));
         handle
     })
+}
+
+/// Open the exact retained descriptor selected by the native checked-path
+/// adapter. The special descriptor spelling duplicates that object; it never
+/// re-resolves the caller's original pathname.
+#[no_mangle]
+pub extern "C" fn ex_host_sqlite_open_checked_fd(fd: i32, options: *const c_char) -> u64 {
+    #[cfg(unix)]
+    {
+        if fd < 0 {
+            return 0;
+        }
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        let descriptor_path = format!("/dev/fd/{fd}");
+        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        let descriptor_path = format!("/proc/self/fd/{fd}");
+        let parsed = parse_sqlite_open_options(options);
+        let flags = sqlite_open_flags(&parsed);
+        let db = match Connection::open_with_flags(descriptor_path, flags) {
+            Ok(db) => db,
+            Err(_) => return 0,
+        };
+        if configure_sqlite_isolated_io(&db).is_err() {
+            return 0;
+        }
+        register_sqlite_connection(db)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (fd, options);
+        0
+    }
+}
+
+/// In-memory SQLite is a zero-effect computation branch only while SQLite is
+/// unable to spill temp state or attach a file later.
+#[no_mangle]
+pub extern "C" fn ex_host_sqlite_open_isolated_memory(options: *const c_char) -> u64 {
+    let parsed = parse_sqlite_open_options(options);
+    let flags = sqlite_open_flags(&parsed);
+    let db = match Connection::open_with_flags(":memory:", flags) {
+        Ok(db) => db,
+        Err(_) => return 0,
+    };
+    if configure_sqlite_isolated_io(&db).is_err() {
+        return 0;
+    }
+    register_sqlite_connection(db)
 }
 
 #[no_mangle]
@@ -4520,14 +6570,40 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
     if message.is_null() {
         return;
     }
-    let msg = unsafe { CStr::from_ptr(message) }
-        .to_string_lossy()
-        .to_string();
+    let bytes = unsafe { CStr::from_ptr(message) }.to_bytes();
+    // SAFETY: CStr proved this pointer readable for exactly `bytes.len()`
+    // bytes; the length-bearing entry point does not retain it.
+    unsafe { ex_host_console_log_bytes(level, bytes.as_ptr(), bytes.len()) };
+}
+
+/// Length-bearing console ingress. Authenticated CLI workers synchronously
+/// enter their counted fd relay here, before returning to JavaScript; embedded
+/// hosts retain the bounded asynchronous diagnostics queue. This split makes
+/// queue backpressure a host policy without letting it silently drop or reorder
+/// CLI program output, and preserves embedded NUL bytes end to end.
+/// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_console_log_bytes(level: i32, message: *const u8, length: usize) {
+    if message.is_null() && length != 0 {
+        return;
+    }
+    let bytes = if length == 0 {
+        &[][..]
+    } else {
+        // SAFETY: the caller promises a readable length-bearing payload for
+        // this synchronous call; no reference escapes.
+        unsafe { std::slice::from_raw_parts(message, length) }
+    };
     #[cfg(target_os = "android")]
-    write_android_logcat(level, &msg);
+    write_android_logcat(level, &String::from_utf8_lossy(bytes));
+    if worker_output_relay_is_active() {
+        write_counted_worker_console_record(level, bytes);
+        return;
+    }
     if !console_mirror_enabled() {
         return;
     }
+    let msg = String::from_utf8_lossy(bytes).into_owned();
     match level {
         1 => enqueue_stderr_line(msg),
         _ => enqueue_stdout_line(msg),
@@ -4539,6 +6615,665 @@ mod tests {
     use super::*;
     use crate::host::{Host, HostConfig, SecurityMode};
     use std::io::{self, Write};
+
+    unsafe fn take_vfs_output(data: *mut u8, len: u64) -> Vec<u8> {
+        let bytes = if len == 0 {
+            Vec::new()
+        } else {
+            assert!(!data.is_null());
+            unsafe { std::slice::from_raw_parts(data, len as usize) }.to_vec()
+        };
+        ex_host_free_buffer(data, len);
+        bytes
+    }
+
+    #[test]
+    fn runtime_vfs_abi_isolates_two_runtime_generations_and_contexts() {
+        let _guard = host_test_lock();
+        let process_cwd = std::env::current_dir().unwrap();
+        let root = crate::host::tests::test_project_root();
+        let one_dir = root.join("runtime-vfs-one");
+        let two_dir = root.join("runtime-vfs-two");
+        let _ = std::fs::remove_dir_all(&one_dir);
+        let _ = std::fs::remove_dir_all(&two_dir);
+        std::fs::create_dir(&one_dir).unwrap();
+        std::fs::create_dir(&two_dir).unwrap();
+
+        let context_one =
+            insert_host_context(Arc::new(crate::host::tests::example_vfs_armed_host()), true);
+        let context_two =
+            insert_host_context(Arc::new(crate::host::tests::example_vfs_armed_host()), true);
+        assert_ne!(context_one, 0);
+        assert_ne!(context_two, 0);
+        assert_ne!(context_one, context_two);
+        let nonce_one = 0x1111_2222_3333_4444;
+        let nonce_two = 0x5555_6666_7777_8888;
+        assert_eq!(
+            ex_host_vfs_bind_runtime(context_one, nonce_one),
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(
+            ex_host_vfs_bind_runtime(context_two, nonce_two),
+            EX_HOST_VFS_RESULT_OK
+        );
+
+        let previous = ex_host_enter_context(context_one);
+        assert_ne!(previous, u64::MAX);
+        let mut virtual_data = ptr::null_mut();
+        let mut virtual_len = 0;
+        let mut errno = -1;
+        let root_principals = [0_u64];
+        assert_eq!(
+            unsafe {
+                ex_host_vfs_chdir(
+                    nonce_one,
+                    0,
+                    root_principals.as_ptr(),
+                    root_principals.len(),
+                    b"runtime-vfs-one".as_ptr(),
+                    b"runtime-vfs-one".len() as u64,
+                    &mut virtual_data,
+                    &mut virtual_len,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(errno, 0);
+        assert_eq!(
+            unsafe { take_vfs_output(virtual_data, virtual_len) },
+            b"/project/runtime-vfs-one"
+        );
+        ex_host_restore_context(previous);
+
+        let previous = ex_host_enter_context(context_two);
+        assert_ne!(previous, u64::MAX);
+        virtual_data = ptr::null_mut();
+        virtual_len = 0;
+        assert_eq!(
+            unsafe {
+                ex_host_vfs_get_cwd(
+                    nonce_two,
+                    0,
+                    root_principals.as_ptr(),
+                    root_principals.len(),
+                    &mut virtual_data,
+                    &mut virtual_len,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(
+            unsafe { take_vfs_output(virtual_data, virtual_len) },
+            b"/project"
+        );
+
+        // An exact nonce cannot be used while another runtime context is
+        // selected, even though both contexts carry the same snapshot digest.
+        virtual_data = ptr::null_mut();
+        virtual_len = 0;
+        assert_eq!(
+            unsafe {
+                ex_host_vfs_get_cwd(
+                    nonce_one,
+                    0,
+                    root_principals.as_ptr(),
+                    root_principals.len(),
+                    &mut virtual_data,
+                    &mut virtual_len,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_STALE_SESSION
+        );
+        assert!(virtual_data.is_null());
+        assert_eq!(virtual_len, 0);
+        ex_host_restore_context(previous);
+
+        let previous = ex_host_enter_context(context_one);
+        let mut backing_data = ptr::null_mut();
+        let mut backing_len = 0;
+        virtual_data = ptr::null_mut();
+        virtual_len = 0;
+        assert_eq!(
+            unsafe {
+                ex_host_vfs_resolve_path(
+                    nonce_one,
+                    b"child.txt".as_ptr(),
+                    b"child.txt".len() as u64,
+                    &mut backing_data,
+                    &mut backing_len,
+                    &mut virtual_data,
+                    &mut virtual_len,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        let backing = unsafe { take_vfs_output(backing_data, backing_len) };
+        let virtual_path = unsafe { take_vfs_output(virtual_data, virtual_len) };
+        assert_eq!(virtual_path, b"/project/runtime-vfs-one/child.txt");
+        assert!(!String::from_utf8_lossy(&virtual_path).contains(root.to_string_lossy().as_ref()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt as _;
+            assert_eq!(backing, one_dir.join("child.txt").as_os_str().as_bytes());
+        }
+
+        let canonical_one = std::fs::canonicalize(&one_dir).unwrap();
+        #[cfg(unix)]
+        let canonical_one_bytes = {
+            use std::os::unix::ffi::OsStrExt as _;
+            canonical_one.as_os_str().as_bytes().to_vec()
+        };
+        #[cfg(not(unix))]
+        let canonical_one_bytes = canonical_one.to_str().unwrap().as_bytes().to_vec();
+        virtual_data = ptr::null_mut();
+        virtual_len = 0;
+        assert_eq!(
+            unsafe {
+                private_vfs_project_realpath(
+                    nonce_one,
+                    b"/project/runtime-vfs-one".as_ptr(),
+                    b"/project/runtime-vfs-one".len() as u64,
+                    canonical_one_bytes.as_ptr(),
+                    canonical_one_bytes.len() as u64,
+                    &mut virtual_data,
+                    &mut virtual_len,
+                    &mut errno,
+                )
+            },
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(errno, 0);
+        assert_eq!(
+            unsafe { take_vfs_output(virtual_data, virtual_len) },
+            b"/project/runtime-vfs-one"
+        );
+
+        // A stale generation and an outside canonical identity both clear a
+        // caller's preexisting output without disclosing backing bytes.
+        for (nonce, backing, expected) in [
+            (
+                u64::MAX - 1,
+                canonical_one_bytes.clone(),
+                EX_HOST_VFS_RESULT_STALE_SESSION,
+            ),
+            ({
+                let outside = std::fs::canonicalize(root.parent().unwrap()).unwrap();
+                #[cfg(unix)]
+                {
+                    use std::os::unix::ffi::OsStrExt as _;
+                    (
+                        nonce_one,
+                        outside.as_os_str().as_bytes().to_vec(),
+                        EX_HOST_VFS_RESULT_OUTSIDE_MOUNT,
+                    )
+                }
+                #[cfg(not(unix))]
+                {
+                    (
+                        nonce_one,
+                        outside.to_str().unwrap().as_bytes().to_vec(),
+                        EX_HOST_VFS_RESULT_OUTSIDE_MOUNT,
+                    )
+                }
+            }),
+        ] {
+            virtual_data = std::ptr::NonNull::<u8>::dangling().as_ptr();
+            virtual_len = 99;
+            assert_eq!(
+                unsafe {
+                    private_vfs_project_realpath(
+                        nonce,
+                        b"/project/runtime-vfs-one".as_ptr(),
+                        b"/project/runtime-vfs-one".len() as u64,
+                        backing.as_ptr(),
+                        backing.len() as u64,
+                        &mut virtual_data,
+                        &mut virtual_len,
+                        &mut errno,
+                    )
+                },
+                expected
+            );
+            assert!(virtual_data.is_null());
+            assert_eq!(virtual_len, 0);
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt as _;
+            let mut canonical_unencodable = root.as_os_str().as_bytes().to_vec();
+            canonical_unencodable.extend_from_slice(b"/unicode-");
+            canonical_unencodable.push(0xff);
+            virtual_data = std::ptr::NonNull::<u8>::dangling().as_ptr();
+            virtual_len = 99;
+            assert_eq!(
+                unsafe {
+                    private_vfs_project_realpath(
+                        nonce_one,
+                        b"/project/unicode-invalid".as_ptr(),
+                        b"/project/unicode-invalid".len() as u64,
+                        canonical_unencodable.as_ptr(),
+                        canonical_unencodable.len() as u64,
+                        &mut virtual_data,
+                        &mut virtual_len,
+                        &mut errno,
+                    )
+                },
+                EX_HOST_VFS_RESULT_MALFORMED_INPUT
+            );
+            assert!(virtual_data.is_null());
+            assert_eq!(virtual_len, 0);
+        }
+        ex_host_restore_context(previous);
+
+        assert_eq!(ex_host_vfs_unbind_runtime(nonce_one), EX_HOST_VFS_RESULT_OK);
+        assert_eq!(
+            ex_host_vfs_unbind_runtime(nonce_one),
+            EX_HOST_VFS_RESULT_STALE_SESSION
+        );
+        assert_eq!(ex_host_vfs_unbind_runtime(nonce_two), EX_HOST_VFS_RESULT_OK);
+        ex_host_release_context(context_one);
+        ex_host_release_context(context_two);
+        assert_eq!(std::env::current_dir().unwrap(), process_cwd);
+    }
+
+    #[test]
+    fn runtime_vfs_bind_rejects_package_binding_outside_project_without_publishing() {
+        let _guard = host_test_lock();
+        let host = crate::host::tests::example_vfs_armed_host_with(|snapshot| {
+            snapshot["rootBindings"][0]["hostPath"]["components"] = serde_json::json!([
+                {"encoding": "utf8", "value": "outside"},
+                {"encoding": "utf8", "value": "image-lib"}
+            ]);
+        });
+        let context_id = insert_host_context(Arc::new(host), true);
+        assert_ne!(context_id, 0);
+        let runtime_nonce = 0x8877_6655_4433_2211;
+
+        assert_eq!(
+            ex_host_vfs_bind_runtime(context_id, runtime_nonce),
+            EX_HOST_VFS_RESULT_MALFORMED_INPUT
+        );
+        assert_eq!(
+            runtime_vfs_session(runtime_nonce, "regression")
+                .unwrap_err()
+                .reason(),
+            crate::vfs::VfsReason::StaleSession
+        );
+        let runtime_nonce_recorded = HOST_CONTEXTS
+            .get()
+            .and_then(|contexts| contexts.read().ok())
+            .and_then(|contexts| {
+                contexts
+                    .get(&context_id)
+                    .map(|context| context.runtime_nonce)
+            });
+        assert_eq!(runtime_nonce_recorded, Some(None));
+
+        ex_host_release_context(context_id);
+
+        // A failed bind must not reserve the runtime generation in the session
+        // registry. A fresh authenticated context can use that exact nonce and
+        // then tear it down normally.
+        let recovery_context =
+            insert_host_context(Arc::new(crate::host::tests::example_vfs_armed_host()), true);
+        assert_ne!(recovery_context, 0);
+        assert_eq!(
+            ex_host_vfs_bind_runtime(recovery_context, runtime_nonce),
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(
+            ex_host_vfs_unbind_runtime(runtime_nonce),
+            EX_HOST_VFS_RESULT_OK
+        );
+        ex_host_release_context(recovery_context);
+    }
+
+    #[test]
+    fn armed_module_metadata_serializes_only_typed_virtual_paths() {
+        let typed_path: crate::vfs::ResolverLogicalPath =
+            serde_json::from_value(serde_json::json!({
+                "schema": "ibex/logical-path/1",
+                "sessionHandle": "mrs0000000000000001",
+                "virtualPath": "/project/node_modules/image-lib/index.js",
+                "logicalPath": {
+                    "root": "package",
+                    "components": [{ "encoding": "utf8", "value": "index.js" }],
+                    "hostBound": null,
+                },
+                "bindingOwner": {
+                    "kind": "package",
+                    "name": "image-lib",
+                    "locator": "image-lib@2.4.1",
+                    "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+                },
+            }))
+            .unwrap();
+        let typed_root: crate::vfs::ResolverLogicalPath =
+            serde_json::from_value(serde_json::json!({
+                "schema": "ibex/logical-path/1",
+                "sessionHandle": "mrs0000000000000001",
+                "virtualPath": "/project/node_modules/image-lib",
+                "logicalPath": {
+                    "root": "package",
+                    "components": [],
+                    "hostBound": null,
+                },
+                "bindingOwner": {
+                    "kind": "package",
+                    "name": "image-lib",
+                    "locator": "image-lib@2.4.1",
+                    "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+                },
+            }))
+            .unwrap();
+        let module = crate::module_loader::ResolvedModule {
+            id: "/private/host/project/node_modules/image-lib/index.js".into(),
+            kind: crate::module_loader::ModuleKind::CommonJs,
+            path: Some("/private/host/project/node_modules/image-lib/index.js".into()),
+            source: Some("module.exports = 1".into()),
+            package_name: Some("image-lib".into()),
+            package_root: Some("/private/host/project/node_modules/image-lib".into()),
+            package_version: Some("2.4.1".into()),
+            package_integrity: Some("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA".into()),
+            source_id: None,
+            source_label: None,
+            virtual_path: Some("/project/node_modules/image-lib/index.js".into()),
+            resolver_path: Some(typed_path),
+            resolver_package_root: Some(typed_root),
+            private_resolver_path: None,
+            private_resolver_package_root: None,
+        };
+
+        let value = module_meta_json(&module);
+        let encoded = value.to_string();
+        assert_eq!(value["schema"], "ibex/module-resolution/1");
+        assert_eq!(value["id"], "/project/node_modules/image-lib/index.js");
+        assert_eq!(value["path"]["schema"], "ibex/logical-path/1");
+        assert_eq!(value["path"]["sessionHandle"], "mrs0000000000000001");
+        assert_eq!(
+            value["pkgRoot"]["virtualPath"],
+            "/project/node_modules/image-lib"
+        );
+        assert!(!encoded.contains("/private/host"));
+    }
+
+    #[test]
+    fn unarmed_module_metadata_serializes_only_opaque_resolver_handles() {
+        let private_path = crate::module_loader::PrivateResolverPath::new(
+            "mrs0000000000000001".into(),
+            "r0000000000000001".into(),
+            "/project/.ibex-resolver/r0000000000000001".into(),
+        )
+        .unwrap();
+        let private_root = crate::module_loader::PrivateResolverPath::new(
+            "mrs0000000000000001".into(),
+            "r0000000000000002".into(),
+            "/project/.ibex-resolver/r0000000000000002".into(),
+        )
+        .unwrap();
+        let module = crate::module_loader::ResolvedModule {
+            id: "/private/host/project/node_modules/image-lib/index.js".into(),
+            kind: crate::module_loader::ModuleKind::CommonJs,
+            path: Some("/private/host/project/node_modules/image-lib/index.js".into()),
+            source: Some("module.exports = 1".into()),
+            package_name: Some("image-lib".into()),
+            package_root: Some("/private/host/project/node_modules/image-lib".into()),
+            package_version: Some("2.4.1".into()),
+            package_integrity: None,
+            source_id: None,
+            source_label: None,
+            virtual_path: None,
+            resolver_path: None,
+            resolver_package_root: None,
+            private_resolver_path: Some(private_path),
+            private_resolver_package_root: Some(private_root),
+        };
+
+        let value = module_meta_json(&module);
+        let encoded = value.to_string();
+        assert_eq!(value["schema"], "ibex/module-resolution/1");
+        assert_eq!(value["path"]["schema"], "ibex/private-resolver-ref/1");
+        assert_eq!(value["path"]["sessionHandle"], "mrs0000000000000001");
+        assert_eq!(
+            value["pkgRoot"]["virtualPath"],
+            "/project/.ibex-resolver/r0000000000000002"
+        );
+        assert!(!encoded.contains("/private/host"));
+        assert!(!encoded.contains("node_modules/image-lib"));
+    }
+
+    #[test]
+    fn module_resolution_errors_never_serialize_native_diagnostic_paths() {
+        let error =
+            anyhow::anyhow!("failed to resolve /private/host/project/node_modules/secret/index.js");
+        let value = module_resolution_error_json(&error);
+        let encoded = value.to_string();
+        assert_eq!(value["schema"], "ibex/module-resolution/1");
+        assert_eq!(value["errorCode"], "ERR_IBEX_MODULE_RESOLUTION");
+        assert_eq!(value["error"], "Module resolution failed");
+        assert!(!encoded.contains("/private/host"));
+        assert!(!encoded.contains("secret/index.js"));
+    }
+
+    #[test]
+    fn terminal_stdio_query_is_scoped_and_updates_dimensions_atomically() {
+        let _lock = host_test_lock();
+        let mut is_tty = -1;
+        let mut columns = u16::MAX;
+        let mut rows = u16::MAX;
+
+        assert_eq!(
+            unsafe {
+                ex_host_terminal_session_stdio_query(1, &mut is_tty, &mut columns, &mut rows)
+            },
+            0
+        );
+
+        let guard = arm_terminal_session_stdio_query(false, true, true).unwrap();
+        assert!(arm_terminal_session_stdio_query(false, true, true).is_err());
+        assert_eq!(
+            unsafe {
+                ex_host_terminal_session_stdio_query(0, &mut is_tty, &mut columns, &mut rows)
+            },
+            1
+        );
+        assert_eq!((is_tty, columns, rows), (0, 0, 0));
+
+        guard.update_dimensions(173, 61);
+        assert_eq!(
+            unsafe {
+                ex_host_terminal_session_stdio_query(2, &mut is_tty, &mut columns, &mut rows)
+            },
+            1
+        );
+        assert_eq!((is_tty, columns, rows), (1, 173, 61));
+        assert_eq!(
+            unsafe {
+                ex_host_terminal_session_stdio_query(9, &mut is_tty, &mut columns, &mut rows)
+            },
+            -1
+        );
+
+        drop(guard);
+        assert_eq!(
+            unsafe {
+                ex_host_terminal_session_stdio_query(1, &mut is_tty, &mut columns, &mut rows)
+            },
+            0
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_terminal_session_stdio_query(9, &mut is_tty, &mut columns, &mut rows)
+            },
+            -1
+        );
+    }
+
+    #[test]
+    fn terminal_session_output_close_guard_is_exclusive_and_fd_scoped() {
+        assert_eq!(ex_host_terminal_session_close_is_noop(0), 0);
+        assert_eq!(ex_host_terminal_session_close_is_noop(1), 0);
+        let guard = arm_terminal_session_output_close_guard().unwrap();
+        assert_eq!(ex_host_terminal_session_close_is_noop(0), 0);
+        assert_eq!(ex_host_terminal_session_close_is_noop(1), 1);
+        assert_eq!(ex_host_terminal_session_close_is_noop(2), 1);
+        assert_eq!(ex_host_terminal_session_close_is_noop(3), 0);
+        assert!(arm_terminal_session_output_close_guard().is_err());
+        drop(guard);
+        assert_eq!(ex_host_terminal_session_close_is_noop(1), 0);
+
+        let policy = arm_terminal_session_descriptor_policy(true, [6, 3, 5]).unwrap();
+        assert_eq!(ex_host_session_descriptor_read_route(0), 1);
+        assert_eq!(ex_host_session_descriptor_read_route(1), 0);
+        assert_eq!(ex_host_session_descriptor_read_route(3), -1);
+        assert_eq!(ex_host_session_descriptor_write_route(1), 0);
+        assert_eq!(ex_host_session_descriptor_write_route(5), -1);
+        assert_eq!(ex_host_session_descriptor_close_route(0), 1);
+        assert_eq!(ex_host_session_descriptor_close_route(1), 1);
+        assert_eq!(ex_host_session_descriptor_close_route(6), -1);
+        assert_eq!(ex_host_session_descriptor_alias_source_route(0), 1);
+        assert_eq!(ex_host_session_descriptor_alias_source_route(1), -1);
+        assert_eq!(ex_host_session_descriptor_alias_target_route(2), -1);
+        assert_eq!(ex_host_session_descriptor_alias_target_route(7), 0);
+        assert_eq!(ex_host_session_descriptor_is_protected(3), 1);
+        assert_eq!(ex_host_session_descriptor_is_protected(4), 0);
+        assert!(arm_terminal_session_descriptor_policy(true, [8]).is_err());
+        drop(policy);
+        assert_eq!(ex_host_session_descriptor_read_route(0), 0);
+        assert_eq!(ex_host_session_descriptor_close_route(1), 0);
+        assert_eq!(ex_host_session_descriptor_is_protected(3), 0);
+        assert!(arm_terminal_session_descriptor_policy(false, [0]).is_err());
+        assert!(arm_terminal_session_descriptor_policy(false, [7, 7]).is_err());
+    }
+
+    #[test]
+    fn authenticated_worker_lifecycle_port_is_exclusive_scoped_and_panic_closed() {
+        let _lock = host_test_lock();
+        assert!(authenticated_worker_lifecycle_port().unwrap().is_none());
+
+        let mirrored = Arc::new(Mutex::new(Vec::new()));
+        let committed = Arc::new(Mutex::new(Vec::new()));
+        let mirror_sink = Arc::clone(&mirrored);
+        let commit_sink = Arc::clone(&committed);
+        let guard =
+            install_authenticated_worker_lifecycle_port(AuthenticatedWorkerLifecyclePort::new(
+                move |mutation| {
+                    mirror_sink.lock().unwrap().push(mutation);
+                    WorkerLifecycleAcknowledgement::Acknowledged
+                },
+                move |commit| {
+                    commit_sink.lock().unwrap().push(commit);
+                    WorkerLifecycleAcknowledgement::Acknowledged
+                },
+            ))
+            .unwrap();
+        assert!(install_authenticated_worker_lifecycle_port(
+            AuthenticatedWorkerLifecyclePort::new(
+                |_| WorkerLifecycleAcknowledgement::Acknowledged,
+                |_| WorkerLifecycleAcknowledgement::Acknowledged,
+            ),
+        )
+        .is_err());
+
+        let port = authenticated_worker_lifecycle_port().unwrap().unwrap();
+        let mutation = AuthorizedWorkerExitCodeMirror { status: 73 };
+        let commit = AuthorizedWorkerLifecycleCommit {
+            request_id: 19,
+            status: 7,
+        };
+        assert_eq!(
+            port.mirror_exit_code(mutation),
+            WorkerLifecycleAcknowledgement::Acknowledged
+        );
+        assert_eq!(
+            port.commit_lifecycle(commit),
+            WorkerLifecycleAcknowledgement::Acknowledged
+        );
+        assert_eq!(&*mirrored.lock().unwrap(), &[mutation]);
+        assert_eq!(&*committed.lock().unwrap(), &[commit]);
+
+        drop(guard);
+        assert!(authenticated_worker_lifecycle_port().unwrap().is_none());
+
+        let guard =
+            install_authenticated_worker_lifecycle_port(AuthenticatedWorkerLifecyclePort::new(
+                |_| panic!("mirror callback panic"),
+                |_| panic!("commit callback panic"),
+            ))
+            .unwrap();
+        let port = authenticated_worker_lifecycle_port().unwrap().unwrap();
+        assert_eq!(
+            port.mirror_exit_code(mutation),
+            WorkerLifecycleAcknowledgement::Unacknowledged
+        );
+        assert_eq!(
+            port.commit_lifecycle(commit),
+            WorkerLifecycleAcknowledgement::Unacknowledged
+        );
+        drop(guard);
+    }
+
+    #[test]
+    fn acknowledged_worker_lifecycle_commit_parks_without_returning() {
+        let (commit_tx, commit_rx) = std::sync::mpsc::channel();
+        let port = Arc::new(AuthenticatedWorkerLifecyclePort::new(
+            |_| WorkerLifecycleAcknowledgement::Acknowledged,
+            move |commit| {
+                commit_tx.send(commit).unwrap();
+                WorkerLifecycleAcknowledgement::Acknowledged
+            },
+        ));
+        let commit = AuthorizedWorkerLifecycleCommit {
+            request_id: 23,
+            status: 9,
+        };
+        let worker = std::thread::spawn(move || commit_worker_lifecycle_and_park(port, commit));
+
+        assert_eq!(
+            commit_rx.recv_timeout(std::time::Duration::from_secs(1)),
+            Ok(commit)
+        );
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        assert!(!worker.is_finished());
+        drop(worker);
+    }
+
+    #[test]
+    fn unacknowledged_worker_lifecycle_commit_uses_reserved_status() {
+        const CHILD_SENTINEL: &str = "IBEX_TEST_UNACKNOWLEDGED_WORKER_LIFECYCLE_COMMIT";
+        if std::env::var_os(CHILD_SENTINEL).is_some() {
+            let port = Arc::new(AuthenticatedWorkerLifecyclePort::new(
+                |_| WorkerLifecycleAcknowledgement::Unacknowledged,
+                |_| WorkerLifecycleAcknowledgement::Unacknowledged,
+            ));
+            commit_worker_lifecycle_and_park(
+                port,
+                AuthorizedWorkerLifecycleCommit {
+                    request_id: 29,
+                    status: 11,
+                },
+            );
+        }
+
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("host::abi::tests::unacknowledged_worker_lifecycle_commit_uses_reserved_status")
+            .env(CHILD_SENTINEL, "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert_eq!(
+            status.code(),
+            Some(crate::session_constants::EXIT_STATUS_WORKER_COMMIT_UNACKNOWLEDGED)
+        );
+    }
 
     // The inline decimal rendering must agree byte-for-byte with the
     // `u64::to_string` keying the capability manager has always used, across
@@ -4821,6 +7556,67 @@ mod tests {
             ..Default::default()
         }));
         assert!(!with_host(|host| host.is_allow_all(), true));
+    }
+
+    #[test]
+    fn armed_legacy_path_outputs_refuse_before_lookup_randomness_or_creation() {
+        let _guard = host_test_lock();
+        struct ResetHost;
+        impl Drop for ResetHost {
+            fn drop(&mut self) {
+                install_host(Host::default_legacy());
+            }
+        }
+        let _reset = ResetHost;
+        install_host(crate::host::tests::example_vfs_armed_host());
+        assert_eq!(ex_host_is_armed(), 1);
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let target = std::env::temp_dir().join(format!(
+            "ibex-armed-legacy-path-refusal-{}-{nonce}",
+            std::process::id()
+        ));
+        let target_c = CString::new(target.to_string_lossy().as_bytes()).unwrap();
+        assert!(!target.exists());
+
+        assert!(ex_host_fs_realpath(target_c.as_ptr()).is_null());
+        assert_eq!(ex_host_fs_last_error(), libc::EPERM);
+        assert!(!target.exists(), "armed realpath performed filesystem work");
+
+        assert!(ex_host_fs_mkdir_recursive_result(target_c.as_ptr()).is_null());
+        assert_eq!(ex_host_fs_last_error(), libc::EPERM);
+        assert!(
+            !target.exists(),
+            "armed recursive mkdir result bridge created a directory"
+        );
+
+        assert_eq!(ex_host_fs_mkdir(target_c.as_ptr(), 1), -1);
+        assert_eq!(ex_host_fs_last_error(), libc::EPERM);
+        assert!(
+            !target.exists(),
+            "armed recursive mkdir compatibility bridge created a directory"
+        );
+
+        let prefix = format!("ibex-armed-mkdtemp-refusal-{}-{nonce}-", std::process::id());
+        let matching_temp_entries = || {
+            std::fs::read_dir(std::env::temp_dir())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+                .count()
+        };
+        assert_eq!(matching_temp_entries(), 0);
+        let prefix_c = CString::new(prefix.as_str()).unwrap();
+        assert!(ex_host_fs_mkdtemp(prefix_c.as_ptr(), 0).is_null());
+        assert_eq!(ex_host_fs_last_error(), libc::EPERM);
+        assert_eq!(
+            matching_temp_entries(),
+            0,
+            "armed mkdtemp consumed its prefix or created a directory"
+        );
     }
 
     #[test]

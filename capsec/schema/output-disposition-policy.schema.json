@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/output-disposition-policy.schema.json",
+  "title": "Ibex reviewed output-disposition policy",
+  "type": "object",
+  "required": [
+    "outputDispositionPolicySchema",
+    "profile",
+    "catalogKeyDigest",
+    "defaultDisposition",
+    "defaultRationale",
+    "overrides"
+  ],
+  "properties": {
+    "outputDispositionPolicySchema": {
+      "const": "ibex/capsec-output-disposition-policy/2"
+    },
+    "profile": { "const": "ibex/capsec/1" },
+    "catalogKeyDigest": { "$ref": "#/$defs/digest" },
+    "defaultDisposition": { "const": "non-path" },
+    "defaultRationale": { "$ref": "#/$defs/nonEmptyString" },
+    "overrides": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/decision" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "key": {
+      "type": "object",
+      "required": [
+        "surfaceId",
+        "output",
+        "alias",
+        "mode",
+        "sourceKind",
+        "returnVariant",
+        "contextId"
+      ],
+      "properties": {
+        "surfaceId": {
+          "type": "string",
+          "pattern": "^surface\\.[a-z0-9.]+$"
+        },
+        "output": { "$ref": "#/$defs/nonEmptyString" },
+        "alias": { "$ref": "#/$defs/nonEmptyString" },
+        "mode": { "$ref": "#/$defs/nonEmptyString" },
+        "sourceKind": { "$ref": "#/$defs/nonEmptyString" },
+        "returnVariant": { "$ref": "#/$defs/nonEmptyString" },
+        "contextId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9.-]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "expectation": {
+      "type": "object",
+      "required": ["outcome", "normalizedValue"],
+      "properties": {
+        "outcome": {
+          "enum": ["absent", "return", "throw", "typed-return"]
+        },
+        "normalizedValue": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
+    "decision": {
+      "type": "object",
+      "required": ["key", "disposition", "expectation", "rationale"],
+      "properties": {
+        "key": { "$ref": "#/$defs/key" },
+        "disposition": {
+          "enum": [
+            "virtual-absolute",
+            "virtual-relative",
+            "virtual-basename",
+            "synthetic-source-id",
+            "absent",
+            "closed",
+            "refused",
+            "typed-logical",
+            "reserved-constant",
+            "non-path"
+          ]
+        },
+        "expectation": { "$ref": "#/$defs/expectation" },
+        "rationale": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

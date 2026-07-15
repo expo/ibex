@@ -857,18 +857,23 @@
   };
 
   // Bun.password (stub for auth libraries)
+  function passwordUnavailableError() {
+    var error = new Error('Bun.password requires native bcrypt/argon2 support');
+    error.code = 'ERR_IBEX_PASSWORD_UNAVAILABLE';
+    return error;
+  }
   E.password = {
     hash: function(password, opts) {
       return Promise.reject(new Error('Bun.password.hash requires native bcrypt/argon2 support'));
     },
     hashSync: function(password, opts) {
-      throw new Error('Bun.password.hashSync requires native bcrypt/argon2 support');
+      throw passwordUnavailableError();
     },
     verify: function(password, hash) {
       return Promise.reject(new Error('Bun.password.verify requires native bcrypt/argon2 support'));
     },
     verifySync: function(password, hash) {
-      throw new Error('Bun.password.verifySync requires native bcrypt/argon2 support');
+      throw passwordUnavailableError();
     },
   };
 

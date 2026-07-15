@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import {
   authoredNonCapabilityBuiltinProbe,
+  authoredNonCapabilityBuiltinOutputInvocation,
   nonCapabilityBuiltinProbeResidualReason,
 } from "./capsec-builtin-public-probe-templates.mjs";
 
@@ -8,6 +13,17 @@ const plan = {
   classification: "non-capability",
   actionIds: [],
 };
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const builtinInvocationHarness = new Function(
+  "require",
+  `return ${fs.readFileSync(
+    path.join(
+      __dirname,
+      "../../../../src/bin/ibex/engine/capsec_public_noncap_builtin_invocation.js",
+    ),
+    "utf8",
+  )};`,
+)(createRequire(import.meta.url));
 
 function probeFor({
   sourceKey = "node_constants",
@@ -162,6 +178,85 @@ describe("source-bound builtin public probes", () => {
           timeoutMilliseconds: 1_000,
         },
         expectedResult: "normal-return",
+      },
+    });
+  });
+
+  test("exports expectation-free output invocations from the same authored recipes", () => {
+    const invocation = authoredNonCapabilityBuiltinOutputInvocation({
+      target: "aarch64-apple-darwin",
+      surface: {
+        observedKey: "builtin:export:node_path:basename",
+        sourceRefs: ["src/builtins/path.js#exports:basename"],
+        metadata: {
+          sourceKey: "node_path",
+          exportName: "basename",
+          exportIdioms: ["object-binding", "object-source"],
+          importReachability: "public",
+          moduleSpecifiers: ["node:path", "path"],
+          publicModuleSpecifiers: ["node:path", "path"],
+          surfaceType: "export",
+          valueShape: "callable",
+        },
+      },
+    });
+    expect(invocation).toMatchObject({
+      invocationSchema: "ibex/capsec-builtin-call-invocation/1",
+      kind: "builtin-export-call",
+      moduleSpecifier: "node:path",
+      exportName: "basename",
+      templateId: "node-path-pure-v1",
+      arguments: [{ kind: "json", value: "/ibex/file.txt" }],
+      setup: { kind: "root-call" },
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      },
+    });
+    expect(Object.keys(invocation).sort()).toEqual([
+      "arguments",
+      "completion",
+      "exportName",
+      "invocationSchema",
+      "kind",
+      "moduleSpecifier",
+      "setup",
+      "sourceDescriptor",
+      "sourceDescriptorDigest",
+      "templateId",
+    ]);
+    expect(JSON.stringify(invocation)).not.toContain("expectedResult");
+    expect(JSON.stringify(invocation)).not.toContain("bodyEntryProof");
+
+    const returned = builtinInvocationHarness({
+      ...invocation,
+      captureRawOutput: true,
+    });
+    expect(returned).toMatchObject({
+      kind: "return",
+      sourceOperationAttempted: true,
+      bodyEntryProof: "normal-return-from-source-call",
+      rawOutput: {
+        kind: "return",
+        rawValueShape: "string",
+        value: "file.txt",
+        errorCode: null,
+      },
+    });
+
+    const thrown = builtinInvocationHarness({
+      ...invocation,
+      arguments: [{ kind: "json", value: {} }],
+      captureRawOutput: true,
+    });
+    expect(thrown).toMatchObject({
+      kind: "throw",
+      sourceOperationAttempted: true,
+      rawOutput: {
+        kind: "throw",
+        rawValueShape: "throw",
+        value: null,
+        errorCode: "ERR_INVALID_ARG_TYPE",
       },
     });
   });

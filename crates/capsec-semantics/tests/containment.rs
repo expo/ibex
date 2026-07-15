@@ -8,7 +8,8 @@ use capsec_semantics::containment::{
 };
 use capsec_semantics::model::{
     ActionId, AuthoritySelector, DecisionSet, EffectOccurrence, IpAddress, LogicalPath,
-    LogicalRoot, OccurrenceResource, PathComponent, PeerClass, SelectorResource, Stage,
+    LogicalRoot, ObjectState, OccurrenceResource, PathComponent, PeerClass, SelectorResource,
+    Stage,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -86,7 +87,7 @@ fn every_committed_selector_and_occurrence_deserializes_and_validates() {
         serde_json::from_slice(&read("examples/authority-selectors.canonical.json"))
             .expect("deserialize selector examples");
     assert_eq!(selectors.example_schema, "ibex/capsec-selector-examples/1");
-    assert_eq!(selectors.selectors.len(), 16);
+    assert_eq!(selectors.selectors.len(), 19);
     for selector in &selectors.selectors {
         validate_authority_selector(selector).expect("valid committed selector");
     }
@@ -98,7 +99,7 @@ fn every_committed_selector_and_occurrence_deserializes_and_validates() {
         occurrences.example_schema,
         "ibex/capsec-occurrence-examples/1"
     );
-    assert_eq!(occurrences.occurrences.len(), 15);
+    assert_eq!(occurrences.occurrences.len(), 19);
     for occurrence in &occurrences.occurrences {
         validate_occurrence_stage_facts(occurrence).unwrap_or_else(|error| {
             panic!(
@@ -108,6 +109,55 @@ fn every_committed_selector_and_occurrence_deserializes_and_validates() {
             )
         });
     }
+}
+
+#[test]
+fn lifecycle_dispositions_are_exact_and_stage_closed() {
+    let request: AuthoritySelector = serde_json::from_value(json!({
+        "cap": "lifecycle:exit",
+        "resource": {
+            "kind": "session-lifecycle",
+            "disposition": "exit-request"
+        }
+    }))
+    .unwrap();
+    let setter: AuthoritySelector = serde_json::from_value(json!({
+        "cap": "lifecycle:exit",
+        "resource": {
+            "kind": "session-lifecycle",
+            "disposition": "exit-code-set"
+        }
+    }))
+    .unwrap();
+    assert_eq!(
+        compare_authority_containment(
+            &request,
+            &setter,
+            &ContainmentContext::SAME_AUTHORITY_DOMAIN
+        ),
+        Containment::Incomparable
+    );
+
+    let mut occurrence: EffectOccurrence = serde_json::from_value(json!({
+        "cap": "lifecycle:exit",
+        "stage": "commit",
+        "actor": {"kind": "root", "identity": "project-root"},
+        "effectOwner": {"kind": "root", "identity": "project-root"},
+        "constrainedPrincipals": [
+            {"kind": "root", "identity": "project-root"}
+        ],
+        "resource": {
+            "kind": "lifecycle-occurrence",
+            "requested": {
+                "kind": "session-lifecycle",
+                "disposition": "exit-request"
+            }
+        }
+    }))
+    .unwrap();
+    validate_occurrence_stage_facts(&occurrence).unwrap();
+    occurrence.stage = Stage::Cleanup;
+    assert!(validate_occurrence_stage_facts(&occurrence).is_err());
 }
 
 #[test]
@@ -218,11 +268,44 @@ fn stage_facts_cannot_arrive_speculatively() {
             matches!(
                 occurrence.resource,
                 OccurrenceResource::PathOccurrence { .. }
-            )
+            ) && occurrence.stage != Stage::Requested
         })
         .expect("path occurrence");
     path.stage = Stage::Requested;
     assert!(validate_occurrence_stage_facts(path).is_err());
+}
+
+#[test]
+fn requested_path_can_carry_unknown_but_later_stages_cannot() {
+    let mut occurrence: EffectOccurrence = serde_json::from_value(json!({
+        "cap": "fs:list",
+        "stage": "requested",
+        "actor": { "kind": "root", "identity": "project-root" },
+        "effectOwner": { "kind": "root", "identity": "project-root" },
+        "constrainedPrincipals": [
+            { "kind": "root", "identity": "project-root" }
+        ],
+        "resource": {
+            "kind": "path-occurrence",
+            "requested": {
+                "root": "project",
+                "components": [{"encoding":"utf8", "value":"unknown.js"}]
+            },
+            "followMode": "follow-final",
+            "objectState": "unknown"
+        }
+    }))
+    .expect("unknown requested path deserializes");
+    validate_occurrence_stage_facts(&occurrence).expect("pre-lookup state is valid");
+    if let OccurrenceResource::PathOccurrence { object_state, .. } = &mut occurrence.resource {
+        *object_state = ObjectState::Existing;
+    }
+    assert!(validate_occurrence_stage_facts(&occurrence).is_err());
+    if let OccurrenceResource::PathOccurrence { object_state, .. } = &mut occurrence.resource {
+        *object_state = ObjectState::Unknown;
+    }
+    occurrence.stage = Stage::Discovery;
+    assert!(validate_occurrence_stage_facts(&occurrence).is_err());
 }
 
 #[test]

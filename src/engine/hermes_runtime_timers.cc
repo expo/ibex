@@ -102,6 +102,7 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
             false,
             true,
             currentPrincipalId(),
+            exactCurrentAsyncEvaluationAssociation(handle),
             exactCollectTypedPrincipalStack(),
             std::move(callback),
             std::move(callbackArgs),
@@ -155,6 +156,7 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
             true,
             true,
             currentPrincipalId(),
+            exactCurrentAsyncEvaluationAssociation(handle),
             exactCollectTypedPrincipalStack(),
             std::move(callback),
             std::move(callbackArgs),
@@ -197,8 +199,10 @@ void installTimerGlobals(ExactHermesRuntime* handle) {
         runtime.queueMicrotask(callback);
 #else
         handle->next_tick.push_back(
-            NextTickEntry{currentPrincipalId(), exactCollectTypedPrincipalStack(),
-                          std::move(callback), {}});
+            NextTickEntry{exactAllocateAsyncEventIdentity(handle),
+                          currentPrincipalId(),
+                          exactCurrentAsyncEvaluationAssociation(handle),
+                          exactCollectTypedPrincipalStack(), std::move(callback), {}});
 #endif
         return facebook::jsi::Value::undefined();
       });

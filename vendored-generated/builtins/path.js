@@ -12,8 +12,14 @@ function isPS(c) {
 function isDR(c) {
 	return c >= 65 && c <= 90 || c >= 97 && c <= 122;
 }
+var _exactPrivateBuiltinBridges = typeof __exactPrivateBuiltinBridges === "object" && __exactPrivateBuiltinBridges ? __exactPrivateBuiltinBridges : null;
+var _exactGetVirtualCwd = _exactPrivateBuiltinBridges && typeof _exactPrivateBuiltinBridges.getVirtualCwd === "function" ? _exactPrivateBuiltinBridges.getVirtualCwd : typeof globalThis.__exactGetCwd === "function" ? globalThis.__exactGetCwd : null;
 function _cwd() {
-	return typeof process !== "undefined" && process.cwd ? process.cwd() : "/";
+	if (typeof _exactGetVirtualCwd === "function") {
+		var value = _exactGetVirtualCwd();
+		if (typeof value === "string" && value.length > 0) return value;
+	}
+	return "/";
 }
 function _invalidArgType(name, expected, actual) {
 	var received;

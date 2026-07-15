@@ -1,23 +1,25 @@
 // ENG-23018: opt-in debug visibility (NODE_DEBUG=http) for otherwise-
 // swallowed best-effort errors. No-op unless the namespace is enabled, so
 // hot paths pay only a guarded function call.
-var _swallowDebugLog = null;
+// Manifest builtins may load implementation dependencies only while their
+// own body is evaluating. Capture optional modules in that trusted window;
+// lazy `require` closures intentionally become package-gated after evaluation.
+// @ref LLP 0013#policy
+var _httpNetModule = null;
+var _httpStreamModule = null;
+try { _httpNetModule = require('net'); } catch (_netModuleErr) {}
+try { _httpStreamModule = require('node:stream'); } catch (_streamModuleErr) {}
+var _swallowDebugLog = function() {};
 function _swallowDebug(msg, err) {
-  if (_swallowDebugLog === null) {
-    try { _swallowDebugLog = require('util').debuglog('http'); } catch (_swallowInitErr) { _swallowDebugLog = function() {}; }
-  }
   _swallowDebugLog(msg, err);
 }
 var EventEmitter = require('events').EventEmitter;
 var Readable = null;
 function getReadableCtor() {
   if (Readable) return Readable;
-  try {
-    var streamModule = require('node:stream');
-    if (streamModule && typeof streamModule.Readable === 'function') {
-      Readable = streamModule.Readable;
-    }
-  } catch (_streamErr) { /* ignored: optional stream module; Readable stays null and callers guard */ }
+  if (_httpStreamModule && typeof _httpStreamModule.Readable === 'function') {
+    Readable = _httpStreamModule.Readable;
+  }
   return Readable;
 }
 
@@ -634,12 +636,9 @@ function _createHeaderBag() {
 }
 
 function getDefaultOutgoingHighWaterMark() {
-  try {
-    var streamModule = require('node:stream');
-    if (streamModule && typeof streamModule.getDefaultHighWaterMark === 'function') {
-      return streamModule.getDefaultHighWaterMark(false);
-    }
-  } catch (_streamErr) { /* ignored: optional stream module; use the default high-water mark */ }
+  if (_httpStreamModule && typeof _httpStreamModule.getDefaultHighWaterMark === 'function') {
+    return _httpStreamModule.getDefaultHighWaterMark(false);
+  }
   return DEFAULT_OUTGOING_HIGH_WATER_MARK;
 }
 
@@ -3988,8 +3987,8 @@ ClientRequest.prototype._ensureSocketAssigned = function() {
   if (this.socket || this._agentDispatched || !_requestUsesSocketTransport(this) ||
       this.destroyed || this._destroyRequested) return;
 
-  var net;
-  try { net = require('net'); } catch (e) {
+  var net = _httpNetModule;
+  if (!net) {
     this.emit("error", new Error("Neither fetch nor net module available"));
     if (!this._closed) {
       this._closed = true;
@@ -5795,9 +5794,8 @@ Agent.prototype.addRequest = function(req, options, port, localAddress) {
 };
 
 Agent.prototype.createConnection = function(options, callback) {
-  var net;
-  try { net = require('net'); } catch(e) { return null; }
-  return net.createConnection(options, callback);
+  if (!_httpNetModule) return null;
+  return _httpNetModule.createConnection(options, callback);
 };
 
 function installAgentListeners(agent, socket, options) {
@@ -8609,8 +8607,7 @@ function Server(options, requestListener) {
     }
   });
 
-  var net;
-  try { net = require('net'); } catch (e) { /* ignored: optional net module; callers guard for null */ }
+  var net = _httpNetModule;
   if (net && typeof net.createServer === 'function') {
     var self = this;
     this._netServer = net.createServer(function(socket) {
@@ -9663,11 +9660,18 @@ Server.prototype.close = function(callback) {
     if (_closeGuardTimer && typeof _closeGuardTimer.unref === 'function') {
       _closeGuardTimer.unref();
     }
-    this._netServer.close(function() {
+    var finishNetClose = function() {
       clearTimeout(_closeGuardTimer);
       self.closeIdleConnections();
       self.emit('close');
-    });
+    };
+    // net.Server.close(callback) reports ERR_SERVER_NOT_RUNNING while a
+    // deferred listen is still pending, and that callback overload returns
+    // before invalidating the pending listen token. Register for the close
+    // event separately and use the callback-free close path so an immediate
+    // http.Server.close() always cancels and releases the native listener.
+    this._netServer.once('close', finishNetClose);
+    this._netServer.close();
   } else if (nativeClosed) {
     this._useNative = false;
     setTimeout(function() { self.emit('close'); }, 0);

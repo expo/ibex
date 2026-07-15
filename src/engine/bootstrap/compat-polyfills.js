@@ -1,4 +1,11 @@
 (function() {
+  // Trusted bootstrap captures the raw stdin bridge before armed startup
+  // removes its global spelling. Compatibility shims retain only this lexical
+  // reference, preventing user replacement of the native operation.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  var nativeStdinRead = typeof globalThis.__exactStdinRead === 'function'
+    ? globalThis.__exactStdinRead
+    : null;
   (function patchBase64DomExceptions() {
     var nativeBtoa = typeof globalThis.btoa === 'function' ? globalThis.btoa : null;
     var nativeAtob = typeof globalThis.atob === 'function' ? globalThis.atob : null;
@@ -1252,7 +1259,7 @@
         };
       }
       if (typeof stream.resume === 'function') return;
-      if (typeof globalThis.__exactStdinRead !== 'function') return;
+      if (!nativeStdinRead) return;
 
       stream._encoding = null;
       stream._decoder = null;
@@ -1278,7 +1285,7 @@
         if (!stream._ended && !stream._pollTimer) {
           (function pollStdin() {
             if (stream._paused || stream._ended || stream.destroyed) return;
-            var data = globalThis.__exactStdinRead(262144);
+            var data = nativeStdinRead(262144);
             if (data === null) {
               stream._pollTimer = setTimeout(pollStdin, 1);
               return;
@@ -1313,7 +1320,7 @@
       };
 
       stream.read = function(size) {
-        var data = globalThis.__exactStdinRead(size || 262144);
+        var data = nativeStdinRead(size || 262144);
         if (data === '') return null;
         if (data === null) return null;
         return __exactStdinChunk(stream, data, false);
@@ -3171,7 +3178,7 @@
           if (!stream ||
               typeof stream !== 'object' ||
               typeof stream.resume === 'function' ||
-              typeof globalThis.__exactStdinRead !== 'function') {
+              !nativeStdinRead) {
             return;
           }
           stream._encoding = null;
@@ -3195,7 +3202,7 @@
             if (!stream._ended && !stream._pollTimer) {
               (function exactPollStdin() {
                 if (stream._paused || stream._ended || stream.destroyed) return;
-                var data = globalThis.__exactStdinRead(262144);
+                var data = nativeStdinRead(262144);
                 if (data === null) {
                   stream._pollTimer = setTimeout(exactPollStdin, 1);
                   return;
@@ -3234,7 +3241,7 @@
             return stream;
           };
           stream.read = function(size) {
-            var data = globalThis.__exactStdinRead(size || 262144);
+            var data = nativeStdinRead(size || 262144);
             if (data === '') return null;
             if (data === null) return null;
             return __exactStdinChunk(stream, data, false);

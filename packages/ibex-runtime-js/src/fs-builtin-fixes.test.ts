@@ -25,6 +25,10 @@ import * as os from 'node:os';
 import * as nodePath from 'node:path';
 
 const g = globalThis as Record<string, any>;
+let closedMutationGuardHandler: null | ((operation: string) => void) = null;
+const bootstrapCapturedMutationGuard = (operation: string) => {
+  closedMutationGuardHandler?.(operation);
+};
 
 function statJson(s: nodeFs.Stats): string {
   return JSON.stringify({
@@ -43,6 +47,7 @@ function statJson(s: nodeFs.Stats): string {
 //     stub ftruncate/fsync/fdatasync/futimes/chown/utimes so #6 can assert
 //     their absent-hook ENOSYS behavior. ---
 g.__exactEnsureFs = () => {};
+g.__exactFsMutationGuard = bootstrapCapturedMutationGuard;
 g.__exactStat = (p: string) => statJson(nodeFs.statSync(p));
 g.__exactLstat = (p: string) => statJson(nodeFs.lstatSync(p));
 g.__exactFsFstatSync = (fd: number) => statJson(nodeFs.fstatSync(fd));
@@ -59,7 +64,8 @@ g.__exactAccess = (p: string, mode: number) => nodeFs.accessSync(p, mode);
 g.__exactChmod = (p: string, mode: number) => nodeFs.chmodSync(p, mode);
 g.__exactUnlink = (p: string) => nodeFs.unlinkSync(p);
 g.__exactReaddir = (p: string) => JSON.stringify(nodeFs.readdirSync(p));
-g.__exactMkdir = (p: string, recursive: boolean) => nodeFs.mkdirSync(p, { recursive });
+g.__exactMkdir = (p: string, recursive: boolean, mode: number) =>
+  nodeFs.mkdirSync(p, { recursive, mode: mode < 0 ? undefined : mode });
 
 // --- ENG-23497 — worker-pool async natives (__exactFs*Async). fs.js routes
 //     the callback/promise/stream paths through these when present, so they
@@ -214,7 +220,7 @@ g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?
           while (!nodeFs.existsSync(cursor)) { missing.push(cursor); const parent = nodePath.dirname(cursor); if (parent === cursor) break; cursor = parent; }
           return missing.length ? missing[missing.length - 1] : '';
         })() : undefined;
-        nodeFs.mkdirSync(a, { recursive: x !== 0 });
+        nodeFs.mkdirSync(a, { recursive: x !== 0, mode: y === undefined || y < 0 ? undefined : y });
         return Promise.resolve(firstMissing);
       case 'rmdir':
         nodeFs.rmdirSync(a);
@@ -279,6 +285,7 @@ g.__exactFsStatAsync = (target: string | number, kind: string) => {
 const require = createRequire(import.meta.url);
 const fs = require('../../../src/builtins/fs.js');
 const fsp = require('../../../src/builtins/fs-promises.js');
+delete g.__exactFsMutationGuard;
 
 let dir: string;
 beforeAll(() => {
@@ -286,6 +293,64 @@ beforeAll(() => {
 });
 afterAll(() => {
   try { nodeFs.rmSync(dir, { recursive: true, force: true }); } catch {}
+});
+
+describe('LLP 0023 armed mutation closure', () => {
+  test('bootstrap-captured guard ignores root replacement and denies before lookup or effect', async () => {
+    const seen: string[] = [];
+    let replacementCalls = 0;
+    closedMutationGuardHandler = (operation: string) => {
+      seen.push(operation);
+      throw new Error(`EPERM: operation not permitted, ${operation}`);
+    };
+    g.__exactFsMutationGuard = () => {
+      replacementCalls += 1;
+    };
+    const missing = nodePath.join(dir, 'closed-missing');
+    const destination = nodePath.join(dir, 'closed-destination');
+    try {
+      expect(() => fs.cpSync(missing, destination, { recursive: true })).toThrow(/^EPERM:/);
+      expect(() => fs.copyFileSync(missing, destination)).toThrow(/^EPERM:/);
+      expect(() => fs.rmSync(missing, { recursive: true, force: true })).toThrow(/^EPERM:/);
+      expect(() => fs.rmdirSync(missing, { recursive: true })).toThrow(/^EPERM:/);
+      expect(() => fs.mkdirSync(destination, { recursive: true })).toThrow(/^EPERM:/);
+      expect(() => fs.mkdtempSync(nodePath.join(missing, 'tmp-'))).toThrow(/^EPERM:/);
+      expect(() => fs.watch(missing, () => {})).toThrow(/^EPERM:/);
+      expect(() => fs.watchFile(missing, () => {})).toThrow(/^EPERM:/);
+      expect(() => fs.chmodSync(missing, 0o600)).toThrow(/^EPERM:/);
+      expect(() => fs.fchownSync(123456, -1, -1)).toThrow(/^EPERM:/);
+      expect(() => fs.symlinkSync('target', destination)).toThrow(/^EPERM:/);
+      expect(() => fs.linkSync(missing, destination)).toThrow(/^EPERM:/);
+      await expect(fs.promises.cp(missing, destination, { recursive: true }))
+        .rejects.toMatchObject({ code: 'EPERM', syscall: 'cp' });
+      await expect(fs.promises.fchown(123456, -1, -1))
+        .rejects.toMatchObject({ code: 'EPERM', syscall: 'fchown' });
+      expect(nodeFs.existsSync(destination)).toBe(false);
+      expect(replacementCalls).toBe(0);
+      expect(seen).toEqual(expect.arrayContaining([
+        'cp', 'copyfile', 'rm', 'rmdir', 'mkdir', 'mkdtemp', 'watch',
+        'watchFile', 'chmod', 'fchown', 'symlink', 'link',
+      ]));
+    } finally {
+      closedMutationGuardHandler = null;
+      delete g.__exactFsMutationGuard;
+    }
+  });
+
+  test('a missing bootstrap capture fails closed with typed EPERM', () => {
+    const modulePath = require.resolve('../../../src/builtins/fs.js');
+    delete (require as any).cache[modulePath];
+    delete g.__exactFsMutationGuard;
+    const failClosedFs = require(modulePath);
+    const missing = nodePath.join(dir, 'missing-guard-target');
+    try {
+      expect(() => failClosedFs.rmSync(missing, { recursive: true, force: true }))
+        .toThrow(/^EPERM:/);
+      expect(nodeFs.existsSync(missing)).toBe(false);
+    } finally {
+      delete (require as any).cache[modulePath];
+    }
+  });
 });
 
 describe('cpSync force:false (ENG-22963 #4)', () => {

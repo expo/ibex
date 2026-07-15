@@ -1,0 +1,409 @@
+diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
+index 96808afcc..79d850431 100644
+--- a/API/hermes/hermes.cpp
++++ b/API/hermes/hermes.cpp
+@@ -29,6 +29,7 @@
+ #include "hermes/VM/HostModel.h"
+ #include "hermes/VM/JSArray.h"
+ #include "hermes/VM/JSArrayBuffer.h"
++#include "hermes/VM/JSError.h"
+ #include "hermes/VM/JSLib.h"
+ #include "hermes/VM/JSLib/JSLibStorage.h"
+ #include "hermes/VM/JSLib/RuntimeJSONParse.h"
+@@ -1262,6 +1263,10 @@ class HermesRuntimeImpl final : public HermesRuntime,
+   void *getVMRuntimeUnsafe() const override;
+   size_t rootsListLengthForTests() const override;
+   void setJSErrorMetadataPropertyAccessEnabled(bool enabled) override;
++  bool getSafeJSErrorMetadata(
++      const jsi::Value &value,
++      std::string &message,
++      std::string &stack) override;
+   bool lastEvaluationResultWasEmpty() const override;
+ 
+   ManagedValues<vm::PinnedHermesValue> hermesValues_;
+@@ -1502,6 +1507,89 @@ void HermesRuntimeImpl::setJSErrorMetadataPropertyAccessEnabled(bool enabled) {
+   jSErrorMetadataPropertyAccessEnabled_ = enabled;
+ }
+ 
++bool HermesRuntimeImpl::getSafeJSErrorMetadata(
++    const jsi::Value &value,
++    std::string &message,
++    std::string &stack) {
++  message.clear();
++  stack.clear();
++  if (!value.isObject())
++    return false;
++
++  vm::GCScope gcScope(runtime_);
++  vm::PinnedHermesValue valueStorage;
++  auto valueHandle = vmHandleFromValue(value, &valueStorage);
++  auto error = vm::Handle<vm::JSError>::dyn_vmcast(valueHandle);
++  if (!error)
++    return false;
++
++  // The Error constructor creates `message` as an own data property. Read the
++  // slot only when it is still a plain string data property; never invoke a
++  // replacement accessor or walk a user-controlled prototype.
++  vm::NamedPropertyDescriptor messageDescriptor;
++  if (vm::JSObject::getOwnNamedDescriptor(
++          error,
++          runtime_,
++          vm::Predefined::getSymbolID(vm::Predefined::message),
++          messageDescriptor) &&
++      !messageDescriptor.flags.accessor &&
++      !messageDescriptor.flags.proxyObject &&
++      !messageDescriptor.flags.hostObject) {
++    auto messageValue = vm::JSObject::getNamedSlotValueUnsafe(
++                            error.get(), runtime_, messageDescriptor)
++                            .unboxToHV(runtime_);
++    if (messageValue.isString()) {
++      auto messageHandle = runtime_.makeHandle(messageValue.getString());
++      message = utf8FromStringView(
++          vm::StringPrimitive::createStringView(runtime_, messageHandle));
++    }
++  }
++
++  const vm::StackTrace *frames = error->getStackTrace();
++  if (!frames)
++    return true;
++  constexpr size_t kMaximumSafeFrames = 100;
++  const size_t count = std::min(frames->size(), kMaximumSafeFrames);
++  for (size_t index = 0; index < count; ++index) {
++    if (!stack.empty())
++      stack.push_back('\n');
++    stack += "    at ";
++    const auto &frame = frames->at(index);
++    if (const auto *bytecode =
++            std::get_if<vm::BytecodeStackTraceInfo>(&frame)) {
++      if (!bytecode->codeBlock) {
++        stack += "<native>";
++        continue;
++      }
++      stack += bytecode->codeBlock->getNameString();
++      stack += " (";
++      auto location = vm::JSError::getDebugInfo(
++          bytecode->codeBlock, bytecode->bytecodeOffset);
++      if (location) {
++        auto *provider =
++            bytecode->codeBlock->getRuntimeModule()->getBytecode();
++        stack += provider->getDebugInfo()->getUTF8FilenameByID(
++            location->filenameId);
++        stack.push_back(':');
++        stack += std::to_string(location->line);
++        stack.push_back(':');
++        stack += std::to_string(location->column);
++      } else {
++        auto sourceURL =
++            bytecode->codeBlock->getRuntimeModule()->getSourceURL();
++        stack += sourceURL.empty() ? "unknown" : sourceURL.str();
++      }
++      stack.push_back(')');
++    } else {
++      stack += "<native>";
++    }
++  }
++  if (frames->size() > count) {
++    stack += "\n    ... truncated";
++  }
++  return true;
++}
++
+ bool HermesRuntimeImpl::lastEvaluationResultWasEmpty() const {
+   return lastEvaluationResultWasEmpty_;
+ }
+@@ -3193,7 +3281,11 @@ void HermesRuntimeImpl::throwPendingError() {
+   if (!jSErrorMetadataPropertyAccessEnabled_) {
+     // The structured evaluator owns inspection. Do not invoke message/stack
+     // getters or String on an arbitrary thrown value while crossing JSI.
+-    throw jsi::JSError(std::move(jsiVal), "", "");
++    std::string safeMessage;
++    std::string safeStack;
++    getSafeJSErrorMetadata(jsiVal, safeMessage, safeStack);
++    throw jsi::JSError(
++        std::move(jsiVal), std::move(safeMessage), std::move(safeStack));
+   }
+ 
+   std::string msg = "No message";
+diff --git a/API/hermes/hermes.h b/API/hermes/hermes.h
+index 0bfdd3ec5..a3fe4c2fe 100644
+--- a/API/hermes/hermes.h
++++ b/API/hermes/hermes.h
+@@ -196,6 +196,8 @@ class IHermesTracingHelpers : public jsi::ICast {
+ 
+ #define HERMES_HAS_RAW_THROW_CAPTURE 1
+ #define HERMES_HAS_COMPLETION_RECORD 1
++#define HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK 1
++#define HERMES_HAS_SAFE_THROW_METADATA 1
+ 
+ class HermesRuntime : public jsi::Runtime,
+                       public IHermes,
+@@ -213,6 +215,14 @@ class HermesRuntime : public jsi::Runtime,
+   /// owners must restore the default after the scoped evaluation completes.
+   virtual void setJSErrorMetadataPropertyAccessEnabled(bool enabled) = 0;
+ 
++  /// Extract engine-owned metadata from an actual Hermes Error object without
++  /// consulting JavaScript properties, accessors, proxies, prepareStackTrace,
++  /// or String coercion. Returns false for arbitrary thrown values.
++  virtual bool getSafeJSErrorMetadata(
++      const jsi::Value &value,
++      std::string &message,
++      std::string &stack) = 0;
++
+   /// Report whether the most recent successful evaluateJavaScript call
+   /// produced the VM's Empty completion sentinel. JSI historically collapses
+   /// Empty into undefined while converting the result; structured embedders
+diff --git a/include/hermes/VM/Runtime-inline.h b/include/hermes/VM/Runtime-inline.h
+index c6bff4711..4032c3c33 100644
+--- a/include/hermes/VM/Runtime-inline.h
++++ b/include/hermes/VM/Runtime-inline.h
+@@ -41,9 +41,35 @@ inline void Runtime::enqueueJob(Callable *job) {
+   // kNoUserPrincipal fallback path;
+   // the push is unconditional to keep jobSchedulerQueue_ in lockstep with
+   // jobQueue_.
+-  jobSchedulerQueue_.push_back(
+-      captureJobSchedulerPrincipal_ ? getCurrentPackageId(*this)
+-                                    : kNoJobSchedulerPrincipal);
++  // Publish each nonzero identity at most once. Unsigned overflow advances
++  // UINT64_MAX to the unavailable sentinel 0; leave the counter there so a
++  // later job can never reuse identity 1.
++  const uint64_t identity = nextJobIdentity_;
++  if (nextJobIdentity_ != 0) {
++    ++nextJobIdentity_;
++  }
++  uint32_t scheduler = kNoJobSchedulerPrincipal;
++  if (captureJobSchedulerPrincipal_) {
++    scheduler = getCurrentPackageId(*this);
++    // Native completions resolve their Promise with no user JS frame live.
++    // The embedder carries the completion's already-authenticated scheduling
++    // principal for exactly that native callback scope; use it only for the
++    // no-user-frame case, never to override a real JS frame.
++    if (scheduler == kNoUserPrincipal) {
++      if (currentJobIdentity_ != 0 &&
++          currentJobSchedulerPrincipal_ != kNoJobSchedulerPrincipal) {
++        scheduler = currentJobSchedulerPrincipal_;
++      } else if (
++          embedderJobSchedulerPrincipal_ != kNoJobSchedulerPrincipal) {
++        scheduler = embedderJobSchedulerPrincipal_;
++      }
++    }
++  }
++  jobSchedulerQueue_.push_back(JobScheduleContext{
++      scheduler,
++      identity,
++      currentJobIdentity_ != 0 ? currentJobAssociatedEvaluation_
++                               : embedderJobAssociatedEvaluation_});
+ }
+ 
+ inline Handle<HiddenClass> Runtime::getHiddenClassForPrototype(
+diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
+index 0e5d8b020..af8e91c63 100644
+--- a/include/hermes/VM/Runtime.h
++++ b/include/hermes/VM/Runtime.h
+@@ -1074,6 +1074,12 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   /// collectStackPackageIds already skips it as the runtime principal.
+   static constexpr uint32_t kNoJobSchedulerPrincipal = 0xFFFFFFFFu;
+ 
++  struct JobScheduleContext {
++    uint32_t principal{kNoJobSchedulerPrincipal};
++    uint64_t identity{0};
++    uint64_t associatedEvaluation{0};
++  };
++
+   /// The principal that SCHEDULED the currently-draining job (restored from the
+   /// job's enqueue-time capture by drainJobs), or kNoJobSchedulerPrincipal when
+   /// no job is draining. collectStackPackageIds appends it to the deputy-class
+@@ -1088,6 +1094,33 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+     currentJobSchedulerPrincipal_ = id;
+   }
+ 
++  uint64_t currentJobIdentity() const {
++    return currentJobIdentity_;
++  }
++  uint64_t currentJobAssociatedEvaluation() const {
++    return currentJobAssociatedEvaluation_;
++  }
++  void setEmbedderJobAssociatedEvaluation(uint64_t id) {
++    embedderJobAssociatedEvaluation_ = id;
++  }
++  uint64_t embedderJobAssociatedEvaluation() const {
++    return embedderJobAssociatedEvaluation_;
++  }
++  void setEmbedderJobSchedulerPrincipal(uint32_t id) {
++    embedderJobSchedulerPrincipal_ = id;
++  }
++  uint32_t embedderJobSchedulerPrincipal() const {
++    return embedderJobSchedulerPrincipal_;
++  }
++
++  bool takeFailedJobContext(JobScheduleContext &out) {
++    if (lastFailedJobContext_.identity == 0)
++      return false;
++    out = lastFailedJobContext_;
++    lastFailedJobContext_ = {};
++    return true;
++  }
++
+   /// Enable/disable capturing the scheduling principal at enqueueJob time. Ibex
+   /// arms this when the patched engine is present, independent of boot-time
+   /// deputyClasses state, because embedders may configure deputy hardening after
+@@ -1104,6 +1137,12 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   }
+ 
+   uint32_t currentJobSchedulerPrincipal_{kNoJobSchedulerPrincipal};
++  uint64_t currentJobIdentity_{0};
++  uint64_t currentJobAssociatedEvaluation_{0};
++  uint64_t embedderJobAssociatedEvaluation_{0};
++  uint32_t embedderJobSchedulerPrincipal_{kNoJobSchedulerPrincipal};
++  uint64_t nextJobIdentity_{1};
++  JobScheduleContext lastFailedJobContext_{};
+   bool captureJobSchedulerPrincipal_{false};
+ 
+   experiments::VMExperimentFlags getVMExperimentFlags() const {
+@@ -1493,7 +1532,7 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
+   /// queued job, kept in lockstep with jobQueue_ (one entry per job, same FIFO
+   /// order; enqueueJob pushes both, drainJobs pops both). POD uint32_t, so unlike
+   /// jobQueue_ it holds no heap pointers and needs no GC root marking.
+-  std::deque<uint32_t> jobSchedulerQueue_{};
++  std::deque<JobScheduleContext> jobSchedulerQueue_{};
+ 
+ #ifdef HERMESVM_PROFILER_BB
+   BasicBlockExecutionInfo basicBlockExecInfo_;
+diff --git a/lib/InternalJavaScript/01-Promise.js b/lib/InternalJavaScript/01-Promise.js
+index 533a73576..de4a06445 100644
+--- a/lib/InternalJavaScript/01-Promise.js
++++ b/lib/InternalJavaScript/01-Promise.js
+@@ -447,6 +447,31 @@
+     options = options || {};
+     if (enabled) disable();
+     enabled = true;
++
++    // Ibex pins unhandled-rejection determination to the embedding host's
++    // poll-iteration checkpoint. Notify that host synchronously when a
++    // currently-unhandled promise rejects and when any continuation is later
++    // attached; the host roots the promise/reason until the checkpoint and
++    // cancels by promise identity. No timer or user-visible property access is
++    // involved in this mode. @ref LLP 0024#9-asynchronous-failures
++    if (
++      options.checkpointRejections === true &&
++      typeof options.onRejectedAtCheckpoint === 'function' &&
++      typeof options.onHandledAtCheckpoint === 'function'
++    ) {
++      core._B = function (promise) {
++        if (promise._y === 2) {
++          options.onHandledAtCheckpoint(promise);
++        }
++      };
++      core._C = function (promise, err) {
++        if (promise._x === 0) {
++          options.onRejectedAtCheckpoint(promise, err);
++        }
++      };
++      return;
++    }
++
+     var id = 0;
+     var displayId = 0;
+     var rejections = {};
+diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
+index 8db294411..2fcecc2f3 100644
+--- a/lib/VM/CapabilityAttribution.cpp
++++ b/lib/VM/CapabilityAttribution.cpp
+@@ -211,4 +211,62 @@ HERMES_EXPORT void ex_hermes_vm_set_job_scheduler_capture(
+       ->setCaptureJobSchedulerPrincipal(enabled != 0);
+ }
+ 
++HERMES_EXPORT uint32_t ex_hermes_vm_current_job_scheduler_principal(
++    void *vmRuntime) {
++  if (!vmRuntime)
++    return ::hermes::vm::Runtime::kNoJobSchedulerPrincipal;
++  return reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->currentJobSchedulerPrincipal();
++}
++
++HERMES_EXPORT uint64_t ex_hermes_vm_current_job_identity(void *vmRuntime) {
++  if (!vmRuntime)
++    return 0;
++  return reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->currentJobIdentity();
++}
++
++HERMES_EXPORT uint64_t ex_hermes_vm_current_job_associated_evaluation(
++    void *vmRuntime) {
++  if (!vmRuntime)
++    return 0;
++  return reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->currentJobAssociatedEvaluation();
++}
++
++HERMES_EXPORT void ex_hermes_vm_set_job_associated_evaluation(
++    void *vmRuntime,
++    uint64_t associatedEvaluation) {
++  if (!vmRuntime)
++    return;
++  reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->setEmbedderJobAssociatedEvaluation(associatedEvaluation);
++}
++
++HERMES_EXPORT void ex_hermes_vm_set_embedder_job_scheduler_principal(
++    void *vmRuntime,
++    uint32_t principal) {
++  if (!vmRuntime)
++    return;
++  reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++      ->setEmbedderJobSchedulerPrincipal(principal);
++}
++
++HERMES_EXPORT int ex_hermes_vm_take_failed_job_context(
++    void *vmRuntime,
++    uint32_t *principal,
++    uint64_t *identity,
++    uint64_t *associatedEvaluation) {
++  if (!vmRuntime || !principal || !identity || !associatedEvaluation)
++    return 0;
++  ::hermes::vm::Runtime::JobScheduleContext context{};
++  if (!reinterpret_cast<::hermes::vm::Runtime *>(vmRuntime)
++           ->takeFailedJobContext(context))
++    return 0;
++  *principal = context.principal;
++  *identity = context.identity;
++  *associatedEvaluation = context.associatedEvaluation;
++  return 1;
++}
++
+ } // extern "C"
+diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
+index 60f8e9d54..197cb1359 100644
+--- a/lib/VM/Runtime.cpp
++++ b/lib/VM/Runtime.cpp
+@@ -2040,19 +2040,28 @@ ExecutionStatus Runtime::drainJobs() {
+     // nested drain (or the top-level "no active job" state) is preserved on both
+     // the normal and the exceptional exit. The empty() guard is defensive: the
+     // sole push site (enqueueJob) always pushes both queues, so they cannot skew.
+-    uint32_t sched = kNoJobSchedulerPrincipal;
++    JobScheduleContext context{};
+     if (!jobSchedulerQueue_.empty()) {
+-      sched = jobSchedulerQueue_.front();
++      context = jobSchedulerQueue_.front();
+       jobSchedulerQueue_.pop_front();
+     }
+     uint32_t savedScheduler = currentJobSchedulerPrincipal_;
+-    currentJobSchedulerPrincipal_ = sched;
++    uint64_t savedIdentity = currentJobIdentity_;
++    uint64_t savedAssociatedEvaluation = currentJobAssociatedEvaluation_;
++    currentJobSchedulerPrincipal_ = context.principal;
++    currentJobIdentity_ = context.identity;
++    currentJobAssociatedEvaluation_ = context.associatedEvaluation;
+ 
+     // Jobs are guaranteed to behave as thunks.
+     auto callRes =
+         Callable::executeCall0(job, *this, Runtime::getUndefinedValue());
+ 
++    if (LLVM_UNLIKELY(callRes == ExecutionStatus::EXCEPTION)) {
++      lastFailedJobContext_ = context;
++    }
+     currentJobSchedulerPrincipal_ = savedScheduler;
++    currentJobIdentity_ = savedIdentity;
++    currentJobAssociatedEvaluation_ = savedAssociatedEvaluation;
+ 
+     // Early return to signal the caller. Note that the exceptional job has been
+     // popped, so re-invocation would pick up from the next available job.

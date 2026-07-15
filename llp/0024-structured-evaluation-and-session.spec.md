@@ -5,6 +5,12 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-14 (implementation sync: authenticated Hermes jobs now
+carry async owner/evaluation provenance; Promise rejection staging is independently
+bounded and reports pre-receipt loss fail-loud.)
+**Revised:** 2026-07-13 (implementation sync: the LLP 0025 constants annex has
+landed as `session/session-constants.v1.json`; open engine-dependent timing
+values are recorded as unbound rather than re-deferred.)
 **Revised:** 2026-07-12 (round-7 terminal two-family review — the last round of the
 four-document effort, closed under the human's bounded endgame authorization as a minimal
 pass; the document finishes **Draft**, not both-families-READY, matching all three siblings.
@@ -1636,12 +1642,14 @@ two different concepts (§2's table now separates them).
 What this document states is the **requirement** identity must satisfy, and the session's
 use of it:
 
-- **One file is one module instance**, whichever principal reached it and however it was
-  spelled: root's `import "foo/util.js"` and package `foo`'s own `require("./util")` share
-  the instance, so module-level state and `instanceof` survive the root/package boundary —
-  while the two callers' *authorization* decisions are still taken against their own
-  bindings. LLP 0023 §2.3 delivers this by keying on the **defining** principal, which is
-  caller-independent.
+- **One equal `SourceId` is one module instance**, whichever principal reached it:
+  root's `import "foo/util.js"` and package `foo`'s own `require("./util")` share the
+  instance because they resolve to the same defining-principal key, so module-level
+  state and `instanceof` survive the root/package boundary while the two callers'
+  *authorization* decisions are still taken against their own bindings. Spellings
+  unify only when LLP 0023 §2.3 assigns them the same `SourceId`; its intentional
+  case/normalization-alias and same-principal-hard-link splits remain distinct
+  instances. The defining principal is caller-independent.
 - Identity must **not collapse compartments** when one inode is reachable from two package
   roots, or a filesystem coincidence would decide a package's execution compartment
   (LLP 0013).
@@ -1801,9 +1809,10 @@ report time: a timer, a next-tick, a microtask continuation, and a native
 completion each record the principal that scheduled them (LLP 0021's schedule-time
 owner), and a failure inherits it. Where attribution is missing or ambiguous, the
 event says so — it never guesses, and it never launders a package failure into
-root. This is the one field the current implementation cannot supply, because it
-scopes a captured principal around a callback and drops it before detached
-microtasks drain.
+root. The authenticated implementation carries this through Hermes' job queue as
+engine state — scheduler principal, job identity, and associated evaluation are
+captured when the job is enqueued and recovered after a failed drain — rather
+than relying on a callback scope that ends before detached microtasks run.
 
 The channel is **bounded and sequenced**: one **sequence allocator** issues numbers to
 evaluation outcomes, asynchronous events, **and the session layer's broker events**
@@ -1837,6 +1846,16 @@ of the event-loop turn in which it became unhandled, concretely the poll-iterati
 boundary (LLP 0003) — and a handler attached before that checkpoint cancels the
 pending report.
 
+The pre-checkpoint rejection tracker has an **independent 1,024-record root
+bound**: each retained record owns the exact Promise identity and rejection
+reason until that checkpoint, so the published-event queue's bound does not
+bound these earlier roots. The first 1,024 records remain ordered; later
+rejections in that collection window add to a distinct pre-receipt loss count.
+At the checkpoint the engine releases or publishes the retained records first,
+then appends the exact loss marker. The counter never wraps: saturation makes
+asynchronous-failure publication fail closed and retains no additional Promise
+or reason root, rather than turning an unrepresentable loss into silence.
+
 **A rejected top-level-`await` unit is not a background failure.** It is that
 evaluation's `throw` outcome (§6), reported once through the outcome channel and
 never also through this one; the two are distinguished by the unit's identity, not
@@ -1851,15 +1870,13 @@ file and program execution may treat it as fatal, and an interactive session mus
 not (LLP 0022 §5). The **engine** therefore reports rather than decides, and sets
 no exit code.
 
-The current behavior does not conform, though the defect is narrower than "the
-pump is poisoned": the fatal flag *is* one-shot, so the next poll does survive it
-(LLP 0003 §Event loop). What is wrong is that the **engine layer decides fatality
-at all** — an unconsumed async error is written straight to stderr and turned into
-a `-1` from `poll`, so the consumer receives a return code where it should receive
-a structured event, and an interactive session that must never die from a
-background rejection is relying on a flag's one-shot-ness to survive. Reporting and
-policy are separated: the engine emits the event; the consumer's lifecycle policy
-(LLP 0025 §8) decides the process outcome.
+The authenticated engine path now separates those responsibilities: it publishes
+the rooted value through the structured event queue, returns no fatal poll status,
+writes no raw diagnostic, and sets no exit code. The compatibility/legacy engine
+path retains its historical one-shot fatal policy outside this authenticated ABI;
+consumers of the structured session contract never infer failure policy from it.
+The session consumer's lifecycle policy (LLP 0025 §8) alone decides the process
+outcome.
 
 ## Delegated obligations and owed artifacts
 
@@ -1880,7 +1897,7 @@ implementation tickets.
 | `OBL-PRIVATE-SEAMS` | Registry rows classifying the §7.1 lowering hooks and the §8 display seam as **private, non-JavaScript-reachable** (no-unclassified-surface invariant). | **LLP 0021** registry | §8 AC 16; §7.1 hook-unforgeability fixture |
 | `OBL-0019-TRIGGER` | If the session lowering changes what LLP 0019's Hermes-compat tiers emit, LLP 0019 is amended in the same change. | **LLP 0019** | §4 corpus |
 | `OBL-ENGINE-SLICES` | The three engine slices §8 depends on — trap-free introspection (stage 2), the completion-record discriminator (§6), and throw-time error capture (stage 1.5) — scoped and landed as **one patch program**; first step is surveying the vendored debugger's inspection path for extant trap-free reads. | this document (engine) | §8 strata AC 16 |
-| `OBL-MAX-INPUT` / constants | The completion budget and async-storm window join LLP 0025's `session-constants.json` once that file lands; maximum input size is already pinned at **1 MiB** by LLP 0025 §12. | **LLP 0025** §12 | §5/§9 bounds fixtures |
+| `OBL-MAX-INPUT` / constants | `session/session-constants.v1.json` carries the **1 MiB** maximum input size and records the completion budget and async-storm window as explicitly unbound engine-dependent values. | **LLP 0025** §12 | §5/§9 bounds fixtures |
 
 **Outstanding sibling-ledger corrections (reported, not this document's to edit):**
 
@@ -2159,7 +2176,10 @@ say which is testing nothing.
     a promise continuation, and a native completion, with a cross-principal chain
     attributed to the package and never laundered into root; a handler attached
     before the determination checkpoint cancels the report; the event sets no exit
-    code; an async storm coalesces within the documented window and emits an
+    code; a 1,025-rejection pre-checkpoint burst retains and releases exactly the
+    first 1,024 Promise/reason root pairs, then reports pre-receipt loss `1`, while
+    a saturated loss count fails publication closed without retaining another root;
+    an async storm coalesces within the documented window and emits an
     explicit **drop marker** carrying both the **count and the highest dropped sequence
     number**, in sequence, releasing the dropped handles — a lost event is never silent.
 
@@ -2248,21 +2268,20 @@ say which is testing nothing.
    lowering emits — and which `await using` at a module entry also depends on. Either
    that comment is stale, or entry TLA needs a different lowering on Windows, or Windows
    does not advertise it. This must be settled before AC8 can be claimed there.
-8. The **one versioned constants annex** is normatively pinned by LLP 0025 §12 (renderer
-   depth/breadth/payload/truncation, and **maximum input size = 1 MiB** inline), but the
-   digest-bound **file** `session-constants.json` **does not exist yet** and is owed
-   (LLP 0025 `OBL-CONSTANTS-ANNEX`) — an earlier draft here wrongly said it existed. What
-   remains genuinely open and must join it once the file lands: the **completion budget** and
-   the **async-storm coalescing window**.
+8. The **one versioned constants annex** is `session/session-constants.v1.json`,
+   owned by LLP 0025 §12 and digest-bound to its generated Rust consumer. It pins
+   renderer depth/breadth/payload/truncation and **maximum input size = 1 MiB**.
+   What remains genuinely open is represented in the annex with `null`, not silently
+   omitted: the **completion budget** and the **async-storm coalescing window**.
 9. **Would an engine-level global environment record be cheaper than the lowering?**
    A native checked record could preserve Reference semantics, source positions, and
    *dependency visibility* — retiring deviation (d) and most of §7.1's syntax-directed
    table — at the cost of a larger patch. It should be costed against the three slices
    of the §8 patch program, since it is the same VM surface.
-10. What canonical source URL identifies a module reached through two aliased spellings
-    that LLP 0023 §2.3 unifies to one identity? Source maps and stack frames key on the
-    source label, so import order must not decide it (LLP 0023 leaves the canonical
-    display spelling open).
+10. **Resolved by LLP 0023 §2.3:** `SourceLabel` is the load-order-independent
+    canonical physical-target spelling for symlink aliases, while each hard-link
+    entry keeps its own spelling. Source maps, stack frames, referrers, and
+    `import.meta.url` use that same per-instance label.
 11. Is a **background lifecycle request** — a root-attributed `process.exit(n)` from a timer
     when no evaluation is in flight — a new control-event variant, or a unit-generic
     extension of the evaluation-outcome union? The `lifecycle` outcome (§6) is input-scoped;

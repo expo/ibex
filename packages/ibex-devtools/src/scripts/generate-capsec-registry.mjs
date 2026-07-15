@@ -1,7 +1,7 @@
 /**
  * Generate the LLP 0021 WP1 implementation inventory and language bindings.
  *
- * The four semantic datasets under capsec/registry are the authority. Source
+ * The semantic datasets under capsec/registry are the authority. Source
  * discovery proves that every live observed surface joins exactly one
  * semantic edge; generated bindings never become a second matcher.
  *
@@ -40,6 +40,12 @@ import {
 } from "./capsec-conformance-recipes.mjs";
 import { assertPublicSurfaceExecutionComplete } from "./capsec-public-surface-evidence.mjs";
 import {
+  buildOutputDispositionDataset,
+  buildOutputShapeCatalog,
+  renderOutputDispositionMarkdown,
+} from "./capsec-output-dispositions.mjs";
+import { validateIngressObligationDataset } from "./capsec-ingress-obligations.mjs";
+import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
 } from "./generated-output-io.mjs";
@@ -66,6 +72,21 @@ export const generatedRegistryPaths = Object.freeze({
   ),
   surfaceDocs: path.join(capsecRoot, "generated", "surface-inventory.md"),
   targetDocs: path.join(capsecRoot, "generated", "target-matrix.md"),
+  outputShapeCatalog: path.join(
+    capsecRoot,
+    "generated",
+    "output-shape-catalog.json",
+  ),
+  outputDispositions: path.join(
+    capsecRoot,
+    "generated",
+    "output-dispositions.json",
+  ),
+  outputDispositionDocs: path.join(
+    capsecRoot,
+    "generated",
+    "output-dispositions.md",
+  ),
   rust: path.join(repoRoot, "src", "capsec_registry_generated.rs"),
   cxx: path.join(repoRoot, "src", "engine", "capsec_registry_generated.h"),
   javascript: path.join(
@@ -87,7 +108,7 @@ export const generatedRegistryPaths = Object.freeze({
 
 // This catalog is deliberately closed and independent of the order in which
 // renderCapsecRegistry constructs its Map. The implementation manifest cannot
-// digest itself; the aggregate registry digest binds that tenth artifact.
+// digest itself; the aggregate registry digest binds that excluded artifact.
 export const generatedRegistryOutputCatalog = Object.freeze([
   Object.freeze({
     path: "capsec/generated/capsec-registry-ids.schema.json",
@@ -98,6 +119,21 @@ export const generatedRegistryOutputCatalog = Object.freeze([
     path: "capsec/generated/implementation-manifest.json",
     kind: "implementation-manifest",
     digestBound: false,
+  }),
+  Object.freeze({
+    path: "capsec/generated/output-dispositions.json",
+    kind: "output-disposition-dataset",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "capsec/generated/output-dispositions.md",
+    kind: "markdown",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "capsec/generated/output-shape-catalog.json",
+    kind: "output-shape-catalog",
+    digestBound: true,
   }),
   Object.freeze({
     path: "capsec/generated/surface-inventory.md",
@@ -607,6 +643,17 @@ function buildSchemaValidator() {
   return ajv;
 }
 
+function validateSchemaDocument(ajv, schemaId, value, label) {
+  const validate = ajv.getSchema(schemaId);
+  if (!validate) throw new Error(`${label}: schema is not loaded: ${schemaId}`);
+  if (!validate(value)) {
+    const details = (validate.errors ?? [])
+      .map((error) => `${error.instancePath || "/"} ${error.message}`)
+      .join("; ");
+    throw new Error(`${label}: ${details}`);
+  }
+}
+
 function expectedDigest(digestVectors, id) {
   const matches = digestVectors.vectors.filter((vector) => vector.id === id);
   if (matches.length !== 1) throw new Error(`missing exact ${id} digest vector`);
@@ -1035,6 +1082,64 @@ export async function renderCapsecRegistry() {
     implementationRows.map((row) => `${row.edgeId}\u0000${row.branchId}`),
     "implementation edge/branch ids",
   );
+
+  const outputDispositionPolicy = readJsonStrict(
+    path.join(capsecRoot, "registry", "output-disposition-policy.json"),
+  );
+  const outputDispositionEvidence = readJsonStrict(
+    path.join(capsecRoot, "registry", "output-disposition-evidence.json"),
+  );
+  const ingressObligations = readJsonStrict(
+    path.join(capsecRoot, "registry", "ingress-obligations.json"),
+  );
+  const schemaValidator = buildSchemaValidator();
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/ingress-obligations.schema.json",
+    ingressObligations,
+    "authenticated ingress obligations",
+  );
+  const ingressObligationCounts = validateIngressObligationDataset({
+    coverage,
+    dataset: ingressObligations,
+    repoRoot,
+  });
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/output-disposition-policy.schema.json",
+    outputDispositionPolicy,
+    "output disposition policy",
+  );
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/output-disposition-evidence.schema.json",
+    outputDispositionEvidence,
+    "output disposition evidence",
+  );
+  const outputShapeCatalog = buildOutputShapeCatalog({
+    coverage,
+    implementationRows,
+    surfaces: flattened,
+    repoRoot,
+    liveEvidence: outputDispositionEvidence,
+  });
+  const outputDispositionDataset = buildOutputDispositionDataset({
+    catalog: outputShapeCatalog,
+    policy: outputDispositionPolicy,
+    evidence: outputDispositionEvidence,
+  });
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/output-shape-catalog.schema.json",
+    outputShapeCatalog,
+    "generated output shape catalog",
+  );
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/output-dispositions.schema.json",
+    outputDispositionDataset,
+    "generated output disposition dataset",
+  );
   const implementedEdgeIds = [
     ...new Set(implementationRows.map((row) => row.edgeId)),
   ].sort(compareText);
@@ -1066,6 +1171,18 @@ export async function renderCapsecRegistry() {
   const rendered = new Map();
   rendered.set(generatedRegistryPaths.coverage, prettyJson(coverage));
   rendered.set(generatedRegistryPaths.targetCells, prettyJson(targetCells));
+  rendered.set(
+    generatedRegistryPaths.outputShapeCatalog,
+    prettyJson(outputShapeCatalog),
+  );
+  rendered.set(
+    generatedRegistryPaths.outputDispositions,
+    prettyJson(outputDispositionDataset),
+  );
+  rendered.set(
+    generatedRegistryPaths.outputDispositionDocs,
+    renderOutputDispositionMarkdown(outputDispositionDataset),
+  );
   let targetAdvertisements = buildTargetAdvertisements(
     [],
     rendered.get(generatedRegistryPaths.targetCells),
@@ -1108,6 +1225,9 @@ export async function renderCapsecRegistry() {
     sourceDatasets: [
       "registry/capability-definitions.json",
       "registry/coverage-edges.json",
+      "registry/ingress-obligations.json",
+      "registry/output-disposition-evidence.json",
+      "registry/output-disposition-policy.json",
       "registry/policy-rules.json",
     ],
     candidateTargets,
@@ -1141,6 +1261,14 @@ export async function renderCapsecRegistry() {
     inventory,
     rules,
   });
+  if (
+    promotions.length > 0 &&
+    outputDispositionDataset.evidence.status !== "verified"
+  ) {
+    throw new Error(
+      "target promotion is closed until loaded-engine output dispositions are verified",
+    );
+  }
   targetCells = buildTargetCells(
     coverage,
     candidateTargets,
@@ -1179,6 +1307,10 @@ export async function renderCapsecRegistry() {
     promotions,
     binding,
     inventory,
+    outputShapeCatalog,
+    outputDispositionDataset,
+    ingressObligations,
+    ingressObligationCounts,
   };
 }
 
@@ -1223,6 +1355,8 @@ export async function runCapsecRegistryGenerator({ write = false } = {}) {
       result.implementationManifest.counts.enforcementBranches,
     observedReferences: result.implementationManifest.counts.observedReferences,
     outputs: result.rendered.size,
+    ingressObligations: result.ingressObligationCounts.obligations,
+    outputDispositionEvidence: result.outputDispositionDataset.evidence.status,
   };
 }
 
@@ -1236,7 +1370,7 @@ if (path.resolve(process.argv[1] ?? "") === __filename) {
   try {
     const counts = await runCapsecRegistryGenerator({ write });
     console.log(
-      `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.enforcementBranches} enforcement branches, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.outputs} outputs.`,
+      `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.enforcementBranches} enforcement branches, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.ingressObligations} authenticated-ingress obligations, ${counts.outputs} outputs; output-disposition evidence ${counts.outputDispositionEvidence}.`,
     );
   } catch (error) {
     console.error(`error: ${error.message}`);

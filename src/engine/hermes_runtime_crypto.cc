@@ -5460,6 +5460,18 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           if (maxBytes > 262144) maxBytes = 262144;
         }
 
+        // @ref LLP 0025#1-modes-descriptors-and-topology — REPL/transcript
+        // and stdin-program workers expose fd 0 as EOF before any native
+        // fcntl/read route can observe the inherited process descriptor.
+        int32_t stdinRoute = ex_host_session_descriptor_read_route(0);
+        if (stdinRoute == 1) {
+          return facebook::jsi::String::createFromUtf8(runtime, "");
+        }
+        if (stdinRoute != 0) {
+          throw facebook::jsi::JSError(
+              runtime, "EACCES: permission denied, read '/dev/fd/0'");
+        }
+
         // Set stdin to non-blocking
         int flags = fcntl(0, F_GETFL, 0);
         if (flags == -1) return facebook::jsi::Value::null();

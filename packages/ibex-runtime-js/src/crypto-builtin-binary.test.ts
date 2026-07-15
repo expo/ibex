@@ -18,7 +18,7 @@
 // primitive, then check the builtin against Node's crypto as an independent
 // oracle. Run with: bun test.
 
-import { expect, test, describe } from 'bun:test';
+import { afterAll, expect, test, describe } from 'bun:test';
 import { createRequire } from 'module';
 import * as nodeCrypto from 'node:crypto';
 
@@ -58,6 +58,58 @@ g.__exactRandomBytes = (n: number) => {
 
 const require = createRequire(import.meta.url);
 const crypto = require('../../../src/builtins/crypto.js');
+
+describe('RSA-OAEP native bridge ABI', () => {
+  const originalEncrypt = g.__exactRsaOaepEncrypt;
+  const originalDecrypt = g.__exactRsaOaepDecrypt;
+  const { publicKey, privateKey } = nodeCrypto.generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+
+  g.__exactRsaOaepEncrypt = (
+    key: string,
+    hash: string,
+    label: Uint8Array,
+    plaintext: Uint8Array,
+  ) => {
+    expect(hash).toBe('SHA-1');
+    expect(Array.from(label)).toEqual([]);
+    return nodeCrypto.publicEncrypt(
+      { key, oaepHash: 'sha1', oaepLabel: Buffer.from(label) },
+      Buffer.from(plaintext),
+    );
+  };
+  g.__exactRsaOaepDecrypt = (
+    key: string,
+    hash: string,
+    label: Uint8Array,
+    ciphertext: Uint8Array,
+  ) => {
+    expect(hash).toBe('SHA-1');
+    expect(Array.from(label)).toEqual([]);
+    return nodeCrypto.privateDecrypt(
+      { key, oaepHash: 'sha1', oaepLabel: Buffer.from(label) },
+      Buffer.from(ciphertext),
+    );
+  };
+
+  test('publicEncrypt/privateDecrypt pass the complete four-argument ABI', () => {
+    const plaintext = Buffer.from('ibex-output-shape');
+    const ciphertext = crypto.publicEncrypt(publicKey, plaintext);
+    expect(Buffer.from(crypto.privateDecrypt(privateKey, ciphertext))).toEqual(
+      plaintext,
+    );
+  });
+
+  afterAll(() => {
+    if (originalEncrypt === undefined) delete g.__exactRsaOaepEncrypt;
+    else g.__exactRsaOaepEncrypt = originalEncrypt;
+    if (originalDecrypt === undefined) delete g.__exactRsaOaepDecrypt;
+    else g.__exactRsaOaepDecrypt = originalDecrypt;
+  });
+});
 
 describe('timingSafeEqual (ENG-22966 #1)', () => {
   test('equal Buffers compare equal, unequal do not', () => {

@@ -298,6 +298,24 @@ struct ScopedSpawnFd {
   ScopedSpawnFd& operator=(const ScopedSpawnFd&) = delete;
 };
 
+// Numeric child-stdio inheritance is a descriptor alias. The closed Host ABI
+// route is checked before fcntl/dup2: fd 1/fd 2 and protected worker handles
+// are refused, while fd 0's virtual EOF view may only feed child stdin.
+static void requireSpawnDescriptorAlias(
+    facebook::jsi::Runtime& runtime,
+    int fd,
+    bool needsRead,
+    bool needsWrite,
+    const char* syscall) {
+  if (fd < 0) return;
+  int32_t route = ex_host_session_descriptor_alias_source_route(fd);
+  if (route == 0 || (route == 1 && needsRead && !needsWrite)) return;
+  throw facebook::jsi::JSError(
+      runtime,
+      std::string("EACCES: permission denied, ") + syscall + " '/dev/fd/" +
+          std::to_string(fd) + "'");
+}
+
 // Move every child-side source above the complete target-fd range before
 // fork. Besides avoiding `dup2(fd, fd); close(fd)`, this prevents one mapping
 // from overwriting a source needed by a later mapping (stdio swaps and extra
@@ -1397,12 +1415,21 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         int syncStdoutFdRedirect = parseSyncFdMode(stdoutMode);
         int syncStderrFdRedirect = parseSyncFdMode(stderrMode);
         if (syncStdinFdRedirect >= 0) {
+          requireSpawnDescriptorAlias(
+              runtime, syncStdinFdRedirect, true, false,
+              "__exactSpawnSync stdio[0]");
           exactRequireFdReadable(runtime, syncStdinFdRedirect, "__exactSpawnSync stdio[0]");
         }
         if (syncStdoutFdRedirect >= 0) {
+          requireSpawnDescriptorAlias(
+              runtime, syncStdoutFdRedirect, false, true,
+              "__exactSpawnSync stdio[1]");
           exactRequireFdWritable(runtime, syncStdoutFdRedirect, "__exactSpawnSync stdio[1]");
         }
         if (syncStderrFdRedirect >= 0) {
+          requireSpawnDescriptorAlias(
+              runtime, syncStderrFdRedirect, false, true,
+              "__exactSpawnSync stdio[2]");
           exactRequireFdWritable(runtime, syncStderrFdRedirect, "__exactSpawnSync stdio[2]");
         }
         ScopedSpawnFd safeSyncStdin(syncStdinFdRedirect);
@@ -2162,6 +2189,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (fd < 0) {
             return;
           }
+          requireSpawnDescriptorAlias(runtime, fd, needsRead, needsWrite, syscall);
           if (currentPrincipalOwnsSpawnFd(fd, needsRead, needsWrite)) {
             return;
           }
@@ -2996,7 +3024,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             memcpy(&recvFd, CMSG_DATA(cmsg), sizeof(int));
             if (recvFd >= 0) {
               fcntl(recvFd, F_SETFD, FD_CLOEXEC);
-              exactRegisterReceivedFdForCurrentPrincipal(recvFd);
+              if (!exactRegisterReceivedFdForCurrentPrincipal(recvFd)) {
+                recvFd = -1;
+              }
             }
             break;
           }

@@ -1,0 +1,72 @@
+diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
+index 460434d10..96808afcc 100644
+--- a/API/hermes/hermes.cpp
++++ b/API/hermes/hermes.cpp
+@@ -1262,6 +1262,7 @@ class HermesRuntimeImpl final : public HermesRuntime,
+   void *getVMRuntimeUnsafe() const override;
+   size_t rootsListLengthForTests() const override;
+   void setJSErrorMetadataPropertyAccessEnabled(bool enabled) override;
++  bool lastEvaluationResultWasEmpty() const override;
+ 
+   ManagedValues<vm::PinnedHermesValue> hermesValues_;
+   ManagedValues<vm::WeakRoot<vm::JSObject>> weakHermesValues_;
+@@ -1275,6 +1276,7 @@ class HermesRuntimeImpl final : public HermesRuntime,
+   /// Compilation flags used by prepareJavaScript().
+   ::hermes::hbc::CompileFlags compileFlags_{};
+   bool jSErrorMetadataPropertyAccessEnabled_{true};
++  bool lastEvaluationResultWasEmpty_{false};
+   /// Custom data stored by the user of the runtime.
+   llvh::DenseMap<
+       jsi::UUID,
+@@ -1500,6 +1502,10 @@ void HermesRuntimeImpl::setJSErrorMetadataPropertyAccessEnabled(bool enabled) {
+   jSErrorMetadataPropertyAccessEnabled_ = enabled;
+ }
+ 
++bool HermesRuntimeImpl::lastEvaluationResultWasEmpty() const {
++  return lastEvaluationResultWasEmpty_;
++}
++
+ jsi::ICast *HermesRuntimeImpl::castInterface(const jsi::UUID &interfaceUUID) {
+   if (interfaceUUID == IHermesTestHelpers::uuid) {
+     return static_cast<IHermesTestHelpers *>(this);
+@@ -1855,6 +1861,7 @@ jsi::Value HermesRuntimeImpl::evaluateJavaScriptWithSourceMap(
+       sourceURL,
+       vm::Runtime::makeNullHandle<vm::Environment>());
+   checkStatus(res.getStatus());
++  lastEvaluationResultWasEmpty_ = res->isEmpty();
+   return valueFromHermesValue(*res);
+ }
+ 
+@@ -2049,6 +2056,7 @@ jsi::Value HermesRuntimeImpl::evaluatePreparedJavaScript(
+         hermesPrep->sourceURL,
+         vm::Runtime::makeNullHandle<vm::Environment>());
+     checkStatus(res.getStatus());
++    lastEvaluationResultWasEmpty_ = res->isEmpty();
+     return valueFromHermesValue(*res);
+   } else {
+     // Source path: delegate to evaluateJavaScript
+diff --git a/API/hermes/hermes.h b/API/hermes/hermes.h
+index 8f54456cb..42f60fc0d 100644
+--- a/API/hermes/hermes.h
++++ b/API/hermes/hermes.h
+@@ -195,6 +195,7 @@ class IHermesTracingHelpers : public jsi::ICast {
+ #endif
+ 
+ #define HERMES_HAS_RAW_THROW_CAPTURE 1
++#define HERMES_HAS_COMPLETION_RECORD 1
+ 
+ class HermesRuntime : public jsi::Runtime,
+                       public IHermes,
+@@ -212,5 +213,12 @@ class HermesRuntime : public jsi::Runtime,
+   /// owners must restore the default after the scoped evaluation completes.
+   virtual void setJSErrorMetadataPropertyAccessEnabled(bool enabled) = 0;
+ 
++  /// Report whether the most recent successful evaluateJavaScript call
++  /// produced the VM's Empty completion sentinel. JSI historically collapses
++  /// Empty into undefined while converting the result; structured embedders
++  /// need the original discriminator to preserve Script completion semantics.
++  /// @ref LLP 0024#6-evaluation-outcomes-and-the-abi — Empty is not undefined.
++  virtual bool lastEvaluationResultWasEmpty() const = 0;
++
+   using jsi::Runtime::castInterface;
+ };

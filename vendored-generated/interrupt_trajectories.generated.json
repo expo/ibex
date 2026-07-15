@@ -1,0 +1,4319 @@
+{
+  "generated": true,
+  "version": 1,
+  "source": {
+    "path": "session/interrupt-machine.v1.json",
+    "sha256": "1c604efe5f284a4557785019df018d709c228f0abde436940b9a1ae1f707810c"
+  },
+  "generator": {
+    "path": "packages/ibex-devtools/src/scripts/generate-interrupt-machine.mjs",
+    "sha256": "3641473b85884a6810607b791937b1f44b03cf5111fb384731e224c9658a2d91"
+  },
+  "modelCheck": {
+    "reachableStates": 11490,
+    "transitions": 108312,
+    "adversarialProductStates": 20144,
+    "rowHits": {
+      "idle-executing": 768,
+      "idle-nonexecuting-work": 384,
+      "idle-prompt": 128,
+      "editor-completion-executing": 256,
+      "editor-completion-queued": 512,
+      "editor-buffer": 512,
+      "evaluating-executing": 1408,
+      "evaluating-nonexecuting-work": 640,
+      "evaluating-dispatched": 64,
+      "evaluating-undispatched": 64
+    },
+    "branchHits": {
+      "latched-cause": 28,
+      "prior-promise": 6720,
+      "credit-three": 0,
+      "target-row": 4736
+    },
+    "properties": [
+      "interrupts_without_editor_input <= 3",
+      "(promised && no editor input since) => next interrupt terminal"
+    ],
+    "statusRule": "promised status retained unless a cause already latched"
+  },
+  "schedules": [
+    {
+      "id": "a-tight-turnover",
+      "llpSchedule": "a",
+      "title": "tight timer turnover",
+      "interruptCount": 2,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "due",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "due",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-due"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "unit-begin",
+            "target": "callback-1",
+            "role": "callback",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "callback-1",
+              "role": "callback"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "callback-1",
+              "role": "callback"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "callback-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "idle-executing",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "cancelling-work",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": "callback-1",
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "unit-end",
+            "target": "callback-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "callback-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-end",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-end"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "due",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "callback-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "due",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-due"
+          }
+        },
+        {
+          "index": 6,
+          "event": {
+            "event": "unit-begin",
+            "target": "callback-2",
+            "role": "callback",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "callback-2",
+              "role": "callback"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "callback-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 7,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "interrupt-130",
+            "cause": {
+              "kind": "interrupt",
+              "status": 130
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 130,
+            "statusClass": "interrupt-130",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "b-gappy-turnover",
+      "llpSchedule": "b",
+      "title": "gappy timer turnover changes target class",
+      "interruptCount": 2,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "due",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "due",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-due"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "unit-begin",
+            "target": "callback-1",
+            "role": "callback",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "callback-1",
+              "role": "callback"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "callback-1",
+              "role": "callback"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "callback-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "idle-executing",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "cancelling-work",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": "callback-1",
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "unit-end",
+            "target": "callback-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "callback-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-end",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-end"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "interrupt-130",
+            "cause": {
+              "kind": "interrupt",
+              "status": 130
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 130,
+            "statusClass": "interrupt-130",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "c-typed-ahead-runaway",
+      "llpSchedule": "c",
+      "title": "typed-ahead does not reset a running-work promise",
+      "interruptCount": 2,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "submit"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "undispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "submit",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "accept-submission"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "dispatch"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "dispatch",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "dispatch-submission"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "unit-begin",
+            "target": "evaluation-1",
+            "role": "evaluation"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "discarded",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "evaluation-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "evaluating-executing",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "cancelling-work",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": "evaluation-1",
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "discard"
+          }
+        },
+        {
+          "index": 6,
+          "event": {
+            "event": "typed-ahead-byte"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": true,
+            "pendingSubmission": "discarded",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "evaluation-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "typed-ahead-byte",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "typed-ahead-keeps-run"
+          }
+        },
+        {
+          "index": 7,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "interrupt-130",
+            "cause": {
+              "kind": "interrupt",
+              "status": 130
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 130,
+            "statusClass": "interrupt-130",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "d-completion-ends-between-presses",
+      "llpSchedule": "d",
+      "title": "executing completion ends while background work becomes ready",
+      "interruptCount": 2,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "completion-queue",
+            "request": "query-1"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [
+              "query-1"
+            ],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "completion-queue",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "queue-completion"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "completion-begin",
+            "request": "query-1",
+            "target": "completion-1"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "completion-1",
+              "role": "completion"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "completion-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "begin-completion"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "due",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "completion-1",
+              "role": "completion"
+            },
+            "suspended": [],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "due",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-due"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "completion-1",
+              "role": "completion"
+            },
+            "suspended": [],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "completion-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "editor-completion-executing",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "cancelling-completion",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": "completion-1",
+            "abandonedCompletionRequests": [],
+            "buffer": "preserve-invalidate",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 6,
+          "event": {
+            "event": "unit-end",
+            "target": "completion-1"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "completion-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-end",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-end"
+          }
+        },
+        {
+          "index": 7,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "interrupt-130",
+            "cause": {
+              "kind": "interrupt",
+              "status": 130
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 130,
+            "statusClass": "interrupt-130",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "e-orderly-promise-survives-due",
+      "llpSchedule": "e",
+      "title": "credit-three honors an Orderly promise after a timer becomes due",
+      "interruptCount": 3,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 1,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "editor-buffer",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "input-discarded",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "discard-invalidate",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "orderly",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "idle-prompt",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "orderly-promise",
+            "promiseSet": "orderly",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "due",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "orderly",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "due",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-due"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 3,
+            "promise": "orderly",
+            "cause": {
+              "kind": "orderly",
+              "status": 0
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 0,
+            "statusClass": "orderly",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "e-interrupt-promise-survives-finish",
+      "llpSchedule": "e",
+      "title": "Interrupt(130) promise survives work finishing",
+      "interruptCount": 2,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "submit"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "undispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "submit",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "accept-submission"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "dispatch"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "dispatch",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "dispatch-submission"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "unit-begin",
+            "target": "evaluation-1",
+            "role": "evaluation"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "discarded",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "evaluation-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "evaluating-executing",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "cancelling-work",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": "evaluation-1",
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "discard"
+          }
+        },
+        {
+          "index": 6,
+          "event": {
+            "event": "unit-end",
+            "target": "evaluation-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "evaluation-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-end",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-end"
+          }
+        },
+        {
+          "index": 7,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "interrupt-130",
+            "cause": {
+              "kind": "interrupt",
+              "status": 130
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 130,
+            "statusClass": "interrupt-130",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "f-drained-typed-ahead",
+      "llpSchedule": "f",
+      "title": "draining typed-ahead at a republished prompt does not reset",
+      "interruptCount": 2,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "submit"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "undispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "submit",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "accept-submission"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "dispatch"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "dispatch",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "dispatch-submission"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "unit-begin",
+            "target": "evaluation-1",
+            "role": "evaluation"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "discarded",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "evaluation-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "evaluating-executing",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "cancelling-work",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": "evaluation-1",
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "discard"
+          }
+        },
+        {
+          "index": 6,
+          "event": {
+            "event": "typed-ahead-byte"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": true,
+            "pendingSubmission": "discarded",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "evaluation-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "typed-ahead-byte",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "typed-ahead-keeps-run"
+          }
+        },
+        {
+          "index": 7,
+          "event": {
+            "event": "unit-end",
+            "target": "evaluation-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": true,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "evaluation-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-end",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-end"
+          }
+        },
+        {
+          "index": 8,
+          "event": {
+            "event": "drain-typed-ahead"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "evaluation-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "drain-typed-ahead",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "drained-provenance-keeps-run"
+          }
+        },
+        {
+          "index": 9,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "interrupt-130",
+            "cause": {
+              "kind": "interrupt",
+              "status": 130
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 130,
+            "statusClass": "interrupt-130",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "g-idle-shutdown-expedite",
+      "llpSchedule": "g",
+      "title": "third idle press expedites without changing the orderly cause",
+      "interruptCount": 3,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 1,
+            "promise": "orderly",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "idle-prompt",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "orderly-promise",
+            "promiseSet": "orderly",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "orderly",
+            "cause": {
+              "kind": "orderly",
+              "status": 0
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 0,
+            "statusClass": "orderly",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 3,
+            "promise": "orderly",
+            "cause": {
+              "kind": "orderly",
+              "status": 0
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "latched-cause",
+            "row": null,
+            "terminal": true,
+            "expedited": true,
+            "status": 0,
+            "statusClass": "cause",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "h-cause-supersedes-promise-status",
+      "llpSchedule": "h",
+      "title": "cooperative exit cause supersedes an Interrupt(130) promise",
+      "interruptCount": 2,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "submit"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "undispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "submit",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "accept-submission"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "dispatch"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "dispatch",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "dispatch-submission"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "unit-begin",
+            "target": "evaluation-1",
+            "role": "evaluation"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "discarded",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "evaluation-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "evaluating-executing",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "cancelling-work",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": "evaluation-1",
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "discard"
+          }
+        },
+        {
+          "index": 6,
+          "event": {
+            "event": "cause-latch",
+            "kind": "cooperative",
+            "status": 7
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": {
+              "kind": "cooperative",
+              "status": 7
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "cause-latch",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "latch-cause-once"
+          }
+        },
+        {
+          "index": 7,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "interrupt-130",
+            "cause": {
+              "kind": "cooperative",
+              "status": 7
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "latched-cause",
+            "row": null,
+            "terminal": true,
+            "expedited": true,
+            "status": 7,
+            "statusClass": "cause",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "i-executing-beats-suspended",
+      "llpSchedule": "i",
+      "title": "executing callback is selected over a suspended evaluation",
+      "interruptCount": 1,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "submit"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "undispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "submit",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "accept-submission"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "dispatch"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "dispatch",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "dispatch-submission"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "unit-begin",
+            "target": "evaluation-1",
+            "role": "evaluation"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": {
+              "target": "evaluation-1",
+              "role": "evaluation"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "suspend",
+            "target": "evaluation-1"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": null,
+            "suspended": [
+              "evaluation-1"
+            ],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "suspend",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-suspend"
+          }
+        },
+        {
+          "index": 6,
+          "event": {
+            "event": "due",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": null,
+            "suspended": [
+              "evaluation-1"
+            ],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "due",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-due"
+          }
+        },
+        {
+          "index": 7,
+          "event": {
+            "event": "unit-begin",
+            "target": "callback-1",
+            "role": "callback",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "dispatched",
+            "executing": {
+              "target": "callback-1",
+              "role": "callback"
+            },
+            "suspended": [
+              "evaluation-1"
+            ],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 8,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "discarded",
+            "executing": {
+              "target": "callback-1",
+              "role": "callback"
+            },
+            "suspended": [
+              "evaluation-1"
+            ],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "callback-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "evaluating-executing",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "cancelling-work",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": "callback-1",
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "discard"
+          }
+        }
+      ]
+    },
+    {
+      "id": "j-undispatched-three-press",
+      "llpSchedule": "j",
+      "title": "undispatched submission takes three presses",
+      "interruptCount": 3,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "submit"
+          },
+          "state": {
+            "phase": "evaluating",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "undispatched",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "submit",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "accept-submission"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 1,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "evaluating-undispatched",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "discard-and-idle"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "orderly",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "idle-prompt",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "orderly-promise",
+            "promiseSet": "orderly",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 3,
+            "promise": "orderly",
+            "cause": {
+              "kind": "orderly",
+              "status": 0
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 0,
+            "statusClass": "orderly",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "k-completion-queued",
+      "llpSchedule": "k",
+      "title": "queued completion is abandoned without a cancellation request",
+      "interruptCount": 1,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "completion-queue",
+            "request": "query-1"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [
+              "query-1"
+            ],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "completion-queue",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "queue-completion"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "editor-completion-queued",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "work-in-flight",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [
+              "query-1"
+            ],
+            "buffer": "preserve-invalidate",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "k-completion-executing",
+      "llpSchedule": "k",
+      "title": "executing completion receives its exact unit id",
+      "interruptCount": 1,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "completion-queue",
+            "request": "query-1"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [
+              "query-1"
+            ],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "completion-queue",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "queue-completion"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "completion-begin",
+            "request": "query-1",
+            "target": "completion-1"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "completion-1",
+              "role": "completion"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "completion-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "begin-completion"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "completion-1",
+              "role": "completion"
+            },
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [
+              "completion-1"
+            ],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "editor-completion-executing",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "cancelling-completion",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": "completion-1",
+            "abandonedCompletionRequests": [],
+            "buffer": "preserve-invalidate",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "l-status-table-agreement",
+      "llpSchedule": "l",
+      "title": "credit-three resolves the promised Orderly class using live exitCode",
+      "interruptCount": 3,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "editor-input-at-prompt",
+            "nextPhase": "editing"
+          },
+          "state": {
+            "phase": "editing",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "editor-input-at-prompt",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "prompt-input-resets-run"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 1,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "editor-buffer",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "input-discarded",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "discard-invalidate",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "orderly",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "idle-prompt",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "orderly-promise",
+            "promiseSet": "orderly",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "exit-code-set",
+            "status": 7
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "orderly",
+            "cause": null,
+            "exitCode": 7,
+            "ended": false
+          },
+          "result": {
+            "event": "exit-code-set",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "mirror-exit-code"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "due",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "orderly",
+            "cause": null,
+            "exitCode": 7,
+            "ended": false
+          },
+          "result": {
+            "event": "due",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-due"
+          }
+        },
+        {
+          "index": 6,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 3,
+            "promise": "orderly",
+            "cause": {
+              "kind": "orderly",
+              "status": 7
+            },
+            "exitCode": 7,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 7,
+            "statusClass": "orderly",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "m-idle-queued-completion",
+      "llpSchedule": "m",
+      "title": "lone queued completion at idle selects the idle-prompt row",
+      "interruptCount": 2,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "completion-queue",
+            "request": "query-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [
+              "query-1"
+            ],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "completion-queue",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "queue-completion"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 1,
+            "promise": "orderly",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "idle-prompt",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "orderly-promise",
+            "promiseSet": "orderly",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [
+              "query-1"
+            ],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "shutdown",
+            "bufferGeneration": 1,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 2,
+            "promise": "orderly",
+            "cause": {
+              "kind": "orderly",
+              "status": 0
+            },
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "prior-promise",
+            "row": null,
+            "terminal": true,
+            "expedited": false,
+            "status": 0,
+            "statusClass": "orderly",
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    },
+    {
+      "id": "n-distinct-due-identities",
+      "llpSchedule": "n",
+      "title": "two due timers remain distinct when one begins",
+      "interruptCount": 1,
+      "trace": [
+        {
+          "index": 0,
+          "event": {
+            "event": "initial"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": null
+        },
+        {
+          "index": 1,
+          "event": {
+            "event": "due",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-1"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "due",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-due"
+          }
+        },
+        {
+          "index": 2,
+          "event": {
+            "event": "due",
+            "sched": "timer-2"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-1",
+              "timer-2"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "due",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-due"
+          }
+        },
+        {
+          "index": 3,
+          "event": {
+            "event": "unit-begin",
+            "target": "callback-1",
+            "role": "callback",
+            "sched": "timer-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": {
+              "target": "callback-1",
+              "role": "callback"
+            },
+            "suspended": [],
+            "due": [
+              "timer-2"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-begin",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-begin"
+          }
+        },
+        {
+          "index": 4,
+          "event": {
+            "event": "unit-end",
+            "target": "callback-1"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-2"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 0,
+            "promise": "none",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "unit-end",
+            "branch": "event-rule",
+            "row": null,
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "none",
+            "promiseSet": "none",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged",
+            "rule": "publish-unit-end"
+          }
+        },
+        {
+          "index": 5,
+          "event": {
+            "event": "interrupt"
+          },
+          "state": {
+            "phase": "idle",
+            "bufferGeneration": 0,
+            "typedAhead": false,
+            "pendingSubmission": "none",
+            "executing": null,
+            "suspended": [],
+            "due": [
+              "timer-2"
+            ],
+            "completionQueued": [],
+            "pendingCancellations": [],
+            "escapeCredit": 1,
+            "promise": "interrupt-130",
+            "cause": null,
+            "exitCode": 0,
+            "ended": false
+          },
+          "result": {
+            "event": "interrupt",
+            "branch": "target-row",
+            "row": "idle-nonexecuting-work",
+            "terminal": false,
+            "expedited": false,
+            "status": null,
+            "statusClass": null,
+            "notice": "work-in-flight",
+            "promiseSet": "interrupt-130",
+            "promiseCleared": false,
+            "cancelTarget": null,
+            "abandonedCompletionRequests": [],
+            "buffer": "unchanged",
+            "submission": "unchanged"
+          }
+        }
+      ]
+    }
+  ]
+}

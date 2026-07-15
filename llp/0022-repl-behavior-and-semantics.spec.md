@@ -5,6 +5,9 @@
 **Systems:** CLI Runtime, REPL, Runtime, Module Loader, Security
 **Author:** Charlie Cheever / Codex / Claude
 **Date:** 2026-07-11
+**Revised:** 2026-07-13 (implementation sync: LLP 0025's v1 constants and IBDX
+wire annex now exists at `session/session-constants.v1.json`; `OBL-BOUNDS` cites
+the checked artifact instead of the superseded “open in both” status.)
 **Revised:** 2026-07-12 (round-8 revision, on dual-model round-7 review plus two
 independent Codex runs of round 6: names the rule the whole document turns on —
 *never tell the operator something untrue* — and applies it reflexively to §11,
@@ -470,7 +473,9 @@ cannot redirect a later root-relative read, import, or `.load`.
 
 Habitual host spellings (`/etc/passwd`, `/home/you/x`, `/README.md`) produce a
 clear **outside-mount error** — not `ENOENT`, not a host access — from every
-**effectful** operation: `fs`, module resolution, `.load`, watches, file URLs.
+path-classifying **effectful** operation: `fs`, module resolution, `.load`, and
+file URLs. Watch operations are closed earlier with `EPERM`, before path
+classification, as LLP 0023 §4.1/§7.2 requires.
 `node:path` itself never errors and never touches the host: `path.resolve` and
 `path.relative` *read session state* (the virtual cwd) and the rest are purely
 lexical, but none of them is a containment gate and none takes a filesystem
@@ -987,7 +992,7 @@ inside a compound row.
 | `OBL-RESERVED-KEYS` | A cross-language generated reserved-key artifact, and a refusal enforced at the **loader's native boundary** so an aliased or shadowed loader cannot evade it | LLP 0014 | AC 7 |
 | `OBL-FILE-GRANTS` | Reserved-key disposition for unbundled direct file execution | LLP 0014 | — |
 | `OBL-UTF8` | Strict UTF-8 decoding with a named refusal, **and a defined transcript resynchronization boundary** — absent one, malformed bytes are fatal in transcript mode | LLP 0024 §1 | AC 4 |
-| `OBL-BOUNDS` | Pinned renderer grammar and numeric bounds, without which transcript byte-fixtures cannot be pinned | LLP 0024, LLP 0025 (open in both) | AC 4, AC 13 |
+| `OBL-BOUNDS` | Pinned renderer grammar and numeric bounds, without which transcript byte-fixtures cannot be pinned | `session/session-constants.v1.json` (LLP 0025 §12); the completion and async-storm-window values remain explicitly unbound there | AC 4, AC 13 |
 | `OBL-INTERRUPT-CLASS` | An obligation LLP 0025 places on **this** document: state the escape guarantee over work **class and epoch**, never target identity, which a turnover storm falsifies. *Discharged in §10 against 0025 `7b89315f8ad7`* | this document (§10) | AC 15 |
 | `OBL-ESCAPE` | Escape from an uninterruptible synchronous loop (supervisor/worker) | LLP 0025 §7 | AC 15 |
 | `OBL-STARTUP-DIAG` | One owner for whether a startup diagnostic may name a host path. Three documents hold three positions today: §4 exempts pre-evaluation CLI diagnostics; LLP 0023 §1.2 mandates a **symbolic** package locator and attributes that rule to LLP 0025; LLP 0025 §9 disclaims having imposed it | LLP 0023 ↔ LLP 0025 ↔ this document | AC 5 |

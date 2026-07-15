@@ -1,0 +1,586 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/session-constants.v1.json",
+  "title": "Ibex terminal session constants v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "version",
+    "id",
+    "sourceRefs",
+    "promptTokens",
+    "ansiStyles",
+    "notices",
+    "exitStatuses",
+    "timings",
+    "limits",
+    "renderText",
+    "displayTreeWire"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "./schema/session-constants.schema.json"
+    },
+    "version": {
+      "const": 1
+    },
+    "id": {
+      "const": "ibex-terminal-session-constants"
+    },
+    "sourceRefs": {
+      "const": [
+        "LLP 0022#10-terminal-interrupt-exit-and-history",
+        "LLP 0025#3-rendering-terminal-safety-and-the-output-broker",
+        "LLP 0025#5-terminal-presentation-and-restoration",
+        "LLP 0025#6-interruption-and-cancellation",
+        "LLP 0025#8-exit-and-lifecycle",
+        "LLP 0025#12-constants"
+      ]
+    },
+    "promptTokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "defaultText",
+        "interruptByte",
+        "editorErase",
+        "transcriptBoundary"
+      ],
+      "properties": {
+        "defaultText": {
+          "const": "➤ "
+        },
+        "interruptByte": {
+          "const": 3
+        },
+        "editorErase": {
+          "const": "\r\u001b[2K"
+        },
+        "transcriptBoundary": {
+          "const": "\n"
+        }
+      }
+    },
+    "ansiStyles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reset",
+        "session",
+        "display"
+      ],
+      "properties": {
+        "reset": {
+          "const": "\u001b[0m"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "prompt",
+            "notice",
+            "error"
+          ],
+          "properties": {
+            "prompt": {
+              "const": "\u001b[36m"
+            },
+            "notice": {
+              "const": "\u001b[33m"
+            },
+            "error": {
+              "const": "\u001b[31m"
+            }
+          }
+        },
+        "display": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "string",
+            "number",
+            "keyword",
+            "error",
+            "key",
+            "typeTag",
+            "truncation"
+          ],
+          "properties": {
+            "string": {
+              "const": "\u001b[32m"
+            },
+            "number": {
+              "const": "\u001b[36m"
+            },
+            "keyword": {
+              "const": "\u001b[35m"
+            },
+            "error": {
+              "const": "\u001b[31m"
+            },
+            "key": {
+              "const": "\u001b[34m"
+            },
+            "typeTag": {
+              "const": "\u001b[33m"
+            },
+            "truncation": {
+              "const": "\u001b[2m"
+            }
+          }
+        }
+      }
+    },
+    "notices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "orderlyPromise",
+        "cancellingWork",
+        "workInFlight",
+        "cancellingCompletion",
+        "inputDiscarded"
+      ],
+      "properties": {
+        "orderlyPromise": {
+          "const": "press Ctrl+C again to end the session, or Ctrl+D to exit"
+        },
+        "cancellingWork": {
+          "const": "cancelling work — press Ctrl+C again to end the session"
+        },
+        "workInFlight": {
+          "const": "work is in flight — press Ctrl+C again to end the session"
+        },
+        "cancellingCompletion": {
+          "const": "cancelling completion — press Ctrl+C again to end the session"
+        },
+        "inputDiscarded": {
+          "const": "input discarded"
+        }
+      }
+    },
+    "exitStatuses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "orderlyDefault",
+        "nonInteractiveFailure",
+        "workerCommitUnacknowledged",
+        "cancellationOrEngineFault",
+        "startupFailure",
+        "sighup",
+        "interrupt",
+        "sigquit",
+        "brokenPipe",
+        "sigterm",
+        "posixStatusMask"
+      ],
+      "properties": {
+        "orderlyDefault": {
+          "const": 0
+        },
+        "nonInteractiveFailure": {
+          "const": 1
+        },
+        "workerCommitUnacknowledged": {
+          "const": 69
+        },
+        "cancellationOrEngineFault": {
+          "const": 70
+        },
+        "startupFailure": {
+          "const": 78
+        },
+        "sighup": {
+          "const": 129
+        },
+        "interrupt": {
+          "const": 130
+        },
+        "sigquit": {
+          "const": 131
+        },
+        "brokenPipe": {
+          "const": 141
+        },
+        "sigterm": {
+          "const": 143
+        },
+        "posixStatusMask": {
+          "const": 255
+        }
+      }
+    },
+    "timings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "brokerFlush",
+        "historyLockAcquisition",
+        "lifecycleCommitAck",
+        "shutdownDrain",
+        "cancellation",
+        "completion",
+        "asyncStormCoalescingWindow"
+      ],
+      "properties": {
+        "brokerFlush": {
+          "$ref": "#/$defs/brokerFlushTiming"
+        },
+        "historyLockAcquisition": {
+          "$ref": "#/$defs/historyLockTiming"
+        },
+        "lifecycleCommitAck": {
+          "$ref": "#/$defs/lifecycleAckTiming"
+        },
+        "shutdownDrain": {
+          "$ref": "#/$defs/unboundTiming"
+        },
+        "cancellation": {
+          "$ref": "#/$defs/unboundTiming"
+        },
+        "completion": {
+          "$ref": "#/$defs/unboundTiming"
+        },
+        "asyncStormCoalescingWindow": {
+          "$ref": "#/$defs/unboundTiming"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rendererDepth",
+        "rendererBreadth",
+        "rendererPayload",
+        "historyEntries",
+        "historyBytes",
+        "historyRecordBytes",
+        "brokerQueueBytes",
+        "displayTreeSerializedBytes",
+        "liveRelays",
+        "inputBytes"
+      ],
+      "properties": {
+        "rendererDepth": {
+          "const": {
+            "value": 4,
+            "unit": "levels",
+            "overflow": "truncate-with-marker"
+          }
+        },
+        "rendererBreadth": {
+          "const": {
+            "value": 128,
+            "unit": "entries-per-collection",
+            "overflow": "truncate-with-marker"
+          }
+        },
+        "rendererPayload": {
+          "const": {
+            "value": 10000,
+            "unit": "unicode-scalars-per-string",
+            "overflow": "truncate-with-marker"
+          }
+        },
+        "historyEntries": {
+          "const": {
+            "value": 10000,
+            "unit": "entries",
+            "overflow": "compact-drop-oldest"
+          }
+        },
+        "historyBytes": {
+          "const": {
+            "value": 8388608,
+            "unit": "bytes",
+            "overflow": "compact-drop-oldest"
+          }
+        },
+        "historyRecordBytes": {
+          "const": {
+            "value": 1048576,
+            "unit": "bytes",
+            "overflow": "reject-and-notice"
+          }
+        },
+        "brokerQueueBytes": {
+          "const": {
+            "value": 8388608,
+            "unit": "bytes-per-destination",
+            "overflow": "backpressure"
+          }
+        },
+        "displayTreeSerializedBytes": {
+          "const": {
+            "value": 16777216,
+            "unit": "bytes",
+            "overflow": "opaque-fallback"
+          }
+        },
+        "liveRelays": {
+          "const": {
+            "value": 64,
+            "unit": "relays-per-session",
+            "overflow": "refuse-next-relay"
+          }
+        },
+        "inputBytes": {
+          "const": {
+            "value": 1048576,
+            "unit": "bytes-per-submitted-input",
+            "overflow": "reject-and-notice"
+          }
+        }
+      }
+    },
+    "renderText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "childrenOpen",
+        "childrenSeparator",
+        "childrenClose",
+        "payloadTruncationSeparator",
+        "truncationTemplate",
+        "fallbackTemplate",
+        "unknownNodeTemplate",
+        "fallbackReasons"
+      ],
+      "properties": {
+        "childrenOpen": {
+          "const": " ["
+        },
+        "childrenSeparator": {
+          "const": ", "
+        },
+        "childrenClose": {
+          "const": "]"
+        },
+        "payloadTruncationSeparator": {
+          "const": " "
+        },
+        "truncationTemplate": {
+          "const": "… +{omitted} more"
+        },
+        "fallbackTemplate": {
+          "const": "[display unavailable: {reason}]"
+        },
+        "unknownNodeTemplate": {
+          "const": "[Unknown display node {tag}]"
+        },
+        "fallbackReasons": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "oversizeTree",
+            "malformedOrUnknownTree",
+            "renderedDisplayTooLarge"
+          ],
+          "properties": {
+            "oversizeTree": {
+              "const": "display tree exceeds 16 MiB"
+            },
+            "malformedOrUnknownTree": {
+              "const": "malformed or unknown display tree"
+            },
+            "renderedDisplayTooLarge": {
+              "const": "rendered display exceeds broker queue bound"
+            }
+          }
+        }
+      }
+    },
+    "displayTreeWire": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "magic",
+        "version",
+        "endianness",
+        "rootDepth",
+        "headerOrder",
+        "nodeOrder",
+        "fieldWidthsBits",
+        "nodeTags"
+      ],
+      "properties": {
+        "magic": {
+          "const": "IBDX"
+        },
+        "version": {
+          "const": 1
+        },
+        "endianness": {
+          "const": "little"
+        },
+        "rootDepth": {
+          "const": 1
+        },
+        "headerOrder": {
+          "const": [
+            "magic",
+            "version"
+          ]
+        },
+        "nodeOrder": {
+          "const": [
+            "kind",
+            "payloadLength",
+            "payload",
+            "childCount",
+            "children"
+          ]
+        },
+        "fieldWidthsBits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "magic",
+            "version",
+            "kind",
+            "payloadLength",
+            "childCount"
+          ],
+          "properties": {
+            "magic": {
+              "const": 32
+            },
+            "version": {
+              "const": 16
+            },
+            "kind": {
+              "const": 16
+            },
+            "payloadLength": {
+              "const": 32
+            },
+            "childCount": {
+              "const": 32
+            }
+          }
+        },
+        "nodeTags": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "text",
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "undefined",
+            "error",
+            "key",
+            "typeTag",
+            "cycle",
+            "truncation"
+          ],
+          "properties": {
+            "text": {
+              "const": 1
+            },
+            "string": {
+              "const": 2
+            },
+            "number": {
+              "const": 3
+            },
+            "boolean": {
+              "const": 4
+            },
+            "null": {
+              "const": 5
+            },
+            "undefined": {
+              "const": 6
+            },
+            "error": {
+              "const": 7
+            },
+            "key": {
+              "const": 8
+            },
+            "typeTag": {
+              "const": 9
+            },
+            "cycle": {
+              "const": 10
+            },
+            "truncation": {
+              "const": 11
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "brokerFlushTiming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "milliseconds",
+        "onExpiry"
+      ],
+      "properties": {
+        "milliseconds": {
+          "const": 500
+        },
+        "onExpiry": {
+          "const": "abandon-and-account"
+        }
+      }
+    },
+    "historyLockTiming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "milliseconds",
+        "onExpiry"
+      ],
+      "properties": {
+        "milliseconds": {
+          "const": 250
+        },
+        "onExpiry": {
+          "const": "skip-persistence-and-notice"
+        }
+      }
+    },
+    "lifecycleAckTiming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "milliseconds",
+        "onExpiry"
+      ],
+      "properties": {
+        "milliseconds": {
+          "const": 2000
+        },
+        "onExpiry": {
+          "const": "worker-exits-reserved-status"
+        }
+      }
+    },
+    "unboundTiming": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "milliseconds",
+        "onExpiry"
+      ],
+      "properties": {
+        "milliseconds": {
+          "const": null
+        },
+        "onExpiry": {
+          "const": "unbound-engine-dependent"
+        }
+      }
+    }
+  }
+}

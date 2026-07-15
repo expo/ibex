@@ -577,7 +577,15 @@ export class Headers implements Iterable<[string, string]> {
    */
   private _sortedEntries(): [string, string[]][] {
     const entries = [...this._map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    if (!isBunCompatEnv()) {
+    const setCookieIndex = entries.findIndex(([name]) => name === 'set-cookie');
+    // Bun compatibility only changes the observable order when set-cookie is
+    // present before another entry. Keep ordinary iteration independent of
+    // compatibility environment state.
+    if (
+      setCookieIndex < 0 ||
+      setCookieIndex === entries.length - 1 ||
+      !isBunCompatEnv()
+    ) {
       return entries;
     }
 

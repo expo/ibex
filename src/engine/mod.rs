@@ -7,6 +7,11 @@
 //!
 //! This module provides supporting utilities like source map handling.
 
+pub mod evaluation;
+pub mod hermes_structured;
+mod import_grants;
+pub mod session_lowering;
+pub mod session_syntax;
 pub mod sourcemap;
 // Native TLS bridge engine for the `tls` builtin (ENG-23492/ENG-23526).
 // Platform-specific TCP host functions provide the transport; the Rust engine
@@ -366,6 +371,58 @@ mod tests {
         _private: [u8; 0],
     }
 
+    #[repr(C)]
+    struct StructuredOwnedBytes {
+        data: *mut u8,
+        length: usize,
+    }
+
+    #[repr(C)]
+    struct StructuredSourcePosition {
+        source_label: StructuredOwnedBytes,
+        line: u32,
+        column: u32,
+    }
+
+    #[derive(Clone, Copy)]
+    #[repr(C)]
+    struct StructuredValueHandle {
+        runtime_nonce: u64,
+        handle_id: u64,
+    }
+
+    #[repr(C)]
+    struct StructuredEvaluationResult {
+        abi_version: u32,
+        struct_size: u32,
+        outcome_tag: u32,
+        fault: u32,
+        work_target_id: u64,
+        value: StructuredValueHandle,
+        throw_metadata_status: u32,
+        throw_metadata_fields: u32,
+        lifecycle_exit_code: i32,
+        capability_flags: u32,
+        message: StructuredOwnedBytes,
+        stack: StructuredOwnedBytes,
+        positions: *mut StructuredSourcePosition,
+        position_count: usize,
+    }
+
+    const STRUCTURED_VALUE: u32 = 2;
+    const STRUCTURED_THROW: u32 = 3;
+    const STRUCTURED_ENGINE_FAULT: u32 = 6;
+    const STRUCTURED_ABI_VERSION: u32 = 2;
+    const VALUE_INVALID: u32 = 0;
+    const VALUE_UNDEFINED: u32 = 1;
+    const VALUE_STRING: u32 = 5;
+    const VALUE_OBJECT: u32 = 9;
+    const FAULT_NONE: u32 = 0;
+    const FAULT_STALE_HANDLE: u32 = 7;
+    const FAULT_RAW_THROW_UNAVAILABLE: u32 = 8;
+    const CAPABILITY_SAFE_THROW: u32 = 1 << 1;
+    const CAPABILITY_SOURCE_POSITIONS: u32 = 1 << 2;
+
     extern "C" {
         fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
         fn ex_hermes_create_diagnostic() -> *mut HermesRuntimeOpaque;
@@ -378,6 +435,24 @@ mod tests {
             is_bytecode: i32,
             out_value: *mut *mut c_char,
         ) -> i32;
+        fn ex_hermes_evaluation_result_init(result: *mut StructuredEvaluationResult);
+        fn ex_hermes_evaluation_result_dispose(result: *mut StructuredEvaluationResult);
+        fn ex_hermes_eval_structured_diagnostic(
+            runtime: *mut HermesRuntimeOpaque,
+            source: *const u8,
+            source_length: usize,
+            source_label: *const u8,
+            source_label_length: usize,
+            result: *mut StructuredEvaluationResult,
+        ) -> i32;
+        fn ex_hermes_value_kind(
+            runtime: *mut HermesRuntimeOpaque,
+            handle: StructuredValueHandle,
+        ) -> u32;
+        fn ex_hermes_value_release(
+            runtime: *mut HermesRuntimeOpaque,
+            handle: StructuredValueHandle,
+        ) -> u32;
         #[cfg(target_os = "windows")]
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
@@ -425,10 +500,158 @@ mod tests {
         (status, value)
     }
 
+    unsafe fn structured_eval(
+        runtime: *mut HermesRuntimeOpaque,
+        source: &[u8],
+    ) -> StructuredEvaluationResult {
+        let mut result = std::mem::MaybeUninit::<StructuredEvaluationResult>::uninit();
+        ex_hermes_evaluation_result_init(result.as_mut_ptr());
+        let mut result = result.assume_init();
+        let label = b"ibex:structured-test";
+        let source_pointer = if source.is_empty() {
+            std::ptr::null()
+        } else {
+            source.as_ptr()
+        };
+        assert_eq!(
+            ex_hermes_eval_structured_diagnostic(
+                runtime,
+                source_pointer,
+                source.len(),
+                label.as_ptr(),
+                label.len(),
+                &mut result,
+            ),
+            0
+        );
+        result
+    }
+
     #[test]
     fn legacy_unarmed_constructor_is_non_executable() {
         unsafe {
             assert!(ex_hermes_create().is_null());
+        }
+    }
+
+    #[test]
+    fn structured_diagnostic_eval_preserves_values_without_thenable_assimilation() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+
+            let mut empty = structured_eval(runtime, b"");
+            if empty.outcome_tag == STRUCTURED_ENGINE_FAULT {
+                assert_eq!(empty.fault, FAULT_RAW_THROW_UNAVAILABLE);
+                ex_hermes_evaluation_result_dispose(&mut empty);
+                ex_hermes_destroy(runtime);
+                return;
+            }
+            assert_eq!(empty.outcome_tag, STRUCTURED_VALUE);
+            assert_eq!(empty.fault, FAULT_NONE);
+            assert_ne!(empty.work_target_id, 0);
+            assert_eq!(ex_hermes_value_kind(runtime, empty.value), VALUE_UNDEFINED);
+            assert_eq!(ex_hermes_value_release(runtime, empty.value), FAULT_NONE);
+            ex_hermes_evaluation_result_dispose(&mut empty);
+
+            let mut thenable = structured_eval(
+                runtime,
+                b"globalThis.__structuredThenCalls = 0; ({ then: function(){ globalThis.__structuredThenCalls++; } })",
+            );
+            assert_eq!(thenable.outcome_tag, STRUCTURED_VALUE);
+            assert_eq!(ex_hermes_value_kind(runtime, thenable.value), VALUE_OBJECT);
+            assert_eq!(
+                eval(runtime, "globalThis.__structuredThenCalls"),
+                (0, Some("0".into()))
+            );
+            assert_eq!(ex_hermes_value_release(runtime, thenable.value), FAULT_NONE);
+            assert_eq!(
+                ex_hermes_value_release(runtime, thenable.value),
+                FAULT_STALE_HANDLE
+            );
+            assert_eq!(ex_hermes_value_kind(runtime, thenable.value), VALUE_INVALID);
+            ex_hermes_evaluation_result_dispose(&mut thenable);
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    #[test]
+    fn structured_diagnostic_eval_keeps_original_throw_without_reading_properties() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let mut thrown = structured_eval(
+                runtime,
+                br#"globalThis.__structuredGetterCalls = 0;
+                    throw {
+                      get message(){ globalThis.__structuredGetterCalls++; return "message"; },
+                      get stack(){ globalThis.__structuredGetterCalls++; return "stack"; }
+                    };"#,
+            );
+            if thrown.outcome_tag == STRUCTURED_ENGINE_FAULT {
+                assert_eq!(thrown.fault, FAULT_RAW_THROW_UNAVAILABLE);
+                ex_hermes_evaluation_result_dispose(&mut thrown);
+                ex_hermes_destroy(runtime);
+                return;
+            }
+            assert_eq!(thrown.abi_version, STRUCTURED_ABI_VERSION);
+            assert_eq!(thrown.struct_size as usize, std::mem::size_of_val(&thrown));
+            assert_eq!(thrown.outcome_tag, STRUCTURED_THROW);
+            assert_eq!(thrown.throw_metadata_status, 0);
+            assert_eq!(thrown.throw_metadata_fields, 0);
+            assert_eq!(
+                thrown.capability_flags & (CAPABILITY_SAFE_THROW | CAPABILITY_SOURCE_POSITIONS),
+                0
+            );
+            assert!(thrown.positions.is_null());
+            assert_eq!(thrown.position_count, 0);
+            assert_eq!(ex_hermes_value_kind(runtime, thrown.value), VALUE_OBJECT);
+            assert_eq!(
+                eval(runtime, "globalThis.__structuredGetterCalls"),
+                (0, Some("0".into()))
+            );
+            assert_eq!(ex_hermes_value_release(runtime, thrown.value), FAULT_NONE);
+            ex_hermes_evaluation_result_dispose(&mut thrown);
+
+            // The installed raw-throw patch does not expose a separate
+            // trap-free VM metadata accessor, even for an ordinary Error.
+            // Empty JSError strings therefore remain unavailable metadata.
+            let mut ordinary_error = structured_eval(runtime, b"throw new Error('boom')");
+            assert_eq!(ordinary_error.outcome_tag, STRUCTURED_THROW);
+            assert_eq!(ordinary_error.throw_metadata_status, 0);
+            assert_eq!(ordinary_error.throw_metadata_fields, 0);
+            assert_eq!(
+                ordinary_error.capability_flags
+                    & (CAPABILITY_SAFE_THROW | CAPABILITY_SOURCE_POSITIONS),
+                0
+            );
+            assert!(ordinary_error.positions.is_null());
+            assert_eq!(ordinary_error.position_count, 0);
+            assert_eq!(
+                ex_hermes_value_release(runtime, ordinary_error.value),
+                FAULT_NONE
+            );
+            ex_hermes_evaluation_result_dispose(&mut ordinary_error);
+            assert_eq!(ordinary_error.abi_version, STRUCTURED_ABI_VERSION);
+            assert!(ordinary_error.positions.is_null());
+            assert_eq!(ordinary_error.position_count, 0);
+
+            let mut nul_string = structured_eval(runtime, b"throw 'left\\0right'");
+            assert_eq!(nul_string.outcome_tag, STRUCTURED_THROW);
+            assert_eq!(
+                ex_hermes_value_kind(runtime, nul_string.value),
+                VALUE_STRING
+            );
+            assert_eq!(
+                ex_hermes_value_release(runtime, nul_string.value),
+                FAULT_NONE
+            );
+            ex_hermes_evaluation_result_dispose(&mut nul_string);
+            ex_hermes_destroy(runtime);
         }
     }
 

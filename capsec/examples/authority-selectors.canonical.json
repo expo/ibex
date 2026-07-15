@@ -66,6 +66,13 @@
       }
     },
     {
+      "cap": "lifecycle:exit",
+      "resource": {
+        "kind": "session-lifecycle",
+        "disposition": "exit-request"
+      }
+    },
+    {
       "cap": "network:connect",
       "resource": {
         "kind": "connect-endpoint",
@@ -138,6 +145,25 @@
         "absolute": true,
         "recordTypes": ["A", "AAAA"],
         "resolver": "system"
+      }
+    },
+    {
+      "cap": "path:cwd-mutate",
+      "resource": {
+        "kind": "path-exact",
+        "path": {
+          "root": "project",
+          "components": [
+            { "encoding": "utf8", "value": "src" }
+          ]
+        }
+      }
+    },
+    {
+      "cap": "path:cwd-observe",
+      "resource": {
+        "kind": "session-state",
+        "name": "cwd"
       }
     },
     {

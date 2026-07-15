@@ -8,11 +8,19 @@ mod cdp;
 mod cli;
 mod compat;
 mod engine;
+mod history;
 mod host;
 mod repl;
+mod repl_surface;
 mod runtime;
 mod runtime_tests;
+#[cfg(all(test, feature = "capsec-conformance-observer"))]
+mod session_semantics_conformance;
+mod session_worker;
+#[cfg(unix)]
+mod session_worker_runtime;
 mod subprocess;
+mod terminal_session;
 
 // Re-export module_loader from the shared runtime crate
 pub use ibex_runtime::module_loader;
@@ -136,6 +144,25 @@ impl std::fmt::Display for PackageScriptExit {
 
 impl std::error::Error for PackageScriptExit {}
 
+/// A lifecycle request produced by evaluated code after the runtime has
+/// unwound back into Rust. Carrying the code through `Result` lets execution
+/// adapters restore descriptors and finish broker barriers before `main`
+/// performs the process-level exit.
+// @ref LLP 0024#6-evaluation-outcomes-and-the-abi — lifecycle is a structured
+// evaluation outcome, not an in-engine hard process exit.
+#[derive(Debug)]
+struct ProgramRequestedExit {
+    code: i32,
+}
+
+impl std::fmt::Display for ProgramRequestedExit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "program requested exit code {}", self.code)
+    }
+}
+
+impl std::error::Error for ProgramRequestedExit {}
+
 /// Resolve a finished child's exit code the way a shell would: the explicit
 /// code when present, else `128 + signal` on Unix. Never returns 0 for a
 /// non-success status (so a propagated code always signals failure).
@@ -156,6 +183,12 @@ fn package_script_exit_code(status: &std::process::ExitStatus) -> i32 {
 }
 
 fn exit_code_for_error(error: &anyhow::Error) -> i32 {
+    if let Some(program_exit) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ProgramRequestedExit>())
+    {
+        return program_exit.code;
+    }
     // A failing package script propagates its own exit code (e.g. eslint's 2),
     // matching npm/bun, rather than collapsing to the generic 1. (ENG-22958)
     if let Some(script_exit) = error
@@ -293,15 +326,63 @@ fn expand_combined_eval_shorthand(argv: &mut [std::ffi::OsString]) {
     }
 }
 
+/// Render an untrusted diagnostic payload as one terminal-safe logical line.
+/// Startup has no broker yet, so it applies the broker's payload escaping
+/// locally and lets `eprintln!` contribute the only literal line boundary.
+// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker
+fn escape_pre_session_diagnostic(text: &str) -> String {
+    let mut escaped = String::new();
+    for ch in text.chars() {
+        let code = ch as u32;
+        if ch == '\x1b'
+            || ch.is_control()
+            || (0x80..=0x9f).contains(&code)
+            || matches!(code, 0x2028 | 0x2029 | 0x202a..=0x202e | 0x2066..=0x2069)
+        {
+            use std::fmt::Write as _;
+            let _ = write!(escaped, "\\u{{{code:04x}}}");
+        } else {
+            escaped.push(ch);
+        }
+    }
+    escaped
+}
+
+fn emit_pre_session_diagnostic(prefix: &str, detail: &str) {
+    eprintln!("{prefix}{}", escape_pre_session_diagnostic(detail));
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let t0 = std::time::Instant::now();
+    let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    match session_worker::pre_clap_worker_bootstrap(&argv) {
+        Ok(Some(bootstrap)) => {
+            let status = match run_session_worker(bootstrap).await {
+                Ok(status) => status,
+                Err(error) => {
+                    emit_pre_session_diagnostic(
+                        "session worker startup refused: ",
+                        &format!("{error:#}"),
+                    );
+                    ibex_runtime::session_constants::EXIT_STATUS_STARTUP_FAILURE
+                }
+            };
+            std::process::exit(status);
+        }
+        Ok(None) => {}
+        Err(error) => {
+            emit_pre_session_diagnostic("session worker bootstrap refused: ", &error.to_string());
+            std::process::exit(ibex_runtime::session_constants::EXIT_STATUS_STARTUP_FAILURE);
+        }
+    }
     if legacy_project_dispatch() {
         return;
     }
-    let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
     expand_combined_eval_shorthand(&mut argv);
-    let cli = Cli::parse_from(argv);
+    let history_was_explicit = cli::history_option_was_explicit(&argv);
+    let mut cli = Cli::parse_from(argv);
+    cli.history_was_explicit = history_was_explicit;
     if trace_startup() {
         eprintln!(
             "[startup] {:<30} {:>6} us ({:>5.1} ms)",
@@ -311,8 +392,75 @@ async fn main() {
         );
     }
     if let Err(e) = run(cli).await {
-        eprintln!("error: {:#}", e);
+        let is_program_exit = e
+            .chain()
+            .any(|cause| cause.downcast_ref::<ProgramRequestedExit>().is_some());
+        if !is_program_exit {
+            emit_pre_session_diagnostic("error: ", &format!("{e:#}"));
+        }
         std::process::exit(exit_code_for_error(&e));
+    }
+}
+
+#[cfg(unix)]
+async fn run_session_worker(bootstrap: session_worker::WorkerBootstrapContext) -> Result<i32> {
+    // The protected descriptor class is installed before Host or Hermes is
+    // constructed and is retained by the verified endpoint for the entire
+    // worker lifetime.
+    // @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
+    let protected = bootstrap
+        .protect_session_io()
+        .context("failed to install the session-worker descriptor policy")?;
+    session_worker_runtime::run_authenticated_runtime_worker(protected)
+}
+
+#[cfg(not(unix))]
+async fn run_session_worker(_bootstrap: session_worker::WorkerBootstrapContext) -> Result<i32> {
+    anyhow::bail!("session workers are unavailable on this platform")
+}
+
+/// The product adapter selected for an already-captured authenticated route.
+/// Keeping this as one decision table lets the CLI dispatcher, each concrete
+/// ingress, and executable conformance evidence agree on the same owner.
+/// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AuthenticatedProductIngress {
+    FileProgram,
+    InlineOneShot,
+    WorkerProgram,
+    WorkerRepl,
+}
+
+impl AuthenticatedProductIngress {
+    pub(crate) fn label(self) -> String {
+        match self {
+            Self::FileProgram => "file-program".to_owned(),
+            Self::InlineOneShot => "inline-one-shot".to_owned(),
+            Self::WorkerProgram => "worker-program".to_owned(),
+            Self::WorkerRepl => "worker-repl".to_owned(),
+        }
+    }
+}
+
+pub(crate) const fn authenticated_product_ingress(
+    route: terminal_session::SelectedExecutionRoute,
+) -> Option<AuthenticatedProductIngress> {
+    use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+    match (route.entry_kind, route.mode) {
+        (ArmedEntryKind::File, ArmedExecutionMode::Program) => {
+            Some(AuthenticatedProductIngress::FileProgram)
+        }
+        (ArmedEntryKind::Eval, ArmedExecutionMode::OneShot) => {
+            Some(AuthenticatedProductIngress::InlineOneShot)
+        }
+        (ArmedEntryKind::Stdin, ArmedExecutionMode::Program) => {
+            Some(AuthenticatedProductIngress::WorkerProgram)
+        }
+        (
+            ArmedEntryKind::Repl,
+            ArmedExecutionMode::Interactive | ArmedExecutionMode::Transcript,
+        ) => Some(AuthenticatedProductIngress::WorkerRepl),
+        _ => None,
     }
 }
 
@@ -325,6 +473,13 @@ async fn run(cli: Cli) -> Result<()> {
         print_completions(clap_complete::Shell::Bash);
         return Ok(());
     }
+
+    // Capture route, descriptor topology, and presentation facts exactly once
+    // before production validation can inspect a project path or arming input.
+    // Every execution branch passes this same value through snapshot arming and
+    // terminal supervision.
+    // @ref LLP 0025#1-modes-descriptors-and-topology
+    let session_io = terminal_session::SessionIoPlan::capture_for_cli(&cli);
 
     // Validate production controls before dispatch can inspect a prospective
     // project path, read arming artifacts, allocate Hermes, or evaluate input.
@@ -344,12 +499,23 @@ async fn run(cli: Cli) -> Result<()> {
     {
         runtime::validate_production_inputs(&cli)?;
     }
-
     if let Some(code) = &cli.eval_code {
-        return eval_code(&cli, code, false).await;
+        return eval_code(
+            &cli,
+            code,
+            false,
+            session_io.context("eval route has no terminal session plan")?,
+        )
+        .await;
     }
     if let Some(code) = &cli.print_eval {
-        return eval_code(&cli, code, true).await;
+        return eval_code(
+            &cli,
+            code,
+            true,
+            session_io.context("print-eval route has no terminal session plan")?,
+        )
+        .await;
     }
 
     match &cli.command {
@@ -370,7 +536,7 @@ async fn run(cli: Cli) -> Result<()> {
             } else if *watch || cli.watch {
                 run_watch(&cli, file, args).await
             } else {
-                run_file(
+                run_file_with_execution_adapter(
                     &cli,
                     file,
                     args,
@@ -383,12 +549,27 @@ async fn run(cli: Cli) -> Result<()> {
                         inspect_port: *inspect_port,
                         inspect_host: inspect_host.as_deref(),
                     },
+                    session_io.context("file route has no terminal session plan")?,
                 )
                 .await
             }
         }
-        Some(Commands::Eval { code }) => eval_code(&cli, code, false).await,
-        Some(Commands::Repl) => start_repl(&cli).await,
+        Some(Commands::Eval { code }) => {
+            eval_code(
+                &cli,
+                code,
+                false,
+                session_io.context("eval route has no terminal session plan")?,
+            )
+            .await
+        }
+        Some(Commands::Repl) => {
+            start_repl(
+                &cli,
+                session_io.context("REPL route has no terminal session plan")?,
+            )
+            .await
+        }
         Some(Commands::Build { file, outdir }) => {
             build_bytecode(&cli, file, outdir.as_deref()).await
         }
@@ -454,7 +635,7 @@ async fn run(cli: Cli) -> Result<()> {
                 } else if cli.watch {
                     run_watch(&cli, file, &cli.args).await
                 } else {
-                    run_file(
+                    run_file_with_execution_adapter(
                         &cli,
                         file,
                         &cli.args,
@@ -467,12 +648,27 @@ async fn run(cli: Cli) -> Result<()> {
                             inspect_port: cli.inspect_port,
                             inspect_host: cli.inspect_host.as_deref(),
                         },
+                        session_io.context("file route has no terminal session plan")?,
                     )
                     .await
                 }
             } else {
-                // No command and no file - start REPL
-                start_repl(&cli).await
+                // With no command or file, the pre-arming TTY observation is
+                // semantic: a TTY selects the interactive REPL while a pipe
+                // is one ESM-shaped program-stdin submission. Never re-probe
+                // fd 0 after snapshot construction.
+                // @ref LLP 0022#3-input-modes
+                let plan =
+                    session_io.context("implicit session route has no terminal session plan")?;
+                match authenticated_product_ingress(plan.route) {
+                    Some(AuthenticatedProductIngress::WorkerProgram) => {
+                        run_stdin_program(&cli, plan).await
+                    }
+                    Some(AuthenticatedProductIngress::WorkerRepl) => start_repl(&cli, plan).await,
+                    _ => anyhow::bail!(
+                        "implicit session route did not select an authenticated product ingress"
+                    ),
+                }
             }
         }
     }
@@ -483,14 +679,14 @@ async fn run_capsec_audit(cli: &Cli, file: &str, args: &[String]) -> Result<()> 
     suppress_runtime_banner(&runtime).await?;
     runtime.load_runtime().await?;
     runtime.run_file_with_args(file, args).await?;
-    let exit_code = read_process_exit_code(&runtime).await;
+    let exit_code = process_exit_code(&runtime);
     if let Some(report) = crate::host::abi::current_audit_report() {
         if !report.is_empty() {
             eprintln!("{report}");
         }
     }
     if let Some(code) = exit_code {
-        std::process::exit(code);
+        return Err(ProgramRequestedExit { code }.into());
     }
     Ok(())
 }
@@ -720,6 +916,7 @@ async fn run_file(
     file: &str,
     args: &[String],
     options: RunFileOptions<'_>,
+    session_io: terminal_session::SessionIoPlan,
 ) -> Result<()> {
     let t0 = std::time::Instant::now();
     // `run` owns a second set of inspector flags for Node-compatible argument
@@ -727,7 +924,7 @@ async fn run_file(
     // startup so subcommand spelling cannot bypass the closed inspector route.
     // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
     let effective_cli = effective_run_cli(cli, options);
-    let runtime = runtime::Runtime::from_cli(&effective_cli)?;
+    let runtime = runtime::Runtime::from_cli_with_session(&effective_cli, session_io)?;
     if trace_startup() {
         eprintln!(
             "[startup] {:<30} {:>6} us ({:>5.1} ms)",
@@ -791,7 +988,7 @@ async fn run_file(
     }
 
     if options.inspect_pause || cli.inspect_pause {
-        let _ = runtime.eval("debugger;").await?;
+        runtime.pause_inspector().await?;
     }
 
     // Run the user's file
@@ -808,7 +1005,7 @@ async fn run_file(
         run_debug_loop(&runtime).await;
     }
 
-    let exit_code = read_process_exit_code(&runtime).await;
+    let exit_code = process_exit_code(&runtime);
 
     // Stop the inspector before the runtime is dropped to avoid use-after-free.
     // The CDP server thread holds a raw pointer to the runtime, so it must be
@@ -816,24 +1013,71 @@ async fn run_file(
     runtime.stop_inspector().await?;
 
     if let Some(code) = exit_code {
-        std::process::exit(code);
+        return Err(ProgramRequestedExit { code }.into());
     }
 
     Ok(())
 }
 
-/// A script that sets `process.exitCode` and returns must exit with that code.
-async fn read_process_exit_code(runtime: &runtime::Runtime) -> Option<i32> {
-    let result = runtime
-        .engine()
-        .eval_immediate(
-            "(typeof globalThis.process === 'object' && globalThis.process !== null && \
-             typeof globalThis.process.exitCode === 'number') \
-             ? String(globalThis.process.exitCode) : ''",
-        )
+/// Keep the non-forgeable file-adapter readiness lease alive across runtime
+/// construction, user-code execution, descriptor restoration, and bounded
+/// broker completion. A file run is successful only if both the runtime and
+/// the broker complete without unaccounted output loss.
+// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker — file
+// execution owns fd 1/fd 2 through one adapter lifetime and reports forced loss.
+async fn run_file_with_execution_adapter(
+    cli: &Cli,
+    file: &str,
+    args: &[String],
+    options: RunFileOptions<'_>,
+    session_io: terminal_session::SessionIoPlan,
+) -> Result<()> {
+    if authenticated_product_ingress(session_io.route)
+        != Some(AuthenticatedProductIngress::FileProgram)
+    {
+        anyhow::bail!("file route did not select the authenticated file ingress");
+    }
+    let adapter = terminal_session::FileProgramExecutionAdapter::new(session_io)
+        .context("failed to activate the secure file execution adapter")?;
+    let (execution, report) = adapter
+        .run(run_file(cli, file, args, options, session_io))
         .await
-        .ok()??;
-    result.trim().parse::<i32>().ok().filter(|code| *code != 0)
+        .context("secure file execution adapter failed")?;
+
+    if report.has_loss() {
+        let relay_count = report
+            .loss()
+            .relays
+            .iter()
+            .filter(|relay| {
+                relay.program_bytes != 0
+                    || relay.session_bytes != 0
+                    || relay.program_frames != 0
+                    || relay.session_frames != 0
+            })
+            .count();
+        let detail = format!(
+            "secure output broker closed with loss (forced-close sequence {}, {} affected relay(s), {} unaccepted stdout byte(s), {} unaccepted stderr byte(s))",
+            report.loss().forced_close_sequence,
+            relay_count,
+            report.unaccepted_stdout_bytes(),
+            report.unaccepted_stderr_bytes(),
+        );
+        return match execution {
+            Ok(()) => Err(anyhow::anyhow!(detail)),
+            Err(error) => Err(error.context(detail)),
+        };
+    }
+
+    execution
+}
+
+/// A script that sets `process.exitCode` and returns must exit with that code.
+/// The setter mirrors into the supervisor-owned lifecycle port synchronously,
+/// so the process never re-enters JavaScript to discover its final status.
+fn process_exit_code(runtime: &runtime::Runtime) -> Option<i32> {
+    let code = runtime.lifecycle_exit_code();
+    (code != 0).then_some(code)
 }
 
 /// Run a file in watch mode — re-run on file changes
@@ -1195,12 +1439,19 @@ async fn run_debug_loop(runtime: &runtime::Runtime) {
 }
 
 /// Evaluate a one-liner JavaScript expression
-async fn eval_code(cli: &Cli, code: &str, print_result: bool) -> Result<()> {
-    let runtime = runtime::Runtime::from_cli(cli)?;
-
+async fn eval_code(
+    cli: &Cli,
+    code: &str,
+    print_result: bool,
+    session_io: terminal_session::SessionIoPlan,
+) -> Result<()> {
+    if authenticated_product_ingress(session_io.route)
+        != Some(AuthenticatedProductIngress::InlineOneShot)
+    {
+        anyhow::bail!("eval route did not select the authenticated inline ingress");
+    }
+    let runtime = runtime::Runtime::from_cli_with_session(cli, session_io)?;
     suppress_runtime_banner(&runtime).await?;
-
-    // Load the runtime bundle
     if trace_startup() {
         eprintln!("[startup] eval_load_runtime_start");
     }
@@ -1208,177 +1459,146 @@ async fn eval_code(cli: &Cli, code: &str, print_result: bool) -> Result<()> {
     if trace_startup() {
         eprintln!("[startup] eval_load_runtime_end");
     }
+    configure_session_inspector(cli, &runtime).await?;
 
-    if cli.inspect || cli.inspect_wait || cli.inspect_open || cli.inspect_pause {
-        let host = cli.inspect_host.as_deref().unwrap_or("127.0.0.1");
-        let port = cli.inspect_port.unwrap_or(9229);
-        runtime.start_inspector(host, port).await?;
-        eprintln!("Debugger listening on ws://{}:{}", host, port);
-        eprintln!("For help, see: https://nodejs.org/en/docs/guides/debugging-getting-started");
-        eprintln!("DevTools URL: {}", devtools_url(host, port));
-        if cli.inspect_open {
-            open_devtools_for_port(port);
-        }
-        // Wait for debugger if explicitly requested, or if we opened DevTools
-        // (since opening DevTools implies wanting to debug before code runs)
-        if cli.inspect_wait || cli.inspect_pause || cli.inspect_open {
-            eprintln!("Waiting for debugger to attach...");
-            runtime.wait_for_inspector().await?;
-            eprintln!("Debugger attached.");
-            // Also wait for the Debugger domain to be enabled
-            runtime.wait_for_debugger().await?;
-        }
-    }
-
-    if cli.inspect_pause {
-        let _ = runtime.eval("debugger;").await?;
-    }
-
-    // Set up process.argv0 from raw OS argv[0] (needed for argv0 option in spawn)
-    #[cfg(not(windows))]
-    {
-        let raw_argv0 = std::env::args().next().unwrap_or_default();
-        let argv0_json = serde_json::to_string(&raw_argv0).unwrap_or_else(|_| "\"\"".to_string());
-        let argv0_code = format!(
-            "if (typeof globalThis.process === 'object' && globalThis.process !== null) {{ \
-                if (globalThis.process.argv0 === undefined) {{ globalThis.process.argv0 = {}; }} \
-            }}",
-            argv0_json
-        );
-        let _ = runtime.eval(&argv0_code).await;
-    }
-
-    let mut eval_source = if !cfg!(windows)
-        && !print_result
-        && runtime::contains_top_level_await(code)
-    {
-        format!(
-            "Promise.resolve((async () => {{\n{}\n}})()).catch(err => {{ setTimeout(() => {{ throw err; }}, 0); }});",
-            code
-        )
-    } else {
-        code.to_string()
-    };
-
-    if print_result {
-        eval_source = format!(
-            r#"(function() {{
-  if (typeof globalThis.require !== 'function') return;
-  var moduleBuiltin;
-  try {{
-    moduleBuiltin = globalThis.require('module');
-  }} catch (_) {{
-    return;
-  }}
-  var builtins = moduleBuiltin && Array.isArray(moduleBuiltin.builtinModules)
-    ? moduleBuiltin.builtinModules
-    : [];
-  for (var i = 0; i < builtins.length; i++) {{
-    var name = builtins[i];
-    if (typeof name !== 'string') continue;
-    if (name.indexOf(':') !== -1 || name.indexOf('/') !== -1 || name.indexOf('-') !== -1) continue;
-    if (!/^[$A-Z_][0-9A-Z_$]*$/i.test(name)) continue;
-    if (Object.prototype.hasOwnProperty.call(globalThis, name)) continue;
-    (function(moduleName) {{
-      try {{
-        Object.defineProperty(globalThis, moduleName, {{
-          configurable: true,
-          enumerable: false,
-          get: function() {{
-            var value = globalThis.require(moduleName);
-            try {{
-              Object.defineProperty(globalThis, moduleName, {{
-                value: value,
-                writable: true,
-                configurable: true,
-                enumerable: false
-              }});
-            }} catch (_defineValueErr) {{}}
-            return value;
-          }},
-          set: function(value) {{
-            try {{
-              Object.defineProperty(globalThis, moduleName, {{
-                value: value,
-                writable: true,
-                configurable: true,
-                enumerable: true
-              }});
-            }} catch (_setErr) {{}}
-          }}
-        }});
-      }} catch (_defineErr) {{}}
-    }})(name);
-  }}
-}})();
-{}"#,
-            eval_source
-        );
-    }
-
-    // Evaluate the code
+    // The adapter owns descriptors 1/2 for the complete source/result
+    // transaction and obtains its request from AuthenticatedInlineIngress.
+    // Source bytes are the only caller-controlled request field; no wrapper,
+    // raw evaluator, mutable require alias, or caller-selected referrer crosses
+    // this boundary.
+    // @ref LLP 0024#1-the-in-memory-source-api
     if trace_startup() {
         eprintln!("[startup] eval_user_code_start");
     }
-    let result = runtime.eval(&eval_source).await?;
+    let presentation = if print_result {
+        terminal_session::InlineResultPresentation::Print
+    } else {
+        terminal_session::InlineResultPresentation::Suppress
+    };
+    let status = terminal_session::run_authenticated_inline_execution_adapter(
+        &runtime,
+        code.as_bytes().to_vec(),
+        presentation,
+    )
+    .await?;
     if trace_startup() {
         eprintln!("[startup] eval_user_code_end");
     }
+    status_result(status)
+}
 
-    // Print the result (only for -p, not -e)
-    if print_result {
-        if let Some(value) = result {
-            println!("{}", value);
-        }
+/// Consume at most one byte past the generated input bound. Passing that
+/// sentinel byte into the authenticated ingress produces the same typed
+/// `InputTooLarge` refusal as every other in-memory source without allocating
+/// an attacker-selected amount of memory or pre-decoding UTF-8.
+fn read_program_stdin_bounded() -> Result<Vec<u8>> {
+    read_program_source_bounded(std::io::stdin().lock())
+}
+
+fn read_program_source_bounded(mut reader: impl std::io::Read) -> Result<Vec<u8>> {
+    use std::io::Read;
+
+    let max = ibex_runtime::session_constants::MAX_INPUT_BYTES;
+    let limit = max
+        .checked_add(1)
+        .context("session input bound cannot represent its refusal sentinel")?;
+    let mut source = Vec::with_capacity(limit.min(64 * 1024));
+    reader
+        .by_ref()
+        .take(limit as u64)
+        .read_to_end(&mut source)
+        .context("failed to read program source from stdin")?;
+    Ok(source)
+}
+
+/// Execute implicit non-TTY stdin as one authenticated ESM program. The
+/// session plan was captured before arming, so this function neither re-probes
+/// TTY state nor lets JavaScript reopen the source descriptor.
+/// @ref LLP 0022#3-input-modes
+/// @ref LLP 0024#1-the-in-memory-source-api
+async fn run_stdin_program(cli: &Cli, session_io: terminal_session::SessionIoPlan) -> Result<()> {
+    if authenticated_product_ingress(session_io.route)
+        != Some(AuthenticatedProductIngress::WorkerProgram)
+    {
+        anyhow::bail!("program-stdin route did not select the authenticated worker ingress");
     }
-
-    if cli.keep_alive {
-        eprintln!("Press Ctrl+C to exit.");
-        run_debug_loop(&runtime).await;
+    let source = read_program_stdin_bounded()?;
+    #[cfg(unix)]
+    {
+        let spawned = session_worker_runtime::spawn_session_worker(cli, session_io)?;
+        let (program, relays) = spawned.into_remote_program();
+        let status = terminal_session::run_worker_program_execution_adapter(
+            session_io, program, relays, source,
+        )
+        .await?;
+        status_result(status)
     }
-
-    if let Some(code) = read_process_exit_code(&runtime).await {
-        std::process::exit(code);
+    #[cfg(not(unix))]
+    {
+        let _ = (cli, session_io, source);
+        anyhow::bail!(
+            "secure program-stdin workers are not yet available on this target; refusing an in-process fallback"
+        )
     }
+}
 
+fn status_result(status: i32) -> Result<()> {
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(ProgramRequestedExit { code: status }.into())
+    }
+}
+
+async fn configure_session_inspector(cli: &Cli, runtime: &runtime::Runtime) -> Result<()> {
+    if !(cli.inspect || cli.inspect_wait || cli.inspect_open || cli.inspect_pause) {
+        return Ok(());
+    }
+    let host = cli.inspect_host.as_deref().unwrap_or("127.0.0.1");
+    let port = cli.inspect_port.unwrap_or(9229);
+    runtime.start_inspector(host, port).await?;
+    eprintln!("Debugger listening on ws://{}:{}", host, port);
+    eprintln!("For help, see: https://nodejs.org/en/docs/guides/debugging-getting-started");
+    eprintln!("DevTools URL: {}", devtools_url(host, port));
+    if cli.inspect_open {
+        open_devtools_for_port(port);
+    }
+    if cli.inspect_wait || cli.inspect_pause || cli.inspect_open {
+        eprintln!("Waiting for debugger to attach...");
+        runtime.wait_for_inspector().await?;
+        eprintln!("Debugger attached.");
+        runtime.wait_for_debugger().await?;
+    }
+    if cli.inspect_pause {
+        runtime.pause_inspector().await?;
+    }
     Ok(())
 }
 
 /// Start the interactive REPL
-async fn start_repl(cli: &Cli) -> Result<()> {
-    // REPL uses the same enforced, armed runtime posture as ordinary execution.
-    // User can override with --capsec capability or --capsec strict for security testing
-    let runtime = runtime::Runtime::from_cli(cli)?;
-    suppress_runtime_banner(&runtime).await?;
-
-    // Load the runtime bundle
-    runtime.load_runtime().await?;
-
-    if cli.inspect || cli.inspect_wait || cli.inspect_open || cli.inspect_pause {
-        let host = cli.inspect_host.as_deref().unwrap_or("127.0.0.1");
-        let port = cli.inspect_port.unwrap_or(9229);
-        runtime.start_inspector(host, port).await?;
-        eprintln!("Debugger listening on ws://{}:{}", host, port);
-        eprintln!("For help, see: https://nodejs.org/en/docs/guides/debugging-getting-started");
-        eprintln!("DevTools URL: {}", devtools_url(host, port));
-        if cli.inspect_open {
-            open_devtools_for_port(port);
-        }
-        // Wait for debugger if explicitly requested, or if we opened DevTools
-        if cli.inspect_wait || cli.inspect_pause || cli.inspect_open {
-            eprintln!("Waiting for debugger to attach...");
-            runtime.wait_for_inspector().await?;
-            eprintln!("Debugger attached.");
-            runtime.wait_for_debugger().await?;
-        }
+async fn start_repl(cli: &Cli, session_io: terminal_session::SessionIoPlan) -> Result<()> {
+    if authenticated_product_ingress(session_io.route)
+        != Some(AuthenticatedProductIngress::WorkerRepl)
+    {
+        anyhow::bail!("REPL route did not select the authenticated worker ingress");
     }
-
-    if cli.inspect_pause {
-        let _ = runtime.eval("debugger;").await?;
+    // The supervisor owns stdin, terminal state, history, output, signals, and
+    // final disposition. Hermes exists only in the authenticated worker, so a
+    // stuck/native-exiting engine cannot bypass restoration or consume the
+    // operator's next command.
+    // @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
+    #[cfg(unix)]
+    {
+        let status = repl::start_worker(cli, session_io).await?;
+        status_result(status)
     }
-
-    // Start the REPL
-    repl::start(runtime.engine()).await
+    #[cfg(not(unix))]
+    {
+        let _ = (cli, session_io);
+        anyhow::bail!(
+            "secure REPL workers are not yet available on this target; refusing an in-process fallback"
+        )
+    }
 }
 
 /// Compile a file to Hermes bytecode
@@ -1530,11 +1750,25 @@ fn open_devtools_for_port(port: u16) {
 #[cfg(test)]
 mod tests {
     use super::{
-        cli, effective_run_cli, exit_code_for_error, watch_child_args,
-        watch_shutdown_timeout_from_env, RunFileOptions, DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS,
-        EXACT_PROJECT_COMMANDS, RESERVED_RUNTIME_COMMANDS,
+        authenticated_product_ingress, cli, effective_run_cli, escape_pre_session_diagnostic,
+        exit_code_for_error, read_program_source_bounded, watch_child_args,
+        watch_shutdown_timeout_from_env, AuthenticatedProductIngress, ProgramRequestedExit,
+        RunFileOptions, DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS, EXACT_PROJECT_COMMANDS,
+        RESERVED_RUNTIME_COMMANDS,
     };
     use clap::Parser;
+
+    #[test]
+    fn pre_session_diagnostic_payload_is_one_terminal_safe_line() {
+        let escaped = escape_pre_session_diagnostic(
+            "ordinary \x1b[31mred\nnext\r\t\u{0085}\u{2028}\u{202e}spoof\u{2066} text",
+        );
+        assert_eq!(
+            escaped,
+            "ordinary \\u{001b}[31mred\\u{000a}next\\u{000d}\\u{0009}\\u{0085}\\u{2028}\\u{202e}spoof\\u{2066} text"
+        );
+        assert!(!escaped.chars().any(char::is_control));
+    }
 
     #[test]
     fn run_subcommand_inspector_configuration_reaches_armed_validation() {
@@ -1609,6 +1843,35 @@ mod tests {
         let mut manifest_legacy = names("legacyProjectCommands");
         manifest_legacy.sort();
         assert_eq!(legacy, manifest_legacy, "legacy Exact project commands");
+    }
+
+    #[test]
+    fn product_ingress_table_owns_every_authenticated_cli_route() {
+        let route = |args: &[&str], stdin_is_tty| {
+            super::terminal_session::selected_execution_route(
+                &cli::Cli::parse_from(args),
+                stdin_is_tty,
+            )
+            .expect("CLI fixture selects an execution route")
+        };
+        assert_eq!(
+            authenticated_product_ingress(route(&["ibex", "-e", "void 0"], false)),
+            Some(AuthenticatedProductIngress::InlineOneShot)
+        );
+        assert_eq!(
+            authenticated_product_ingress(route(&["ibex"], false)),
+            Some(AuthenticatedProductIngress::WorkerProgram)
+        );
+        for args in [&["ibex"][..], &["ibex", "repl"][..]] {
+            assert_eq!(
+                authenticated_product_ingress(route(args, true)),
+                Some(AuthenticatedProductIngress::WorkerRepl)
+            );
+        }
+        assert_eq!(
+            authenticated_product_ingress(route(&["ibex", "app.ts"], false)),
+            Some(AuthenticatedProductIngress::FileProgram)
+        );
     }
 
     #[test]
@@ -1753,6 +2016,28 @@ mod tests {
         // The code survives extra context layered on top of the error.
         let wrapped = error.context("running package script `lint`");
         assert_eq!(exit_code_for_error(&wrapped), 2);
+    }
+
+    #[test]
+    fn exit_code_for_error_propagates_structured_program_status() {
+        let error = anyhow::Error::new(ProgramRequestedExit { code: 70 })
+            .context("descriptor restoration completed");
+        assert_eq!(exit_code_for_error(&error), 70);
+    }
+
+    #[test]
+    fn program_stdin_reader_preserves_bytes_and_stops_at_refusal_sentinel() {
+        let max = ibex_runtime::session_constants::MAX_INPUT_BYTES;
+        let invalid_utf8 = vec![0xff, 0xfe, 0x00];
+        assert_eq!(
+            read_program_source_bounded(invalid_utf8.as_slice()).unwrap(),
+            invalid_utf8
+        );
+
+        let oversized = vec![b'x'; max + 257];
+        let bounded = read_program_source_bounded(oversized.as_slice()).unwrap();
+        assert_eq!(bounded.len(), max + 1);
+        assert!(bounded.iter().all(|byte| *byte == b'x'));
     }
 
     #[test]

@@ -5,7 +5,10 @@ var _uvErrnoMapFallback = {
 	ENOENT: 2,
 	ENOTDIR: 20
 };
-var _processCwd = "/";
+var _exactPrivateBuiltinBridges = typeof __exactPrivateBuiltinBridges === "object" && __exactPrivateBuiltinBridges ? __exactPrivateBuiltinBridges : null;
+var _exactGetVirtualCwd = _exactPrivateBuiltinBridges && typeof _exactPrivateBuiltinBridges.getVirtualCwd === "function" ? _exactPrivateBuiltinBridges.getVirtualCwd : typeof globalThis.__exactGetCwd === "function" ? globalThis.__exactGetCwd : null;
+var _exactSetVirtualCwd = _exactPrivateBuiltinBridges && typeof _exactPrivateBuiltinBridges.setVirtualCwd === "function" ? _exactPrivateBuiltinBridges.setVirtualCwd : typeof globalThis.__exactSetCwd === "function" ? globalThis.__exactSetCwd : null;
+var _processCwd = "/project";
 function _stringifyPathPart(path) {
 	if (typeof path === "string") return path;
 	if (Buffer.isBuffer && Buffer.isBuffer(path)) return path.toString();
@@ -36,27 +39,25 @@ function _resolveCwd(path) {
 	var joined;
 	if (typeof path === "string" && path.charAt(0) === "/") joined = path;
 	else {
-		var cwd = typeof process === "object" && process && typeof process.cwd === "function" ? process.cwd() : "/";
-		joined = cwd.charAt(cwd.length - 1) !== "/" ? cwd + "/" + path : cwd + path;
+		var current = cwd();
+		joined = current.charAt(current.length - 1) !== "/" ? current + "/" + path : current + path;
 	}
 	return _collapsePosixPath(joined);
 }
 function _readNativeCwd() {
-	if (typeof __exactGetCwd !== "function") return null;
+	if (typeof _exactGetVirtualCwd !== "function") return null;
 	try {
-		var value = __exactGetCwd();
+		var value = _exactGetVirtualCwd();
 		if (typeof value === "string" && value.length > 0) return _normalizeCwdPath(value);
 	} catch (_) {}
 	return null;
 }
 function cwd() {
-	if (_processCwd && _processCwd !== "/") return _processCwd;
 	var nativeCwd = _readNativeCwd();
 	if (nativeCwd) {
 		_processCwd = nativeCwd;
 		return _processCwd;
 	}
-	if (!_processCwd || _processCwd === "/") _processCwd = "/";
 	return _processCwd;
 }
 function _coerceChdirError(err, path) {
@@ -93,7 +94,7 @@ function chdir(path) {
 		throw err;
 	}
 	var resolvedPath = _resolveCwd(path);
-	if (typeof __exactSetCwd !== "function") {
+	if (typeof _exactSetVirtualCwd !== "function") {
 		if (typeof __exactAccess === "function") try {
 			__exactAccess(resolvedPath, 0);
 		} catch (e) {
@@ -103,8 +104,8 @@ function chdir(path) {
 		return;
 	}
 	try {
-		__exactSetCwd(resolvedPath);
-		_processCwd = resolvedPath;
+		_exactSetVirtualCwd(resolvedPath);
+		_processCwd = _readNativeCwd() || resolvedPath;
 	} catch (e) {
 		throw _coerceChdirError(e, resolvedPath);
 	}
@@ -144,7 +145,8 @@ function _installReadableStdinFallback(proc) {
 		}
 		return stream;
 	};
-	if (typeof stream.resume === "function" || typeof __exactStdinRead !== "function") return;
+	var privateStdinRead = typeof stream.read === "function" ? stream.read.bind(stream) : null;
+	if (typeof stream.resume === "function" || !privateStdinRead) return;
 	stream._encoding = null;
 	stream._paused = true;
 	stream._ended = false;
@@ -206,7 +208,7 @@ function _installReadableStdinFallback(proc) {
 		stream.readableFlowing = true;
 		if (!stream._ended && !stream._pollTimer) (function pollStdin() {
 			if (stream._paused || stream._ended || stream.destroyed) return;
-			var data = __exactStdinRead(262144);
+			var data = privateStdinRead(262144);
 			if (data === null) {
 				stream._pollTimer = setTimeout(pollStdin, 1);
 				return;
@@ -238,7 +240,7 @@ function _installReadableStdinFallback(proc) {
 		return stream;
 	};
 	stream.read = function(size) {
-		var data = __exactStdinRead(size || 262144);
+		var data = privateStdinRead(size || 262144);
 		if (data === "") return null;
 		if (data === null) return null;
 		return stdinChunk(data, false);
@@ -621,6 +623,12 @@ if (typeof globalThis !== "undefined" && globalThis.process) {
 	if (typeof proc.hasUncaughtExceptionCaptureCallback !== "function") proc.hasUncaughtExceptionCaptureCallback = function() {
 		return !!proc._uncaughtCaptureCb;
 	};
+	if (typeof proc.hasUncaughtExceptionCaptureCallback === "function" && !Object.prototype.hasOwnProperty.call(proc, "hasUncaughtExceptionCaptureCallback")) Object.defineProperty(proc, "hasUncaughtExceptionCaptureCallback", {
+		value: proc.hasUncaughtExceptionCaptureCallback,
+		writable: true,
+		configurable: true,
+		enumerable: true
+	});
 	if (typeof proc.setUncaughtExceptionCaptureCallback !== "function") proc.setUncaughtExceptionCaptureCallback = function(fn) {
 		if (fn !== null && typeof fn !== "function") {
 			var te4 = /* @__PURE__ */ new TypeError("The \"fn\" argument must be one of type function or null. Received type " + typeof fn);
@@ -700,8 +708,8 @@ if (typeof globalThis !== "undefined" && globalThis.process) {
 			proc.binding.__exactPatched = true;
 		}
 	} catch (_) {}
-	if (typeof proc.on === "function" && typeof proc.addListener !== "function") proc.addListener = proc.on;
-	if (typeof proc.removeListener === "function" && typeof proc.off !== "function") proc.off = proc.removeListener;
+	if (typeof proc.on === "function" && !Object.prototype.hasOwnProperty.call(proc, "addListener")) proc.addListener = proc.on;
+	if (typeof proc.removeListener === "function" && !Object.prototype.hasOwnProperty.call(proc, "off")) proc.off = proc.removeListener;
 	module.exports = proc;
 } else module.exports = {
 	cwd,

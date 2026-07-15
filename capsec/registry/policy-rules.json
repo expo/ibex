@@ -76,9 +76,11 @@
       "nonCapabilityRationales",
       "nonTransparentKinds",
       "normalizationProfiles",
+      "obligationIds",
       "omitFields",
       "packages",
       "passedFixtures",
+      "pathCanonicalizers",
       "peerClasses",
       "positiveSources",
       "prefixes",
@@ -147,6 +149,21 @@
         "orderBy": ["/edgeId", "/branchId"]
       },
       {
+        "schema": "ibex/capsec-ingress-obligations/1",
+        "path": "/obligations",
+        "orderBy": ["/id"]
+      },
+      {
+        "schema": "ibex/capsec-ingress-obligations/1",
+        "path": "/rows",
+        "orderBy": ["/edgeId"]
+      },
+      {
+        "schema": "ibex/capsec-ingress-obligations/1",
+        "path": "/supportingSurfaces",
+        "orderBy": ["/role"]
+      },
+      {
         "schema": "ibex/capsec-target-cells/1",
         "path": "/cells",
         "orderBy": ["/edgeId", "/target/triple", "/target/features"]
@@ -180,6 +197,11 @@
           "schema/digest-vectors",
           "schema/effect",
           "schema/effect-occurrence",
+          "schema/ingress-obligations",
+          "schema/output-disposition-evidence",
+          "schema/output-disposition-policy",
+          "schema/output-dispositions",
+          "schema/output-shape-catalog",
           "schema/policy-rules"
         ],
         "omitFields": []
@@ -192,12 +214,22 @@
           "coverage-edges",
           "fixture-manifest",
           "implementation-manifest",
+          "ingress-obligations",
           "legacy-reconciliation",
           "network-classifier-snapshot",
+          "output-disposition-evidence",
+          "output-disposition-policy",
+          "output-dispositions",
+          "output-shape-catalog",
           "schema/contract-manifest",
           "schema/coverage-edge",
           "schema/implementation-manifest",
+          "schema/ingress-obligations",
           "schema/legacy-reconciliation",
+          "schema/output-disposition-evidence",
+          "schema/output-disposition-policy",
+          "schema/output-dispositions",
+          "schema/output-shape-catalog",
           "schema/target-cell",
           "vocab-digest"
         ],
@@ -475,6 +507,13 @@
       "subset": "fs.path.subset.v1"
     },
     {
+      "id": "lifecycle.exit.v1",
+      "selector": "lifecycle.exit.selector.v1",
+      "occurrence": "lifecycle.exit.occurrence.v1",
+      "matcher": "lifecycle.exit.matcher.v1",
+      "subset": "lifecycle.exit.subset.v1"
+    },
+    {
       "id": "microphone.v1",
       "selector": "microphone.selector.v1",
       "occurrence": "microphone.occurrence.v1",
@@ -508,6 +547,13 @@
       "occurrence": "network.resolve.occurrence.v1",
       "matcher": "network.resolve.matcher.v1",
       "subset": "network.resolve.subset.v1"
+    },
+    {
+      "id": "path.cwd.v1",
+      "selector": "path.cwd.selector.v1",
+      "occurrence": "path.cwd.occurrence.v1",
+      "matcher": "path.cwd.matcher.v1",
+      "subset": "path.cwd.subset.v1"
     },
     {
       "id": "process.executable.v1",
@@ -612,6 +658,7 @@
       "anonymousPipeCreation": "non-capability-but-each-exported-endpoint-gets-an-exact-owner-bound-identity"
     },
     "stdio": "query-any-stream-read-stdin-write-stdout-or-stderr-raw-stdin-terminal-only",
+    "lifecycle": "root-only-exact-disposition-request-get-or-set-with-requested-and-commit-authorization-before-state-access",
     "storage": "deny-only-until-native-namespace-isolation-and-quota-gates-exist",
     "closedSurfaces": "deny-only-actions-match-only-their-definition-declared-surface-class",
     "policyProvenance": "non-authorizing-merged-source-set-static-only-restricts-runtime-channels-not-review-history",
@@ -720,6 +767,11 @@
     ],
     "nonCapabilityRationales": [
       {
+        "id": "authenticated-code-ingress",
+        "predicate": "authenticated-submission-of-operator-authored-source-under-a-bound-armed-session-with-every-submitted-code-effect-mediated-at-its-own-decision-site",
+        "rationale": "This non-JavaScript-reachable control-plane route authenticates root attribution and source provenance without itself exercising external authority; every submitted-code effect remains independently mediated."
+      },
+      {
         "id": "authority-control-plane",
         "predicate": "authenticated-authority-check-delegation-revocation-or-evidence-bookkeeping-without-an-external-effect",
         "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -768,6 +820,11 @@
         "id": "runtime-bootstrap-state",
         "predicate": "trusted-bootstrap-lifecycle-or-immutable-runtime-metadata-with-no-project-controlled-effect",
         "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+      },
+      {
+        "id": "terminal-session-control",
+        "predicate": "native-session-layer-command-help-editor-or-parity-safe-virtual-namespace-control-unreachable-from-javascript-with-every-external-effect-classified-at-its-own-route",
+        "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
       },
       {
         "id": "unbound-owned-resource",

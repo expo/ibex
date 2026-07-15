@@ -1,0 +1,763 @@
+{
+  "ingressObligationsSchema": "ibex/capsec-ingress-obligations/1",
+  "profile": "ibex/capsec/1",
+  "rationaleId": "authenticated-code-ingress",
+  "supportingSurfaces": [
+    {
+      "role": "bootstrap-seal",
+      "edgeId": "surface.host.abi.ex.hermes.finish.bootstrap.11ahb91",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_finish_bootstrap"
+      },
+      "classification": "non-capability",
+      "rationaleId": "runtime-bootstrap-state"
+    },
+    {
+      "role": "diagnostic-evaluator",
+      "edgeId": "surface.host.abi.ex.hermes.eval.structured.diagnostic.1viduch",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_eval_structured_diagnostic"
+      },
+      "classification": "closed",
+      "cap": "vm:evaluate"
+    },
+    {
+      "role": "session-binding",
+      "edgeId": "surface.host.abi.ex.hermes.structured.session.bind.0o0sk2j",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_structured_session_bind"
+      },
+      "classification": "non-capability",
+      "rationaleId": "authority-control-plane"
+    },
+    {
+      "role": "submission-admission",
+      "edgeId": "surface.host.abi.ex.hermes.structured.submission.admit.1hsgiyn",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_structured_submission_admit"
+      },
+      "classification": "non-capability",
+      "rationaleId": "terminal-session-control"
+    },
+    {
+      "role": "submission-settlement",
+      "edgeId": "surface.host.abi.ex.hermes.structured.submission.settle.1hj4fkx",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_structured_submission_settle"
+      },
+      "classification": "non-capability",
+      "rationaleId": "terminal-session-control"
+    },
+    {
+      "role": "unauthenticated-bare-evaluator",
+      "edgeId": "surface.host.abi.ex.hermes.eval.1t7nlsx",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_eval"
+      },
+      "classification": "closed",
+      "cap": "vm:evaluate"
+    }
+  ],
+  "obligations": [
+    {
+      "id": "armed-session-bound",
+      "assertion": "Submission requires an armed runtime whose bootstrap seam is sealed and whose exact opaque session token has already been bound.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/hermes_runtime.cc",
+          "tokens": [
+            "if (!runtime->armed) {",
+            "if (runtime->armed_bootstrap_eval_open) {",
+            "runtime->structured_session_bound = true;",
+            "if (!runtime->structured_session_bound) {",
+            "EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND",
+            "credential->session_token"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bare-eval-post-bootstrap-refused",
+      "assertion": "Finishing armed bootstrap irreversibly seals the bare evaluator, and later armed project-source calls through ex_hermes_eval are refused.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/hermes_runtime.cc",
+          "tokens": [
+            "extern \"C\" uint32_t ex_hermes_finish_bootstrap(",
+            "runtime->armed_bootstrap_eval_open = false;",
+            "if (runtime->armed &&",
+            "!runtime->armed_bootstrap_eval_open",
+            "Hermes bare evaluation is sealed for armed project source"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "checked-session-lowering",
+      "assertion": "Authenticated Program requests cross the exact native submission boundary before syntax/lowering, so parse failures consume their ordinal; the checked AST pipeline and native lowered-session ABI then compile and preflight the complete declaration plan before mutating persistent session state.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/hermes_structured.rs",
+          "tokens": [
+            "SourceRequest::Program(program) => lower_program(",
+            "SESSION_LOWERING_PROTOCOL_VERSION",
+            "ex_hermes_eval_lowered_session(",
+            "let declarations = lowered",
+            ".declarations()",
+            "lowered.source_map()"
+          ]
+        },
+        {
+          "path": "src/engine/session_lowering.rs",
+          "tokens": [
+            "pub fn lower_program(",
+            "analyze_source(syntax_request, source)?",
+            "reject_closed_dynamic_code_in_program(&program)?;",
+            "ReferenceLowering"
+          ]
+        },
+        {
+          "path": "src/engine/hermes_runtime.cc",
+          "tokens": [
+            "extern \"C\" uint32_t ex_hermes_structured_submission_admit(",
+            "This is the submission boundary:",
+            "extern \"C\" int ex_hermes_eval_lowered_session(",
+            "clearStructuredAdmittedSubmission(runtime);",
+            "auto prepared = runtime->runtime->prepareJavaScript(sourceBuffer, label);",
+            "structuredDeclarationPlanFeasible(runtime, plan)",
+            "beginStructuredSessionTransaction(runtime, plan);"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "endowments-projected",
+      "assertion": "The endowment projection comes from authenticated armed-session state and its digest is included in the opaque request binding.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "endowment_projection_digest: Digest,",
+            "pub(crate) fn from_authenticated_snapshot(",
+            "submission\n            .session\n            .0\n            .endowment_projection_digest"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "exact-ordinal-required",
+      "assertion": "The consumer accepts only the session's exact next nonzero ordinal and consumes it before evaluation so later faults cannot make it reusable.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "next_ordinal: Option<NonZeroU64>,",
+            "state.in_flight = Some(ordinal);"
+          ]
+        },
+        {
+          "path": "src/engine/hermes_runtime.cc",
+          "tokens": [
+            "const uint64_t expectedOrdinal =",
+            "credential->ordinal > expectedOrdinal",
+            "EX_HERMES_EVAL_FAULT_WRONG_ORDINAL",
+            "runtime->next_structured_submission_ordinal =",
+            "This is the submission boundary:"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "file-argv-bound",
+      "assertion": "Direct-file argv is derived from the armed virtual file identity with a fixed runtime/entry prefix; only trailing arguments remain operator data, and the complete projection is covered by the opaque request binding.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "pub fn mint_file(",
+            "self.require_route(EntryKind::File, &[ExecutionMode::Program])?;",
+            "let virtual_path = virtual_path_from_file_identity(&self.session.0.entry_identity)?;",
+            "arguments.push(Arc::<str>::from(\"ibex:runtime\"));",
+            "arguments.push(virtual_path);",
+            "arguments.extend(user_arguments.iter().cloned());",
+            "match &submission.file_arguments {",
+            "hash_field(&mut hash, b\"file-arguments\");",
+            "hash_field(&mut hash, argument.as_bytes());",
+            "pub fn authenticated_file_virtual_path(&self) -> Option<&str>"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "file-program-adapter-bound",
+      "assertion": "Direct-file execution selects only the authenticated File/Program route; its native file adapter retains descriptor capture and a readiness lease across Runtime construction and settlement, while Runtime claims the closed AuthenticatedFileIngress before evaluation.",
+      "sourceEvidence": [
+        {
+          "path": "src/bin/ibex/main.rs",
+          "tokens": [
+            "(ArmedEntryKind::File, ArmedExecutionMode::Program) => {",
+            "Some(AuthenticatedProductIngress::FileProgram)",
+            "async fn run_file_with_execution_adapter(",
+            "authenticated_product_ingress(session_io.route)",
+            "FileProgramExecutionAdapter::new(session_io)",
+            ".run(run_file(cli, file, args, options, session_io))"
+          ]
+        },
+        {
+          "path": "src/bin/ibex/terminal_session.rs",
+          "tokens": [
+            "pub struct FileProgramExecutionAdapter",
+            "pub fn new(plan: SessionIoPlan)",
+            "let mut active = ActiveFileProgramCapture::start(self.plan)?;",
+            "let readiness = mint_execution_adapter_ready(&mut active.lease, active.plan.route);",
+            "let output = execution.await;",
+            "let report = active.finish()?;"
+          ]
+        },
+        {
+          "path": "src/bin/ibex/runtime.rs",
+          "tokens": [
+            "async fn run_authenticated_file_with_args(&self, args: &[String])",
+            "let mut ingress = self.authenticated_file_ingress()?;",
+            "pub(crate) fn authenticated_file_ingress(&self) -> Result<AuthenticatedFileIngress>",
+            ".evaluate(self.engine.as_ref(), args)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "file-vfs-source-bound",
+      "assertion": "Direct-file ingress reconstructs its namespace entry only from the armed file identity, rechecks the exact session, principal, referrer, shape, and canonical label before lookup, then binds the typed VFS read evidence, final SourceId, and immutable bytes into the same linear submission.",
+      "sourceEvidence": [
+        {
+          "path": "src/bin/ibex/runtime.rs",
+          "tokens": [
+            ".resolve_root_file_url(armed_entry.identity.as_str(), None)",
+            "fn file_request(",
+            "let referrer = self.entry.logical_referrer()?;",
+            ".mint_file(referrer, user_arguments)?;",
+            ".authenticated_vfs_file_read(&self.vfs, self.entry.clone(), submission)?;",
+            "read.source_id().is_some()",
+            "read.into_capsule()",
+            ".into_request()"
+          ]
+        },
+        {
+          "path": "src/host/mod.rs",
+          "tokens": [
+            "pub fn authenticated_vfs_file_read(",
+            "AuthenticatedVfsSourceRoute::FileModule",
+            "if !submission.authenticates_for(&host_session) {",
+            ".is_canonical_file_for(namespace.virtual_path(), requested_source_label.as_str())",
+            "let read = vfs.read_authenticated(namespace, source_use, |stage| {",
+            ".with_authenticated_file_source(",
+            ".with_authenticated_referrer(logical_referrer.clone())",
+            ".authorize_typed_read(evidence.digest().clone());",
+            "authorized.bind_module_bytes(bytes, source_id.clone())"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "implicit-route-derived",
+      "assertion": "Implicit no-file dispatch uses the immutable pre-arming session route to select exactly program stdin or the REPL and never re-probes fd 0 after snapshot construction.",
+      "sourceEvidence": [
+        {
+          "path": "src/bin/ibex/main.rs",
+          "tokens": [
+            "let session_io = terminal_session::SessionIoPlan::capture_for_cli(&cli);",
+            "session_io.context(\"implicit session route has no terminal session plan\")?;",
+            "pub(crate) const fn authenticated_product_ingress(",
+            "match (route.entry_kind, route.mode)",
+            "Some(AuthenticatedProductIngress::WorkerProgram)",
+            "Some(AuthenticatedProductIngress::WorkerRepl)",
+            "match authenticated_product_ingress(plan.route)",
+            "run_stdin_program(&cli, plan).await",
+            "start_repl(&cli, plan).await"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "inline-session-adapter-bound",
+      "assertion": "One-shot and program-stdin bytes cross only the runtime's route-matched AuthenticatedInlineIngress while the native output broker, readiness lease, lifecycle port, and exact session remain live through settlement.",
+      "sourceEvidence": [
+        {
+          "path": "src/bin/ibex/terminal_session.rs",
+          "tokens": [
+            "pub(crate) async fn run_authenticated_inline_execution_adapter(",
+            "let mut ingress = runtime.authenticated_inline_ingress()?;",
+            "if ingress.entry_kind() != plan.route.entry_kind || ingress.mode() != plan.route.mode",
+            "let mut active = ActiveReplCapture::start(plan, None)",
+            "let readiness = mint_execution_adapter_ready(&mut active.lease, plan.route);",
+            "let evaluation = ingress.evaluate(engine.as_ref(), source).await;",
+            "settle_authenticated_inline_evaluation("
+          ]
+        },
+        {
+          "path": "src/bin/ibex/runtime.rs",
+          "tokens": [
+            "pub(crate) struct AuthenticatedInlineIngress",
+            "pub(crate) fn authenticated_inline_ingress(&self) -> Result<AuthenticatedInlineIngress>",
+            "AuthenticatedInlineIngress::from_armed_runtime(self.host.clone(), session_io)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "javascript-origin-refused",
+      "assertion": "JavaScript cannot construct or obtain the private authenticated submission and native credential required by the session evaluator.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "This value has no public constructor.",
+            "pub(crate) struct AuthenticatedSubmission",
+            "fn new(",
+            "pub(crate) struct NativeCredentialView",
+            "pub(crate) fn native_credential_for<'a>(",
+            "if !self.authenticates_for(session) {"
+          ]
+        },
+        {
+          "path": "include/exact_runtime.h",
+          "tokens": [
+            "Tokens are exact-length binary values and are never",
+            "exposed to JavaScript."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "load-vfs-source-bound",
+      "assertion": "The .load route mints only a generated-classifier shape, rechecks the exact session, root, referrer, and canonical load shape before VFS lookup, authorizes the staged virtual identity, and binds the canonical final referrer plus bounded immutable bytes and read-evidence digest into that same linear submission before authenticated evaluation.",
+      "sourceEvidence": [
+        {
+          "path": "src/bin/ibex/repl/mod.rs",
+          "tokens": [
+            "async fn evaluate_loaded_submission(",
+            ".evaluate_load(engine.as_ref(), virtual_path)"
+          ]
+        },
+        {
+          "path": "src/bin/ibex/runtime.rs",
+          "tokens": [
+            "fn load_request(",
+            "mint_load(",
+            "authenticated_vfs_script_read(",
+            ".evaluate_authenticated("
+          ]
+        },
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "pub fn mint_load(",
+            "let shape = canonical_load_shape(&virtual_path)?;",
+            "crate::repl_surface::classify_load_path(virtual_path)",
+            "SourceRefusal::LoadedOriginRequiresClassifier"
+          ]
+        },
+        {
+          "path": "src/host/mod.rs",
+          "tokens": [
+            "if !submission.authenticates_for(&host_session) {",
+            "if namespace.caller() != vfs.root_principal() {",
+            "submission.is_canonical_load_for(namespace.virtual_path())",
+            "let read = vfs.read_authenticated(namespace, source_use, |stage| {",
+            ".with_authenticated_referrer(logical_referrer.clone())",
+            ".authorize_typed_read(evidence.digest().clone())"
+          ]
+        },
+        {
+          "path": "src/vfs/mod.rs",
+          "tokens": [
+            "let requested = authorize(ReadAuthorization::Requested(&namespace))?;",
+            ".take(crate::session_constants::MAX_INPUT_BYTES as u64 + 1);",
+            "if bytes.len() > crate::session_constants::MAX_INPUT_BYTES {",
+            "let content_digest = digest_bytes(b\"ibex/vfs-content/1\\0\", &bytes);",
+            "let evidence_digest = digest_read_evidence("
+          ]
+        }
+      ]
+    },
+    {
+      "id": "product-route-plan-bound",
+      "assertion": "Every admitted product session route constructs its Runtime from the same SessionIoPlan captured before production validation and delegates source execution to a closed authenticated adapter.",
+      "sourceEvidence": [
+        {
+          "path": "src/bin/ibex/main.rs",
+          "tokens": [
+            "let session_io = terminal_session::SessionIoPlan::capture_for_cli(&cli);",
+            "async fn run_file(",
+            "async fn run_file_with_execution_adapter(",
+            "async fn eval_code(",
+            "async fn run_stdin_program(",
+            "async fn start_repl(",
+            "runtime::Runtime::from_cli_with_session(&effective_cli, session_io)?;",
+            "runtime::Runtime::from_cli_with_session(cli, session_io)?;",
+            "FileProgramExecutionAdapter::new(session_io)",
+            "terminal_session::run_authenticated_inline_execution_adapter(",
+            "let status = repl::start_worker(cli, session_io).await?;"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "repl-session-adapter-bound",
+      "assertion": "Interactive and transcript REPL input reaches only the Runtime-bound ReplSessionIngress while the native descriptor broker, exact cancellation port, lifecycle state, and readiness lease remain live.",
+      "sourceEvidence": [
+        {
+          "path": "src/bin/ibex/repl/mod.rs",
+          "tokens": [
+            "pub(crate) enum ReplEvaluationSession",
+            "ingress: runtime.repl_session_ingress()?",
+            ".evaluate_inline(engine.as_ref(), input.as_bytes().to_vec())",
+            "crate::terminal_session::run_repl_execution_adapter(plan, session, driver, history).await"
+          ]
+        },
+        {
+          "path": "src/bin/ibex/terminal_session.rs",
+          "tokens": [
+            "async fn run_repl_unix(",
+            "if !session.cancellation_port().is_available()",
+            "let mut active = ActiveReplCapture::start(plan, worker_relays)",
+            "let readiness = mint_execution_adapter_ready(&mut active.lease, plan.route);",
+            "run_interactive_repl(",
+            "run_plain_repl(&mut session, &mut driver, broker).await"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "replay-refused",
+      "assertion": "A credential whose ordinal is lower than the session's exact next ordinal is refused as a submission replay before source executes.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/hermes_runtime.cc",
+          "tokens": [
+            "credential->ordinal < expected_ordinal",
+            "EX_HERMES_EVAL_FAULT_SUBMISSION_REPLAY"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "request-bytes-bound",
+      "assertion": "The opaque request binding includes the exact source-byte digest and is recomputed from retained bytes and request shape before native credentials are exposed.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "bytes_digest: sha256_digest(&bytes),",
+            "let actual_bytes_digest = sha256_digest(self.text().as_bytes());",
+            "common.bytes_digest == actual_bytes_digest",
+            "credential_binding_from_request(self, &actual_bytes_digest)",
+            "hash_field(&mut hash, bytes_digest.as_str().as_bytes());"
+          ]
+        },
+        {
+          "path": "src/engine/hermes_runtime.cc",
+          "tokens": [
+            "credential->request_binding",
+            "EX_HERMES_REQUEST_BINDING_LENGTH"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "root-attribution-derived",
+      "assertion": "Root attribution is derived while constructing the authenticated armed session, retained in the request, and covered by the opaque binding.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "derived (rather than accepted) the root/session fields.",
+            "pub(crate) fn from_authenticated_snapshot(",
+            "root_principal: Principal,",
+            "pub fn authenticated_principal(&self) -> &Principal",
+            "&serde_json::to_vec(&submission.session.0.root_principal)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "source-goal-derived",
+      "assertion": "The session-selected source shape and goal are retained in the closed request and included when the native credential binding is recomputed.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "shape: SourceShape,",
+            "match self.submission.shape {",
+            "SourceShape::Program {",
+            "match goal {",
+            "SourceGoal::ScriptWithExtensions => b\"script-with-extensions\""
+          ]
+        }
+      ]
+    },
+    {
+      "id": "synthetic-source-label-derived",
+      "assertion": "The session sequence derives the synthetic source label from origin and ordinal, and the label is included in the opaque request binding.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "SubmissionOrigin::Repl => (SourceLabel::repl(ordinal), None)",
+            "SourceLabel::loaded(ordinal, &virtual_path)?",
+            "SubmissionOrigin::Stdin => (SourceLabel::stdin(), None)",
+            "SubmissionOrigin::Eval => (SourceLabel::eval(), None)",
+            "hash_field(&mut hash, submission.label.as_str().as_bytes());"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "time-same-authenticated-submission",
+      "assertion": "The .time route is only an observation wrapper: it delegates the unchanged input to the same authenticated REPL submission function and times that result instead of opening an evaluator or minting a second credential path.",
+      "sourceEvidence": [
+        {
+          "path": "src/bin/ibex/repl/mod.rs",
+          "tokens": [
+            "async fn evaluate_timed_submission(",
+            "evaluate_repl_submission(session, input).await"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wrong-session-refused",
+      "assertion": "An equal-looking or differently bound session cannot authenticate the request, and a token mismatch is refused before source executes.",
+      "sourceEvidence": [
+        {
+          "path": "src/engine/evaluation.rs",
+          "tokens": [
+            "Arc::ptr_eq(&self.0, &other.0)",
+            "common.session.same_session(session)"
+          ]
+        },
+        {
+          "path": "src/engine/hermes_runtime.cc",
+          "tokens": [
+            "runtime->structured_session_token.data()",
+            "credential->session_token",
+            "EX_HERMES_EVAL_FAULT_WRONG_SESSION"
+          ]
+        }
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "edgeId": "surface.cli.authenticated.direct.file.ingress.1f71u9t",
+      "surface": {
+        "kind": "cli",
+        "name": "authenticated-direct-file-ingress"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-session-lowering",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "file-argv-bound",
+        "file-program-adapter-bound",
+        "file-vfs-source-bound",
+        "javascript-origin-refused",
+        "product-route-plan-bound",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "wrong-session-refused"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.authenticated.one.shot.ingress.0yu81pq",
+      "surface": {
+        "kind": "cli",
+        "name": "authenticated-one-shot-ingress"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-session-lowering",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "inline-session-adapter-bound",
+        "javascript-origin-refused",
+        "product-route-plan-bound",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "synthetic-source-label-derived",
+        "wrong-session-refused"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.authenticated.program.stdin.ingress.0rgzfc8",
+      "surface": {
+        "kind": "cli",
+        "name": "authenticated-program-stdin-ingress"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-session-lowering",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "inline-session-adapter-bound",
+        "javascript-origin-refused",
+        "product-route-plan-bound",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "synthetic-source-label-derived",
+        "wrong-session-refused"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.authenticated.repl.ingress.13ui1wk",
+      "surface": {
+        "kind": "cli",
+        "name": "authenticated-repl-ingress"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-session-lowering",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "javascript-origin-refused",
+        "product-route-plan-bound",
+        "repl-session-adapter-bound",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "synthetic-source-label-derived",
+        "wrong-session-refused"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.implicit.no.file.dispatch.00xejng",
+      "surface": {
+        "kind": "cli",
+        "name": "implicit-no-file-dispatch"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-session-lowering",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "implicit-route-derived",
+        "inline-session-adapter-bound",
+        "javascript-origin-refused",
+        "product-route-plan-bound",
+        "repl-session-adapter-bound",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "synthetic-source-label-derived",
+        "wrong-session-refused"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.repl.command.load.1mr6e2y",
+      "surface": {
+        "kind": "cli",
+        "name": "repl-command:load"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-session-lowering",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "javascript-origin-refused",
+        "load-vfs-source-bound",
+        "repl-session-adapter-bound",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "synthetic-source-label-derived",
+        "wrong-session-refused"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.repl.command.time.1dshb3n",
+      "surface": {
+        "kind": "cli",
+        "name": "repl-command:time"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-session-lowering",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "javascript-origin-refused",
+        "repl-session-adapter-bound",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "synthetic-source-label-derived",
+        "time-same-authenticated-submission",
+        "wrong-session-refused"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.eval.lowered.session.1anyth1",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_eval_lowered_session"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-session-lowering",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "javascript-origin-refused",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "synthetic-source-label-derived",
+        "wrong-session-refused"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.eval.structured.session.00rtb0y",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_eval_structured_session"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "javascript-origin-refused",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
+        "synthetic-source-label-derived",
+        "wrong-session-refused"
+      ]
+    }
+  ]
+}

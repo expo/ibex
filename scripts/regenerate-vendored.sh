@@ -23,11 +23,17 @@ fi
 # runtime bundles compile against. Flags live only in package.json (one source
 # of truth, shared with check:drift).
 bun run generate:capability-bits
+bun run generate:repl-surface
+bun run generate:session-constants
+bun run generate:interrupt-machine
+bun run generate:session-semantics
+bun run generate:root-global-dispositions
 # @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — the
 # source-derived registry must exist before the contract binds its digests.
 bun run generate:capsec-registry
 bun run generate:capsec-contract
 bun run generate:identity
+bun run generate:import-grant-keys
 bun run generate:modules
 # Postcondition: the module generator writes both the JS runtime manifest and
 # the Rust builtin manifest. Check immediately so a future package-script edit

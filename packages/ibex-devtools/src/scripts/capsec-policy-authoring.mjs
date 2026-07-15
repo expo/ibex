@@ -31,7 +31,29 @@ export function packageIntegrity(packageJsonText) {
   return digestBytes(Buffer.from(packageJsonText, 'utf8'));
 }
 
-export function assertTypedAuthority(authority, label = 'authority') {
+// V1 intentionally exposes the authenticated virtual resolution base to every
+// admitted package. Keep that choice in one generator-facing constructor so
+// the row is explicit, digest-bound, and removable by a later profile.
+// @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+export function withV1CwdObserveFloor(rows) {
+  return [
+    ...rows,
+    {
+      authority: {
+        cap: 'path:cwd-observe',
+        resource: { kind: 'session-state', name: 'cwd' },
+      },
+      provenance: [
+        {
+          kind: 'macro-expansion',
+          source: 'profile:path.cwd.v1:universal-observe',
+        },
+      ],
+    },
+  ];
+}
+
+export function assertTypedAuthority(authority, label = 'authority', options = {}) {
   const currentContract = contract();
   const validate = currentContract.ajv.getSchema(
     'https://ibex.dev/capsec/schema/authority-selector.schema.json',
@@ -40,17 +62,30 @@ export function assertTypedAuthority(authority, label = 'authority') {
     throw new TypeError(`${label}: ${currentContract.ajv.errorsText(validate.errors)}`);
   }
   try {
-    validateSelectorSemantics(authority, currentContract.definitionsById, label);
+    validateSelectorSemantics(
+      authority,
+      currentContract.definitionsById,
+      label,
+      options,
+    );
   } catch (error) {
     throw new TypeError(error.message, { cause: error });
   }
   return authority;
 }
 
-export function canonicalAuthorityRows(rows, label = 'authority rows') {
+export function canonicalAuthorityRows(
+  rows,
+  label = 'authority rows',
+  options = {},
+) {
   const byAuthority = new Map();
   for (const [index, row] of rows.entries()) {
-    assertTypedAuthority(row.authority, `${label}[${index}].authority`);
+    assertTypedAuthority(
+      row.authority,
+      `${label}[${index}].authority`,
+      options,
+    );
     if (!Array.isArray(row.provenance) || row.provenance.length === 0) {
       throw new TypeError(`${label}[${index}].provenance must be non-empty`);
     }
@@ -122,7 +157,7 @@ export function resolveTypedDelegations({ seed, edges, requests, bareOf = (value
   return effective;
 }
 
-export function buildCanonicalPolicy(principals) {
+export function buildCanonicalPolicy(principals, rootImports = []) {
   const policy = {
     policySchema: 'ibex/capsec-policy/1',
     capsVocab: 'ibex/capsec/1',
@@ -132,13 +167,19 @@ export function buildCanonicalPolicy(principals) {
     policyDigest: contract().policy.policyDigest,
     purpose: 'production',
     mode: 'enforce',
+    rootImports: canonicalStringSet(rootImports),
     principals: principals.map((entry) => ({
       principal: entry.principal,
-      floor: canonicalAuthorityRows(entry.floor || [], `${entry.principal.locator}.floor`),
+      floor: canonicalAuthorityRows(
+        entry.floor || [],
+        `${entry.principal.locator}.floor`,
+        { positive: true, principal: entry.principal },
+      ),
       denials: canonicalAuthorityRows(entry.denials || [], `${entry.principal.locator}.denials`),
       escalationCeiling: canonicalAuthorityRows(
         entry.escalationCeiling || [],
         `${entry.principal.locator}.escalationCeiling`,
+        { positive: true, dynamic: true, principal: entry.principal },
       ),
       imports: {
         builtins: canonicalStringSet(entry.imports?.builtins || []),
@@ -220,6 +261,16 @@ export function classifyPolicyDrift(before, after) {
   const builtins = setDelta('builtins');
   const packages = setDelta('packages');
   const endowments = setDelta('endowments');
+  const oldRootImports = new Set(before.rootImports || []);
+  const newRootImports = new Set(after.rootImports || []);
+  const rootImports = {
+    expansions: [...newRootImports]
+      .filter((locator) => !oldRootImports.has(locator))
+      .map((locator) => `rootImports ${locator}`),
+    narrowings: [...oldRootImports]
+      .filter((locator) => !newRootImports.has(locator))
+      .map((locator) => `rootImports ${locator}`),
+  };
   const expansions = canonicalStringSet([
     ...floor.expansions,
     ...ceiling.expansions,
@@ -227,6 +278,7 @@ export function classifyPolicyDrift(before, after) {
     ...builtins.expansions,
     ...packages.expansions,
     ...endowments.expansions,
+    ...rootImports.expansions,
   ]);
   const narrowings = canonicalStringSet([
     ...floor.narrowings,
@@ -235,6 +287,7 @@ export function classifyPolicyDrift(before, after) {
     ...builtins.narrowings,
     ...packages.narrowings,
     ...endowments.narrowings,
+    ...rootImports.narrowings,
   ]);
   const identitySet = (policy) => new Set(policy.principals.map((entry) =>
     canonicalJson(entry.principal)));

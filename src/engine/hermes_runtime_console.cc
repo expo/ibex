@@ -32,7 +32,10 @@ facebook::jsi::Function makeLogFunction(facebook::jsi::Runtime& rt, int32_t leve
           }
           message += valueToString(runtime, args[i]);
         }
-        ex_host_console_log(level, message.c_str());
+        ex_host_console_log_bytes(
+            level,
+            reinterpret_cast<const uint8_t*>(message.data()),
+            message.size());
         return facebook::jsi::Value::undefined();
       });
 }
@@ -69,7 +72,10 @@ void installConsoleGlobals(ExactHermesRuntime* handle) {
           }
           message += valueToString(runtime, args[i]);
         }
-        ex_host_console_log(0, message.c_str());
+        ex_host_console_log_bytes(
+            0,
+            reinterpret_cast<const uint8_t*>(message.data()),
+            message.size());
         return facebook::jsi::Value::undefined();
       });
 

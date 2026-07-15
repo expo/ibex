@@ -50,6 +50,9 @@ const NATIVE_SOURCE_EXTENSIONS = new Set([
 const PUBLIC_ABI_IDENTIFIER =
   /^ex_(?:android|host|hermes|worklet)_[A-Za-z0-9_]+$/u;
 
+export const HOST_ABI_OUTPUT_CONTRACT_SCHEMA =
+  "ibex/host-abi-output-contract/1";
+
 const PRIVATE_NATIVE_IDENTIFIER =
   /^__[A-Za-z_$][A-Za-z0-9_$]*(?:[.:/-][A-Za-z0-9_$]+)*$/u;
 
@@ -751,7 +754,7 @@ function rustAttributesImmediatelyBefore(tokens, itemIndex, sourcePath) {
   return attributes;
 }
 
-function parseRustExternFunction(tokens, itemIndex, definitionNameIndexes) {
+function parseRustExternFunction(tokens, itemIndex, definitionsByNameIndex) {
   let cursor = itemIndex;
   if (tokens[cursor]?.value === "pub") {
     cursor += 1;
@@ -772,11 +775,13 @@ function parseRustExternFunction(tokens, itemIndex, definitionNameIndexes) {
     tokens[cursor + 1]?.value !== "C" ||
     tokens[cursor + 2]?.value !== "fn" ||
     tokens[cursor + 3]?.type !== "identifier" ||
-    !definitionNameIndexes.has(cursor + 3)
+    !definitionsByNameIndex.has(cursor + 3)
   ) {
     return null;
   }
+  const definition = definitionsByNameIndex.get(cursor + 3);
   return {
+    bodyOpen: definition.bodyOpen,
     internalName: tokens[cursor + 3].value,
     isUnsafe,
     nameIndex: cursor + 3,
@@ -826,8 +831,11 @@ function rustStaticallyNamedItem(tokens, itemIndex) {
 }
 
 function rustPublicExternDefinitions(tokens, sourcePath) {
-  const definitionNameIndexes = new Set(
-    rustFunctionDefinitions(tokens).map((definition) => definition.nameIndex),
+  const definitionsByNameIndex = new Map(
+    rustFunctionDefinitions(tokens).map((definition) => [
+      definition.nameIndex,
+      definition,
+    ]),
   );
   const records = new Map();
   const addRecord = (record, exportName = null) => {
@@ -855,7 +863,7 @@ function rustPublicExternDefinitions(tokens, sourcePath) {
       throw new Error(`${sourcePath}: multiple Rust export_name attributes`);
     }
     addRecord(
-      parseRustExternFunction(tokens, index, definitionNameIndexes),
+      parseRustExternFunction(tokens, index, definitionsByNameIndex),
       exportNames[0] ?? null,
     );
   }
@@ -900,7 +908,7 @@ function rustPublicExternDefinitions(tokens, sourcePath) {
     const record = parseRustExternFunction(
       tokens,
       itemIndex,
-      definitionNameIndexes,
+      definitionsByNameIndex,
     );
     const staticallyNamedItem = noMangle
       ? rustStaticallyNamedItem(tokens, itemIndex)
@@ -926,8 +934,18 @@ function rustPublicExternDefinitions(tokens, sourcePath) {
 /** Scan one Rust source file for actual public ex_host_* C ABI definitions. */
 export function scanRustHostExterns(text, sourcePath = "<rust-source>") {
   const tokens = rustProductionTokens(text, sourcePath);
+  const outputAnnotations = parseAbiOutputAnnotations(text, sourcePath);
+  const records = rustPublicExternDefinitions(tokens, sourcePath);
+  const recordNames = new Set(records.map((record) => record.name));
+  for (const functionName of outputAnnotations.keys()) {
+    if (!recordNames.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-output names absent Rust ABI definition ${functionName}`,
+      );
+    }
+  }
   const names = new Map();
-  for (const record of rustPublicExternDefinitions(tokens, sourcePath)) {
+  for (const record of records) {
     const { name } = record;
     if (!name.startsWith("ex_host_")) continue;
     if (!/^ex_host_[A-Za-z0-9_]+$/u.test(name)) {
@@ -945,10 +963,19 @@ export function scanRustHostExterns(text, sourcePath = "<rust-source>") {
 
   return sortSurfaces(
     [...names.entries()].map(([name, record]) => {
-      const metadata = { unsafe: record.isUnsafe };
+      const sourceRef = sourceSymbol(sourcePath, name);
+      const metadata = {
+        outputContract: rustHostAbiOutputContract(
+          tokens,
+          record,
+          outputAnnotations.get(name) ?? [],
+          sourceRef,
+        ),
+        unsafe: record.isUnsafe,
+      };
       if (record.internalName !== name)
         metadata.rustIdentifier = record.internalName;
-      return makeSurface("host-abi", name, [sourceSymbol(sourcePath, name)], {
+      return makeSurface("host-abi", name, [sourceRef], {
         metadata,
       });
     }),
@@ -961,8 +988,18 @@ export function scanRustPublicAbiDefinitions(
   sourcePath = "<rust-source>",
 ) {
   const tokens = rustProductionTokens(text, sourcePath);
+  const outputAnnotations = parseAbiOutputAnnotations(text, sourcePath);
+  const records = rustPublicExternDefinitions(tokens, sourcePath);
+  const recordNames = new Set(records.map((record) => record.name));
+  for (const functionName of outputAnnotations.keys()) {
+    if (!recordNames.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-output names absent Rust ABI definition ${functionName}`,
+      );
+    }
+  }
   const definitions = new Map();
-  for (const record of rustPublicExternDefinitions(tokens, sourcePath)) {
+  for (const record of records) {
     const { name } = record;
     if (!PUBLIC_ABI_IDENTIFIER.test(name)) continue;
     if (definitions.has(name)) {
@@ -973,14 +1010,21 @@ export function scanRustPublicAbiDefinitions(
 
   return sortSurfaces(
     [...definitions.entries()].map(([name, record]) => {
+      const sourceRef = sourceSymbol(sourcePath, name);
       const metadata = {
         language: "rust",
+        outputContract: rustHostAbiOutputContract(
+          tokens,
+          record,
+          outputAnnotations.get(name) ?? [],
+          sourceRef,
+        ),
         unsafe: record.isUnsafe,
         weak: false,
       };
       if (record.internalName !== name)
         metadata.rustIdentifier = record.internalName;
-      return makeSurface("host-abi", name, [sourceSymbol(sourcePath, name)], {
+      return makeSurface("host-abi", name, [sourceRef], {
         metadata,
       });
     }),
@@ -1112,6 +1156,746 @@ function matchingToken(tokens, start, open, close) {
     if (depth === 0) return index;
   }
   return -1;
+}
+
+const ABI_TYPE_WORDS = new Set([
+  "bool",
+  "char",
+  "const",
+  "double",
+  "extern",
+  "float",
+  "int",
+  "long",
+  "mut",
+  "short",
+  "signed",
+  "struct",
+  "unsigned",
+  "void",
+  "volatile",
+]);
+
+const ABI_SCALAR_TYPES = new Set([
+  "bool",
+  "char",
+  "double",
+  "f32",
+  "f64",
+  "float",
+  "i8",
+  "i16",
+  "i32",
+  "i64",
+  "i128",
+  "int",
+  "int8_t",
+  "int16_t",
+  "int32_t",
+  "int64_t",
+  "intptr_t",
+  "isize",
+  "long",
+  "short",
+  "signed",
+  "size_t",
+  "ssize_t",
+  "u8",
+  "u16",
+  "u32",
+  "u64",
+  "u128",
+  "uint8_t",
+  "uint16_t",
+  "uint32_t",
+  "uint64_t",
+  "uintptr_t",
+  "unsigned",
+  "usize",
+]);
+
+function abiTypeDescriptor(tokens) {
+  const tokenValues = tokens.map((token) =>
+    token.type === "string" ? `\"${token.value}\"` : token.value,
+  );
+  return {
+    canonical: tokenValues.join(" "),
+    tokens: tokenValues,
+  };
+}
+
+function splitAbiTokenList(tokens) {
+  if (tokens.length === 0) return [];
+  const parts = [];
+  let start = 0;
+  const depth = { "(": 0, "[": 0, "{": 0, "<": 0 };
+  const closeToOpen = { ")": "(", "]": "[", "}": "{", ">": "<" };
+  for (let index = 0; index < tokens.length; index += 1) {
+    const value = tokens[index].value;
+    if (Object.hasOwn(depth, value)) depth[value] += 1;
+    if (Object.hasOwn(closeToOpen, value)) {
+      const open = closeToOpen[value];
+      if (depth[open] > 0) depth[open] -= 1;
+    }
+    if (
+      value === "," &&
+      Object.values(depth).every((value) => value === 0)
+    ) {
+      parts.push(tokens.slice(start, index));
+      start = index + 1;
+    }
+  }
+  parts.push(tokens.slice(start));
+  return parts.filter((part) => part.length > 0);
+}
+
+function topLevelTokenIndex(tokens, searched) {
+  const depth = { "(": 0, "[": 0, "{": 0, "<": 0 };
+  const closeToOpen = { ")": "(", "]": "[", "}": "{", ">": "<" };
+  for (let index = 0; index < tokens.length; index += 1) {
+    const value = tokens[index].value;
+    if (
+      value === searched &&
+      Object.values(depth).every((value) => value === 0)
+    ) {
+      return index;
+    }
+    if (Object.hasOwn(depth, value)) depth[value] += 1;
+    if (Object.hasOwn(closeToOpen, value)) {
+      const open = closeToOpen[value];
+      if (depth[open] > 0) depth[open] -= 1;
+    }
+  }
+  return -1;
+}
+
+function abiPointerShape(language, typeTokens) {
+  const values = typeTokens.map((token) => token.value);
+  const pointerDepth = values.filter((value) => value === "*").length;
+  if (pointerDepth === 0) {
+    return { constPointee: false, pointerDepth: 0 };
+  }
+  const firstPointer = values.indexOf("*");
+  const constPointee =
+    language === "rust"
+      ? values[firstPointer + 1] === "const"
+      : values.slice(0, firstPointer).includes("const");
+  return { constPointee, pointerDepth };
+}
+
+function abiTypeKind(language, typeTokens, { isReturn = false } = {}) {
+  const values = typeTokens.map((token) => token.value);
+  if (
+    values.length === 0 ||
+    (language === "rust" && values.join("\0") === "(\0)") ||
+    (language === "c++" && values.join("\0") === "void")
+  ) {
+    return "void";
+  }
+  if (abiPointerShape(language, typeTokens).pointerDepth > 0) return "pointer";
+  if (
+    values.some((value) => ABI_SCALAR_TYPES.has(value)) &&
+    !values.some((value) => new Set(["[", "{", "("]).has(value))
+  ) {
+    return "scalar";
+  }
+  if (isReturn && values.length > 0) return "unknown";
+  return "aggregate";
+}
+
+function isAbiCallbackType(typeTokens, parameterName) {
+  const values = typeTokens.map((token) => token.value);
+  return (
+    values.includes("fn") ||
+    (values.includes("(") && values.includes("*") && values.includes(")")) ||
+    values.some((value) => /(?:Callback|Hook|Handler)$/u.test(value)) ||
+    (/callback|hook/iu.test(parameterName ?? "") &&
+      (values.includes("Option") || values.includes("*")))
+  );
+}
+
+function cppParameterNameIndex(tokens) {
+  for (let index = 0; index < tokens.length - 2; index += 1) {
+    if (
+      tokens[index].value === "*" &&
+      tokens[index + 1]?.type === "identifier" &&
+      tokens[index + 2]?.value === ")"
+    ) {
+      return index + 1;
+    }
+  }
+  for (let index = 1; index < tokens.length; index += 1) {
+    if (tokens[index].value === "[" && tokens[index - 1]?.type === "identifier")
+      return index - 1;
+  }
+  const last = tokens.length - 1;
+  if (tokens[last]?.type !== "identifier") return -1;
+  const value = tokens[last].value;
+  const lastPointer = tokens.map((token) => token.value).lastIndexOf("*");
+  if (lastPointer !== -1) return last > lastPointer ? last : -1;
+  if (ABI_TYPE_WORDS.has(value) || ABI_SCALAR_TYPES.has(value)) return -1;
+  if (tokens.length === 1) return -1;
+  return last;
+}
+
+function rustAbiParameters(tokens, open, close, sourcePath, functionName) {
+  return splitAbiTokenList(tokens.slice(open + 1, close)).map(
+    (parameterTokens, index) => {
+      const colon = topLevelTokenIndex(parameterTokens, ":");
+      if (
+        colon <= 0 ||
+        parameterTokens[colon - 1]?.type !== "identifier" ||
+        colon === parameterTokens.length - 1
+      ) {
+        throw new Error(
+          `${sourcePath}#${functionName}: unsupported Rust ABI parameter ${index}`,
+        );
+      }
+      return {
+        index,
+        name: parameterTokens[colon - 1].value,
+        typeTokens: parameterTokens.slice(colon + 1),
+      };
+    },
+  );
+}
+
+function cppAbiParameters(tokens, open, close) {
+  const parts = splitAbiTokenList(tokens.slice(open + 1, close));
+  if (
+    parts.length === 1 &&
+    parts[0].length === 1 &&
+    parts[0][0].value === "void"
+  ) {
+    return [];
+  }
+  return parts.map((parameterTokens, index) => {
+    const nameIndex = cppParameterNameIndex(parameterTokens);
+    return {
+      index,
+      name: nameIndex === -1 ? null : parameterTokens[nameIndex].value,
+      typeTokens:
+        nameIndex === -1
+          ? parameterTokens
+          : parameterTokens.filter((_, tokenIndex) => tokenIndex !== nameIndex),
+    };
+  });
+}
+
+function abiParameterContract(language, parameter) {
+  const pointer = abiPointerShape(language, parameter.typeTokens);
+  const callback = isAbiCallbackType(parameter.typeTokens, parameter.name);
+  let role;
+  if (callback) role = "callback";
+  else if (pointer.pointerDepth === 0) role = "input";
+  else if (pointer.constPointee) role = "input";
+  else if (/^out(?:_|$)/u.test(parameter.name ?? "")) role = "output";
+  else if (/^inout(?:_|$)/u.test(parameter.name ?? "")) role = "inout";
+  else role = "unknown";
+
+  let ownership = { kind: "not-applicable" };
+  if (callback || (role === "input" && pointer.pointerDepth > 0)) {
+    ownership = { kind: "borrowed" };
+  } else if (
+    new Set(["output", "inout"]).has(role) &&
+    pointer.pointerDepth === 1
+  ) {
+    ownership = { kind: "caller-storage" };
+  } else if (pointer.pointerDepth > 0) {
+    ownership = { kind: "unknown" };
+  }
+  const pointeeKind = abiTypeKind(
+    language,
+    parameter.typeTokens.filter(
+      (token) => !new Set(["*", "const", "mut"]).has(token.value),
+    ),
+  );
+
+  return {
+    index: parameter.index,
+    name: parameter.name,
+    ownership,
+    pointerDepth: pointer.pointerDepth,
+    role,
+    type: abiTypeDescriptor(parameter.typeTokens),
+    valueKind: callback
+      ? "callback"
+      : pointer.pointerDepth > 0
+        ? new Set(["output", "inout"]).has(role) &&
+          pointer.pointerDepth === 1 &&
+          pointeeKind === "scalar"
+          ? "scalar"
+          : "pointer"
+        : abiTypeKind(language, parameter.typeTokens),
+  };
+}
+
+function lengthCandidates(parameterName) {
+  if (!parameterName) return [];
+  return [
+    `${parameterName}_len`,
+    `${parameterName}_length`,
+    `${parameterName}_size`,
+    `${parameterName}_count`,
+  ];
+}
+
+function bindAbiBufferLengthPairs(parameters) {
+  const pairs = [];
+  const byName = new Map(
+    parameters
+      .filter((parameter) => parameter.name !== null)
+      .map((parameter) => [parameter.name, parameter]),
+  );
+  for (const parameter of parameters) {
+    if (parameter.pointerDepth === 0 || parameter.valueKind === "callback")
+      continue;
+    let length = lengthCandidates(parameter.name)
+      .map((candidate) => byName.get(candidate))
+      .find(Boolean);
+    if (!length) {
+      const next = parameters[parameter.index + 1];
+      const byteLike = /(?:u8|uint8_t|char|void|byte)/u.test(
+        parameter.type.canonical,
+      );
+      if (byteLike && /^(?:len|length|size|count)$/u.test(next?.name ?? ""))
+        length = next;
+    }
+    if (!length) continue;
+    parameter.valueKind = "buffer";
+    length.valueKind = "length";
+    const direction =
+      parameter.role === "input" && length.role === "input"
+        ? "input"
+        : parameter.role === "output" &&
+            new Set(["input", "output"]).has(length.role)
+          ? "output"
+          : "unknown";
+    pairs.push({
+      bufferParameter: parameter.name,
+      direction,
+      lengthParameter: length.name,
+    });
+  }
+  return pairs;
+}
+
+function parseAbiOutputAnnotations(text, sourcePath) {
+  const byFunction = new Map();
+  for (const [lineIndex, line] of text.split(/\r?\n/u).entries()) {
+    const match = line.match(
+      /^\s*\/\/\/?\s*@abi-output\s+(ex_(?:android|host|hermes|worklet)_[A-Za-z0-9_]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$/u,
+    );
+    if (!match) continue;
+    const [, functionName, parameterName, rawFields] = match;
+    const fields = new Map();
+    for (const field of rawFields.split(/\s+/u)) {
+      const separator = field.indexOf("=");
+      if (separator <= 0 || separator === field.length - 1) {
+        throw new Error(
+          `${sourcePath}:${lineIndex + 1}: malformed @abi-output field ${field}`,
+        );
+      }
+      const key = field.slice(0, separator);
+      const value = field.slice(separator + 1);
+      if (
+        !new Set(["kind", "length", "ownership", "role"]).has(key) ||
+        fields.has(key)
+      ) {
+        throw new Error(
+          `${sourcePath}:${lineIndex + 1}: unsupported or duplicate @abi-output field ${key}`,
+        );
+      }
+      fields.set(key, value);
+    }
+    if (
+      !new Set(["output", "inout"]).has(fields.get("role")) ||
+      !new Set(["buffer", "pointer", "scalar"]).has(fields.get("kind")) ||
+      !/^(?:caller-frees:[A-Za-z_][A-Za-z0-9_]*|caller-storage|borrowed)$/u.test(
+        fields.get("ownership") ?? "",
+      )
+    ) {
+      throw new Error(
+        `${sourcePath}:${lineIndex + 1}: incomplete or invalid @abi-output contract`,
+      );
+    }
+    const annotations = byFunction.get(functionName) ?? [];
+    if (
+      annotations.some(
+        (annotation) => annotation.parameterName === parameterName,
+      )
+    ) {
+      throw new Error(
+        `${sourcePath}:${lineIndex + 1}: duplicate @abi-output ${functionName}.${parameterName}`,
+      );
+    }
+    annotations.push({
+      fields: Object.fromEntries(fields),
+      line: lineIndex + 1,
+      parameterName,
+    });
+    byFunction.set(functionName, annotations);
+  }
+  return byFunction;
+}
+
+function outputSelector(parameterName) {
+  return `out:${parameterName.replace(/^out_/u, "")}`;
+}
+
+function applyAbiOutputAnnotations(
+  parameters,
+  pairs,
+  annotations,
+  sourcePath,
+  functionName,
+) {
+  const byName = new Map(
+    parameters
+      .filter((parameter) => parameter.name !== null)
+      .map((parameter) => [parameter.name, parameter]),
+  );
+  for (const annotation of annotations) {
+    const parameter = byName.get(annotation.parameterName);
+    if (!parameter || parameter.pointerDepth === 0) {
+      throw new Error(
+        `${sourcePath}:${annotation.line}: @abi-output does not name a pointer parameter of ${functionName}`,
+      );
+    }
+    const { fields } = annotation;
+    parameter.role = fields.role;
+    parameter.valueKind = fields.kind;
+    if (fields.ownership.startsWith("caller-frees:")) {
+      parameter.ownership = {
+        kind: "caller-owned",
+        releaseFunction: fields.ownership.slice("caller-frees:".length),
+      };
+    } else {
+      parameter.ownership = { kind: fields.ownership };
+    }
+    if (fields.length) {
+      const length = byName.get(fields.length);
+      if (!length) {
+        throw new Error(
+          `${sourcePath}:${annotation.line}: @abi-output length ${fields.length} is absent from ${functionName}`,
+        );
+      }
+      length.valueKind = "length";
+      if (
+        !pairs.some(
+          (pair) =>
+            pair.bufferParameter === parameter.name &&
+            pair.lengthParameter === length.name,
+        )
+      ) {
+        pairs.push({
+          bufferParameter: parameter.name,
+          direction: fields.role,
+          lengthParameter: length.name,
+        });
+      }
+    }
+  }
+}
+
+function buildHostAbiOutputContract({
+  annotations,
+  functionName,
+  language,
+  parameters: rawParameters,
+  returnTokens,
+  sourceRef,
+}) {
+  const parameters = rawParameters.map((parameter) =>
+    abiParameterContract(language, parameter),
+  );
+  const bufferLengthPairs = bindAbiBufferLengthPairs(parameters);
+  applyAbiOutputAnnotations(
+    parameters,
+    bufferLengthPairs,
+    annotations,
+    sourceRef.split("#")[0],
+    functionName,
+  );
+  bufferLengthPairs.sort((left, right) =>
+    compareText(left.bufferParameter ?? "", right.bufferParameter ?? ""),
+  );
+
+  const returnKind = abiTypeKind(language, returnTokens, { isReturn: true });
+  const returnOwnership =
+    returnKind === "pointer" ? { kind: "unknown" } : { kind: "not-applicable" };
+  const returnContract = {
+    kind: returnKind,
+    ownership: returnOwnership,
+    role: returnKind === "void" ? "none" : "value",
+    type: abiTypeDescriptor(returnTokens),
+  };
+  const outputChannels = [];
+  if (returnContract.role === "value") {
+    outputChannels.push({
+      kind: returnKind,
+      ownership: structuredClone(returnOwnership),
+      role: "return",
+      selector: "[[return]]",
+    });
+  }
+  for (const parameter of parameters) {
+    if (new Set(["output", "inout"]).has(parameter.role)) {
+      if (
+        parameter.valueKind === "length" &&
+        bufferLengthPairs.some(
+          (candidate) => candidate.lengthParameter === parameter.name,
+        )
+      ) {
+        continue;
+      }
+      const pair = bufferLengthPairs.find(
+        (candidate) => candidate.bufferParameter === parameter.name,
+      );
+      outputChannels.push({
+        kind: parameter.valueKind,
+        ...(pair ? { lengthParameter: pair.lengthParameter } : {}),
+        ownership: structuredClone(parameter.ownership),
+        parameter: parameter.name,
+        role: parameter.role,
+        selector: outputSelector(parameter.name),
+      });
+    } else if (parameter.role === "callback") {
+      outputChannels.push({
+        kind: "unknown",
+        ownership: { kind: "unknown" },
+        parameter: parameter.name,
+        role: "callback-payload",
+        selector: `callback:${parameter.name ?? parameter.index}`,
+      });
+    }
+  }
+
+  const unresolved = [];
+  if (returnKind === "unknown") unresolved.push("return-kind");
+  if (returnOwnership.kind === "unknown")
+    unresolved.push("return-pointer-ownership");
+  for (const parameter of parameters) {
+    const label = parameter.name ?? `parameter-${parameter.index}`;
+    if (parameter.role === "unknown")
+      unresolved.push(`parameter-role:${label}`);
+    if (
+      new Set(["output", "inout"]).has(parameter.role) &&
+      parameter.ownership.kind === "unknown"
+    ) {
+      unresolved.push(`parameter-ownership:${label}`);
+    }
+    if (parameter.role === "callback")
+      unresolved.push(`callback-payload:${label}`);
+  }
+
+  return {
+    bufferLengthPairs,
+    functionName,
+    language,
+    outputChannels,
+    parameters,
+    return: returnContract,
+    schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
+    sourceRef,
+    status: unresolved.length === 0 ? "resolved" : "unresolved",
+    unresolved,
+  };
+}
+
+function sourceProvesHostAbiOutputChannel(contract, channel) {
+  if (
+    channel.selector === "[[return]]" &&
+    channel.role === "return" &&
+    contract.return.role === "value"
+  ) {
+    return channel.kind !== "unknown";
+  }
+
+  const parameter = contract.parameters.find(
+    (candidate) =>
+      candidate.name === channel.parameter ||
+      candidate.index === channel.parameter,
+  );
+  if (!parameter || channel.kind === "unknown") return false;
+  if (new Set(["output", "inout"]).has(channel.role)) {
+    return parameter.role === channel.role;
+  }
+  return (
+    channel.role === "callback-payload" &&
+    parameter.role === "callback-payload"
+  );
+}
+
+/**
+ * Derive catalog membership only from exact ABI signature contracts. Runtime
+ * executor coverage is deliberately absent: it may prove a row's value, but
+ * it cannot decide whether the output slot exists. An unresolved account may
+ * retain already-proven channels for diagnostics; callers must not emit those
+ * rows until membershipUnresolved is empty because another slot may be hidden.
+ */
+export function deriveHostAbiOutputCatalogAccount(surface) {
+  if (surface?.kind !== "host-abi") {
+    throw new Error("host ABI output account requires a host-abi surface");
+  }
+  const contracts = surface.metadata?.outputContracts;
+  if (!Array.isArray(contracts) || contracts.length === 0) {
+    return {
+      evidenceUnresolved: [],
+      membershipUnresolved: ["signature-contract-missing"],
+      outputChannels: [],
+      reasonCode: "host-abi-signature-contract-missing",
+      status: "unresolved",
+      unresolved: ["signature-contract-missing"],
+    };
+  }
+
+  const outputChannels = new Map();
+  const unresolved = [];
+  for (const contract of contracts) {
+    if (
+      contract?.schema !== HOST_ABI_OUTPUT_CONTRACT_SCHEMA ||
+      contract.functionName !== surface.name ||
+      !surface.sourceRefs.includes(contract.sourceRef)
+    ) {
+      throw new Error(
+        `host ABI output account ${surface.name} has an unbound signature contract`,
+      );
+    }
+    for (const reason of contract.unresolved) {
+      unresolved.push(`${contract.sourceRef}:${reason}`);
+    }
+    for (const channel of contract.outputChannels) {
+      if (!sourceProvesHostAbiOutputChannel(contract, channel)) continue;
+      const entry = outputChannels.get(channel.selector) ?? {
+        selector: channel.selector,
+        sourceRefs: [],
+        variants: [],
+      };
+      entry.sourceRefs.push(contract.sourceRef);
+      entry.variants.push({
+        kind: channel.kind,
+        ...(channel.lengthParameter
+          ? { lengthParameter: channel.lengthParameter }
+          : {}),
+        ownership: structuredClone(channel.ownership),
+        role: channel.role,
+        sourceRef: contract.sourceRef,
+      });
+      outputChannels.set(channel.selector, entry);
+    }
+  }
+
+  const catalogChannels = [...outputChannels.values()]
+    .map((channel) => ({
+      ...channel,
+      sourceRefs: [...new Set(channel.sourceRefs)].sort(compareText),
+      variants: channel.variants.sort((left, right) =>
+        compareText(left.sourceRef, right.sourceRef),
+      ),
+    }))
+    .sort((left, right) => compareText(left.selector, right.selector));
+  // Ownership affects whether a known pointer-bearing slot can be executed and
+  // normalized safely, but it does not make that slot disappear. Every other
+  // unresolved signature fact can hide an additional return/out/callback slot,
+  // so an account with one known channel is still membership-incomplete until
+  // those facts are resolved.
+  const evidenceUnresolved = unresolved.filter((reason) =>
+    /:(?:parameter-ownership:[^:]+|return-pointer-ownership)$/u.test(reason),
+  );
+  const membershipUnresolved = unresolved.filter(
+    (reason) => !evidenceUnresolved.includes(reason),
+  );
+  const structuralOnly = contracts.every(
+    (contract) =>
+      contract.return.role === "none" &&
+      contract.outputChannels.length === 0 &&
+      contract.parameters.every((parameter) => parameter.role === "input"),
+  );
+  const status =
+    membershipUnresolved.length > 0
+      ? "unresolved"
+      : catalogChannels.length > 0
+      ? "output-bearing"
+      : structuralOnly
+        ? "structural-only"
+        : "unresolved";
+  return {
+    outputChannels: catalogChannels,
+    reasonCode:
+      status === "output-bearing"
+        ? "source-derived-host-abi-output"
+        : status === "structural-only"
+          ? "source-derived-void-all-input-abi"
+          : "host-abi-signature-membership-ambiguous",
+    evidenceUnresolved: [...new Set(evidenceUnresolved)].sort(compareText),
+    membershipUnresolved: [...new Set(membershipUnresolved)].sort(compareText),
+    status,
+    unresolved: [...new Set(unresolved)].sort(compareText),
+  };
+}
+
+function rustHostAbiOutputContract(tokens, record, annotations, sourceRef) {
+  const open = record.nameIndex + 1;
+  const close = matchingToken(tokens, open, "(", ")");
+  if (close === -1 || record.bodyOpen <= close) {
+    throw new Error(`${sourceRef}: malformed Rust ABI signature`);
+  }
+  let returnTokens = [];
+  if (tokens[close + 1]?.value === "-" && tokens[close + 2]?.value === ">") {
+    returnTokens = tokens.slice(close + 3, record.bodyOpen);
+  }
+  return buildHostAbiOutputContract({
+    annotations,
+    functionName: record.name,
+    language: "rust",
+    parameters: rustAbiParameters(
+      tokens,
+      open,
+      close,
+      sourceRef.split("#")[0],
+      record.name,
+    ),
+    returnTokens,
+    sourceRef,
+  });
+}
+
+function cppReturnTypeTokens(tokens, nameIndex) {
+  let boundary = nameIndex - 1;
+  while (
+    boundary >= 0 &&
+    !new Set([";", "{", "}"]).has(tokens[boundary].value)
+  )
+    boundary -= 1;
+  const signature = tokens.slice(boundary + 1, nameIndex);
+  const externIndex = signature.findIndex((token) => token.value === "extern");
+  if (externIndex === -1) return [];
+  let output = signature.slice(externIndex + 2);
+  while (
+    output[0]?.type === "identifier" &&
+    (/^[A-Z][A-Z0-9_]*$/u.test(output[0].value) ||
+      new Set(["inline", "static"]).has(output[0].value))
+  ) {
+    output = output.slice(1);
+  }
+  return output;
+}
+
+function cppHostAbiOutputContract(tokens, definition, annotations, sourceRef) {
+  const open = definition.nameIndex + 1;
+  const close = matchingToken(tokens, open, "(", ")");
+  if (close === -1 || definition.bodyOpen <= close) {
+    throw new Error(`${sourceRef}: malformed C/C++ ABI signature`);
+  }
+  return buildHostAbiOutputContract({
+    annotations,
+    functionName: definition.name,
+    language: "c++",
+    parameters: cppAbiParameters(tokens, open, close),
+    returnTokens: cppReturnTypeTokens(tokens, definition.nameIndex),
+    sourceRef,
+  });
 }
 
 function nextFunctionBodyToken(tokens, closeParen) {
@@ -1319,6 +2103,7 @@ export function scanCppPublicAbiDefinitions(
   sourcePath = "<native-source>",
 ) {
   const tokens = lexCpp(text, sourcePath);
+  const outputAnnotations = parseAbiOutputAnnotations(text, sourcePath);
   const rows = [];
   const names = new Set();
   for (const definition of cppFunctionDefinitions(tokens)) {
@@ -1345,11 +2130,29 @@ export function scanCppPublicAbiDefinitions(
       throw new Error(`${sourcePath}: duplicate public ABI definition ${name}`);
     names.add(name);
     const weak = signature.some((token) => /weak/iu.test(token.value));
+    const sourceRef = sourceSymbol(sourcePath, name);
     rows.push(
-      makeSurface("host-abi", name, [sourceSymbol(sourcePath, name)], {
-        metadata: { language: "c++", unsafe: false, weak },
+      makeSurface("host-abi", name, [sourceRef], {
+        metadata: {
+          language: "c++",
+          outputContract: cppHostAbiOutputContract(
+            tokens,
+            definition,
+            outputAnnotations.get(name) ?? [],
+            sourceRef,
+          ),
+          unsafe: false,
+          weak,
+        },
       }),
     );
+  }
+  for (const functionName of outputAnnotations.keys()) {
+    if (!names.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-output names absent C/C++ ABI definition ${functionName}`,
+      );
+    }
   }
   return sortSurfaces(rows);
 }
@@ -9261,6 +10064,15 @@ export function scanCppGlobalPropertySurfaces(
   const closedGlobalTableNames = new Set();
   for (let index = 0; index < tokens.length; index += 1) {
     if (
+      tokens[index].value === "Object" &&
+      tokens[index + 1]?.type === "identifier" &&
+      tokens[index + 2]?.value === "("
+    ) {
+      objectOwners.add(tokens[index + 1].value);
+    }
+  }
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
       tokens[index].type !== "identifier" ||
       tokens[index + 1]?.value !== "." ||
       tokens[index + 2]?.value !== "setProperty" ||
@@ -9311,6 +10123,40 @@ export function scanCppGlobalPropertySurfaces(
     const args = cppCallArguments(tokens, index + 1, close);
     if (args.length < 3) continue;
     calls.push({ args, globalTarget: true, owner: null });
+  }
+
+  // Accessor installers still create public object properties even though the
+  // final Object.defineProperty call lives inside a helper. Recover the closed,
+  // authored stdio accessor call sites so manifest coverage follows the
+  // concrete property names instead of treating the helper parameter as a
+  // dynamic registration.
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index].value !== "installStdioQueryAccessor" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: installStdioQueryAccessor call has no closing parenthesis`,
+      );
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    const owner =
+      args[0]?.length === 1 && args[0][0].type === "identifier"
+        ? args[0][0].value
+        : null;
+    const propertyName = args.length >= 3 ? cppLiteralArgument(args[2]) : null;
+    if (!owner || !objectOwners.has(owner) || !propertyName) continue;
+    calls.push({
+      args: [[], args[2], []],
+      globalTarget: false,
+      owner,
+      propertyName,
+    });
   }
 
   // The Windows unsupported-module helper forwards each member of a closed
@@ -9378,6 +10224,7 @@ export function scanCppGlobalPropertySurfaces(
   const publicInvocations = new Map();
   const dynamicFacts = new Set();
   const propertyNameForCall = (call) => {
+    if (call.propertyName) return call.propertyName;
     const literal = cppLiteralArgument(call.args[1]);
     if (literal) return literal;
     const label = call.globalTarget
@@ -9519,6 +10366,9 @@ const REVIEWED_HERMES_PATCH_PATHS = [
   "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch",
   "patches/hermes/0007-fail-closed-async-deputy-attribution.patch",
   "patches/hermes/0008-schedule-time-principal-capture.patch",
+  "patches/hermes/0009-raw-throw-capture.patch",
+  "patches/hermes/0010-completion-record-discriminator.patch",
+  "patches/hermes/0011-structured-async-failure-provenance.patch",
 ];
 
 const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
@@ -9528,7 +10378,7 @@ const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
   "eval",
 ];
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
+  "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 
 // These are reviewed reachability claims for exact checked-in artifact
 // identities, not a floating statement about Hermes releases. Source discovery
@@ -9562,7 +10412,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-84edac8af0c2f253d97320fcaa78358bc2616c393d692bd1c93f06eed45b8a7a",
       patchStackDigest:
-        "sha256-75c76960ba5710524abe1d2957d41927dfc4ad8871badb24b7526d4f8e38a1f0",
+        "sha256-1350bc999637111d069a6058837119ca9a59c910649f852825956ad59ac12fc7",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
           "sha256-101c625bc1ea5868827088a7eacaceb35a8f229431baf96f351b830ef784e27b",
@@ -10699,6 +11549,318 @@ function validateCliValueShape(shape, label) {
   }
 }
 
+const REPL_COMMAND_KEYS = new Set([
+  "affordance",
+  "aliases",
+  "argument",
+  "errorOutput",
+  "help",
+  "id",
+  "modes",
+  "name",
+  "registryRelations",
+  "sourceSubmission",
+  "states",
+  "successOutput",
+  "usage",
+]);
+
+function replRegistryRelations(value, label) {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  const keys = new Set();
+  return value.map((relation, index) => {
+    const relationLabel = `${label}[${index}]`;
+    assertExactObjectKeys(relation, new Set(["id", "kind"]), relationLabel);
+    if (
+      !new Set(["capability", "non-capability-rationale"]).has(
+        relation.kind,
+      ) ||
+      typeof relation.id !== "string" ||
+      !/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*)?$/u.test(relation.id)
+    ) {
+      throw new Error(`${relationLabel} is not a typed registry relation`);
+    }
+    const key = `${relation.kind}:${relation.id}`;
+    if (keys.has(key)) throw new Error(`${label} contains duplicate ${key}`);
+    keys.add(key);
+    return structuredClone(relation);
+  });
+}
+
+/**
+ * Expand LLP 0022/0025's generated REPL contract into reviewable CapSec
+ * surfaces. Canonical commands and aliases are separate routes; recognition,
+ * `.load` dialect selection, and key controls are explicit rows so none can
+ * hide inside opaque manifest metadata.
+ */
+export function scanRuntimeReplSurfaces(
+  manifestInput,
+  sourcePath = "runtime-surface.json",
+) {
+  let manifest = manifestInput;
+  if (typeof manifestInput === "string") {
+    try {
+      manifest = JSON.parse(manifestInput);
+    } catch (error) {
+      throw new Error(`${sourcePath}: invalid JSON: ${error.message}`);
+    }
+  }
+  if (manifest?.version !== 5) {
+    throw new Error(`${sourcePath}: REPL inventory requires manifest version 5`);
+  }
+  const repl = manifest.replSurface;
+  const keybindings = manifest.keybindingSurface;
+  assertExactObjectKeys(
+    repl,
+    new Set([
+      "$comment",
+      "commands",
+      "loadExtensions",
+      "modes",
+      "recognition",
+      "version",
+    ]),
+    `${sourcePath}: replSurface`,
+  );
+  assertExactObjectKeys(
+    keybindings,
+    new Set(["$comment", "bindings", "editorProfile", "scope", "version"]),
+    `${sourcePath}: keybindingSurface`,
+  );
+  if (repl.version !== 1 || keybindings.version !== 1) {
+    throw new Error(`${sourcePath}: only REPL/keybinding surface version 1 is reviewed`);
+  }
+  if (
+    JSON.stringify(repl.modes) !==
+    JSON.stringify(["interactive", "plain-transcript"])
+  ) {
+    throw new Error(`${sourcePath}: replSurface.modes drifted`);
+  }
+  if (!Array.isArray(repl.commands) || repl.commands.length === 0) {
+    throw new Error(`${sourcePath}: replSurface.commands must be non-empty`);
+  }
+  if (!Array.isArray(keybindings.bindings) || keybindings.bindings.length === 0) {
+    throw new Error(`${sourcePath}: keybindingSurface.bindings must be non-empty`);
+  }
+
+  const rows = [];
+  const ids = new Set();
+  const names = new Set();
+  assertExactObjectKeys(
+    repl.recognition,
+    new Set([
+      "argumentRemainder",
+      "commandsNeverContinue",
+      "leadingWhitespace",
+      "namePattern",
+      "nonmatchDisposition",
+      "prefix",
+      "termination",
+      "unknownDisposition",
+    ]),
+    `${sourcePath}: replSurface.recognition`,
+  );
+  rows.push(
+    makeSurface(
+      "cli",
+      "repl-command-recognition:v1",
+      [sourceSymbol(sourcePath, "replSurface.recognition")],
+      {
+        metadata: {
+          evidenceType: "repl-command-recognition",
+          replSurfaceVersion: repl.version,
+          recognition: structuredClone(repl.recognition),
+        },
+      },
+    ),
+  );
+
+  for (const [index, command] of repl.commands.entries()) {
+    const label = `${sourcePath}: replSurface.commands[${index}]`;
+    assertExactObjectKeys(command, REPL_COMMAND_KEYS, label);
+    if (
+      typeof command.id !== "string" ||
+      !/^[a-z][a-z0-9-]*$/u.test(command.id) ||
+      ids.has(command.id)
+    ) {
+      throw new Error(`${label}.id is invalid or duplicate`);
+    }
+    ids.add(command.id);
+    const routedNames = [
+      ["canonical", command.name],
+      ...cliStringArray(command.aliases, `${label}.aliases`).map((alias) => [
+        "alias",
+        alias,
+      ]),
+    ];
+    if (
+      typeof command.name !== "string" ||
+      !/^\.[A-Za-z][A-Za-z0-9_-]*$/u.test(command.name)
+    ) {
+      throw new Error(`${label}.name violates the command grammar`);
+    }
+    assertExactObjectKeys(
+      command.argument,
+      command.argument?.kind === "none"
+        ? new Set(["kind"])
+        : new Set(["kind", "name", "preserve"]),
+      `${label}.argument`,
+    );
+    if (
+      !new Set(["none", "required-remainder"]).has(command.argument.kind) ||
+      (command.argument.kind === "required-remainder" &&
+        (typeof command.argument.name !== "string" ||
+          command.argument.preserve !== "verbatim"))
+    ) {
+      throw new Error(`${label}.argument is not a reviewed argument shape`);
+    }
+    const registryRelations = replRegistryRelations(
+      command.registryRelations,
+      `${label}.registryRelations`,
+    );
+    for (const [routeKind, name] of routedNames) {
+      if (!/^\.[A-Za-z][A-Za-z0-9_-]*$/u.test(name) || names.has(name)) {
+        throw new Error(`${label} has invalid or duplicate route ${name}`);
+      }
+      names.add(name);
+      rows.push(
+        makeSurface(
+          "cli",
+          routeKind === "canonical"
+            ? `repl-command:${cliSurfaceComponent(command.id)}`
+            : `repl-command-alias:${cliSurfaceComponent(command.id)}:${cliSurfaceComponent(name)}`,
+          [sourceSymbol(sourcePath, `replSurface.command:${command.id}`)],
+          {
+            metadata: {
+              affordance: command.affordance,
+              argument: structuredClone(command.argument),
+              canonicalCommandId: command.id,
+              commandName: name,
+              evidenceType: "repl-command-route",
+              help: command.help,
+              modes: cliStringArray(command.modes, `${label}.modes`),
+              registryRelations,
+              replSurfaceVersion: repl.version,
+              routeKind,
+              sourceSubmission: command.sourceSubmission,
+              states: cliStringArray(command.states, `${label}.states`),
+              successOutput: command.successOutput,
+              usage: command.usage,
+            },
+          },
+        ),
+      );
+    }
+  }
+
+  const load = repl.loadExtensions;
+  assertExactObjectKeys(
+    load,
+    new Set(["defaultDisposition", "defaultErrorCode", "matching", "rows"]),
+    `${sourcePath}: replSurface.loadExtensions`,
+  );
+  if (load.matching !== "longest-suffix-first" || !Array.isArray(load.rows)) {
+    throw new Error(`${sourcePath}: load extension matching is not reviewed`);
+  }
+  const extensions = new Set();
+  for (const [index, row] of load.rows.entries()) {
+    const label = `${sourcePath}: replSurface.loadExtensions.rows[${index}]`;
+    assertExactObjectKeys(
+      row,
+      new Set(["dialect", "disposition", "errorCode", "extension"]),
+      label,
+    );
+    if (
+      typeof row.extension !== "string" ||
+      !/^\.[a-z.]+$/u.test(row.extension) ||
+      extensions.has(row.extension) ||
+      typeof row.disposition !== "string"
+    ) {
+      throw new Error(`${label} is invalid or duplicate`);
+    }
+    extensions.add(row.extension);
+    rows.push(
+      makeSurface(
+        "cli",
+        `repl-load-extension:${cliSurfaceComponent(row.extension)}`,
+        [sourceSymbol(sourcePath, `replSurface.loadExtension:${row.extension}`)],
+        {
+          metadata: {
+            ...structuredClone(row),
+            evidenceType: "repl-load-extension",
+            replSurfaceVersion: repl.version,
+          },
+        },
+      ),
+    );
+  }
+  rows.push(
+    makeSurface(
+      "cli",
+      "repl-load-extension:default",
+      [sourceSymbol(sourcePath, "replSurface.loadExtension:default")],
+      {
+        metadata: {
+          defaultDisposition: load.defaultDisposition,
+          errorCode: load.defaultErrorCode,
+          evidenceType: "repl-load-extension",
+          replSurfaceVersion: repl.version,
+        },
+      },
+    ),
+  );
+
+  const keybindingIds = new Set();
+  const keySequences = new Set();
+  for (const [index, binding] of keybindings.bindings.entries()) {
+    const label = `${sourcePath}: keybindingSurface.bindings[${index}]`;
+    assertExactObjectKeys(
+      binding,
+      new Set([
+        "action",
+        "bytes",
+        "countsAsEditorInput",
+        "display",
+        "help",
+        "id",
+      ]),
+      label,
+    );
+    const sequence = Array.isArray(binding.bytes) ? binding.bytes.join(",") : "";
+    if (
+      typeof binding.id !== "string" ||
+      !/^[a-z][a-z0-9-]*$/u.test(binding.id) ||
+      keybindingIds.has(binding.id) ||
+      keySequences.has(sequence) ||
+      binding.bytes.length === 0 ||
+      binding.bytes.some(
+        (byte) => !Number.isSafeInteger(byte) || byte < 0 || byte > 255,
+      ) ||
+      typeof binding.countsAsEditorInput !== "boolean"
+    ) {
+      throw new Error(`${label} is invalid or duplicates a control`);
+    }
+    keybindingIds.add(binding.id);
+    keySequences.add(sequence);
+    rows.push(
+      makeSurface(
+        "cli",
+        `repl-keybinding:${cliSurfaceComponent(binding.id)}`,
+        [sourceSymbol(sourcePath, `keybindingSurface.binding:${binding.id}`)],
+        {
+          metadata: {
+            ...structuredClone(binding),
+            evidenceType: "repl-keybinding",
+            keybindingSurfaceVersion: keybindings.version,
+          },
+        },
+      ),
+    );
+  }
+  assertUniqueObservedKeys(rows, `${sourcePath} REPL surface inventory`);
+  return sortSurfaces(rows);
+}
+
 function cliValueShapeRows(kind, pathName, id, shape, sourcePath, refPrefix) {
   const prefix = `${kind}:${cliSurfaceComponent(pathName)}:${cliSurfaceComponent(id)}`;
   const refs = [sourceSymbol(sourcePath, refPrefix)];
@@ -10809,8 +11971,8 @@ export function scanRuntimeCliSurfaces(
     }
   }
   const rows = scanRuntimeCommandClasses(manifest, sourcePath);
-  if (manifest.version !== 4) {
-    throw new Error(`${sourcePath}: recursive CLI manifest version must be 4`);
+  if (manifest.version !== 5) {
+    throw new Error(`${sourcePath}: recursive CLI manifest version must be 5`);
   }
   assertExactObjectKeys(
     manifest.clapSurface,
@@ -10913,6 +12075,7 @@ export function scanRuntimeCliSurfaces(
       assertExactObjectKeys(
         option,
         new Set([
+          "global",
           "hidden",
           "hiddenAliases",
           "id",
@@ -10954,6 +12117,9 @@ export function scanRuntimeCliSurfaces(
         throw new Error(`${optionLabel}.names has an invalid option route`);
       }
       validateCliValueShape(option.valueShape, `${optionLabel}.valueShape`);
+      if (option.global !== undefined && option.global !== true) {
+        throw new Error(`${optionLabel}.global must be true when present`);
+      }
       const ref = `clapSurface.command:${command.path}:option:${option.id}`;
       const refs = [sourceSymbol(sourcePath, ref)];
       rows.push(
@@ -10965,6 +12131,7 @@ export function scanRuntimeCliSurfaces(
             metadata: {
               commandPath: command.path,
               evidenceType: "cli-option-route",
+              global: option.global === true,
               hidden: option.hidden === true,
               id: option.id,
               valueShape: option.valueShape,
@@ -11703,22 +12870,54 @@ export function scanNativeLifecycleSurfaces(
 const LOADER_FUNCTION_NAME =
   /(?:builtin|capabilit|compile|import|load|module|principal|resolve)/iu;
 
-function containsKindMember(node) {
-  let found = false;
-  walkAst(node, (candidate) => {
-    if (
-      candidate.type === "MemberExpression" &&
-      ((!candidate.computed &&
-        candidate.property?.type === "Identifier" &&
-        candidate.property.name === "kind") ||
-        (candidate.computed &&
-          candidate.property?.type === "StringLiteral" &&
-          candidate.property.value === "kind"))
-    ) {
-      found = true;
+function isKindMember(node) {
+  if (
+    !(
+    node?.type === "MemberExpression" &&
+    ((!node.computed &&
+      node.property?.type === "Identifier" &&
+      node.property.name === "kind") ||
+      (node.computed &&
+        node.property?.type === "StringLiteral" &&
+        node.property.value === "kind"))
+    )
+  ) {
+    return false;
+  }
+
+  // The authenticated loader now carries principal records whose discriminator
+  // is also named `kind` (`root` / `package`). They are authority identities,
+  // not module-format branches. Keep the source-derived module-kind inventory
+  // open to genuinely new record kinds while excluding only the structurally
+  // distinct principal owners.
+  const owner = staticMemberChain(node.object);
+  return !owner?.some((segment) => /principal/iu.test(segment));
+}
+
+function directLoaderKindLiteral(node) {
+  if (
+    node.type === "BinaryExpression" &&
+    new Set(["==", "===", "!=", "!=="]).has(node.operator)
+  ) {
+    if (isKindMember(node.left) && node.right?.type === "StringLiteral") {
+      return node.right.value;
     }
-  });
-  return found;
+    if (isKindMember(node.right) && node.left?.type === "StringLiteral") {
+      return node.left.value;
+    }
+  }
+  if (
+    node.type === "LogicalExpression" &&
+    new Set(["||", "??"]).has(node.operator)
+  ) {
+    if (isKindMember(node.left) && node.right?.type === "StringLiteral") {
+      return node.right.value;
+    }
+    if (isKindMember(node.right) && node.left?.type === "StringLiteral") {
+      return node.left.value;
+    }
+  }
+  return null;
 }
 
 function normalizeLoaderKind(value) {
@@ -11753,25 +12952,11 @@ export function scanJavaScriptLoaderSurfaces(
     );
   }
   walkAst(program, (node) => {
-    if (
-      new Set([
-        "BinaryExpression",
-        "ConditionalExpression",
-        "LogicalExpression",
-      ]).has(node.type) &&
-      containsKindMember(node)
-    ) {
-      walkAst(node, (candidate) => {
-        if (
-          candidate.type === "StringLiteral" &&
-          /^[A-Za-z][A-Za-z0-9_-]*$/u.test(candidate.value)
-        ) {
-          const kind = normalizeLoaderKind(candidate.value);
-          if (!kindRefs.has(kind)) kindRefs.set(kind, 0);
-          kindRefs.set(kind, kindRefs.get(kind) + 1);
-        }
-      });
-    }
+    const literal = directLoaderKindLiteral(node);
+    if (literal === null || !/^[A-Za-z][A-Za-z0-9_-]*$/u.test(literal)) return;
+    const kind = normalizeLoaderKind(literal);
+    if (!kindRefs.has(kind)) kindRefs.set(kind, 0);
+    kindRefs.set(kind, kindRefs.get(kind) + 1);
   });
 
   for (const [name, occurrenceCount] of functionCounts) {
@@ -14586,8 +15771,54 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
     fixedEvidence(
       "javascript-function",
       "src/engine/bootstrap/module-loader.js",
-      "grantCapabilities",
+      "rejectRuntimeLoaderOptions",
     ),
+  ),
+
+  // Product session ingress. Parser rows describe only argv shape; these
+  // fixed routes prove where operator-authored bytes actually enter the
+  // armed, authenticated session adapter.
+  // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+  fixedSurface(
+    "cli",
+    "authenticated-one-shot-ingress",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/main.rs",
+      "eval_code",
+    ),
+  ),
+  fixedSurface(
+    "cli",
+    "authenticated-direct-file-ingress",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/main.rs",
+      "run_file_with_execution_adapter",
+    ),
+  ),
+  fixedSurface(
+    "cli",
+    "authenticated-program-stdin-ingress",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/main.rs",
+      "run_stdin_program",
+    ),
+  ),
+  fixedSurface(
+    "cli",
+    "authenticated-repl-ingress",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/main.rs",
+      "start_repl",
+    ),
+  ),
+  fixedSurface(
+    "cli",
+    "implicit-no-file-dispatch",
+    fixedEvidence("rust-function", "src/bin/ibex/main.rs", "run"),
   ),
 
   // Callback and continuation branches, including the native-principal stamp
@@ -14909,6 +16140,100 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "cpp-data",
       "src/engine/hermes_runtime.cc",
       "kCompartmentRegistryJS",
+    ),
+  ),
+  // Supervisor-owned REPL history. These are deliberately fixed source
+  // surfaces: no JavaScript callable or host locator exposes the storage
+  // route, but every filesystem/environment effect must still join the
+  // CapSec classifier and policy registry.
+  fixedSurface(
+    "startup",
+    "supervisor-history.project-platform-data-root",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "capture_project_history_platform_data_root",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.global-platform-data-root",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "capture_global_history_platform_data_root",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.authenticated-project-scope",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "derive_authenticated_project_history_scope",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.store-open",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "open_history_store",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.legacy-probe",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "legacy_history_present",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.user-key-read-create",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "load_or_create_history_user_key",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.sidecar-lock-acquire",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "acquire_history_sidecar_lock",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.journal-recover",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "recover_history_journal_locked",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.journal-append",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "append_history_journal",
+    ),
+  ),
+  fixedSurface(
+    "startup",
+    "supervisor-history.journal-compact",
+    fixedEvidence(
+      "rust-function",
+      "src/bin/ibex/history.rs",
+      "compact_history_journal_locked",
     ),
   ),
   fixedSurface(
@@ -15249,6 +16574,7 @@ function mergeAbiDefinitionRows(rows) {
     for (const sourceRef of row.sourceRefs) {
       definitions.push({
         language: row.metadata.language,
+        outputContract: structuredClone(row.metadata.outputContract),
         sourceRef,
         targetVariant: abiTargetVariant(sourceRef),
         unsafe: row.metadata.unsafe,
@@ -15325,6 +16651,9 @@ function mergeAbiDefinitionRows(rows) {
             alternatives: branches,
             branches,
             definitions,
+            outputContracts: definitions.map((definition) =>
+              structuredClone(definition.outputContract),
+            ),
             provenanceLimitation:
               "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
           },
@@ -15333,6 +16662,153 @@ function mergeAbiDefinitionRows(rows) {
     );
   }
   return sortSurfaces(merged);
+}
+
+const JVM_PRIMITIVE_TYPES = new Map([
+  ["B", "byte"],
+  ["C", "char"],
+  ["D", "double"],
+  ["F", "float"],
+  ["I", "int"],
+  ["J", "long"],
+  ["S", "short"],
+  ["Z", "boolean"],
+]);
+
+function parseJvmDescriptorType(descriptor, start, { allowVoid = false } = {}) {
+  const marker = descriptor[start];
+  if (allowVoid && marker === "V") {
+    return { end: start + 1, kind: "void", type: "void" };
+  }
+  if (JVM_PRIMITIVE_TYPES.has(marker)) {
+    return {
+      end: start + 1,
+      kind: "scalar",
+      type: JVM_PRIMITIVE_TYPES.get(marker),
+    };
+  }
+  if (marker === "L") {
+    const end = descriptor.indexOf(";", start + 1);
+    if (end === -1) return null;
+    return {
+      end: end + 1,
+      kind: "aggregate",
+      type: descriptor.slice(start, end + 1),
+    };
+  }
+  if (marker === "[") {
+    const element = parseJvmDescriptorType(descriptor, start + 1);
+    if (!element) return null;
+    return {
+      end: element.end,
+      kind: "aggregate",
+      type: descriptor.slice(start, element.end),
+    };
+  }
+  return null;
+}
+
+function parseJvmMethodDescriptor(descriptor) {
+  if (typeof descriptor !== "string" || descriptor[0] !== "(") return null;
+  const parameters = [];
+  let cursor = 1;
+  while (cursor < descriptor.length && descriptor[cursor] !== ")") {
+    const parameter = parseJvmDescriptorType(descriptor, cursor);
+    if (!parameter) return null;
+    parameters.push(parameter);
+    cursor = parameter.end;
+  }
+  if (descriptor[cursor] !== ")") return null;
+  const returnType = parseJvmDescriptorType(descriptor, cursor + 1, {
+    allowVoid: true,
+  });
+  if (!returnType || returnType.end !== descriptor.length) return null;
+  return { parameters, returnType };
+}
+
+function androidHostAbiOutputContract(row) {
+  const descriptor = row.metadata?.cppBinding?.descriptor;
+  const parsed = parseJvmMethodDescriptor(descriptor);
+  const callback = row.metadata?.bridgeRole === "java-to-native-callback";
+  const parameters = (parsed?.parameters ?? []).map((parameter, index) => ({
+    index,
+    name: null,
+    ownership:
+      parameter.kind === "aggregate"
+        ? { kind: "managed-reference" }
+        : { kind: "not-applicable" },
+    pointerDepth: 0,
+    role: callback ? "callback-payload" : "input",
+    type: { canonical: parameter.type, tokens: [parameter.type] },
+    valueKind: parameter.kind,
+  }));
+  const returnKind = parsed?.returnType.kind ?? "unknown";
+  const returnRole = returnKind === "void" ? "none" : parsed ? "value" : "unknown";
+  const returnOwnership =
+    returnKind === "aggregate"
+      ? { kind: "managed-reference" }
+      : returnKind === "unknown"
+        ? { kind: "unknown" }
+        : { kind: "not-applicable" };
+  const outputChannels = [];
+  if (returnRole === "value") {
+    outputChannels.push({
+      kind: returnKind,
+      ownership: structuredClone(returnOwnership),
+      role: "return",
+      selector: "[[return]]",
+    });
+  }
+  if (callback) {
+    for (const parameter of parameters) {
+      outputChannels.push({
+        kind: parameter.valueKind,
+        ownership: structuredClone(parameter.ownership),
+        parameter: parameter.index,
+        role: "callback-payload",
+        selector: `callback:${parameter.index}`,
+      });
+    }
+  }
+  const signatureRef = row.sourceRefs.find((sourceRef) =>
+    sourceRef.includes("#java-call:") || sourceRef.includes("#jni-callback:"),
+  );
+  return {
+    bufferLengthPairs: [],
+    functionName: row.name,
+    language: "java-jni",
+    outputChannels,
+    parameters,
+    return: {
+      kind: returnKind,
+      ownership: returnOwnership,
+      role: returnRole,
+      type: {
+        canonical: parsed?.returnType.type ?? "unknown",
+        tokens: [parsed?.returnType.type ?? "unknown"],
+      },
+    },
+    schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
+    signatureDescriptor: descriptor ?? null,
+    sourceRef: signatureRef ?? row.sourceRefs[0],
+    sourceRefs: [...row.sourceRefs],
+    status: parsed ? "resolved" : "unresolved",
+    unresolved: parsed ? [] : ["java-jni-signature-unbound"],
+  };
+}
+
+function attachAndroidHostAbiOutputContracts(rows) {
+  return rows.map((row) => {
+    const outputContract = androidHostAbiOutputContract(row);
+    return {
+      ...row,
+      metadata: {
+        ...row.metadata,
+        outputContract,
+        outputContracts: [structuredClone(outputContract)],
+      },
+    };
+  });
 }
 
 function assertNonemptyCategories(categories) {
@@ -15352,8 +16828,14 @@ export async function discoverRepositorySurfaces(repoRoot) {
   const engineRoot = path.join(repoRoot, "src", "engine");
   const sourceRoot = path.join(repoRoot, "src");
   const bootstrapRoot = path.join(engineRoot, "bootstrap");
-  const nativeFiles = listFiles(sourceRoot, (candidate) =>
-    NATIVE_SOURCE_EXTENSIONS.has(path.extname(candidate)),
+  const nativeFiles = listFiles(
+    sourceRoot,
+    (candidate) =>
+      NATIVE_SOURCE_EXTENSIONS.has(path.extname(candidate)) &&
+      // @ref LLP 0022#7-capabilities-principals-and-affordance-parity — the
+      // generated disposition projection contains reviewed property spellings;
+      // it is verifier data, never independent install/reference evidence.
+      path.basename(candidate) !== "root_global_disposition.generated.h",
   );
 
   const nativeRows = [];
@@ -15398,10 +16880,12 @@ export async function discoverRepositorySurfaces(repoRoot) {
   );
   const hostAbi = sortSurfaces([
     ...mergeAbiDefinitionRows(abiRows),
-    ...joinAndroidBridgeImplementationRefs(
-      androidJavaRows,
-      androidBindings,
-      androidCppPath,
+    ...attachAndroidHostAbiOutputContracts(
+      joinAndroidBridgeImplementationRefs(
+        androidJavaRows,
+        androidBindings,
+        androidCppPath,
+      ),
     ),
   ]);
   assertUniqueObservedKeys(
@@ -15430,10 +16914,19 @@ export async function discoverRepositorySurfaces(repoRoot) {
     repoRoot,
     "modules.ts",
   );
-  const cli = scanRuntimeCliSurfaces(
-    readUtf8(path.join(repoRoot, "runtime-surface.json")),
-    "runtime-surface.json",
+  const runtimeSurfaceSource = readUtf8(
+    path.join(repoRoot, "runtime-surface.json"),
   );
+  const fixed = fixedRuntimeSurfaceInventory();
+  const cli = mergeSurfaceEvidence(
+    [
+      ...fixed.filter((row) => row.kind === "cli"),
+      ...scanRuntimeCliSurfaces(runtimeSurfaceSource, "runtime-surface.json"),
+      ...scanRuntimeReplSurfaces(runtimeSurfaceSource, "runtime-surface.json"),
+    ],
+    "runtime CLI and REPL surface inventory",
+  );
+  assertUniqueObservedKeys(cli, "runtime CLI and REPL surface inventory");
 
   const globalRows = [
     ...scanSharedRuntimeGlobalSurfaces(repoRoot),
@@ -15478,7 +16971,6 @@ export async function discoverRepositorySurfaces(repoRoot) {
     "native and global operation inventory",
   );
 
-  const fixed = fixedRuntimeSurfaceInventory();
   validateFixedRuntimeSurfaceRefs(repoRoot, fixed);
   const environmentSourceAllowed = (filePath) =>
     isRuntimeEnvironmentSourceAllowed(
@@ -15583,7 +17075,7 @@ export async function discoverRepositorySurfaces(repoRoot) {
     "inspector route inventory",
   );
   const routedFixedKeys = new Set(
-    [...loader, ...callbacks, ...startup, ...inspector]
+    [...cli, ...loader, ...callbacks, ...startup, ...inspector]
       .filter((row) =>
         fixed.some((fixedRow) => fixedRow.observedKey === row.observedKey),
       )

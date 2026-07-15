@@ -1,0 +1,11 @@
+{
+  "cap": "path:cwd-observe",
+  "stage": "delivery",
+  "actor": { "kind": "root", "identity": "project-root" },
+  "effectOwner": { "kind": "root", "identity": "project-root" },
+  "constrainedPrincipals": [{ "kind": "root", "identity": "project-root" }],
+  "resource": {
+    "kind": "session-state-occurrence",
+    "requested": { "kind": "session-state", "name": "cwd" }
+  }
+}

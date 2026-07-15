@@ -18,7 +18,7 @@ The JSON source intentionally omits bit numbers; the generator joins them from t
 | 8 | `env:read` | partial | authorable | `env:read` | One exact environment name and effect-owner namespace; enumeration emits one effect per name. |
 | 9 | `process:spawn` | partial | authorable | `process:spawn` | Terminal static-only executable identity including logical name, retained path/object, content digest, and interpreter; child env, stdio, cwd, and filesystem effects are conjunctive. |
 | 10 | `process:signal` | partial | closed | `process:signal` | Future semantics require an explicit target class and signal set, with inspector activation conjunctively checked where applicable. |
-| 11 | `process:cwd` | partial | closed | `process:cwd` | Shared process current-directory mutation has no positive selector in the initial profile. |
+| 11 | `process:cwd` | enforced | authorable | `path:cwd-mutate`, `path:cwd-observe` | Observation names the authenticated session-state cwd; mutation names an exact logical target and is core-root-only, session-scoped, and conjunctive with directory metadata authority. |
 | 12 | `device:location` | manifest-only | authorable | `device:location` | One typed location action with explicit foreground/background usage and coarse/precise precision. |
 | 13 | `device:location:whenInUse` | partial | authorable | `device:location` | Typed device-location selector with usage foreground and explicit precision. |
 | 14 | `device:location:always` | manifest-only | absent | `device:location` | Reserved typed device-location selector with usage background. |

@@ -4407,6 +4407,7 @@ Object.getOwnPropertyNames(Writable.prototype).forEach(function(k) {
 	var desc = Object.getOwnPropertyDescriptor(Writable.prototype, k);
 	if (desc) Object.defineProperty(Duplex.prototype, k, desc);
 });
+Duplex.prototype._undestroy = Stream.prototype._undestroy;
 Duplex.prototype.constructor = Duplex;
 Duplex.prototype.pipe = function(dest, options) {
 	return Stream.prototype.pipe.call(this, dest, options);

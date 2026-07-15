@@ -1,5 +1,7 @@
 //#region src/builtins/url.js
 (function() {
+	var _exactPrivateBuiltinBridges = typeof __exactPrivateBuiltinBridges === "object" && __exactPrivateBuiltinBridges ? __exactPrivateBuiltinBridges : null;
+	var _exactSharedRuntimeOwnsGlobals = _exactPrivateBuiltinBridges && _exactPrivateBuiltinBridges.sharedRuntimeBundle === true;
 	var URLExport = typeof globalThis !== "undefined" && typeof globalThis.URL === "function" ? globalThis.URL : null;
 	var URLSearchParamsExport = typeof globalThis !== "undefined" && typeof globalThis.URLSearchParams === "function" ? globalThis.URLSearchParams : null;
 	var _objectURLCounter = 0;
@@ -1538,7 +1540,7 @@
 	});
 	var URLExport = URL;
 	var URLSearchParamsExport = URLSearchParams;
-	if (typeof globalThis !== "undefined") {
+	if (typeof globalThis !== "undefined" && !_exactSharedRuntimeOwnsGlobals) {
 		globalThis.__exactUrlCtor = URLExport;
 		globalThis.__exactUrlSearchParamsCtor = URLSearchParamsExport;
 		try {

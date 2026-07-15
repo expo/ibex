@@ -5,7 +5,28 @@ var COLON = 58;
 function isWS(c) { return c === SLASH || c === BSLASH; }
 function isPS(c) { return c === SLASH; }
 function isDR(c) { return (c >= 65 && c <= 90) || (c >= 97 && c <= 122); }
-function _cwd() { return (typeof process !== 'undefined' && process.cwd) ? process.cwd() : '/'; }
+// The authenticated builtin wrapper supplies the loader-private cwd function
+// after the raw bridge is sealed; assigning to `process.cwd` must not change
+// path resolution.
+// @ref LLP 0023#54-facades-cannot-subvert-it
+var _exactPrivateBuiltinBridges =
+  typeof __exactPrivateBuiltinBridges === 'object' && __exactPrivateBuiltinBridges
+    ? __exactPrivateBuiltinBridges
+    : null;
+var _exactGetVirtualCwd =
+  _exactPrivateBuiltinBridges &&
+  typeof _exactPrivateBuiltinBridges.getVirtualCwd === 'function'
+    ? _exactPrivateBuiltinBridges.getVirtualCwd
+    : typeof globalThis.__exactGetCwd === 'function'
+    ? globalThis.__exactGetCwd
+    : null;
+function _cwd() {
+  if (typeof _exactGetVirtualCwd === 'function') {
+    var value = _exactGetVirtualCwd();
+    if (typeof value === 'string' && value.length > 0) return value;
+  }
+  return '/';
+}
 function _invalidArgType(name, expected, actual) {
   var received;
   if (actual === null) received = 'null';

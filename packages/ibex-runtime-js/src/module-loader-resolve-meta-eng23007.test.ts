@@ -27,6 +27,21 @@ const loaderSource = readFileSync(
 );
 
 const RESOLVED_PATH = '/virtual/pkg/broken.ts';
+const TYPED_RESOLVED_PATH = '/project/pkg/broken.ts';
+const RESOLVED_LOGICAL_PATH = {
+  schema: 'ibex/logical-path/1',
+  sessionHandle: 'mrs0000000000000001',
+  virtualPath: TYPED_RESOLVED_PATH,
+  logicalPath: {
+    root: 'project',
+    components: [
+      { encoding: 'utf8', value: 'pkg' },
+      { encoding: 'utf8', value: 'broken.ts' },
+    ],
+    hostBound: null,
+  },
+  bindingOwner: null,
+};
 // The specifier under test. The loader also resolves builtins during its own
 // bootstrap, so assertions target this specifier rather than exact call lists.
 const TARGET = './broken';
@@ -47,7 +62,12 @@ function makeSandbox(opts: { withMeta: boolean }): { sandbox: any; calls: Calls 
   if (opts.withMeta) {
     sandbox.__exactModuleResolveMeta = function (specifier: string) {
       calls.meta.push(specifier);
-      return JSON.stringify({ id: specifier, kind: 'esm', path: RESOLVED_PATH });
+      return JSON.stringify({
+        schema: 'ibex/module-resolution/1',
+        id: '/private/host/pkg/broken.ts',
+        kind: 'esm',
+        path: RESOLVED_LOGICAL_PATH,
+      });
     };
   }
 
@@ -80,7 +100,7 @@ function makeSandbox(opts: { withMeta: boolean }): { sandbox: any; calls: Calls 
 test('require.resolve uses the metadata-only bridge and never loads/transpiles the body', () => {
   const { sandbox, calls } = makeSandbox({ withMeta: true });
   const resolved = sandbox.require.resolve(TARGET);
-  expect(resolved).toBe(RESOLVED_PATH);
+  expect(resolved).toBe(TYPED_RESOLVED_PATH);
   expect(calls.meta).toContain(TARGET);
   // The full read+transpile bridge must be untouched by require.resolve for the
   // target. If the body had a syntax error, require.resolve still succeeds

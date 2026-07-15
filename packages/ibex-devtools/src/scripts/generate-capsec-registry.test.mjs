@@ -16,6 +16,11 @@ import {
   renderCapsecRegistry,
   runCapsecRegistryGenerator,
 } from "./generate-capsec-registry.mjs";
+import {
+  OUTPUT_DISPOSITIONS,
+  OUTPUT_KEY_FIELDS,
+  canonicalOutputDispositionKey,
+} from "./capsec-output-dispositions.mjs";
 
 function renderedEntries(result) {
   return [...result.rendered.entries()].map(([filePath, content]) => [
@@ -42,7 +47,9 @@ afterAll(() => {
 
 describe("LLP 0021 WP1 capsec registry generator", () => {
   test("reopens promotion evidence only as digest-addressed regular files", () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-capsec-promotion-"));
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "ibex-capsec-promotion-"),
+    );
     try {
       const directory = path.join(root, "conformance", "recipe-catalogs");
       fs.mkdirSync(directory, { recursive: true });
@@ -96,7 +103,11 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
     };
     const coverage = {
       edges: [
-        { id: "edge.effects", classification: "effects", effectMode: "conjunctive" },
+        {
+          id: "edge.effects",
+          classification: "effects",
+          effectMode: "conjunctive",
+        },
         { id: "edge.closed", classification: "closed" },
         { id: "edge.absent", classification: "closed" },
       ],
@@ -141,14 +152,28 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
         },
       },
     ]).cells;
-    expect(cells.map(({ edgeId, disposition, fixtures }) => ({
-      edgeId,
-      disposition,
-      fixtures,
-    }))).toEqual([
-      { edgeId: "edge.absent", disposition: "absent", fixtures: ["fixture.absent"] },
-      { edgeId: "edge.closed", disposition: "closed", fixtures: ["fixture.closed"] },
-      { edgeId: "edge.effects", disposition: "enforced", fixtures: ["fixture.effects"] },
+    expect(
+      cells.map(({ edgeId, disposition, fixtures }) => ({
+        edgeId,
+        disposition,
+        fixtures,
+      })),
+    ).toEqual([
+      {
+        edgeId: "edge.absent",
+        disposition: "absent",
+        fixtures: ["fixture.absent"],
+      },
+      {
+        edgeId: "edge.closed",
+        disposition: "closed",
+        fixtures: ["fixture.closed"],
+      },
+      {
+        edgeId: "edge.effects",
+        disposition: "enforced",
+        fixtures: ["fixture.effects"],
+      },
     ]);
   });
 
@@ -175,6 +200,9 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
         observedReferences:
           first.implementationManifest.counts.observedReferences,
         outputs: first.rendered.size,
+        ingressObligations: first.ingressObligationCounts.obligations,
+        outputDispositionEvidence:
+          first.outputDispositionDataset.evidence.status,
       });
     },
     SOURCE_RENDER_TIMEOUT_MS,
@@ -242,7 +270,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       const catalogSuffixes = generatedRegistryOutputCatalog
         .map((row) => row.path)
         .sort();
-      expect(renderedPaths).toHaveLength(11);
+      expect(renderedPaths).toHaveLength(generatedRegistryOutputCatalog.length);
       expect(
         renderedPaths.map((filePath) =>
           catalogSuffixes.find((suffix) => filePath.endsWith(`/${suffix}`)),
@@ -278,6 +306,102 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
   );
 
   test(
+    "generates a total seven-part output dataset without claiming absent live evidence",
+    async () => {
+      const result = await renderBaseline();
+      const catalog = result.outputShapeCatalog;
+      const dataset = result.outputDispositionDataset;
+      expect(catalog.counts).toEqual({
+        coverageSurfaces: 7_177,
+        outputBearingSurfaces: 4_916,
+        structuralOnlySurfaces: 1_352,
+        unresolvedSurfaces: 909,
+        catalogRows: 5_231,
+        sourceInventoryRows: 4_888,
+        structuredRows: 343,
+      });
+      expect(catalog.surfaceAccounts).toHaveLength(
+        result.coverage.edges.length,
+      );
+      expect(
+        new Set(catalog.surfaceAccounts.map((account) => account.surfaceId)),
+      ).toEqual(new Set(result.coverage.edges.map((edge) => edge.id)));
+      expect(dataset.rows).toHaveLength(catalog.rows.length);
+      expect(dataset.dispositions).toEqual(OUTPUT_DISPOSITIONS);
+      expect(dataset.evidence.status).toBe("unpromotable");
+      expect(catalog.discovery.status).toBe("unpromotable");
+      expect(catalog.catalogKeyDigest).toBe(dataset.catalogKeyDigest);
+      expect(
+        catalog.rows.map((row) => canonicalOutputDispositionKey(row.key)),
+      ).toEqual(
+        dataset.rows.map((row) => canonicalOutputDispositionKey(row.key)),
+      );
+      expect(
+        dataset.rows.every(
+          (row) =>
+            JSON.stringify(Object.keys(row.key).sort()) ===
+            JSON.stringify([...OUTPUT_KEY_FIELDS].sort()),
+        ),
+      ).toBe(true);
+      expect(new Set(dataset.rows.map((row) => row.disposition))).toEqual(
+        new Set(OUTPUT_DISPOSITIONS),
+      );
+      for (const alias of [
+        "process.argv[0]",
+        "process.execArgv[]",
+        "import.meta.url",
+        "import.meta.dirname",
+        "module.__exactPackageRoot",
+        "module.paths[]",
+        "resolver.path",
+        "error.path",
+        "source-map.sources[]",
+        "Error.stack frame source",
+        "Dirent.parentPath",
+        "FileHandle.path",
+        "ExactFile.name",
+        "Bun.main",
+      ]) {
+        expect(dataset.rows.some((row) => row.key.alias === alias)).toBe(true);
+      }
+      expect(
+        dataset.rows.some(
+          (row) =>
+            row.key.alias === "import.meta.dirname" &&
+            row.key.sourceKind === "synthetic" &&
+            row.disposition === "absent",
+        ),
+      ).toBe(true);
+      expect(
+        dataset.rows.some(
+          (row) =>
+            row.key.alias === "error.dest" &&
+            row.disposition === "virtual-absolute",
+        ),
+      ).toBe(true);
+      expect(
+        dataset.rows.some(
+          (row) =>
+            row.key.alias === "sourceURL" &&
+            row.key.sourceKind === "synthetic" &&
+            row.disposition === "synthetic-source-id",
+        ),
+      ).toBe(true);
+      expect(
+        JSON.parse(
+          result.rendered.get(generatedRegistryPaths.outputShapeCatalog),
+        ),
+      ).toEqual(catalog);
+      expect(
+        JSON.parse(
+          result.rendered.get(generatedRegistryPaths.outputDispositions),
+        ),
+      ).toEqual(dataset);
+    },
+    SOURCE_RENDER_TIMEOUT_MS,
+  );
+
+  test(
     "uses printable canonical target keys in every language binding",
     async () => {
       const result = await renderBaseline();
@@ -286,13 +410,15 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
           .map((row) => row.branchId)
           .sort(),
       );
-      expect(result.binding.enforcementBranchIds).toEqual([
-        ...new Set(
-          result.implementationManifest.surfaces.map(
-            (row) => row.enforcementBranchId,
+      expect(result.binding.enforcementBranchIds).toEqual(
+        [
+          ...new Set(
+            result.implementationManifest.surfaces.map(
+              (row) => row.enforcementBranchId,
+            ),
           ),
-        ),
-      ].sort());
+        ].sort(),
+      );
       expect(
         result.binding.implementationBranchIds.every(
           (branchId) => !branchId.includes("\u0000"),

@@ -1,12 +1,51 @@
 var g = globalThis;
 var _exactFsInitialized = false;
 var _streamModule = null;
+var _exactPrivateBuiltinBridges =
+  typeof __exactPrivateBuiltinBridges === 'object' && __exactPrivateBuiltinBridges
+    ? __exactPrivateBuiltinBridges
+    : null;
+// Armed bootstrap passes this trusted builtin a frozen loader-private capture,
+// then seals the root spelling. Calls use only this module-local reference; a
+// missing capture fails closed below instead of consulting a mutable global
+// later.
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+var _exactFsMutationGuard =
+  _exactPrivateBuiltinBridges &&
+  typeof _exactPrivateBuiltinBridges.fsMutationGuard === 'function'
+    ? _exactPrivateBuiltinBridges.fsMutationGuard
+    : typeof g.__exactFsMutationGuard === 'function'
+    ? g.__exactFsMutationGuard
+    : null;
+// Cwd is a security input. The authenticated builtin wrapper supplies the
+// loader-private native function after the raw bridge is sealed, so relative
+// filesystem operations never consult mutable `process.cwd`.
+// @ref LLP 0023#54-facades-cannot-subvert-it
+var _exactGetVirtualCwd =
+  _exactPrivateBuiltinBridges &&
+  typeof _exactPrivateBuiltinBridges.getVirtualCwd === 'function'
+    ? _exactPrivateBuiltinBridges.getVirtualCwd
+    : typeof g.__exactGetCwd === 'function'
+    ? g.__exactGetCwd
+    : null;
 function ensureExactFs() {
   if (_exactFsInitialized) return;
   if (typeof g.__exactEnsureFs === 'function') {
     try { g.__exactEnsureFs(); } catch (e) {}
   }
   _exactFsInitialized = true;
+}
+
+function _guardClosedFsMutation(operation, path, dest) {
+  // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — Composite aliases must deny before their first metadata lookup or partial effect.
+  if (typeof _exactFsMutationGuard !== 'function') {
+    throw _makeFsError({ code: 'EPERM' }, operation, path, dest);
+  }
+  try {
+    _exactFsMutationGuard(operation);
+  } catch (err) {
+    throw _makeFsError(err, operation, path, dest);
+  }
 }
 
 function _getStreamModule() {
@@ -540,29 +579,9 @@ function _normalizePathSegments(parts) {
 }
 
 function _currentProcessCwd() {
-  if (typeof globalThis === 'object' && globalThis && globalThis.process &&
-      typeof globalThis.process.cwd === 'function') {
-    var globalCwd = globalThis.process.cwd();
-    if (typeof globalCwd === 'string' && globalCwd.length > 0) {
-      return globalCwd;
-    }
-  }
-  try {
-    if (typeof require === 'function') {
-      var processModule = require('process');
-      if (processModule && typeof processModule.cwd === 'function') {
-        var moduleCwd = processModule.cwd();
-        if (typeof moduleCwd === 'string' && moduleCwd.length > 0) {
-          return moduleCwd;
-        }
-      }
-    }
-  } catch (_processModuleErr) {}
-  if (typeof process === 'object' && process && typeof process.cwd === 'function') {
-    var wrapperCwd = process.cwd();
-    if (typeof wrapperCwd === 'string' && wrapperCwd.length > 0) {
-      return wrapperCwd;
-    }
+  if (typeof _exactGetVirtualCwd === 'function') {
+    var nativeCwd = _exactGetVirtualCwd();
+    if (typeof nativeCwd === 'string' && nativeCwd.length > 0) return nativeCwd;
   }
   return "/";
 }
@@ -1277,7 +1296,6 @@ function _asyncBuildDirEntries(native, path, options, limiter) {
 }
 
 function _asyncMkdirSimple(native, path, options) {
-  var p = _pathToString(path);
   var recursive = false;
   var mode;
   if (typeof options === 'object' && options !== null) {
@@ -1290,20 +1308,20 @@ function _asyncMkdirSimple(native, path, options) {
   if (mode !== undefined) {
     mode = _coerceMode(mode) & 0o777;
   }
+  if (recursive) _guardClosedFsMutation('mkdir', path);
+  var p = _pathToString(path);
   return _asyncFsPathOp(
-      native, 'mkdir', [_nativeMkdirPath(p), null, recursive ? 1 : 0], 'mkdir', p)
+      native, 'mkdir', [_nativeMkdirPath(p), null, recursive ? 1 : 0,
+        mode === undefined ? -1 : mode], 'mkdir', p)
     .then(function(createdPath) {
-      var result = recursive && createdPath ? createdPath : undefined;
-      if (mode === undefined) return result;
-      return _asyncFsPathOp(native, 'chmod', [p, null, mode], 'chmod', p).then(
-          function() { return result; },
-          function() { return result; });
+      return recursive && createdPath ? createdPath : undefined;
     });
 }
 
 function _asyncMkdtempResult(native, prefix, options) {
   _validatePath(prefix, 'prefix');
   _validateEncodingOption(options);
+  _guardClosedFsMutation('mkdtemp', prefix);
   var prefixPath = _pathToString(prefix);
   var rawPrefix = typeof prefix === 'string' ? prefix :
     (typeof Buffer !== 'undefined' && Buffer.isBuffer(prefix) ? prefix.toString() : null);
@@ -2547,6 +2565,7 @@ function _toDirentLike(name, parentPath, statVal, withFileTypes) {
 function cpSync(src, dest, options) {
   _validatePath(src, 'src');
   _validatePath(dest, 'dest');
+  _guardClosedFsMutation('cp', src, dest);
   options = options || {};
   var filter = options.filter;
   var recursive = !!options.recursive;
@@ -2704,6 +2723,7 @@ function cp(src, dest, options, cb) {
 
 function _asyncCp(src, dest, options) {
   _validatePath(src, 'src'); _validatePath(dest, 'dest');
+  _guardClosedFsMutation('cp', src, dest);
   var source = _pathToString(src), destination = _pathToString(dest);
   var filter = options.filter;
   if (filter !== undefined && typeof filter !== 'function') throw _fsInvalidArgType('filter', 'function', filter);
@@ -2949,7 +2969,6 @@ function _asyncGlob(pattern, options) {
 function mkdirSync(path, options) {
   _validatePath(path);
   ensureExactFs();
-  var p = _pathToString(path);
   var recursive = false;
   var mode;
   var firstCreatedPath;
@@ -2963,6 +2982,8 @@ function mkdirSync(path, options) {
   if (mode !== undefined) {
     mode = _coerceMode(mode) & 0o777;
   }
+  if (recursive) _guardClosedFsMutation('mkdir', path);
+  var p = _pathToString(path);
   try {
     if (recursive) {
       firstCreatedPath = _getFirstMissingPath(p);
@@ -2976,12 +2997,8 @@ function mkdirSync(path, options) {
         }
       }
     }
-    g.__exactMkdir(_nativeMkdirPath(p), recursive);
-    if (mode !== undefined) {
-      try {
-        chmodSync(p, mode);
-      } catch (_chmodErr) {}
-    }
+    g.__exactMkdir(_nativeMkdirPath(p), recursive,
+      mode === undefined ? -1 : mode);
     if (recursive) return firstCreatedPath;
   } catch(e) {
     throw _makeFsError(e, 'mkdir', p);
@@ -2990,6 +3007,7 @@ function mkdirSync(path, options) {
 
 function rmdirSync(path, options) {
   _validatePath(path); ensureExactFs();
+  _guardClosedFsMutation('rmdir', path);
   var p = _pathToString(path);
   var opts = options;
   if (opts === undefined) {
@@ -3024,16 +3042,19 @@ function rmdirSync(path, options) {
 }
 function unlinkSync(path) {
   _validatePath(path); ensureExactFs();
+  _guardClosedFsMutation('unlink', path);
   var p = _pathToString(path);
   try { g.__exactUnlink(p); } catch(e) { throw _makeFsError(e, 'unlink', p); }
 }
 function renameSync(oldPath, newPath) {
   _validatePath(oldPath, 'oldPath'); _validatePath(newPath, 'newPath'); ensureExactFs();
+  _guardClosedFsMutation('rename', oldPath, newPath);
   var op = _pathToString(oldPath); var np = _pathToString(newPath);
   try { g.__exactRename(op, np); } catch(e) { throw _makeFsError(e, 'rename', op, np); }
 }
 function copyFileSync(src, dest, mode) {
   _validatePath(src, 'src'); _validatePath(dest, 'dest'); ensureExactFs();
+  _guardClosedFsMutation('copyfile', src, dest);
   var s = _pathToString(src); var d = _pathToString(dest);
   if (mode !== undefined && mode !== null) {
     _validateCopyFileMode(mode);
@@ -3074,6 +3095,7 @@ function accessSync(path, mode) {
 }
 function chmodSync(path, mode) {
   _validatePath(path); ensureExactFs();
+  _guardClosedFsMutation('chmod', path);
   var p = _pathToString(path);
   var m = typeof mode === 'string' ? parseInt(mode, 8) : mode;
   try { g.__exactChmod(p, m); } catch(e) { throw _makeFsError(e, 'chmod', p); }
@@ -3107,6 +3129,7 @@ function _mkdtempDisposableFromPath(pathValue, removePath, returnPromise) {
   var disposalPath = removePath || pathValue;
   var removed = false;
   function removeDisposablePath() {
+    _guardClosedFsMutation('rm', disposalPath);
     try {
       _rmSyncInternal(disposalPath, { recursive: true, force: false }, true);
       removed = true;
@@ -3161,6 +3184,7 @@ function _mkdtempDisposableFromPath(pathValue, removePath, returnPromise) {
 
 function _mkdtempResult(prefix, options) {
   _validatePath(prefix, 'prefix'); _validateEncodingOption(options); ensureExactFs();
+  _guardClosedFsMutation('mkdtemp', prefix);
   var prefixPath = _pathToString(prefix);
   var parent = _dirnamePath(prefixPath);
   var rawPrefix = typeof prefix === 'string' ? prefix :
@@ -3426,6 +3450,7 @@ function rmdir(path, optOrCb, cb) {
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
   _validateCallback(callback);
   _validatePath(path);
+  _guardClosedFsMutation('rmdir', path);
   var native = _fsAsyncNative('__exactFsPathAsync');
   if (native && !(opts && opts.recursive === true)) {
     var rmdirPath = _pathToString(path);
@@ -3437,6 +3462,7 @@ function rmdir(path, optOrCb, cb) {
 }
 function unlink(path, cb) {
   _validateCallback(cb); _validatePath(path);
+  _guardClosedFsMutation('unlink', path);
   var native = _fsAsyncNative('__exactFsPathAsync');
   if (native) {
     var p = _pathToString(path);
@@ -3447,6 +3473,7 @@ function unlink(path, cb) {
 }
 function rename(o, n, cb) {
   _validateCallback(cb); _validatePath(o, 'oldPath'); _validatePath(n, 'newPath');
+  _guardClosedFsMutation('rename', o, n);
   var native = _fsAsyncNative('__exactFsPathAsync');
   if (native) {
     var op = _pathToString(o); var np = _pathToString(n);
@@ -3461,6 +3488,7 @@ function copyFile(s, d, modeOrCb, cb) {
   _validateCallback(callback);
   _validatePath(s, 'src');
   _validatePath(d, 'dest');
+  _guardClosedFsMutation('copyfile', s, d);
   if (mode !== undefined && mode !== null) {
     _validateCopyFileMode(mode);
   }
@@ -3489,6 +3517,7 @@ function access(path, modeOrCb, cb) {
 }
 function chmod(path, mode, cb) {
   _validateCallback(cb); _validatePath(path);
+  _guardClosedFsMutation('chmod', path);
   var native = _fsAsyncNative('__exactFsPathAsync');
   if (native) {
     var p = _pathToString(path);
@@ -5406,6 +5435,7 @@ function watch(filename, options, listener) {
   options = _normalizeWatchOptions(options);
   if (listener && typeof listener !== 'function') _validateCallback(listener);
   _validatePath(filename, 'filename');
+  _guardClosedFsMutation('watch', filename);
   var watcher = new FSWatcher();
   watcher._filename = _pathToString(filename);
   watcher._signal = options.signal;
@@ -5637,6 +5667,7 @@ function watchFile(filename, options, listener) {
   }
   if (typeof listener !== 'function') _validateCallback(listener);
   _validatePath(filename, 'filename');
+  _guardClosedFsMutation('watchFile', filename);
   var resolvedFilename = _pathToString(filename);
   var statOptions = { bigint: options.bigint };
   var watcher = _watchedFiles[resolvedFilename];
@@ -5750,6 +5781,7 @@ function symlinkSync(target, path, type) {
   _validatePath(path, 'path');
   _validateSymlinkType(type);
   ensureExactFs();
+  _guardClosedFsMutation('symlink', target, path);
   var p = _pathToString(path);
   var targetPath = typeof t === 'string' ? t : Buffer.isBuffer(t) ? t.toString() : _coercePathFromURL(t, 'target');
   var linkPath = '' + p;
@@ -5764,6 +5796,7 @@ function symlink(target, path, type, cb) {
   _validatePath(target, 'target');
   _validatePath(path, 'path');
   _validateSymlinkType(type);
+  _guardClosedFsMutation('symlink', target, path);
   var native = _fsAsyncNative('__exactFsPathAsync');
   if (native) {
     var t = _coercePathFromURL(target, 'target');
@@ -5778,6 +5811,7 @@ function linkSync(existingPath, newPath) {
   _validatePath(existingPath, 'existingPath');
   _validatePath(newPath, 'newPath');
   ensureExactFs();
+  _guardClosedFsMutation('link', existingPath, newPath);
   var ep = _pathToString(existingPath); var np = _pathToString(newPath);
   try {
     if (typeof g.__exactLink === 'function') return g.__exactLink(ep, np);
@@ -5788,6 +5822,7 @@ function link(existingPath, newPath, cb) {
   _validateCallback(cb);
   _validatePath(existingPath, 'existingPath');
   _validatePath(newPath, 'newPath');
+  _guardClosedFsMutation('link', existingPath, newPath);
   var native = _fsAsyncNative('__exactFsPathAsync');
   if (native) {
     var ep = _pathToString(existingPath); var np = _pathToString(newPath);
@@ -5857,6 +5892,7 @@ function chownSync(path, uid, gid) {
   _validatePath(path);
   _validateUidOrGid('uid', uid);
   _validateUidOrGid('gid', gid);
+  _guardClosedFsMutation('chown', path);
   if (uid === -1 && gid === -1) return;
   ensureExactFs();
   var p = _pathToString(path);
@@ -5870,6 +5906,7 @@ function chown(path, uid, gid, cb) {
   _validatePath(path);
   _validateUidOrGid('uid', uid);
   _validateUidOrGid('gid', gid);
+  _guardClosedFsMutation('chown', path);
   if (uid === -1 && gid === -1) {
     return _deferFsCallback(function() { cb(null); });
   }
@@ -5885,6 +5922,7 @@ function lchownSync(path, uid, gid) {
   _validatePath(path);
   _validateUidOrGid('uid', uid);
   _validateUidOrGid('gid', gid);
+  _guardClosedFsMutation('lchown', path);
   if (uid === -1 && gid === -1) return;
   ensureExactFs();
   var p = _pathToString(path);
@@ -5919,6 +5957,7 @@ function _toUnixTimestamp(time) {
 function utimesSync(path, atime, mtime) {
   _validatePath(path);
   ensureExactFs();
+  _guardClosedFsMutation('utime', path);
   var p = _pathToString(path);
   var at = _toUnixTimestamp(atime);
   var mt = _toUnixTimestamp(mtime);
@@ -5930,6 +5969,7 @@ function utimesSync(path, atime, mtime) {
 function utimes(path, atime, mtime, cb) {
   _validateCallback(cb);
   _validatePath(path);
+  _guardClosedFsMutation('utime', path);
   var at = _toUnixTimestamp(atime);
   var mt = _toUnixTimestamp(mtime);
   var native = _fsAsyncNative('__exactFsPathAsync');
@@ -5943,6 +5983,7 @@ function utimes(path, atime, mtime, cb) {
 function _rmSyncInternal(path, options, preserveOriginalError) {
   ensureExactFs();
   _validatePath(path, 'path');
+  _guardClosedFsMutation('rm', path);
   if (typeof options === 'boolean') {
     options = { recursive: true, force: true };
   } else {
@@ -6042,6 +6083,7 @@ function rm(path, options, cb) {
 
 function _asyncRm(path, options) {
   _validatePath(path, 'path');
+  _guardClosedFsMutation('rm', path);
   if (typeof options === 'boolean') options = { recursive: true, force: true };
   options = options || {};
   var p = _pathToString(path), force = options.force === true, recursive = options.recursive === true;
@@ -6335,8 +6377,9 @@ FileHandlePromise.prototype.stat = function(options) {
 FileHandlePromise.prototype.chmod = function(mode) {
   var handle = this;
   return _resolveAsync(function() {
-    var fd = _fileHandlePromiseOpenFd(handle);
     mode = _coerceMode(mode); _validateUint32('mode', mode);
+    _guardClosedFsMutation('fchmod');
+    var fd = _fileHandlePromiseOpenFd(handle);
     var native = _fsAsyncNative('__exactFsFdAsync');
     return native ? _asyncFdOp(native, 'fchmod', fd, mode) : fchmodSync(fd, mode);
   })();
@@ -6344,9 +6387,10 @@ FileHandlePromise.prototype.chmod = function(mode) {
 FileHandlePromise.prototype.chown = function(uid, gid) {
   var handle = this;
   return _resolveAsync(function() {
-    var fd = _fileHandlePromiseOpenFd(handle);
     _validateUidOrGid('uid', uid); _validateUidOrGid('gid', gid);
+    _guardClosedFsMutation('fchown');
     if (uid === -1 && gid === -1) return;
+    var fd = _fileHandlePromiseOpenFd(handle);
     var native = _fsAsyncNative('__exactFsFdAsync');
     return native ? _asyncFdOp(native, 'fchown', fd, uid, gid) : fchownSync(fd, uid, gid);
   })();
@@ -6354,6 +6398,7 @@ FileHandlePromise.prototype.chown = function(uid, gid) {
 FileHandlePromise.prototype.utimes = function(atime, mtime) {
   var handle = this;
   return _resolveAsync(function() {
+    _guardClosedFsMutation('futimes');
     var fd = _fileHandlePromiseOpenFd(handle);
     var native = _fsAsyncNative('__exactFsFdAsync');
     return native ? _asyncFdOp(native, 'futimes', fd, _toUnixTimestamp(atime), _toUnixTimestamp(mtime)) : futimesSync(fd, atime, mtime);
@@ -6472,6 +6517,7 @@ var promises = {
   rmdir: function(p, o) {
     return _resolveAsync(function() {
       _validatePath(p);
+      _guardClosedFsMutation('rmdir', p);
       var native = _fsAsyncNative('__exactFsPathAsync');
       if (native && !(o && o.recursive === true)) {
         var pathString = _pathToString(p);
@@ -6483,6 +6529,7 @@ var promises = {
   unlink: function(p) {
     return _resolveAsync(function() {
       _validatePath(p);
+      _guardClosedFsMutation('unlink', p);
       var native = _fsAsyncNative('__exactFsPathAsync');
       if (native) {
         var pathString = _pathToString(p);
@@ -6494,6 +6541,7 @@ var promises = {
   rename: function(o, n) {
     return _resolveAsync(function() {
       _validatePath(o, 'oldPath'); _validatePath(n, 'newPath');
+      _guardClosedFsMutation('rename', o, n);
       var native = _fsAsyncNative('__exactFsPathAsync');
       if (native) {
         var op = _pathToString(o); var np = _pathToString(n);
@@ -6505,6 +6553,7 @@ var promises = {
   copyFile: function(s, d, m) {
     return _resolveAsync(function() {
       _validatePath(s, 'src'); _validatePath(d, 'dest');
+      _guardClosedFsMutation('copyfile', s, d);
       if (m !== undefined && m !== null) _validateCopyFileMode(m);
       var native = _fsAsyncNative('__exactFsPathAsync');
       if (native) {
@@ -6530,6 +6579,7 @@ var promises = {
   chmod: function(p, m) {
     return _resolveAsync(function() {
       _validatePath(p);
+      _guardClosedFsMutation('chmod', p);
       var native = _fsAsyncNative('__exactFsPathAsync');
       if (native) {
         var pathString = _pathToString(p);
@@ -6682,6 +6732,7 @@ var promises = {
       _validatePath(p);
       _validateUidOrGid('uid', u);
       _validateUidOrGid('gid', gi);
+      _guardClosedFsMutation('lchown', p);
       if (u === -1 && gi === -1) return;
       var native = _fsAsyncNative('__exactFsPathAsync');
       if (native) {
@@ -6696,6 +6747,7 @@ var promises = {
       _validatePath(p);
       _validateUidOrGid('uid', u);
       _validateUidOrGid('gid', gi);
+      _guardClosedFsMutation('chown', p);
       if (u === -1 && gi === -1) return;
       var native = _fsAsyncNative('__exactFsPathAsync');
       if (native) {
@@ -6708,6 +6760,7 @@ var promises = {
   utimes: function(p, a, m) {
     return _resolveAsync(function() {
       _validatePath(p);
+      _guardClosedFsMutation('utime', p);
       var at = _toUnixTimestamp(a);
       var mt = _toUnixTimestamp(m);
       var native = _fsAsyncNative('__exactFsPathAsync');
@@ -6719,11 +6772,11 @@ var promises = {
     })();
   },
   lutimes: function(p, a, m) { return _resolveAsync(function() {
-    _validatePath(p); var native = _fsAsyncNative('__exactFsPathAsync'); var pathString = _pathToString(p);
+    _validatePath(p); _guardClosedFsMutation('lutimes', p); var native = _fsAsyncNative('__exactFsPathAsync'); var pathString = _pathToString(p);
     return native ? _asyncFsPathOp(native, 'lutime', [pathString, null, _toUnixTimestamp(a), _toUnixTimestamp(m)], 'lutimes', pathString) : lutimesSync(p, a, m);
   })(); },
   lchmod: function(p, m) { return _resolveAsync(function() {
-    _validatePath(p); m = _coerceMode(m); _validateUint32('mode', m); var native = _fsAsyncNative('__exactFsPathAsync'); var pathString = _pathToString(p);
+    _validatePath(p); m = _coerceMode(m); _validateUint32('mode', m); _guardClosedFsMutation('lchmod', p); var native = _fsAsyncNative('__exactFsPathAsync'); var pathString = _pathToString(p);
     return native ? _asyncFsPathOp(native, 'lchmod', [pathString, null, m], 'lchmod', pathString) : lchmodSync(p, m);
   })(); },
   opendir: function(p, o) { return _resolveAsync(function() {
@@ -6744,6 +6797,7 @@ var promises = {
       _validatePath(target, 'target');
       _validatePath(p, 'path');
       _validateSymlinkType(ty);
+      _guardClosedFsMutation('symlink', t, p);
       var native = _fsAsyncNative('__exactFsPathAsync');
       if (native) {
         var targetPath = typeof target === 'string' ? target : Buffer.isBuffer(target) ? target.toString() : _coercePathFromURL(target, 'target');
@@ -6757,6 +6811,7 @@ var promises = {
     return _resolveAsync(function() {
       _validatePath(e, 'existingPath');
       _validatePath(n, 'newPath');
+      _guardClosedFsMutation('link', e, n);
       var native = _fsAsyncNative('__exactFsPathAsync');
       if (native) {
         var ep = _pathToString(e); var np = _pathToString(n);
@@ -6781,11 +6836,13 @@ var promises = {
   },
   fchmod: function(fd, m) { return _resolveAsync(function() {
     _validateFdNonNegative(fd); m = _coerceMode(m); _validateUint32('mode', m);
+    _guardClosedFsMutation('fchmod');
     var native = _fsAsyncNative('__exactFsFdAsync');
     return native ? _asyncFdOp(native, 'fchmod', fd, m) : fchmodSync(fd, m);
   })(); },
   fchown: function(fd, u, g) { return _resolveAsync(function() {
     _validateFdNonNegative(fd); _validateUidOrGid('uid', u); _validateUidOrGid('gid', g);
+    _guardClosedFsMutation('fchown');
     if (u === -1 && g === -1) return;
     var native = _fsAsyncNative('__exactFsFdAsync');
     return native ? _asyncFdOp(native, 'fchown', fd, u, g) : fchownSync(fd, u, g);
@@ -6900,6 +6957,7 @@ function fchmod(fd, mode, callback) {
   _validateUint32('mode', mode);
   if (callback !== undefined && typeof callback !== 'function') _validateCallback(callback);
   ensureExactFs();
+  _guardClosedFsMutation('fchmod');
   if (typeof callback === 'function') {
     var asyncNative = _fsAsyncNative('__exactFsFdAsync');
     if (asyncNative) {
@@ -6924,6 +6982,7 @@ function fchmodSync(fd, mode) {
   mode = _coerceMode(mode);
   _validateUint32('mode', mode);
   ensureExactFs();
+  _guardClosedFsMutation('fchmod');
   try {
     if (typeof g.__exactFsFchmodSync === 'function') {
       return g.__exactFsFchmodSync(fd, mode);
@@ -6944,6 +7003,7 @@ function fchown(fd, uid, gid, callback) {
   if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
   _validateUidOrGid('gid', gid);
   if (callback !== undefined && typeof callback !== 'function') _validateCallback(callback);
+  _guardClosedFsMutation('fchown');
   // Match fchownSync: no-op when both uid and gid are -1
   if (uid === -1 && gid === -1) {
     if (typeof callback === 'function') {
@@ -6987,6 +7047,7 @@ function fchownSync(fd, uid, gid) {
   _validateUidOrGid('uid', uid);
   if (typeof gid !== 'number') throw _fsInvalidArgType('gid', 'number', gid);
   _validateUidOrGid('gid', gid);
+  _guardClosedFsMutation('fchown');
   if (uid === -1 && gid === -1) return;
   ensureExactFs();
   try {
@@ -7127,6 +7188,7 @@ function futimes(fd, atime, mtime, callback) {
   _validateFdNonNegative(fd);
   _validateCallback(callback);
   ensureExactFs();
+  _guardClosedFsMutation('futimes');
   var native = _fsAsyncNative('__exactFsFdAsync');
   if (native) {
     return _deferFsPromiseCallback(
@@ -7147,6 +7209,7 @@ function futimes(fd, atime, mtime, callback) {
 function futimesSync(fd, atime, mtime) {
   _validateFdNonNegative(fd);
   ensureExactFs();
+  _guardClosedFsMutation('futimes');
   try {
     if (typeof g.__exactFsFutimesSync === 'function') {
       var at = _toUnixTimestamp(atime);
@@ -7170,6 +7233,7 @@ function lchmod(path, mode, callback) {
   mode = _coerceMode(mode);
   _validateUint32('mode', mode);
   _validateCallback(callback);
+  _guardClosedFsMutation('lchmod', path);
   var native = _fsAsyncNative('__exactFsPathAsync');
   var p = _pathToString(path);
   if (native) return _deferFsPromiseCallback(_asyncFsPathOp(native, 'lchmod', [p, null, mode], 'lchmod', p), callback);
@@ -7180,6 +7244,7 @@ function lchmodSync(path, mode) {
   mode = _coerceMode(mode);
   _validateUint32('mode', mode);
   ensureExactFs();
+  _guardClosedFsMutation('lchmod', path);
   // Convert Buffer/URL paths and resolve relative paths against the JS cwd
   // before crossing into the native hook, like every other fs entry point
   // (the raw argument was passed through before — ENG-23480 #10).
@@ -7207,6 +7272,7 @@ function lchown(path, uid, gid, callback) {
   _validateUidOrGid('uid', uid);
   _validateUidOrGid('gid', gid);
   _validateCallback(callback);
+  _guardClosedFsMutation('lchown', path);
   if (uid === -1 && gid === -1) {
     return _deferFsCallback(function() { callback(null); });
   }
@@ -7223,6 +7289,7 @@ function lchown(path, uid, gid, callback) {
 function lutimes(path, atime, mtime, callback) {
   _validatePath(path);
   _validateCallback(callback);
+  _guardClosedFsMutation('lutimes', path);
   var native = _fsAsyncNative('__exactFsPathAsync');
   var p = _pathToString(path), at = _toUnixTimestamp(atime), mt = _toUnixTimestamp(mtime);
   if (native) return _deferFsPromiseCallback(_asyncFsPathOp(native, 'lutime', [p, null, at, mt], 'lutimes', p), callback);
@@ -7231,6 +7298,7 @@ function lutimes(path, atime, mtime, callback) {
 function lutimesSync(path, atime, mtime) {
   _validatePath(path);
   ensureExactFs();
+  _guardClosedFsMutation('lutimes', path);
   // Buffer/URL -> string and relative -> absolute (vs the JS cwd) before the
   // native hook, as chmodSync/utimesSync do (ENG-23480 #10).
   var p = _pathToString(path);

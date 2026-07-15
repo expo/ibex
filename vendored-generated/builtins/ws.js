@@ -135,7 +135,8 @@ function _installWsServerState(server) {
 	if (!_wsServerStates || typeof Object.defineProperty !== "function") throw new Error("WebSocketServer requires WeakMap-backed private state");
 	var state = {
 		handle: null,
-		listening: false
+		listening: false,
+		closed: false
 	};
 	_wsServerStates.set(server, state);
 	Object.defineProperty(server, "_handle", {
@@ -687,42 +688,54 @@ function WebSocketServer(options, callback) {
 		_wsServerState(this).listening = true;
 		var s = this;
 		setTimeout(function() {
-			s.emit("listening");
+			if (!_wsServerState(s).closed) s.emit("listening");
 		}, 0);
 		return;
 	}
 	if (!_hasTcpSupport()) {
 		var self = this;
 		setTimeout(function() {
-			self.emit("error", /* @__PURE__ */ new Error("TCP not available"));
+			if (!_wsServerState(self).closed) self.emit("error", /* @__PURE__ */ new Error("TCP not available"));
 		}, 0);
 		return;
 	}
 	var self = this;
 	setTimeout(function() {
+		var state = _wsServerState(self);
+		if (state.closed) return;
 		try {
-			_wsServerState(self).handle = __exactTcpListen(self._host, self._port, 128);
+			var handle = __exactTcpListen(self._host, self._port, 128);
+			if (state.closed) {
+				__exactTcpClose(handle);
+				return;
+			}
+			state.handle = handle;
 			try {
-				var info = __exactTcpLocalAddr(_wsServerState(self).handle);
+				var info = __exactTcpLocalAddr(state.handle);
 				if (info) {
 					var addr = JSON.parse(info);
 					self._port = addr.port;
 					self._host = addr.address;
 				}
 			} catch (e) {}
-			_wsServerState(self).listening = true;
+			if (state.closed) {
+				__exactTcpClose(state.handle);
+				state.handle = null;
+				return;
+			}
+			state.listening = true;
 			self.emit("listening");
 			self._startAccepting();
 		} catch (e) {
-			self.emit("error", e);
+			if (!state.closed) self.emit("error", e);
 		}
 	}, 0);
 }
 WebSocketServer.prototype._startAccepting = function() {
-	if (this._acceptTimer != null) return;
+	if (this._acceptTimer != null || _wsServerState(this).closed) return;
 	var self = this;
 	function acceptLoop() {
-		if (!_wsServerState(self).listening || _wsServerState(self).handle == null) return;
+		if (_wsServerState(self).closed || !_wsServerState(self).listening || _wsServerState(self).handle == null) return;
 		try {
 			var clientHandle = __exactTcpAccept(_wsServerState(self).handle);
 			if (clientHandle !== -1) self._handleRawConnection(clientHandle);
@@ -868,6 +881,7 @@ WebSocketServer.prototype.close = function(callback) {
 	var state = _wsServerState(this);
 	if (state.handle != null && _hasTcpSupport()) __exactTcpClose(state.handle);
 	if (typeof callback === "function") this.once("close", callback);
+	state.closed = true;
 	state.listening = false;
 	if (this._acceptTimer != null) {
 		clearTimeout(this._acceptTimer);

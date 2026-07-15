@@ -35,6 +35,7 @@ import {
   compareCanonicalBytes,
   packageIntegrity,
   resolveTypedDelegations,
+  withV1CwdObserveFloor,
 } from './capsec-policy-authoring.mjs';
 import {
   authenticateAnalyzedPackageTree,
@@ -140,8 +141,10 @@ function resolveTargetIdentity(fromModuleId, bareTarget) {
 }
 
 // Record a package-level import edge as `fromIdentity -> toIdentity`. Root
-// edges (no node_modules ancestor) carry `''` on the from side and are dropped
-// before the cascade — they grant via rootGrants, not delegates.
+// edges (no node_modules ancestor) carry `''` on the from side. They do not
+// participate in delegation, but are retained as explicit root-import
+// provenance in the canonical policy so a synthetic session entry never has
+// to infer its direct package surface.
 function recordEdge(fromModuleId, bareTarget) {
   edgeTargets.add(bareTarget);
   const fromIdentity = packageIdentityOfModuleId(fromModuleId) || '';
@@ -477,6 +480,11 @@ const sortedEdges = [...edges]
   .map((e) => e.split('\u0000'))
   .filter(([from]) => from !== '') // root edges carry grants via import sites, not delegates
   .map(([from, to]) => [from, to]);
+const rootImports = [...edges]
+  .sort(compareCanonicalBytes)
+  .map((edge) => edge.split('\u0000'))
+  .filter(([from]) => from === '')
+  .map(([, to]) => to);
 
 // Seed each bare import-site grant into every installed identity of that name:
 // an import-site grant is app-wide for the package it names, so any version may
@@ -529,7 +537,9 @@ const principals = [...packageIdentities].sort(compareCanonicalBytes).map((ident
   const explicit = explicitSurfaces.get(bare);
   return {
     principal,
-    floor: effectiveTypedRows.get(identity) || [],
+    floor: withV1CwdObserveFloor(
+      effectiveTypedRows.get(identity) || [],
+    ).sort(compareCanonicalBytes),
     denials: [],
     escalationCeiling: [],
     imports: {
@@ -545,7 +555,7 @@ const principals = [...packageIdentities].sort(compareCanonicalBytes).map((ident
   };
 });
 
-const artifact = buildCanonicalPolicy(principals);
+const artifact = buildCanonicalPolicy(principals, rootImports);
 const rendered = `${JSON.stringify(artifact, null, 2)}\n`;
 
 for (const ignored of ignoredPackageGrants) {

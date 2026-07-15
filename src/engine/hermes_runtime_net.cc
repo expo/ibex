@@ -56,6 +56,7 @@ struct SocketEntry {
   uint64_t owner = 0;
   std::string capability;
   bool typedConnect = false;
+  bool typedListen = false;
   bool typedPending = false;
   std::string typedHost;
   uint16_t typedPort = 0;
@@ -68,6 +69,15 @@ struct SocketEntry {
   uint64_t typedDynamicGeneration = 0;
   uint64_t typedHandleGeneration = 0;
   std::vector<uint64_t> typedAuthorizationPrincipals;
+  uint32_t typedListenOperationKind = 0;
+  std::string typedListenHost;
+  uint16_t typedListenPort = 0;
+  bool typedListenDualStack = false;
+  std::string typedListenBoundAddress;
+  uint16_t typedListenBoundPort = 0;
+  std::string typedListenerId;
+  std::string typedAcceptedAddress;
+  uint16_t typedAcceptedPort = 0;
   bool typedUdpAuthorizationGenerationsInitialized = false;
   std::string typedUdpHost;
   uint16_t typedUdpPort = 0;
@@ -302,6 +312,41 @@ int registerTypedPendingConnectHandle(
   return handle;
 }
 
+int registerTypedListenHandle(
+    int fd,
+    uint64_t identity,
+    uint64_t owner,
+    uint32_t operationKind,
+    std::string host,
+    uint16_t port,
+    bool dualStack,
+    std::string boundAddress,
+    uint16_t boundPort,
+    std::string listenerId,
+    std::string acceptedAddress = {},
+    uint16_t acceptedPort = 0) {
+  std::lock_guard<std::mutex> lock(g_socket_mutex);
+  int handle = g_next_socket_handle++;
+  SocketEntry entry;
+  entry.fd = fd;
+  entry.identity = identity;
+  captureSocketFdIdentity(entry);
+  entry.runtimeNonce = exactCurrentRuntimeNonce();
+  entry.owner = owner;
+  entry.typedListen = true;
+  entry.typedListenOperationKind = operationKind;
+  entry.typedListenHost = std::move(host);
+  entry.typedListenPort = port;
+  entry.typedListenDualStack = dualStack;
+  entry.typedListenBoundAddress = std::move(boundAddress);
+  entry.typedListenBoundPort = boundPort;
+  entry.typedListenerId = std::move(listenerId);
+  entry.typedAcceptedAddress = std::move(acceptedAddress);
+  entry.typedAcceptedPort = acceptedPort;
+  g_socket_handles[handle] = std::move(entry);
+  return handle;
+}
+
 uint64_t reserveSocketIdentity() {
   std::lock_guard<std::mutex> lock(g_socket_mutex);
   return g_next_socket_identity++;
@@ -336,6 +381,38 @@ bool authorizeTypedTcp(
   return authorizeTypedNetwork(
       principal, 2, host, port, stage, candidates, selected, peer,
       connectionId);
+}
+
+bool authorizeTypedListen(
+    uint64_t principal,
+    uint32_t operationKind,
+    const std::string& host,
+    uint16_t port,
+    bool dualStack,
+    uint32_t stage,
+    const std::string& boundAddress,
+    uint16_t boundPort,
+    const std::string& listenerId,
+    const std::string& acceptedAddress,
+    uint16_t acceptedPort) {
+  auto principals = exactCollectTypedPrincipalStack();
+  return ex_host_authorize_typed_listen_stack(
+             principal, principals.data(), principals.size(), operationKind,
+             host.c_str(), port, dualStack ? 1 : 0, stage,
+             boundAddress.empty() ? nullptr : boundAddress.c_str(), boundPort,
+             listenerId.empty() ? nullptr : listenerId.c_str(),
+             acceptedAddress.empty() ? nullptr : acceptedAddress.c_str(),
+             acceptedPort) == 1;
+}
+
+bool authorizeTypedListenEntry(const SocketEntry& entry) {
+  const bool accepted = !entry.typedAcceptedAddress.empty();
+  return authorizeTypedListen(
+      entry.owner, entry.typedListenOperationKind, entry.typedListenHost,
+      entry.typedListenPort, entry.typedListenDualStack,
+      accepted ? 4 : 2, entry.typedListenBoundAddress,
+      entry.typedListenBoundPort, entry.typedListenerId,
+      entry.typedAcceptedAddress, entry.typedAcceptedPort);
 }
 
 struct NetworkAuthorizationGenerations {
@@ -403,6 +480,12 @@ LockedSocketIo requireSocketIo(
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
   if (isAllowAll()) return LockedSocketIo(std::move(lock), entry.fd);
+  if (entry.typedListen) {
+    if (!authorizeTypedListenEntry(entry)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    return LockedSocketIo(std::move(lock), entry.fd);
+  }
   if (!entry.typedConnect) {
     if (!entry.capability.empty() && !checkCapability(entry.capability)) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -735,6 +818,10 @@ SocketEntry requireSocketHandle(
       auto actualPeer = socketPeerText(entry.fd);
       if (!actualPeer || *actualPeer != entry.typedPeer ||
           !authorizeTypedTcpWithLease(handle, entry, *actualPeer)) {
+        throw facebook::jsi::JSError(runtime, "Permission denied");
+      }
+    } else if (entry.typedListen) {
+      if (!authorizeTypedListenEntry(entry)) {
         throw facebook::jsi::JSError(runtime, "Permission denied");
       }
     } else if (entry.capability.empty()) {
@@ -1523,6 +1610,9 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (count > 0 && args[0].isString()) host = args[0].toString(runtime).utf8(runtime);
           int port = 0;
           if (count > 1 && args[1].isNumber()) port = static_cast<int>(args[1].asNumber());
+          if (port < 0 || port > 65535) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpListen: port out of range");
+          }
           int backlog = 128;
           if (count > 2 && args[2].isNumber()) backlog = static_cast<int>(args[2].asNumber());
           int ipv6Only = 0;
@@ -1538,7 +1628,28 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           // independent of the builtin import allowlist. (ENG-22722)
           std::string listenCapability =
               networkEndpointCapability("network:listen", host, port);
-          requireNetworkCapability(runtime, listenCapability, "network:listen");
+          const bool armed = ex_host_is_armed() == 1;
+          const uint64_t owner = currentPrincipalId();
+          const bool dualStack = host == "::" && ipv6Only == 0;
+          if (armed) {
+            // The listen occurrence must name the exact requested bind before
+            // getaddrinfo/bind and the exact OS-selected endpoint after bind.
+            // A single descriptor cannot currently enumerate both families of
+            // an implicit dual-stack wildcard bind, so keep that shape closed
+            // instead of recording an incomplete occurrence.
+            // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers
+            if (dualStack) {
+              throw facebook::jsi::JSError(
+                  runtime, "dual-stack wildcard listen is closed under armed startup");
+            }
+            if (!authorizeTypedListen(
+                    owner, 0, host, static_cast<uint16_t>(port), dualStack, 0,
+                    "", 0, "", "", 0)) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+          } else {
+            requireNetworkCapability(runtime, listenCapability, "network:listen");
+          }
           struct addrinfo hints{}, *result = nullptr;
           if (ipv6Only || host.find(':') != std::string::npos) {
             hints.ai_family = AF_INET6;
@@ -1601,7 +1712,46 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int flags = fcntl(fd, F_GETFL, 0);
           if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-          int handle = registerSocketHandle(fd, listenCapability);
+          int handle = 0;
+          if (armed) {
+            struct sockaddr_storage bound = {};
+            socklen_t boundLength = sizeof(bound);
+            if (::getsockname(
+                    fd, reinterpret_cast<struct sockaddr*>(&bound),
+                    &boundLength) != 0) {
+              int saved = errno;
+              ::close(fd);
+              throw facebook::jsi::JSError(
+                  runtime,
+                  ("getsockname failed after listen: " +
+                   std::string(strerror(saved))).c_str());
+            }
+            auto boundAddress =
+                addressText(reinterpret_cast<const struct sockaddr*>(&bound));
+            uint16_t boundPort = 0;
+            if (bound.ss_family == AF_INET) {
+              boundPort = ntohs(reinterpret_cast<struct sockaddr_in*>(&bound)->sin_port);
+            } else if (bound.ss_family == AF_INET6) {
+              boundPort = ntohs(reinterpret_cast<struct sockaddr_in6*>(&bound)->sin6_port);
+            }
+            const uint64_t identity = reserveSocketIdentity();
+            const std::string listenerId =
+                "tcp-listener:" + std::to_string(exactCurrentRuntimeNonce()) +
+                ":" + std::to_string(identity);
+            if (!boundAddress || boundPort == 0 ||
+                !authorizeTypedListen(
+                    owner, 0, host, static_cast<uint16_t>(port), dualStack, 2,
+                    boundAddress ? *boundAddress : "", boundPort, listenerId,
+                    "", 0)) {
+              ::close(fd);
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+            handle = registerTypedListenHandle(
+                fd, identity, owner, 0, host, static_cast<uint16_t>(port),
+                dualStack, *boundAddress, boundPort, listenerId);
+          } else {
+            handle = registerSocketHandle(fd, listenCapability);
+          }
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactTcpListen", std::move(tcpListenFn));
@@ -1624,8 +1774,42 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int flags = fcntl(clientFd, F_GETFL, 0);
           if (flags != -1) fcntl(clientFd, F_SETFL, flags | O_NONBLOCK);
-          int newHandle =
-              registerSocketHandle(clientFd, listenEntry.capability, listenEntry.owner);
+          int newHandle = 0;
+          if (listenEntry.typedListen) {
+            auto acceptedAddress = addressText(
+                reinterpret_cast<const struct sockaddr*>(&clientAddr));
+            uint16_t acceptedPort = 0;
+            if (clientAddr.ss_family == AF_INET) {
+              acceptedPort = ntohs(
+                  reinterpret_cast<struct sockaddr_in*>(&clientAddr)->sin_port);
+            } else if (clientAddr.ss_family == AF_INET6) {
+              acceptedPort = ntohs(
+                  reinterpret_cast<struct sockaddr_in6*>(&clientAddr)->sin6_port);
+            }
+            if (!acceptedAddress || acceptedPort == 0 ||
+                !authorizeTypedListen(
+                    listenEntry.owner, listenEntry.typedListenOperationKind,
+                    listenEntry.typedListenHost, listenEntry.typedListenPort,
+                    listenEntry.typedListenDualStack, 3,
+                    listenEntry.typedListenBoundAddress,
+                    listenEntry.typedListenBoundPort,
+                    listenEntry.typedListenerId,
+                    acceptedAddress ? *acceptedAddress : "", acceptedPort)) {
+              ::close(clientFd);
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+            newHandle = registerTypedListenHandle(
+                clientFd, reserveSocketIdentity(), listenEntry.owner,
+                listenEntry.typedListenOperationKind,
+                listenEntry.typedListenHost, listenEntry.typedListenPort,
+                listenEntry.typedListenDualStack,
+                listenEntry.typedListenBoundAddress,
+                listenEntry.typedListenBoundPort,
+                listenEntry.typedListenerId, *acceptedAddress, acceptedPort);
+          } else {
+            newHandle = registerSocketHandle(
+                clientFd, listenEntry.capability, listenEntry.owner);
+          }
           return facebook::jsi::Value(newHandle);
         });
     rt.global().setProperty(rt, "__exactTcpAccept", std::move(tcpAcceptFn));

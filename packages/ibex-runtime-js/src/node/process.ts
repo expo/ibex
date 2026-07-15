@@ -54,6 +54,30 @@ const _nativeProcessKill:
   typeof (globalThis as any).process?.kill === 'function'
     ? (globalThis as any).process.kill.bind((globalThis as any).process)
     : undefined;
+// Keep the native stream objects as lexical typed-query ports before the
+// shared bundle replaces `globalThis.process`. Their accessors are backed by
+// supervisor-authenticated live terminal state in an isolated session worker.
+// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+const _nativeProcessStdin = (globalThis as any).process?.stdin;
+const _nativeProcessStdout = (globalThis as any).process?.stdout;
+const _nativeProcessStderr = (globalThis as any).process?.stderr;
+// Capture raw lifecycle/stdin bridges while the trusted runtime bundle is
+// bootstrapping. Armed startup removes their global spellings afterwards;
+// process APIs retain only these lexical references, so user code cannot swap
+// the implementation by recreating either global property.
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+const _nativeStdinRead:
+  | ((maxBytes: number) => Uint8Array | string | null)
+  | undefined =
+  typeof (globalThis as any).__exactStdinRead === 'function'
+    ? (globalThis as any).__exactStdinRead.bind(globalThis)
+    : undefined;
+const _nativeLifecycleExit:
+  | ((code?: number) => void)
+  | undefined =
+  typeof (globalThis as any).__exactExit === 'function'
+    ? (globalThis as any).__exactExit.bind(globalThis)
+    : undefined;
 const _nativeArch: string | undefined =
   typeof (globalThis as any).process?.arch === 'string'
     ? (globalThis as any).process.arch
@@ -945,7 +969,12 @@ function _decodeStreamChunkForConsole(data: string | Uint8Array): string {
  * Create a process stream (stdout/stderr/stdin) with basic EventEmitter support.
  * This ensures pipe() and other stream operations work even before stream-enhance runs.
  */
-function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string | Uint8Array) => boolean): any {
+function _makeProcessStream(
+  fd: number,
+  isTTY: boolean,
+  writeFn?: (data: string | Uint8Array) => boolean,
+  nativeQueryStream?: any,
+): any {
   const listeners: Record<string, Array<{fn: Function, once: boolean}>> = {};
   // Buffer / Uint8Array chunks are passed through as raw bytes: the native
   // write (__exactFsWrite) accepts a Uint8Array verbatim, while decoding to a
@@ -960,7 +989,6 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
   }
   const stream: any = {
     fd,
-    isTTY,
     readable: fd === 0,
     readableEnded: false,
     readableFlowing: null,
@@ -1017,6 +1045,29 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
       return stream;
     },
   };
+  Object.defineProperties(stream, {
+    isTTY: {
+      enumerable: true,
+      configurable: false,
+      get() {
+        return nativeQueryStream ? !!nativeQueryStream.isTTY : isTTY;
+      },
+    },
+    columns: {
+      enumerable: true,
+      configurable: false,
+      get() {
+        return nativeQueryStream ? nativeQueryStream.columns : undefined;
+      },
+    },
+    rows: {
+      enumerable: true,
+      configurable: false,
+      get() {
+        return nativeQueryStream ? nativeQueryStream.rows : undefined;
+      },
+    },
+  });
   if (fd === 0) {
     const stdinBytes = (data: any): any => {
       if (typeof data === 'string') {
@@ -1079,13 +1130,12 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
       stream.readable = true;
       stream._paused = false;
       stream.readableFlowing = true;
-      if (!stream._ended && !stream._pollTimer && typeof (globalThis as any).__exactStdinRead === 'function') {
+      if (!stream._ended && !stream._pollTimer && _nativeStdinRead) {
         (function pollStdin() {
           if (stream._paused || stream._ended || stream.destroyed) {
             return;
           }
-          const stdinRead = (globalThis as any).__exactStdinRead;
-          const data = stdinRead(4096);
+          const data = _nativeStdinRead(4096);
           if (data === null) {
             stream._pollTimer = setTimeout(pollStdin, 25);
             return;
@@ -1118,11 +1168,10 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
       return stream;
     };
     stream.read = function(size?: number) {
-      const stdinRead = (globalThis as any).__exactStdinRead;
-      if (typeof stdinRead !== 'function') {
+      if (!_nativeStdinRead) {
         return null;
       }
-      const data = stdinRead(size || 4096);
+      const data = _nativeStdinRead(size || 4096);
       if (data === '') {
         return null;
       }
@@ -1779,8 +1828,6 @@ class Process {
   /**
    * Whether the process is currently exiting.
    */
-  _exactExiting = false;
-
   /**
    * Get the user ID of the process.
    */
@@ -1953,43 +2000,18 @@ class Process {
 
   /**
    * Exit the process.
-   * Sets exitCode first, fires exit handlers, then terminates if native exit is available.
+   * Armed runtimes publish one cooperative lifecycle request and park. The
+   * native request gate resolves an omitted code from the supervisor mirror;
+   * this method must not acquire the separate exitCode getter/setter
+   * dispositions or run user listeners before that request is authorized.
    */
   exit(code?: number): void {
-    const requestedExitCode = code ?? this.exitCode ?? 0;
-    this.exitCode = requestedExitCode;
-
-    if (this._exactExiting) {
+    if (_nativeLifecycleExit) {
+      if (code === undefined) _nativeLifecycleExit();
+      else _nativeLifecycleExit(code);
       return;
     }
-
-    this._exactExiting = true;
-    try {
-      const listeners = [...(this._events.get('exit') || [])];
-      for (const entry of listeners) {
-        try {
-          entry.fn(requestedExitCode);
-        } catch (_e) {
-          /* ignore */
-        }
-      }
-    } catch (_e) {
-      /* ignore */
-    } finally {
-      if (typeof this._events.clear === 'function') {
-        this._events.clear();
-      }
-    }
-    // Try native exit if available, but never throw from runtime-side.
-    const finalExitCode = this.exitCode ?? 0;
-    const g = globalThis as any;
-    if (typeof g.__exactExit === 'function') {
-      try {
-        g.__exactExit(finalExitCode);
-      } catch (_e) {
-        /* ignore */
-      }
-    }
+    throw new Error('process.exit() is unavailable in this runtime');
   }
 
   /**
@@ -2333,7 +2355,7 @@ class Process {
 
   get stdin() {
     if (!this._stdin) {
-      this._stdin = _makeProcessStream(0, false);
+      this._stdin = _makeProcessStream(0, false, undefined, _nativeProcessStdin);
     }
     return this._stdin;
   }
@@ -2355,7 +2377,7 @@ class Process {
         // Fallback to console.log only if native write is unavailable
         console.log(_decodeStreamChunkForConsole(data));
         return true;
-      });
+      }, _nativeProcessStdout);
     }
     return this._stdout;
   }
@@ -2377,7 +2399,7 @@ class Process {
         // Fallback to console.error only if native write is unavailable
         console.error(_decodeStreamChunkForConsole(data));
         return true;
-      });
+      }, _nativeProcessStderr);
     }
     return this._stderr;
   }
@@ -2430,8 +2452,40 @@ class Process {
 
   // Real event emitter storage
   private _events: Map<string, Array<{ fn: (...args: any[]) => void; once: boolean }>> = new Map();
+  private _lifecycleListenerNoEffectDiagnosed = false;
+
+  private _isLifecycleListenerEvent(event: string): boolean {
+    return event === 'exit' || event === 'beforeExit';
+  }
+
+  private _diagnoseLifecycleListenerNoEffect(): void {
+    if (this._lifecycleListenerNoEffectDiagnosed) return;
+    this._lifecycleListenerNoEffectDiagnosed = true;
+    const message = 'process exit and beforeExit listeners are unsupported in Ibex and have no effect';
+    const warning: any = new Error(message);
+    warning.name = 'IbexLifecycleWarning';
+    warning.code = 'IBEX_LIFECYCLE_LISTENER_NO_EFFECT';
+    // Deliver through the normal warning event when somebody is listening;
+    // otherwise keep the diagnosis observable on stderr. There is one path,
+    // and therefore one diagnosis, rather than an event plus duplicate output.
+    this.nextTick(() => {
+      if (this.emit('warning', warning)) return;
+      const consoleWarn = (globalThis as any).console?.warn;
+      if (typeof consoleWarn === 'function') {
+        consoleWarn.call((globalThis as any).console, `[${warning.code}] ${message}`);
+      }
+    });
+  }
 
   on(event: string, listener: (...args: any[]) => void): this {
+    // Registration deliberately succeeds for compatibility but the listener
+    // is never stored or fired. All aliases share the same once-per-session
+    // diagnostic.
+    // @ref LLP 0025#8-exit-and-lifecycle
+    if (this._isLifecycleListenerEvent(event)) {
+      this._diagnoseLifecycleListenerNoEffect();
+      return this;
+    }
     const listeners = this._events.get(event) || [];
     listeners.push({ fn: listener, once: false });
     this._events.set(event, listeners);
@@ -2454,6 +2508,10 @@ class Process {
   }
 
   once(event: string, listener: (...args: any[]) => void): this {
+    if (this._isLifecycleListenerEvent(event)) {
+      this._diagnoseLifecycleListenerNoEffect();
+      return this;
+    }
     const listeners = this._events.get(event) || [];
     listeners.push({ fn: listener, once: true });
     this._events.set(event, listeners);
@@ -2468,6 +2526,10 @@ class Process {
   }
 
   prependListener(event: string, listener: (...args: any[]) => void): this {
+    if (this._isLifecycleListenerEvent(event)) {
+      this._diagnoseLifecycleListenerNoEffect();
+      return this;
+    }
     const listeners = this._events.get(event) || [];
     listeners.unshift({ fn: listener, once: false });
     this._events.set(event, listeners);
@@ -2476,6 +2538,10 @@ class Process {
   }
 
   prependOnceListener(event: string, listener: (...args: any[]) => void): this {
+    if (this._isLifecycleListenerEvent(event)) {
+      this._diagnoseLifecycleListenerNoEffect();
+      return this;
+    }
     const listeners = this._events.get(event) || [];
     listeners.unshift({ fn: listener, once: true });
     this._events.set(event, listeners);
@@ -2484,6 +2550,7 @@ class Process {
   }
 
   emit(event: string, ...args: any[]): boolean {
+    if (this._isLifecycleListenerEvent(event)) return false;
     const listeners = this._events.get(event);
     if (!listeners || listeners.length === 0) return false;
     // Prune once-listeners BEFORE invoking (Node semantics). Rewriting the
@@ -2504,6 +2571,7 @@ class Process {
   }
 
   removeListener(event: string, listener: (...args: any[]) => void): this {
+    if (this._isLifecycleListenerEvent(event)) return this;
     const listeners = this._events.get(event);
     if (listeners) {
       this._events.set(event, listeners.filter(e => e.fn !== listener));
@@ -2513,6 +2581,7 @@ class Process {
   }
 
   removeAllListeners(event?: string): this {
+    if (event !== undefined && this._isLifecycleListenerEvent(event)) return this;
     if (event) {
       this._events.delete(event);
     } else {
@@ -2524,6 +2593,7 @@ class Process {
   }
 
   listeners(event: string): Array<(...args: any[]) => void> {
+    if (this._isLifecycleListenerEvent(event)) return [];
     return (this._events.get(event) || []).map(e => e.fn);
   }
 
@@ -2532,11 +2602,14 @@ class Process {
   }
 
   listenerCount(event: string): number {
+    if (this._isLifecycleListenerEvent(event)) return 0;
     return (this._events.get(event) || []).length;
   }
 
   eventNames(): string[] {
-    return Array.from(this._events.keys()).filter((event) => this.listenerCount(event) > 0);
+    return Array.from(this._events.keys()).filter(
+      (event) => !this._isLifecycleListenerEvent(event) && this.listenerCount(event) > 0,
+    );
   }
 
   setMaxListeners(count: number): this {
@@ -2593,11 +2666,17 @@ _installTimeZoneAwareDateToString();
 export const process = new Process();
 const exitCodeDescriptor = Object.getOwnPropertyDescriptor(Process.prototype, 'exitCode');
 if (exitCodeDescriptor?.get && exitCodeDescriptor?.set) {
+  // Native Ibex owns the final lifecycle surface. Armed startup replaces this
+  // bootstrap accessor with the typed, supervisor-mirroring accessor and seals
+  // it; unarmed startup reseals this exact descriptor after the bundle returns.
+  // Non-native hosts retain the Node-compatible non-configurable shape here.
+  // @ref LLP 0025#8-exit-and-lifecycle
+  const nativeLifecycleFinalizerPending = _nativeLifecycleExit !== undefined;
   Object.defineProperty(process, 'exitCode', {
     get: exitCodeDescriptor.get.bind(process),
     set: exitCodeDescriptor.set.bind(process),
     enumerable: true,
-    configurable: false,
+    configurable: nativeLifecycleFinalizerPending,
   });
 }
 

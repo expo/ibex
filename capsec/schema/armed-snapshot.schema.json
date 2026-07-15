@@ -17,8 +17,11 @@
     "runNonce",
     "channelEpoch",
     "rootIdentity",
+    "entry",
+    "projectRootDiscovery",
     "packageGraph",
     "rootBindings",
+    "pathCanonicalizers",
     "principals",
     "processAuthorityCeiling",
     "generations",
@@ -70,11 +73,19 @@
     },
     "channelEpoch": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" },
     "rootIdentity": { "$ref": "#/$defs/rootPrincipal" },
+    "entry": { "$ref": "#/$defs/entry" },
+    "projectRootDiscovery": { "$ref": "#/$defs/projectRootDiscovery" },
     "packageGraph": { "$ref": "#/$defs/packageGraph" },
     "rootBindings": {
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/rootBinding" }
+    },
+    "pathCanonicalizers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/pathCanonicalizer" }
     },
     "principals": {
       "type": "array",
@@ -179,6 +190,99 @@
   ],
   "additionalProperties": false,
   "$defs": {
+    "projectRootDiscovery": {
+      "type": "object",
+      "required": [
+        "origin",
+        "selectedRoot",
+        "markerKind",
+        "markerPath",
+        "markerSetVersion"
+      ],
+      "properties": {
+        "origin": { "$ref": "#/$defs/absoluteHostPath" },
+        "selectedRoot": { "$ref": "#/$defs/absoluteHostPath" },
+        "markerKind": {
+          "enum": [
+            "explicit-project",
+            "pnpm-workspace",
+            "package-workspace",
+            "lockfile",
+            "package-manifest",
+            "origin-fallback"
+          ]
+        },
+        "markerPath": {
+          "oneOf": [
+            { "$ref": "#/$defs/absoluteHostPath" },
+            { "type": "null" }
+          ]
+        },
+        "markerSetVersion": { "const": "ibex/project-root-markers/1" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "markerKind": { "const": "origin-fallback" } },
+            "required": ["markerKind"]
+          },
+          "then": { "properties": { "markerPath": { "type": "null" } } },
+          "else": {
+            "properties": {
+              "markerPath": { "$ref": "#/$defs/absoluteHostPath" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "entry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "identity", "mode"],
+          "properties": {
+            "kind": { "const": "file" },
+            "identity": {
+              "type": "string",
+              "pattern": "^file:///project/(?:[^?#\\u0000]+)$"
+            },
+            "mode": { "const": "program" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "identity", "mode"],
+          "properties": {
+            "kind": { "const": "stdin" },
+            "identity": { "const": "ibex:stdin" },
+            "mode": { "const": "program" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "identity", "mode"],
+          "properties": {
+            "kind": { "const": "repl" },
+            "identity": { "const": "ibex:repl" },
+            "mode": { "enum": ["interactive", "transcript"] }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "identity", "mode"],
+          "properties": {
+            "kind": { "const": "eval" },
+            "identity": { "const": "ibex:eval" },
+            "mode": { "const": "one-shot" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
     "generation": {
       "type": "integer",
       "minimum": 0,
@@ -299,6 +403,35 @@
         }
       ],
       "additionalProperties": false
+    },
+    "pathCanonicalizer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["platform", "volume", "identity"],
+          "properties": {
+            "platform": { "enum": ["unix", "windows", "android"] },
+            "volume": { "type": "string", "minLength": 1 },
+            "identity": { "const": "byte-identity-v1" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["platform", "volume", "identity"],
+          "properties": {
+            "platform": { "const": "apple" },
+            "volume": { "type": "string", "minLength": 1 },
+            "identity": {
+              "enum": [
+                "apple-apfs-unicode9-nfd-v1",
+                "apple-apfs-unicode9-safe-casefold-nfd-v1"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "principalAuthority": {
       "type": "object",

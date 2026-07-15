@@ -5,8 +5,9 @@
  * Provides `unhandledrejection` and `rejectionhandled` event dispatch on globalThis.
  *
  * Strategy:
- * 1. If the native bridge exposes `__exactOnUnhandledRejection`, use it directly.
- * 2. Otherwise, install a userland polyfill that:
+ * 1. If the native bridge exposes `__exactOnUnhandledRejection`, register the
+ *    listener-precedence callback used by the engine's poll-checkpoint tracker.
+ * 2. Otherwise, install a userland compatibility polyfill that:
  *    a. Wraps `Promise.prototype.then` to track which promises have rejection handlers.
  *    b. Uses a Map to track unhandled rejections.
  *    c. Uses `queueMicrotask` to defer detection until after synchronous handler attachment.
@@ -56,7 +57,49 @@ let _globalListenersInstalled = false;
 const REJECTION_EVENT_TYPES = new Set(['unhandledrejection', 'rejectionhandled']);
 const trailingDataErrorSymbol = Symbol.for("__exact.decompression.trailing-data-error");
 const _synchronouslyHandledPromises = new WeakSet<Promise<any>>();
-let _nativeHandledTrackingInstalled = false;
+
+function shouldSuppressRejection(promise: Promise<any>, reason: any): boolean {
+  const suppressUnhandledRejection = (globalThis as any).__exactShouldSuppressUnhandledRejection;
+  if (typeof suppressUnhandledRejection === "function") {
+    try {
+      if (suppressUnhandledRejection(reason, promise)) {
+        return true;
+      }
+    } catch (_) {}
+  }
+  return !!(reason && reason[trailingDataErrorSymbol]);
+}
+
+/**
+ * Dispatch the pinned poll-checkpoint notification. `true` means the native
+ * structured reporter still owns the unhandled failure; `false` means an
+ * admitted user listener consumed/suppressed it. This function never logs or
+ * mutates process lifecycle state. @ref LLP 0024#9-asynchronous-failures
+ */
+function dispatchUnhandledAtCheckpoint(
+  promise: Promise<any>,
+  reason: any,
+): boolean {
+  if (shouldSuppressRejection(promise, reason)) return false;
+
+  _unhandledRejections.delete(promise);
+  _reportedRejections.set(promise, reason);
+  const event = new PromiseRejectionEvent('unhandledrejection', {
+    promise,
+    reason,
+    cancelable: true,
+  });
+  let handled = getEventTarget().dispatchEvent(event) === false || event.defaultPrevented === true;
+  const processHandler = (globalThis as any).__exactUnhandledRejectionHandler;
+  if (!handled && typeof processHandler === 'function') {
+    try {
+      handled = processHandler(reason, promise) === true;
+    } catch (_) {
+      handled = false;
+    }
+  }
+  return !handled;
+}
 
 /**
  * Get or create the internal EventTarget for promise rejection events.
@@ -130,18 +173,7 @@ export function trackPromiseRejection(promise: Promise<any>, reason: any): void 
     return;
   }
 
-  const suppressUnhandledRejection = (globalThis as any).__exactShouldSuppressUnhandledRejection;
-  if (typeof suppressUnhandledRejection === "function") {
-    try {
-      if (suppressUnhandledRejection(reason, promise)) {
-        return;
-      }
-    } catch (_) {}
-  }
-
-  if (reason && reason[trailingDataErrorSymbol]) {
-    return;
-  }
+  if (shouldSuppressRejection(promise, reason)) return;
 
   _unhandledRejections.set(promise, reason);
 
@@ -193,55 +225,6 @@ export function trackPromiseRejection(promise: Promise<any>, reason: any): void 
   });
 }
 
-function installNativeHandledPromiseTracking(OriginalPromise: PromiseConstructor): void {
-  if (_nativeHandledTrackingInstalled) return;
-  _nativeHandledTrackingInstalled = true;
-
-  const originalThen = OriginalPromise.prototype.then;
-  const originalCatch = OriginalPromise.prototype.catch;
-  const originalFinally = OriginalPromise.prototype.finally;
-
-  function markHandled(promise: Promise<any>): void {
-    _synchronouslyHandledPromises.add(promise);
-    // Consult BOTH the pending map and the already-reported weak map: after a
-    // rejection is reported it is evicted from _unhandledRejections, but a
-    // handler attached now must still fire 'rejectionhandled'. (ENG-22985)
-    if (_unhandledRejections.has(promise) || _reportedRejections.has(promise)) {
-      trackPromiseRejectionHandled(promise);
-    }
-  }
-
-  OriginalPromise.prototype.then = function wrappedThen(
-    onFulfilled?: any,
-    onRejected?: any
-  ): Promise<any> {
-    if (this && (typeof this === 'object' || typeof this === 'function')) {
-      markHandled(this as Promise<any>);
-    }
-    return originalThen.call(this, onFulfilled, onRejected);
-  };
-
-  OriginalPromise.prototype.catch = function wrappedCatch(
-    onRejected?: any
-  ): Promise<any> {
-    if (typeof onRejected === 'function' && this && (typeof this === 'object' || typeof this === 'function')) {
-      markHandled(this as Promise<any>);
-    }
-    return originalCatch.call(this, onRejected);
-  };
-
-  if (typeof originalFinally === 'function') {
-    OriginalPromise.prototype.finally = function wrappedFinally(
-      onFinally?: any
-    ): Promise<any> {
-      if (this && (typeof this === 'object' || typeof this === 'function')) {
-        markHandled(this as Promise<any>);
-      }
-      return originalFinally.call(this, onFinally);
-    };
-  }
-}
-
 /**
  * Track that a previously-unhandled promise rejection has been handled.
  * Dispatches `rejectionhandled` on globalThis.
@@ -282,8 +265,8 @@ export function trackPromiseRejectionHandled(promise: Promise<any>): void {
 /**
  * Install promise rejection tracking on the global Promise.
  *
- * This wraps Promise.prototype.then to intercept rejection handler attachment
- * and hooks into the Promise constructor to detect unhandled rejections.
+ * The native armed path delegates handler attachment and rejection detection
+ * to Hermes. The compatibility path wraps Promise APIs in userland.
  */
 export function installPromiseRejectionTracking(): void {
   const g = globalThis as any;
@@ -295,9 +278,8 @@ export function installPromiseRejectionTracking(): void {
 
   // If native bridge provides promise rejection hooks, use those
   if (typeof g.__exactOnUnhandledRejection === 'function') {
-    installNativeHandledPromiseTracking(OriginalPromise);
     g.__exactOnUnhandledRejection((promise: Promise<any>, reason: any) => {
-      trackPromiseRejection(promise, reason);
+      return dispatchUnhandledAtCheckpoint(promise, reason);
     });
     if (typeof g.__exactOnRejectionHandled === 'function') {
       g.__exactOnRejectionHandled((promise: Promise<any>) => {

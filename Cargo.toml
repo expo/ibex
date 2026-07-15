@@ -57,7 +57,9 @@ async-trait = "0.1"
 
 # Base64 for source maps
 base64 = "0.22"
+hmac = "0.12"
 sha2 = "0.10"
+fs2 = "0.4"
 
 # HTTP server host bridge
 hyper = { version = "1.1", features = ["server", "http1", "http2"] }
@@ -68,10 +70,9 @@ futures-util = "0.3"
 socket2 = "0.6.2"
 tokio-tungstenite = "0.21"
 
-# File watching and REPL support for the `ibex` binary.
+# File watching support for the `ibex` binary. The REPL editor is owned by the
+# terminal-session adapter and deliberately does not use synchronous rustyline.
 notify = "6.1"
-rustyline = "14.0"
-colored = "2.1"
 
 # Path handling
 dirs = "5.0"
@@ -95,7 +96,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 webpki-roots = "0.26"
 rustls-pki-types = { version = "1", features = ["std"] }
 
-swc_common = "23.0.1"
+swc_common = { version = "23.0.1", features = ["sourcemap"] }
 swc_ecma_ast = "25.0.0"
 swc_ecma_parser = "41.0.1"
 swc_ecma_codegen = "28.0.1"
@@ -136,6 +137,7 @@ openssl = { version = "0.10.81", features = ["vendored"] }
 # Windows does not ship a C zlib development package. Build zlib from source so
 # the native deflate/inflate host functions can be registered deterministically.
 libz-sys = { version = "1.1", features = ["static"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [build-dependencies]
 cc = "1.0"

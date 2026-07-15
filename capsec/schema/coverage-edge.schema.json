@@ -169,6 +169,7 @@
         "effectOwnerSource": {
           "enum": [
             "descriptor-owner",
+            "frame-set",
             "innermost-nontransparent-frame",
             "loader-referrer",
             "root",
@@ -234,6 +235,7 @@
         "effectOwnerSource": {
           "enum": [
             "descriptor-owner",
+            "frame-set",
             "innermost-nontransparent-frame",
             "loader-referrer",
             "root",

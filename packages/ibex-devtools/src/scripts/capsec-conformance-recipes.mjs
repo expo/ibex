@@ -662,6 +662,27 @@ const nativeSystemInfoTemplate = (name) =>
     requiredSourceArity: 0,
     setup: [],
   });
+// @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant — cwd is
+// session state with its own typed action, not generic host system information.
+const nativeCwdObserveTemplate = () =>
+  Object.freeze({
+    actionIds: ["path:cwd-observe"],
+    arguments: [],
+    expectedDecisionCounts: { allow: 2, deny: 1 },
+    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedStages: {
+      allow: ["requested", "commit"],
+      deny: ["requested"],
+    },
+    requiredFloor: [
+      {
+        cap: "path:cwd-observe",
+        resource: { kind: "session-state", name: "cwd" },
+      },
+    ],
+    requiredSourceArity: 0,
+    setup: [],
+  });
 const nativeEnvironmentReadTemplate = (name) =>
   Object.freeze({
     actionIds: ["env:read"],
@@ -959,7 +980,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   ["__exactGetCpuCount", nativeSystemInfoTemplate("cpus")],
-  ["__exactGetCwd", nativeSystemInfoTemplate("cwd")],
+  ["__exactGetCwd", nativeCwdObserveTemplate()],
   ["__exactGetEnv", nativeEnvironmentReadTemplate("PATH")],
   ["__exactGetFreeMem", nativeSystemInfoTemplate("memory")],
   ["__exactGetHostname", nativeSystemInfoTemplate("hostname")],

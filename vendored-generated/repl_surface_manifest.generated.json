@@ -1,0 +1,43 @@
+{
+  "generated": true,
+  "version": 1,
+  "source": {
+    "path": "runtime-surface.json",
+    "sha256": "b669fefbb1a35fd5668cf40d680996d743e9ac2079a7af8f3a8ffbb9c979af6a"
+  },
+  "schema": {
+    "path": "session/schema/repl-surface.schema.json",
+    "sha256": "db497eb37039d5f5501d723ff9c8aa91c0833758773f8ba32c6e6390449718c8"
+  },
+  "generator": {
+    "path": "packages/ibex-devtools/src/scripts/generate-repl-surface.mjs",
+    "sha256": "773b6ecacbb2e134e23249aae4be8ef296600f5da0d7a0ef88b796e8c15ca84e"
+  },
+  "registry": [
+    {
+      "path": "capsec/registry/capability-definitions.json",
+      "sha256": "2b6ef4accd56e54f3b0a76dfd1df6ce9674f14a986915fed16eb7365db811025"
+    },
+    {
+      "path": "capsec/registry/policy-rules.json",
+      "sha256": "7e3fecabcc4e5c6c7b67065f758fa15be8e8bfbe38348a667a5bf955f7d25f40"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "rust",
+      "path": "vendored-generated/repl_surface.generated.rs",
+      "sha256": "e41c3b6be12d9321c23d21e2fe6e44648400cd8d1c854c8c2ca6918523f80783"
+    },
+    {
+      "name": "help",
+      "path": "vendored-generated/repl_help.generated.txt",
+      "sha256": "d6fc4fc7c3e1fa108020c3c2ebe8d464b99962c34f4a96c8d078fe7eb93c9291"
+    },
+    {
+      "name": "table",
+      "path": "vendored-generated/repl_surface.generated.md",
+      "sha256": "b1a12bdacf3caa2e10722a79716a7eae74ce91113f055ef8afd24ee9586d7c49"
+    }
+  ]
+}

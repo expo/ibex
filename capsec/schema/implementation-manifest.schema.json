@@ -187,7 +187,19 @@
       "type": "object",
       "required": ["kind", "path", "rawContentDigest"],
       "properties": {
-        "kind": { "enum": ["cxx", "javascript", "json-schema", "markdown", "registry", "rust", "typescript"] },
+        "kind": {
+          "enum": [
+            "cxx",
+            "javascript",
+            "json-schema",
+            "markdown",
+            "output-disposition-dataset",
+            "output-shape-catalog",
+            "registry",
+            "rust",
+            "typescript"
+          ]
+        },
         "path": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[a-zA-Z0-9_./-]+$" },
         "rawContentDigest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" }
       },
