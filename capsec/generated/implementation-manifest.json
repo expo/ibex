@@ -114497,6 +114497,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_link_dynamic_import",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_link_dynamic_import"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_dynamic_import"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_link_dynamic_import"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_dynamic_import"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s",
       "observedKey": "host-abi:ex_hermes_commonjs_record_link_require",
       "branchId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default",
@@ -115969,6 +116003,74 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e",
+      "observedKey": "host-abi:ex_hermes_module_record_link_dependency",
+      "branchId": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_link_dependency"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dependency"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dependency"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_link_dependency"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dependency"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default.non-capability",
+        "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do",
+      "observedKey": "host-abi:ex_hermes_module_record_link_dynamic_import",
+      "branchId": "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_link_dynamic_import"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dynamic_import"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_link_dynamic_import"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dynamic_import"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default.non-capability",
+        "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t",
       "observedKey": "host-abi:ex_hermes_module_record_link_export",
       "branchId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default",
@@ -116066,6 +116168,38 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua",
+      "observedKey": "host-abi:ex_hermes_module_record_poll_evaluation",
+      "branchId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_poll_evaluation"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_poll_evaluation"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua.default.non-capability"
       ]
     },
     {
@@ -265812,44 +265946,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-3XSi6Uz7_DRI82AJ-7ID1PX66zSCeKgoo_JlBFyTN10"
+      "rawContentDigest": "sha256-ZkvifZMU77DQYVn8-uGjMmCWx0rKyGYpWHfH8c4pEwE"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-xEsQj9GvIdWS6IdMqy-uBx0Nc-Nl0-Q9tL7maJdIULg"
+      "rawContentDigest": "sha256-nlRI7ruehh3yxO0gukAG4WGWepzgkW6cswc3yYWz0Ss"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-om3KJ3rh8crmgaS2NL7FphWH5TAGLDRE0MwLC4epXB0"
+      "rawContentDigest": "sha256-z_c02Y8EvRfCKPeh5lgPmXB5jxzmLP0B3_Vbqyifyhw"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-L--4F26Q76asNvkuOOwJ9Gtvdw_SRXc85IVYagJkx20"
+      "rawContentDigest": "sha256-srOzUDrtJKfMT-FMnuy8Ib2klKouCv7m051Vhe3sZgs"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-0AlXGbXSuzLZoq26Rx3IXmmViSvjeRVBbvif7dmTCdo"
+      "rawContentDigest": "sha256-q3fVUSmzyEW_FrNwGRJRKFEZgCuewOdRlOQepZSwclo"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-X8Tg2je6-8FB54cdSf99P9eS2JNLqhhqsFXliboU7zs"
+      "rawContentDigest": "sha256-DEbVDriXJhTfzx805HlsITGx82x2ZIEDb7o_XtmzAJ4"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-ZWEoB0BLHBAdBgMR3lvZVgFXGwn_EdyNGVp1dRi2nyQ"
+      "rawContentDigest": "sha256-8WpIiIJ6C5FSnjxYu_LLt6HjVE6hiHxF392MQOd5IKM"
     }
   ],
   "counts": {
-    "observedReferences": 12819,
-    "logicalSurfaces": 7140,
-    "enforcementBranches": 7339,
-    "coverageEdges": 7140,
-    "targetCells": 7140
+    "observedReferences": 12823,
+    "logicalSurfaces": 7144,
+    "enforcementBranches": 7343,
+    "coverageEdges": 7144,
+    "targetCells": 7144
   }
 }

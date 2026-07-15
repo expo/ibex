@@ -5,6 +5,8 @@
 **Systems:** CLI Runtime, REPL, Runtime, Security
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-15 (ENG-25063 classified a TLA-suspended module graph as
+one keepalive/cancellation unit rather than one target per import waiter)
 **Revised:** 2026-07-12 (round-10, terminal. Families **split** — Fable `READY`, Codex `NOT READY` — so `Status` stays
 `Draft` (no both-READY on one revision). Codex's single Blocking was the scoped downstream straggler: `idle × CompletionQueued`
 resolved two ways (rule 4 → idle prompt → `Orderly`; the "idle, work in flight" row → `Interrupt(130)`). Fixed single-valued
@@ -563,6 +565,12 @@ top-level `await`, so the case is real:
 > **A cancellation request is raised only against an *executing* unit.** A **suspended** unit (awaiting) is not
 > executing, and a **due** unit has not begun and has no id yet — so an interrupt against either **promises but raises no
 > request**. The escape credit and the typed promise guarantee the escape without one.
+
+An LLP 0026 module graph suspended on dependency TLA is one such suspended
+unit. Its retained internal record promise is keepalive state, not a separate
+cancellation target, and individual public `import()` waiters do not acquire
+target ids. Teardown abandons the whole runtime generation; it does not
+partially cancel one waiter into a live graph.
 
 This is a deliberate narrowing from an earlier `executing ≻ suspended ≻ due` selection that tried to *raise* a request
 against a suspended unit. There is no delivery mechanism for that anywhere in the corpus: LLP 0024's engine discards any

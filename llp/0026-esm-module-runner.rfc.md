@@ -5,7 +5,10 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
+**Revised:** 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
+handled internal record promises, fresh ESM/CommonJS dynamic-import promises,
+sticky rejection, event-loop keepalive, and mixed re-entry refusal); 2026-07-15
+(ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
 **Related:** LLP 0002 (host embedding ABI); LLP 0003 (Hermes engine bridge); LLP 0004 (module loading); LLP 0005 (hermetic build); LLP 0006 (native-first diagnostics); LLP 0007 (transform convergence); LLP 0009 (runtime transform scope); LLP 0012 (runtime identity / Node compatibility target); LLP 0013 (package compartments); LLP 0014 (import policy); LLP 0018 (fail-loud agent tooling); LLP 0019 (Hermes-compat transform authority); LLP 0021 (CapSec effect model); LLP 0022 (REPL behavior); LLP 0023 (source identity); LLP 0024 (structured evaluation); LLP 0025 (terminal session ownership); LLP 0027 (artifact wire and ESM/CommonJS interop contract)
 
 ## Summary
@@ -771,6 +774,19 @@ same evaluation promise and is attributed to the owning/scheduling principal.
 3. loads and links the target graph as needed;
 4. evaluates it; and
 5. resolves to the stable namespace object.
+
+The initial native ABI realizes that contract with one retained, immediately
+handled internal evaluation promise per record and a fresh derived public
+promise for every invocation. Literal dynamic edges are semantic artifact
+fields. Computed sites carry stable producer-order ids and may select only from
+the exact authenticated candidate map supplied with the graph; a spelling not
+in that map becomes a rejected promise without a resolution or filesystem
+probe. Dependency closures are collapsed into deterministic SCC metadata,
+async taint propagates to importers, and Rust advances the native graph only by
+non-blocking polls between host event-loop drives. Both fulfillment handlers
+and the internal rejection handler are attached before execution returns to
+the host; public rejection remains observable without manufacturing a second
+unhandled rejection from the runner's bookkeeping chain.
 
 Event-loop keepalive, cancellation, work-unit identity, and exactly-once
 rejection reporting for suspended graphs are LLP 0024/0025 contracts, and

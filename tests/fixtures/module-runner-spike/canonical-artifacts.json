@@ -36,6 +36,7 @@
               "local": "increment"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [],
           "hasTopLevelAwait": false,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.importValue(\"./counter.js\", \"count\"));\n__ibex_context$0.importValue(\"./counter.js\", \"increment\")();\nprint(__ibex_context$0.importValue(\"./counter.js\", \"count\"));\n}\n};\n}\n",
@@ -62,6 +63,7 @@
           "sourceIntegrity": "sha256-KHhsYWHujWB9o99oaWwkYWfETaLQ7/6kkEYvyLK8hqo=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -121,6 +123,7 @@
               "local": "result"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [],
           "hasTopLevelAwait": false,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.importValue(\"./a.js\", \"result\"));\n}\n};\n}\n",
@@ -154,6 +157,7 @@
               "local": "fromA"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -198,6 +202,7 @@
               "local": "getA"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -251,6 +256,7 @@
               "local": "observed"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [],
           "hasTopLevelAwait": false,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.importValue(\"./a.js\", \"observed\"));\n}\n};\n}\n",
@@ -284,6 +290,7 @@
               "local": "valueB"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -328,6 +335,7 @@
               "local": "valueA"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -382,6 +390,7 @@
               "local": "namespace"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [],
           "hasTopLevelAwait": false,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(Object.keys(__ibex_context$0.importValue(\"./hub.js\", \"*\")).join(\",\"));\n}\n};\n}\n",
@@ -419,6 +428,7 @@
               "imported": "*"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "star",
@@ -456,6 +466,7 @@
           "sourceIntegrity": "sha256-Fa0S6nvvJc+ddD8R7LHJZYfmTm6gmJ1NzjNsLxVbW5c=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -493,6 +504,7 @@
           "sourceIntegrity": "sha256-L0v9P5FJLsrgyb3/CXdeDB+ldtfifLBigAHcsRkfZcI=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -551,6 +563,7 @@
               "local": "renamed"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [],
           "hasTopLevelAwait": false,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(\"named:\" + __ibex_context$0.importValue(\"./hub.js\", \"renamed\"));\n}\n};\n}\n",
@@ -583,6 +596,7 @@
               "imported": "value"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "indirect",
@@ -616,6 +630,7 @@
           "sourceIntegrity": "sha256-abd218qpn92ZlvqQyiBMn4Q/QC+jldJnI0yVtjpjYZY=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -663,6 +678,7 @@
           "sourceIntegrity": "sha256-aX6fgOfkUVHgtmZdaau3p+SDr2wvPe5C2StDC6fDdSk=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [],
           "hasTopLevelAwait": false,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.meta.url);\nprint(__ibex_context$0.meta.main);\n}\n};\n}\n",
@@ -711,6 +727,7 @@
               "local": "value"
             }
           ],
+          "dynamicEdges": [],
           "exportDescriptors": [],
           "hasTopLevelAwait": false,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(__ibex_context$0.importValue(\"./dep.js\", \"value\"));\n}\n};\n}\n",
@@ -737,6 +754,7 @@
           "sourceIntegrity": "sha256-S0RFfXsYm5AkpMHEVFYFtszJKZXZCgQ7h+LrPBg5rlQ=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -784,6 +802,14 @@
           "sourceIntegrity": "sha256-cUE+hOwO8wpHTIP5ucq41OmKiHvCUxscFvvrbrQTIvs=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [
+            {
+              "kind": "literal",
+              "specifier": "./dep.js",
+              "site": 0,
+              "hasOptions": false
+            }
+          ],
           "exportDescriptors": [],
           "hasTopLevelAwait": true,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nconst namespace = await __ibex_context$0.dynamicImport(\"./dep.js\");\nprint(\"dynamic:\" + namespace.value);\n}\n};\n}\n",
@@ -810,6 +836,7 @@
           "sourceIntegrity": "sha256-26VSXyIMhBQImOE5xjcR/0XtvrPuDCnqE97xLJcgEQY=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -857,6 +884,7 @@
           "sourceIntegrity": "sha256-S2Ea0f0sl8wnyTWlayEvb1czDPiInhxjrV6gYLYMaeg=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -904,6 +932,7 @@
           "sourceIntegrity": "sha256-eyYuOkJcVTRj72nYIyzv86gr0Wt0W/4HBk4texv4OOQ=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [
             {
               "kind": "local",
@@ -953,6 +982,7 @@
           "sourceIntegrity": "sha256-L+0+wXsNg1robah7HvqZ7koLIxpeHx8yHD5whpMP0fM=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [],
           "hasTopLevelAwait": false,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nfunction explode() {\n\tconst detail = \"mapped failure\";\n\tthrow new Error(detail);\n}\nexplode();\n}\n};\n}\n",
@@ -996,6 +1026,7 @@
           "sourceIntegrity": "sha256-vQxhZc+2hWaiAyReWddaHoFW7jfb8JfxI0MmiWRKIKo=",
           "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
           "staticEdges": [],
+          "dynamicEdges": [],
           "exportDescriptors": [],
           "hasTopLevelAwait": false,
           "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nprint(String(this));\nprint(typeof void 0);\ntry {\n\taccidentalGlobal = 1;\n} catch (error) {\n\tprint(error.name);\n}\n}\n};\n}\n",

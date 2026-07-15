@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Context, Result};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    AssignmentExpression, AssignmentTarget, Declaration, ExportDefaultDeclarationKind,
+    AssignmentExpression, AssignmentTarget, Declaration, ExportDefaultDeclarationKind, Expression,
     ForOfStatement, FunctionBody, IdentifierReference, ImportAttributeKey,
     ImportDeclarationSpecifier, ImportExpression, ImportOrExportKind, MetaProperty, Program,
     SimpleAssignmentTarget, Statement, UpdateExpression, VariableDeclarationKind, WithClause,
@@ -30,9 +30,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::artifact::{
-    digest_bytes, source_integrity, CanonicalSourceId, ExportDescriptorV1, ModuleArtifactV1,
-    ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1, SourceMapV1,
-    StaticEdgeV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+    digest_bytes, source_integrity, CanonicalSourceId, DynamicEdgeV1, ExportDescriptorV1,
+    ModuleArtifactV1, ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1,
+    SourceMapV1, StaticEdgeV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
 };
 use super::identity::{ImportAttributes, SourceId};
 use capsec_semantics::model::{Digest as CapsecDigest, NonEmptyString};
@@ -110,11 +110,22 @@ pub struct SpikeModuleArtifact {
     pub source_integrity: String,
     pub transform_fingerprint: &'static str,
     pub static_edges: Vec<SpikeStaticEdge>,
+    pub dynamic_edges: Vec<SpikeDynamicEdge>,
     pub export_descriptors: Vec<SpikeExportDescriptor>,
     pub has_top_level_await: bool,
     pub factory_source: String,
     pub source_map: Value,
     pub hermes_compat_passes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpikeDynamicEdge {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub specifier: Option<String>,
+    pub site: u32,
+    pub has_options: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -220,6 +231,7 @@ struct NestedRewriteVisitor {
     export_callback: String,
     context: String,
     replacements: Vec<Replacement>,
+    dynamic_edges: Vec<SpikeDynamicEdge>,
     function_depth: usize,
     hermes_compat_passes: BTreeSet<String>,
 }
@@ -286,6 +298,20 @@ impl<'a> Visit<'a> for NestedRewriteVisitor {
     }
 
     fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
+        let specifier = match &expression.source {
+            Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+            _ => None,
+        };
+        self.dynamic_edges.push(SpikeDynamicEdge {
+            kind: if specifier.is_some() {
+                "literal".into()
+            } else {
+                "computed".into()
+            },
+            specifier,
+            site: expression.span.start,
+            has_options: expression.options.is_some(),
+        });
         self.replacements.push(Replacement {
             span: expression.span,
             text: format!(
@@ -650,6 +676,10 @@ pub fn produce_spike_artifact(
         .unwrap_or("js")
         .to_ascii_uppercase();
     let integrity = Sha256::digest(source.as_bytes());
+    visitor.dynamic_edges.sort_by_key(|edge| edge.site);
+    for (site, edge) in visitor.dynamic_edges.iter_mut().enumerate() {
+        edge.site = u32::try_from(site).context("too many dynamic-import sites")?;
+    }
     Ok(SpikeModuleArtifact {
         fixture_id: fixture_id.to_string(),
         source_name: source_name.to_string(),
@@ -660,6 +690,7 @@ pub fn produce_spike_artifact(
         ),
         transform_fingerprint: SPIKE_TRANSFORM_FINGERPRINT,
         static_edges,
+        dynamic_edges: visitor.dynamic_edges,
         export_descriptors,
         has_top_level_await,
         factory_source,
@@ -687,6 +718,22 @@ pub fn produce_module_artifact_v1(
         .static_edges
         .iter()
         .map(|edge| static_edge_v1(edge, &spike.export_descriptors))
+        .collect::<Result<Vec<_>>>()?;
+    let dynamic_edges = spike
+        .dynamic_edges
+        .iter()
+        .map(|edge| {
+            if edge.has_options {
+                bail!("dynamic import options are not yet representable in ModuleArtifact v1");
+            }
+            match edge.specifier.as_deref() {
+                Some(specifier) => Ok(DynamicEdgeV1::Literal {
+                    specifier: non_empty(specifier, "dynamic import specifier")?,
+                    attributes: ImportAttributes::default(),
+                }),
+                None => Ok(DynamicEdgeV1::Computed { site: edge.site }),
+            }
+        })
         .collect::<Result<Vec<_>>>()?;
     let export_descriptors = spike
         .export_descriptors
@@ -732,6 +779,7 @@ pub fn produce_module_artifact_v1(
         source_integrity: source_integrity(source.as_bytes())?,
         transform_fingerprint: fingerprint,
         static_edges,
+        dynamic_edges,
         export_descriptors,
         commonjs_exports: None,
         has_top_level_await: spike.has_top_level_await,
@@ -1485,5 +1533,38 @@ mod tests {
             panic!("expected default JSON edge")
         };
         assert!(attributes.asserts_json());
+    }
+
+    #[test]
+    fn production_adapter_authenticates_literal_and_computed_dynamic_import_sites() {
+        let source_id = SourceId::synthetic("fixture", "dynamic-imports").unwrap();
+        let artifact = produce_module_artifact_v1(
+            source_id,
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            "const name = './computed.mjs'; export const results = [import('./literal.mjs'), import(name)];",
+            source_integrity(b"producer-binary").unwrap(),
+            "hermes-bytecode-96",
+        )
+        .unwrap();
+        assert_eq!(
+            artifact.semantics.dynamic_edges,
+            [
+                DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./literal.mjs").unwrap(),
+                    attributes: ImportAttributes::default(),
+                },
+                DynamicEdgeV1::Computed { site: 1 },
+            ]
+        );
+        let super::super::artifact::ModulePayloadV1::Inline {
+            factory_source: factory,
+            ..
+        } = &artifact.payload
+        else {
+            panic!("production spike producer emits inline artifacts")
+        };
+        assert!(factory.contains(".dynamicImport('./literal.mjs')"));
+        assert!(factory.contains(".dynamicImport(name)"));
     }
 }

@@ -230,8 +230,6 @@ mode of ordinary `ibex run`. Embedders must select an explicit supported profile
 and successfully arm it; the legacy host constructor must not silently create a
 production runtime that claims package security while running permissively.
 
-<<<<<<< HEAD
-=======
 ### Module initialization and trusted source acquisition
 
 LLP 0026 adds one explicit boundary to full deputy intersection. A module
@@ -267,7 +265,6 @@ the graph boundary; host effects they perform still enter ordinary typed
 semantic-core `DecisionSet`s at their native effect gates. Generated target
 cells remain unsupported until executed conformance evidence promotes them.
 
->>>>>>> bfb048f6 (ENG-25062 authorize native module graph operations)
 ## WP0 semantic contract
 
 ENG-24144 freezes the following contract for WP1–WP11. The machine-readable

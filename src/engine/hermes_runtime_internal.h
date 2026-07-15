@@ -122,6 +122,7 @@ enum class NativeModuleRecordState : uint8_t {
   New,
   Instantiated,
   Declared,
+  Evaluating,
   Evaluated,
   Errored,
 };
@@ -147,9 +148,17 @@ struct NativeModuleRecordEntry {
   std::map<std::string, NativeModuleBindingCell> export_cells;
   std::map<std::pair<std::string, std::string>, NativeModuleImportBinding>
       import_bindings;
+  std::set<uint64_t> evaluation_dependencies;
+  std::map<std::string, uint64_t> dynamic_import_bindings;
   std::shared_ptr<facebook::jsi::Object> namespace_object;
   std::shared_ptr<facebook::jsi::Function> declare_function;
   std::shared_ptr<facebook::jsi::Function> execute_function;
+  // A TLA record owns exactly one internal evaluation promise. Both
+  // settlement handlers are attached synchronously before control returns to
+  // Rust; the retained promise keeps suspended work live without making an
+  // individual dynamic-import waiter its cancellation target.
+  // @ref LLP 0026#6-top-level-await-and-dynamic-import
+  std::shared_ptr<facebook::jsi::Object> evaluation_promise;
   std::string error_message;
 };
 
@@ -166,6 +175,7 @@ struct NativeCommonJsRecordEntry {
   std::shared_ptr<facebook::jsi::Function> factory;
   NativeCommonJsRecordState state{NativeCommonJsRecordState::New};
   std::map<std::string, uint64_t> require_bindings;
+  std::map<std::string, uint64_t> dynamic_import_bindings;
   std::set<std::string> detected_exports;
   std::string filename;
   std::string dirname;

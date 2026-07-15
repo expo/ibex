@@ -139978,6 +139978,16 @@
             "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
+            "id": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_commonjs_record_link_dynamic_import"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s",
             "classification": "non-capability",
             "surface": {
@@ -140338,6 +140348,26 @@
             "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
+            "id": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_record_link_dependency"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_record_link_dynamic_import"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t",
             "classification": "non-capability",
             "surface": {
@@ -140366,6 +140396,16 @@
             },
             "cap": "runtime:inspect",
             "rationale": "Diagnostic namespace serialization observes live JavaScript values and is closed as runtime inspection."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_record_poll_evaluation"
+            },
+            "rationaleId": "module-reachability-only",
+            "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
             "id": "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a",

@@ -146,6 +146,27 @@ impl StaticEdgeV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum DynamicEdgeV1 {
+    Literal {
+        specifier: NonEmptyString,
+        attributes: ImportAttributes,
+    },
+    /// The expression must be resolved and authorized at call time. `site`
+    /// is stable producer order, not a source offset or host path.
+    Computed { site: u32 },
+}
+
+impl DynamicEdgeV1 {
+    pub fn literal_specifier(&self) -> Option<&str> {
+        match self {
+            Self::Literal { specifier, .. } => Some(specifier.as_str()),
+            Self::Computed { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum ExportDescriptorV1 {
     Local {
         exported: NonEmptyString,
@@ -191,6 +212,8 @@ pub struct ModuleSemanticsV1 {
     pub source_integrity: Digest,
     pub transform_fingerprint: TransformFingerprintV1,
     pub static_edges: Vec<StaticEdgeV1>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dynamic_edges: Vec<DynamicEdgeV1>,
     pub export_descriptors: Vec<ExportDescriptorV1>,
     pub commonjs_exports: Option<CommonJsExportsV1>,
     pub has_top_level_await: bool,
@@ -599,9 +622,11 @@ fn validate_semantics(semantics: &ModuleSemanticsV1) -> Result<()> {
         bail!("top-level await is only valid for Module source goal");
     }
     if semantics.source_goal != SourceGoalV1::Module
-        && (!semantics.static_edges.is_empty() || !semantics.export_descriptors.is_empty())
+        && (!semantics.static_edges.is_empty()
+            || !semantics.dynamic_edges.is_empty()
+            || !semantics.export_descriptors.is_empty())
     {
-        bail!("static ESM edges/exports require Module source goal");
+        bail!("ESM edges/exports require Module source goal");
     }
     match (&semantics.commonjs_exports, semantics.source_goal) {
         (Some(exports), SourceGoalV1::CommonJs) => {
@@ -621,6 +646,18 @@ fn validate_semantics(semantics: &ModuleSemanticsV1) -> Result<()> {
     }
     for edge in &semantics.static_edges {
         ImportAttributes::new(edge.attributes().entries().clone())?;
+    }
+    let mut computed_sites = BTreeSet::new();
+    for edge in &semantics.dynamic_edges {
+        match edge {
+            DynamicEdgeV1::Literal { attributes, .. } => {
+                ImportAttributes::new(attributes.entries().clone())?;
+            }
+            DynamicEdgeV1::Computed { site } if computed_sites.insert(*site) => {}
+            DynamicEdgeV1::Computed { .. } => {
+                bail!("computed dynamic-import sites must be unique")
+            }
+        }
     }
     if semantics.source_map.version != 3 {
         bail!("only source-map version 3 is supported");
@@ -710,6 +747,7 @@ mod tests {
                 local: NonEmptyString::new("value").unwrap(),
                 attributes: ImportAttributes::default(),
             }],
+            dynamic_edges: Vec::new(),
             export_descriptors: vec![ExportDescriptorV1::Local {
                 exported: NonEmptyString::new("value").unwrap(),
                 local: NonEmptyString::new("value").unwrap(),
@@ -1111,6 +1149,7 @@ mod tests {
                 source_integrity: digest("variant-source"),
                 transform_fingerprint: fingerprint(),
                 static_edges: Vec::new(),
+                dynamic_edges: Vec::new(),
                 export_descriptors: Vec::new(),
                 commonjs_exports,
                 has_top_level_await: false,

@@ -133,6 +133,29 @@
         }
       ]
     },
+    "dynamicEdge": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "specifier", "attributes"],
+          "properties": {
+            "kind": { "const": "literal" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" },
+            "attributes": { "$ref": "#/$defs/attributes" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "site"],
+          "properties": {
+            "kind": { "const": "computed" },
+            "site": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
     "exportDescriptor": {
       "oneOf": [
         {
@@ -230,6 +253,7 @@
         "sourceIntegrity": { "$ref": "#/$defs/digest" },
         "transformFingerprint": { "$ref": "#/$defs/fingerprint" },
         "staticEdges": { "type": "array", "items": { "$ref": "#/$defs/staticEdge" } },
+        "dynamicEdges": { "type": "array", "items": { "$ref": "#/$defs/dynamicEdge" } },
         "exportDescriptors": { "type": "array", "items": { "$ref": "#/$defs/exportDescriptor" } },
         "commonjsExports": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/commonjsExports" }] },
         "hasTopLevelAwait": { "type": "boolean" },

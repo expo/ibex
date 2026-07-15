@@ -97,6 +97,16 @@ NativeCommonJsRecordEntry* commonJsRecordFor(
   return &it->second;
 }
 
+facebook::jsi::Value rejectedPromise(
+    facebook::jsi::Runtime& rt, const std::string& message);
+
+facebook::jsi::Object dynamicEvaluationPromise(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t requesterRecordId,
+    uint64_t targetRecordId);
+
 // @ref LLP 0026#7-commonjs-interop — publish before execution, expose current
 // partial exports to cycles, and evict every throwing record.
 facebook::jsi::Value evaluateCommonJsRecord(
@@ -167,13 +177,70 @@ facebook::jsi::Value evaluateCommonJsRecord(
           }
           return evaluateCommonJsRecord(rt, target.runtime, binding->second);
         });
+    auto dynamicImport = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "commonJsDynamicImport"),
+        1,
+        [target, graphGeneration, recordId](
+            facebook::jsi::Runtime& rt,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value* args,
+            size_t count) -> facebook::jsi::Value {
+          if (count != 1 || !args[0].isString()) {
+            return rejectedPromise(
+                rt, "CommonJS dynamic import expects one string specifier");
+          }
+          if (!runtimeIsAlive(target) ||
+              target.runtime->runtime_thread != std::this_thread::get_id()) {
+            return rejectedPromise(rt, "stale CommonJS dynamic import callback");
+          }
+          auto current = target.runtime->commonjs_records.find(recordId);
+          if (current == target.runtime->commonjs_records.end() ||
+              current->second.graph_generation != graphGeneration) {
+            return rejectedPromise(rt, "stale CommonJS dynamic import owner");
+          }
+          const std::string specifier = args[0].asString(rt).utf8(rt);
+          auto binding = current->second.dynamic_import_bindings.find(specifier);
+          if (binding == current->second.dynamic_import_bindings.end()) {
+            return rejectedPromise(
+                rt, "CommonJS dynamic import target is not authorized and linked");
+          }
+          try {
+            auto promise = dynamicEvaluationPromise(
+                rt,
+                target.runtime,
+                graphGeneration,
+                recordId,
+                binding->second);
+            return facebook::jsi::Value(rt, promise);
+          } catch (const facebook::jsi::JSError& error) {
+            return rejectedPromise(rt, error.getMessage());
+          } catch (const std::exception& error) {
+            return rejectedPromise(rt, error.what());
+          } catch (...) {
+            return rejectedPromise(
+                rt, "unknown CommonJS dynamic import failure");
+          }
+        });
+    requireFunction.setProperty(rt, "import", dynamicImport);
+    auto graphContext = runtime->graph_contexts.find(record.context_handle_id);
+    if (graphContext == runtime->graph_contexts.end()) {
+      throw facebook::jsi::JSError(rt, "CommonJS graph context is stale");
+    }
+    std::vector<uint64_t> constrained(
+        graphContext->second.constrained_principals.begin(),
+        graphContext->second.constrained_principals.end());
+    ScopedNativePrincipal scheduledPrincipal(
+        graphContext->second.schedule_owner);
+    ScopedTypedPrincipalStack constrainedScope(constrained);
     auto result = record.factory->call(
         rt,
         requireFunction,
         *record.module_object,
         *record.exports_value,
         facebook::jsi::String::createFromUtf8(rt, record.filename),
-        facebook::jsi::String::createFromUtf8(rt, record.dirname));
+        facebook::jsi::String::createFromUtf8(rt, record.dirname),
+        dynamicImport);
     (void)result;
     auto finalExports = record.module_object->getProperty(rt, "exports");
     record.exports_value =
@@ -262,6 +329,373 @@ int32_t reportRecordError(
       record.error_message.empty() ? "module record is errored"
                                    : record.error_message);
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+}
+
+bool beginRecordExecute(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t recordId,
+    NativeModuleRecordEntry& entry) {
+  if (entry.state == NativeModuleRecordState::Evaluating) return true;
+  if (entry.state == NativeModuleRecordState::Evaluated) return false;
+  if (entry.state != NativeModuleRecordState::Declared ||
+      !entry.execute_function) {
+    throw facebook::jsi::JSError(rt, "module record is not ready to execute");
+  }
+  auto graphContext = runtime->graph_contexts.find(entry.context_handle_id);
+  if (graphContext == runtime->graph_contexts.end()) {
+    throw facebook::jsi::JSError(rt, "module graph context is stale");
+  }
+  std::vector<uint64_t> constrained(
+      graphContext->second.constrained_principals.begin(),
+      graphContext->second.constrained_principals.end());
+  ScopedNativePrincipal scheduledPrincipal(graphContext->second.schedule_owner);
+  ScopedTypedPrincipalStack constrainedScope(constrained);
+  auto result = entry.execute_function->call(rt);
+  if (result.isObject()) {
+    auto object = result.asObject(rt);
+    auto thenValue = object.getProperty(rt, "then");
+    if (thenValue.isObject() && thenValue.asObject(rt).isFunction(rt)) {
+      const uint64_t graphGeneration = entry.graph_generation;
+      const auto target = exactRuntimeCallbackTarget(runtime);
+      auto fulfilled = facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(rt, "moduleEvaluationFulfilled"),
+          1,
+          [target, graphGeneration, recordId](
+              facebook::jsi::Runtime&,
+              const facebook::jsi::Value&,
+              const facebook::jsi::Value*,
+              size_t) -> facebook::jsi::Value {
+            auto* current =
+                callbackRecordFor(target, graphGeneration, recordId);
+            if (current != nullptr &&
+                current->state == NativeModuleRecordState::Evaluating) {
+              current->state = NativeModuleRecordState::Evaluated;
+              current->evaluation_promise.reset();
+            }
+            return facebook::jsi::Value::undefined();
+          });
+      auto rejected = facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(rt, "moduleEvaluationRejected"),
+          1,
+          [target, graphGeneration, recordId](
+              facebook::jsi::Runtime& rt,
+              const facebook::jsi::Value&,
+              const facebook::jsi::Value* args,
+              size_t count) -> facebook::jsi::Value {
+            auto* current =
+                callbackRecordFor(target, graphGeneration, recordId);
+            if (current != nullptr &&
+                current->state == NativeModuleRecordState::Evaluating) {
+              std::string message = "module evaluation promise rejected";
+              if (count != 0) {
+                try {
+                  message = args[0].toString(rt).utf8(rt);
+                } catch (...) {
+                  // This handler must fulfill even when stringification fails;
+                  // otherwise it creates a second unhandled rejection.
+                }
+              }
+              rememberRecordError(*current, message);
+              current->evaluation_promise.reset();
+            }
+            return facebook::jsi::Value::undefined();
+          });
+      auto thenFunction = thenValue.asObject(rt).asFunction(rt);
+      auto retainedPromise = facebook::jsi::Value(rt, object).asObject(rt);
+      entry.evaluation_promise =
+          std::make_shared<facebook::jsi::Object>(std::move(retainedPromise));
+      entry.state = NativeModuleRecordState::Evaluating;
+      try {
+        thenFunction.callWithThis(rt, object, fulfilled, rejected);
+      } catch (...) {
+        entry.evaluation_promise.reset();
+        entry.state = NativeModuleRecordState::Declared;
+        throw;
+      }
+      return true;
+    }
+  }
+  entry.state = NativeModuleRecordState::Evaluated;
+  return false;
+}
+
+void collectDynamicEvaluationOrder(
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t recordId,
+    std::set<uint64_t>& visiting,
+    std::set<uint64_t>& visited,
+    std::vector<uint64_t>& order) {
+  if (visited.count(recordId) != 0 || !visiting.insert(recordId).second) return;
+  auto record = runtime->module_records.find(recordId);
+  if (record == runtime->module_records.end() ||
+      record->second.graph_generation != graphGeneration) {
+    throw std::runtime_error("dynamic import graph contains a stale record");
+  }
+  for (uint64_t dependency : record->second.evaluation_dependencies) {
+    collectDynamicEvaluationOrder(
+        runtime,
+        graphGeneration,
+        dependency,
+        visiting,
+        visited,
+        order);
+  }
+  visiting.erase(recordId);
+  if (visited.insert(recordId).second) order.push_back(recordId);
+}
+
+bool dynamicRecordReaches(
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t fromRecordId,
+    uint64_t targetRecordId,
+    std::set<uint64_t>& visited) {
+  if (fromRecordId == targetRecordId) return true;
+  if (!visited.insert(fromRecordId).second) return false;
+  auto record = runtime->module_records.find(fromRecordId);
+  if (record == runtime->module_records.end() ||
+      record->second.graph_generation != graphGeneration) {
+    throw std::runtime_error("dynamic import graph contains a stale record");
+  }
+  for (uint64_t dependency : record->second.evaluation_dependencies) {
+    if (dynamicRecordReaches(
+            runtime,
+            graphGeneration,
+            dependency,
+            targetRecordId,
+            visited)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::vector<std::vector<uint64_t>> dynamicEvaluationSccs(
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    const std::vector<uint64_t>& evaluationOrder) {
+  std::set<uint64_t> assigned;
+  std::vector<std::vector<uint64_t>> components;
+  for (uint64_t root : evaluationOrder) {
+    if (assigned.count(root) != 0) continue;
+    std::vector<uint64_t> component;
+    for (uint64_t candidate : evaluationOrder) {
+      if (assigned.count(candidate) != 0) continue;
+      std::set<uint64_t> forwardVisited;
+      std::set<uint64_t> reverseVisited;
+      if (dynamicRecordReaches(
+              runtime,
+              graphGeneration,
+              root,
+              candidate,
+              forwardVisited) &&
+          dynamicRecordReaches(
+              runtime,
+              graphGeneration,
+              candidate,
+              root,
+              reverseVisited)) {
+        component.push_back(candidate);
+      }
+    }
+    for (uint64_t member : component) assigned.insert(member);
+    components.push_back(std::move(component));
+  }
+  return components;
+}
+
+facebook::jsi::Object appendPromiseThen(
+    facebook::jsi::Runtime& rt,
+    facebook::jsi::Object chain,
+    facebook::jsi::Function fulfilled) {
+  auto then = chain.getPropertyAsFunction(rt, "then");
+  auto next = then.callWithThis(rt, chain, fulfilled);
+  if (!next.isObject()) {
+    throw facebook::jsi::JSError(rt, "Promise.then did not return an object");
+  }
+  return next.asObject(rt);
+}
+
+facebook::jsi::Value rejectedPromise(
+    facebook::jsi::Runtime& rt, const std::string& message) {
+  auto promiseConstructor = rt.global().getPropertyAsObject(rt, "Promise");
+  auto reject = promiseConstructor.getPropertyAsFunction(rt, "reject");
+  return reject.callWithThis(
+      rt, promiseConstructor, facebook::jsi::JSError(rt, message).value());
+}
+
+facebook::jsi::Object dynamicEvaluationPromise(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t requesterRecordId,
+    uint64_t targetRecordId) {
+  auto promiseConstructor = rt.global().getPropertyAsObject(rt, "Promise");
+  auto resolve = promiseConstructor.getPropertyAsFunction(rt, "resolve");
+  auto targetRecord = runtime->module_records.find(targetRecordId);
+  if (targetRecord == runtime->module_records.end() ||
+      targetRecord->second.graph_generation != graphGeneration) {
+    throw facebook::jsi::JSError(rt, "stale dynamic import target");
+  }
+  facebook::jsi::Value initial;
+  bool needsEvaluation = false;
+  switch (targetRecord->second.state) {
+    case NativeModuleRecordState::Evaluating:
+      if (!targetRecord->second.evaluation_promise) {
+        throw facebook::jsi::JSError(
+            rt, "async module has no retained evaluation promise");
+      }
+      initial = resolve.callWithThis(
+          rt,
+          promiseConstructor,
+          facebook::jsi::Value(rt, *targetRecord->second.evaluation_promise));
+      break;
+    case NativeModuleRecordState::Evaluated:
+      initial = resolve.callWithThis(
+          rt, promiseConstructor, facebook::jsi::Value::undefined());
+      break;
+    case NativeModuleRecordState::Errored: {
+      auto reject = promiseConstructor.getPropertyAsFunction(rt, "reject");
+      initial = reject.callWithThis(
+          rt,
+          promiseConstructor,
+          facebook::jsi::JSError(
+              rt,
+              targetRecord->second.error_message.empty()
+                  ? "module record is errored"
+                  : targetRecord->second.error_message)
+              .value());
+      break;
+    }
+    case NativeModuleRecordState::Declared:
+      needsEvaluation = true;
+      initial = resolve.callWithThis(
+          rt, promiseConstructor, facebook::jsi::Value::undefined());
+      break;
+    default:
+      throw facebook::jsi::JSError(
+          rt, "dynamic import target is not linked and declared");
+  }
+  if (!initial.isObject()) {
+    throw facebook::jsi::JSError(rt, "Promise operation did not return an object");
+  }
+  auto chain = initial.asObject(rt);
+  std::vector<uint64_t> order;
+  std::vector<std::vector<uint64_t>> components;
+  if (needsEvaluation) {
+    std::set<uint64_t> visiting;
+    std::set<uint64_t> visited;
+    collectDynamicEvaluationOrder(
+        runtime,
+        graphGeneration,
+        targetRecordId,
+        visiting,
+        visited,
+        order);
+    for (uint64_t recordId : order) {
+      if (recordId == requesterRecordId) {
+        throw facebook::jsi::JSError(
+            rt,
+            "ERR_ASYNC_MODULE_CYCLE: dynamic target statically re-enters its requester");
+      }
+      auto record = runtime->module_records.find(recordId);
+      if (record != runtime->module_records.end() &&
+          recordId != targetRecordId &&
+          record->second.state == NativeModuleRecordState::Evaluating) {
+        throw facebook::jsi::JSError(
+            rt,
+            "ERR_ASYNC_MODULE_CYCLE: dynamic target overlaps an evaluating dependency");
+      }
+    }
+    components = dynamicEvaluationSccs(runtime, graphGeneration, order);
+  }
+  const auto target = exactRuntimeCallbackTarget(runtime);
+  for (auto component : components) {
+    auto step = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "dynamicModuleEvaluationScc"),
+        0,
+        [target, graphGeneration, component = std::move(component)](
+            facebook::jsi::Runtime& rt,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value*,
+            size_t) -> facebook::jsi::Value {
+          facebook::jsi::Array pending(rt, component.size());
+          size_t pendingCount = 0;
+          for (uint64_t recordId : component) {
+            auto* record =
+                callbackRecordFor(target, graphGeneration, recordId);
+            if (record == nullptr) {
+              throw facebook::jsi::JSError(rt, "stale dynamic import record");
+            }
+            if (record->state == NativeModuleRecordState::Errored) {
+              throw facebook::jsi::JSError(
+                  rt,
+                  record->error_message.empty() ? "module record is errored"
+                                                : record->error_message);
+            }
+            bool asynchronous = false;
+            try {
+              asynchronous =
+                  beginRecordExecute(rt, target.runtime, recordId, *record);
+            } catch (const facebook::jsi::JSError& error) {
+              rememberRecordError(*record, error.getMessage());
+              throw;
+            } catch (const std::exception& error) {
+              rememberRecordError(*record, error.what());
+              throw;
+            } catch (...) {
+              rememberRecordError(
+                  *record, "unknown dynamic module evaluation failure");
+              throw;
+            }
+            if (asynchronous) {
+              if (!record->evaluation_promise) {
+                throw facebook::jsi::JSError(
+                    rt, "async module has no retained evaluation promise");
+              }
+              pending.setValueAtIndex(
+                  rt,
+                  pendingCount++,
+                  facebook::jsi::Value(rt, *record->evaluation_promise));
+            }
+          }
+          if (pendingCount == 0) return facebook::jsi::Value::undefined();
+          auto promises = facebook::jsi::Array(rt, pendingCount);
+          for (size_t index = 0; index < pendingCount; ++index) {
+            promises.setValueAtIndex(
+                rt, index, pending.getValueAtIndex(rt, index));
+          }
+          auto promiseConstructor =
+              rt.global().getPropertyAsObject(rt, "Promise");
+          auto all = promiseConstructor.getPropertyAsFunction(rt, "all");
+          return all.callWithThis(rt, promiseConstructor, promises);
+        });
+    chain = appendPromiseThen(rt, std::move(chain), std::move(step));
+  }
+  auto namespaceStep = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "dynamicModuleNamespace"),
+      0,
+      [target, graphGeneration, targetRecordId](
+          facebook::jsi::Runtime& rt,
+          const facebook::jsi::Value&,
+          const facebook::jsi::Value*,
+          size_t) -> facebook::jsi::Value {
+        auto* record =
+            callbackRecordFor(target, graphGeneration, targetRecordId);
+        if (record == nullptr || !record->namespace_object ||
+            record->state != NativeModuleRecordState::Evaluated) {
+          throw facebook::jsi::JSError(
+              rt, "dynamic import target did not evaluate");
+        }
+        return facebook::jsi::Value(rt, *record->namespace_object);
+      });
+  return appendPromiseThen(rt, std::move(chain), std::move(namespaceStep));
 }
 
 }  // namespace
@@ -523,6 +957,33 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require(
   const std::string name(
       reinterpret_cast<const char*>(specifier), specifier_len);
   if (!entry->require_bindings.emplace(name, target_record.opaque[2]).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_commonjs_record_link_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = commonJsRecordFor(runtime, record);
+  auto* target = recordFor(runtime, target_record);
+  if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeCommonJsRecordState::New || specifier == nullptr ||
+      specifier_len == 0 ||
+      entry->graph_generation != target->graph_generation) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string spelling(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  if (!entry->dynamic_import_bindings
+           .emplace(spelling, target_record.opaque[2])
+           .second) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   return EXACT_RUNTIME_DRIVE_OK;
@@ -902,6 +1363,51 @@ extern "C" int32_t ex_hermes_module_record_link_import(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+extern "C" int32_t ex_hermes_module_record_link_dependency(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    ExactModuleRunnerHandle target_record) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  auto* target = recordFor(runtime, target_record);
+  if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeModuleRecordState::New ||
+      entry->graph_generation != target->graph_generation) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  entry->evaluation_dependencies.insert(target_record.opaque[2]);
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_module_record_link_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  auto* target = recordFor(runtime, target_record);
+  if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeModuleRecordState::New ||
+      entry->graph_generation != target->graph_generation ||
+      specifier == nullptr || specifier_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string spelling(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  if (!entry->dynamic_import_bindings
+           .emplace(spelling, target_record.opaque[2])
+           .second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 extern "C" int32_t ex_hermes_module_record_instantiate(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -1043,6 +1549,53 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
               binding->second.target_export);
         });
     context.setProperty(rt, "importValue", std::move(importValue));
+    auto dynamicImport = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "moduleDynamicImport"),
+        1,
+        [target, graphGeneration, recordId](
+            facebook::jsi::Runtime& rt,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value* args,
+            size_t count) -> facebook::jsi::Value {
+          // import() never throws synchronously: malformed, denied, stale,
+          // and cyclic requests all become fresh rejected public promises.
+          if (count != 1 || !args[0].isString()) {
+            return rejectedPromise(
+                rt, "dynamic import expects one string specifier");
+          }
+          auto* current = callbackRecordFor(target, graphGeneration, recordId);
+          if (current == nullptr) {
+            return rejectedPromise(rt, "stale dynamic import requester");
+          }
+          const std::string specifier = args[0].asString(rt).utf8(rt);
+          auto binding = current->dynamic_import_bindings.find(specifier);
+          if (binding == current->dynamic_import_bindings.end()) {
+            return rejectedPromise(
+                rt, "dynamic import target is not authorized and linked");
+          }
+          if (binding->second == recordId &&
+              current->state != NativeModuleRecordState::Evaluated) {
+            return rejectedPromise(
+                rt, "ERR_ASYNC_MODULE_CYCLE: dynamic import re-entered its evaluating record");
+          }
+          try {
+            auto promise = dynamicEvaluationPromise(
+                rt,
+                target.runtime,
+                graphGeneration,
+                recordId,
+                binding->second);
+            return facebook::jsi::Value(rt, promise);
+          } catch (const facebook::jsi::JSError& error) {
+            return rejectedPromise(rt, error.getMessage());
+          } catch (const std::exception& error) {
+            return rejectedPromise(rt, error.what());
+          } catch (...) {
+            return rejectedPromise(rt, "unknown dynamic import failure");
+          }
+        });
+    context.setProperty(rt, "dynamicImport", std::move(dynamicImport));
     facebook::jsi::Object meta(rt);
     meta.setProperty(
         rt,
@@ -1133,16 +1686,10 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   try {
-    auto& rt = *runtime->runtime;
-    auto result = entry->execute_function->call(rt);
-    if (result.isObject()) {
-      auto object = result.asObject(rt);
-      auto thenValue = object.getProperty(rt, "then");
-      if (thenValue.isObject() && thenValue.asObject(rt).isFunction(rt)) {
-        *out_async = 1;
-      }
-    }
-    entry->state = NativeModuleRecordState::Evaluated;
+    *out_async = beginRecordExecute(
+                         *runtime->runtime, runtime, record.opaque[2], *entry)
+        ? 1
+        : 0;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
     rememberRecordError(*entry, error.getMessage());
@@ -1152,6 +1699,34 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
     rememberRecordError(*entry, "unknown module evaluation failure");
   }
   return reportRecordError(*entry, out_error);
+}
+
+extern "C" int32_t ex_hermes_module_record_poll_evaluation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    int32_t* out_state,
+    char** out_error) {
+  if (out_state) *out_state = -1;
+  if (out_error) *out_error = nullptr;
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (out_state == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
+  switch (entry->state) {
+    case NativeModuleRecordState::Evaluating:
+      *out_state = 0;
+      return EXACT_RUNTIME_DRIVE_OK;
+    case NativeModuleRecordState::Evaluated:
+      *out_state = 1;
+      return EXACT_RUNTIME_DRIVE_OK;
+    case NativeModuleRecordState::Errored:
+      *out_state = 2;
+      return reportRecordError(*entry, out_error);
+    default:
+      return EXACT_RUNTIME_DRIVE_INVALID;
+  }
 }
 
 extern "C" int32_t ex_hermes_module_record_namespace_json(

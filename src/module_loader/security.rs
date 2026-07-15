@@ -368,6 +368,18 @@ impl<'policy, P: GraphImportPolicy> ModuleGraphAuthorizer<'policy, P> {
     }
 
     pub fn authorize(&self, decision: GraphDecisionSet) -> Result<AuthorizedGraphOperation> {
+        self.authorize_if_allowed(decision)?
+            .ok_or_else(|| anyhow!("module operation denied by authenticated package graph"))
+    }
+
+    /// Validate an exact dynamic candidate without turning policy denial into
+    /// an entry-link failure. A denied candidate gets no receipt and therefore
+    /// cannot be installed in the native call-time table; if its branch is
+    /// taken, `import()` returns a rejected promise.
+    pub fn authorize_if_allowed(
+        &self,
+        decision: GraphDecisionSet,
+    ) -> Result<Option<AuthorizedGraphOperation>> {
         decision.context.validate()?;
         let expected_context = DecisionContext {
             stage: decision.context.stage,
@@ -406,16 +418,16 @@ impl<'policy, P: GraphImportPolicy> ModuleGraphAuthorizer<'policy, P> {
                 &conditions,
                 decision.resource.attributes.entries(),
             ) {
-                bail!("module operation denied by authenticated package graph");
+                return Ok(None);
             }
         } else if importer != imported {
             bail!("cache, carrier, and factory operations cannot change record ownership");
         }
-        Ok(AuthorizedGraphOperation {
+        Ok(Some(AuthorizedGraphOperation {
             decision,
             snapshot_digest: self.policy.snapshot_digest().clone(),
             generations: self.policy.snapshot_generations(),
-        })
+        }))
     }
 
     /// Derive a non-delegable source/cache/carrier receipt from an already
@@ -663,6 +675,10 @@ mod tests {
             allow: false,
         };
         let probed = Cell::new(false);
+        assert!(ModuleGraphAuthorizer::new(&denied)
+            .authorize_if_allowed(decision(importer.clone(), target.clone()))
+            .unwrap()
+            .is_none());
         assert!(ModuleGraphAuthorizer::new(&denied)
             .authorize_then_access(
                 decision(importer.clone(), target.clone()),

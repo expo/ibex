@@ -33,6 +33,19 @@ pub struct ImportBindingPlan {
     pub target: ExportTarget,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DynamicImportBindingPlan {
+    pub specifier: String,
+    pub target: SourceId,
+    pub attributes: super::identity::ImportAttributes,
+    pub computed_candidate: bool,
+}
+
+pub struct DynamicAuthorizationPlan {
+    pub receipts: Vec<AuthorizedGraphOperation>,
+    pub allowed_specifiers: BTreeMap<SourceId, BTreeSet<String>>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GraphErrorCode {
     ModuleLink,
@@ -81,10 +94,40 @@ pub struct SynchronousGraphPlan<'artifact> {
     records: BTreeMap<SourceId, PlannedRecord<'artifact>>,
 }
 
+/// One strongly connected component in dependency-first order. Records inside
+/// a component preserve the graph's deterministic DFS evaluation order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AsyncEvaluationScc {
+    pub records: Vec<SourceId>,
+    pub dependencies: Vec<usize>,
+    pub contains_top_level_await: bool,
+    pub async_tainted: bool,
+}
+
+/// Immutable scheduling metadata for one asynchronous entry closure.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AsyncEvaluationPlan {
+    pub evaluation_order: Vec<SourceId>,
+    pub sccs: Vec<AsyncEvaluationScc>,
+    record_scc: BTreeMap<SourceId, usize>,
+}
+
+impl AsyncEvaluationPlan {
+    pub fn scc_for(&self, source_id: &SourceId) -> Option<usize> {
+        self.record_scc.get(source_id).copied()
+    }
+
+    pub fn is_async_tainted(&self, source_id: &SourceId) -> Option<bool> {
+        self.scc_for(source_id)
+            .map(|index| self.sccs[index].async_tainted)
+    }
+}
+
 impl<'artifact> SynchronousGraphPlan<'artifact> {
     /// Build a plan from admitted artifacts and authenticated resolution edges.
-    /// The edge map must exactly match the artifact's static specifier set;
-    /// disagreement fails before any factory compilation or evaluation.
+    /// The edge map must exactly match the artifact's static and literal
+    /// dynamic specifier set. A computed import may add a finite candidate
+    /// map; disagreement fails before factory compilation or evaluation.
     pub fn new(
         records: impl IntoIterator<
             Item = (
@@ -97,12 +140,28 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         for (artifact, edges) in records {
             let semantics = &artifact.artifact().semantics;
             let source_id = semantics.source_id.0.clone();
-            if semantics.has_top_level_await {
-                return Err(GraphError::asynchronous(&source_id));
-            }
-            let expected: BTreeSet<_> = semantics.static_edges.iter().map(edge_specifier).collect();
+            let expected: BTreeSet<_> = semantics
+                .static_edges
+                .iter()
+                .map(edge_specifier)
+                .chain(
+                    semantics
+                        .dynamic_edges
+                        .iter()
+                        .filter_map(|edge| edge.literal_specifier().map(str::to_owned)),
+                )
+                .collect();
             let observed: BTreeSet<_> = edges.keys().cloned().collect();
-            if expected != observed {
+            let has_computed_dynamic_import = semantics
+                .dynamic_edges
+                .iter()
+                .any(|edge| matches!(edge, super::artifact::DynamicEdgeV1::Computed { .. }));
+            let agrees = if has_computed_dynamic_import {
+                expected.is_subset(&observed)
+            } else {
+                expected == observed
+            };
+            if !agrees {
                 return Err(GraphError::link(format!(
                     "artifact/resolver graph disagreement for {source_id:?}: expected {expected:?}, observed {observed:?}"
                 )));
@@ -135,6 +194,10 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         Ok(self.record(source_id)?.artifact)
     }
 
+    pub fn contains_record(&self, source_id: &SourceId) -> bool {
+        self.records.contains_key(source_id)
+    }
+
     /// Dependency-first execution order for the entry's reachable closure.
     /// A visiting record is reused, so cycles append each record exactly once.
     pub fn evaluation_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
@@ -143,6 +206,285 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let mut order = Vec::new();
         self.visit_for_evaluation(entry, &mut visiting, &mut visited, &mut order)?;
         Ok(order)
+    }
+
+    /// Deterministic record-materialization order including literal dynamic
+    /// targets. These records are linked and authenticated but are not
+    /// evaluated until a static or dynamic entry reaches them.
+    pub fn linkage_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
+        let allowed: BTreeMap<_, _> = self
+            .records
+            .keys()
+            .map(|source_id| {
+                Ok((
+                    source_id.clone(),
+                    self.dynamic_import_bindings(source_id)?
+                        .into_iter()
+                        .map(|binding| binding.specifier)
+                        .collect(),
+                ))
+            })
+            .collect::<Result<_, GraphError>>()?;
+        self.linkage_order_for_authorized(entry, &allowed)
+    }
+
+    pub fn linkage_order_for_authorized(
+        &self,
+        entry: &SourceId,
+        allowed_dynamic_specifiers: &BTreeMap<SourceId, BTreeSet<String>>,
+    ) -> Result<Vec<SourceId>, GraphError> {
+        let mut visiting = BTreeSet::new();
+        let mut visited = BTreeSet::new();
+        let mut order = Vec::new();
+        self.visit_for_linkage(
+            entry,
+            allowed_dynamic_specifiers,
+            &mut visiting,
+            &mut visited,
+            &mut order,
+        )?;
+        Ok(order)
+    }
+
+    /// Dependency-first order for a synchronous caller. Async taint is checked
+    /// over only the entry's reachable closure and before native records are
+    /// created, so an unrelated TLA record neither poisons the request nor
+    /// begins executing as a side effect of refusal.
+    pub fn synchronous_evaluation_order(
+        &self,
+        entry: &SourceId,
+    ) -> Result<Vec<SourceId>, GraphError> {
+        let order = self.evaluation_order(entry)?;
+        if let Some(source_id) = order.iter().find(|source_id| {
+            self.records
+                .get(*source_id)
+                .expect("evaluation order contains only planned records")
+                .artifact
+                .artifact()
+                .semantics
+                .has_top_level_await
+        }) {
+            return Err(GraphError::asynchronous(source_id));
+        }
+        Ok(order)
+    }
+
+    pub fn has_top_level_await(&self, source_id: &SourceId) -> Result<bool, GraphError> {
+        Ok(self
+            .record(source_id)?
+            .artifact
+            .artifact()
+            .semantics
+            .has_top_level_await)
+    }
+
+    /// Authenticated dynamic-import targets. Literal sites contribute their
+    /// exact spelling; computed sites may contribute only the resolver's
+    /// finite candidate map and never acquire a guessed target at call time.
+    pub fn dynamic_import_bindings(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<DynamicImportBindingPlan>, GraphError> {
+        let record = self.record(source_id)?;
+        let mut declared = BTreeMap::new();
+        let mut has_computed = false;
+        for edge in &record.artifact.artifact().semantics.dynamic_edges {
+            match edge {
+                super::artifact::DynamicEdgeV1::Literal {
+                    specifier,
+                    attributes,
+                } => {
+                    declared.insert(specifier.as_str().to_owned(), attributes.clone());
+                }
+                super::artifact::DynamicEdgeV1::Computed { .. } => has_computed = true,
+            }
+        }
+        let mut bindings = Vec::new();
+        for (specifier, attributes) in declared {
+            bindings.push(DynamicImportBindingPlan {
+                target: self.edge_target(record, &specifier)?.clone(),
+                specifier,
+                attributes,
+                computed_candidate: false,
+            });
+        }
+        if has_computed {
+            let literal_specifiers: BTreeSet<_> = bindings
+                .iter()
+                .map(|binding| binding.specifier.clone())
+                .collect();
+            for (specifier, target) in &record.edges {
+                if !literal_specifiers.contains(specifier) {
+                    bindings.push(DynamicImportBindingPlan {
+                        specifier: specifier.clone(),
+                        target: target.clone(),
+                        attributes: super::identity::ImportAttributes::default(),
+                        computed_candidate: true,
+                    });
+                }
+            }
+        }
+        bindings.sort_by(|left, right| left.specifier.cmp(&right.specifier));
+        Ok(bindings)
+    }
+
+    pub fn dynamic_import_targets(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<(String, SourceId)>, GraphError> {
+        self.dynamic_import_bindings(source_id).map(|bindings| {
+            bindings
+                .into_iter()
+                .map(|binding| (binding.specifier, binding.target))
+                .collect()
+        })
+    }
+
+    pub fn literal_static_target(
+        &self,
+        source_id: &SourceId,
+        specifier: &str,
+    ) -> Result<&SourceId, GraphError> {
+        self.edge_target(self.record(source_id)?, specifier)
+    }
+
+    /// Collapse the entry closure into dependency-first SCCs and propagate
+    /// async taint from every TLA component to its importers. This plan is
+    /// pure and generation-independent; the native graph uses it to choose
+    /// which record promise must settle before a parent may start.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
+    pub fn asynchronous_evaluation_plan(
+        &self,
+        entry: &SourceId,
+    ) -> Result<AsyncEvaluationPlan, GraphError> {
+        let evaluation_order = self.evaluation_order(entry)?;
+        struct Tarjan<'plan, 'artifact> {
+            plan: &'plan SynchronousGraphPlan<'artifact>,
+            next_index: usize,
+            indices: BTreeMap<SourceId, usize>,
+            lowlinks: BTreeMap<SourceId, usize>,
+            stack: Vec<SourceId>,
+            on_stack: BTreeSet<SourceId>,
+            components: Vec<Vec<SourceId>>,
+        }
+
+        impl<'plan, 'artifact> Tarjan<'plan, 'artifact> {
+            fn visit(&mut self, source_id: &SourceId) -> Result<(), GraphError> {
+                let index = self.next_index;
+                self.next_index += 1;
+                self.indices.insert(source_id.clone(), index);
+                self.lowlinks.insert(source_id.clone(), index);
+                self.stack.push(source_id.clone());
+                self.on_stack.insert(source_id.clone());
+
+                let record = self.plan.record(source_id)?;
+                let mut dependencies = BTreeSet::new();
+                for edge in &record.artifact.artifact().semantics.static_edges {
+                    let target = self.plan.edge_target(record, &edge_specifier(edge))?;
+                    dependencies.insert(target.clone());
+                }
+                for dependency in dependencies {
+                    if !self.indices.contains_key(&dependency) {
+                        self.visit(&dependency)?;
+                        let child_low = self.lowlinks[&dependency];
+                        let own_low = self.lowlinks[source_id];
+                        self.lowlinks
+                            .insert(source_id.clone(), own_low.min(child_low));
+                    } else if self.on_stack.contains(&dependency) {
+                        let dependency_index = self.indices[&dependency];
+                        let own_low = self.lowlinks[source_id];
+                        self.lowlinks
+                            .insert(source_id.clone(), own_low.min(dependency_index));
+                    }
+                }
+
+                if self.lowlinks[source_id] == self.indices[source_id] {
+                    let mut component = Vec::new();
+                    loop {
+                        let member = self
+                            .stack
+                            .pop()
+                            .expect("Tarjan root retains its stack member");
+                        self.on_stack.remove(&member);
+                        let complete = member == *source_id;
+                        component.push(member);
+                        if complete {
+                            break;
+                        }
+                    }
+                    self.components.push(component);
+                }
+                Ok(())
+            }
+        }
+
+        let mut tarjan = Tarjan {
+            plan: self,
+            next_index: 0,
+            indices: BTreeMap::new(),
+            lowlinks: BTreeMap::new(),
+            stack: Vec::new(),
+            on_stack: BTreeSet::new(),
+            components: Vec::new(),
+        };
+        tarjan.visit(entry)?;
+
+        let rank: BTreeMap<_, _> = evaluation_order
+            .iter()
+            .enumerate()
+            .map(|(index, source_id)| (source_id.clone(), index))
+            .collect();
+        for component in &mut tarjan.components {
+            component.sort_by_key(|source_id| rank[source_id]);
+        }
+
+        // Tarjan emits components dependency-first for this record -> import
+        // edge direction. Retain that order and calculate taint in one pass.
+        let mut record_scc = BTreeMap::new();
+        for (index, component) in tarjan.components.iter().enumerate() {
+            for source_id in component {
+                record_scc.insert(source_id.clone(), index);
+            }
+        }
+        let mut sccs: Vec<AsyncEvaluationScc> = Vec::new();
+        for (index, component) in tarjan.components.into_iter().enumerate() {
+            let mut dependencies = BTreeSet::new();
+            let mut contains_top_level_await = false;
+            for source_id in &component {
+                let record = self.record(source_id)?;
+                contains_top_level_await |=
+                    record.artifact.artifact().semantics.has_top_level_await;
+                for edge in &record.artifact.artifact().semantics.static_edges {
+                    let target = self.edge_target(record, &edge_specifier(edge))?;
+                    let dependency = record_scc[target];
+                    if dependency != index {
+                        dependencies.insert(dependency);
+                    }
+                }
+            }
+            let dependencies: Vec<_> = dependencies.into_iter().collect();
+            if dependencies.iter().any(|dependency| *dependency >= index) {
+                return Err(GraphError::link(
+                    "internal SCC schedule is not dependency-first",
+                ));
+            }
+            let async_tainted = contains_top_level_await
+                || dependencies
+                    .iter()
+                    .any(|dependency| sccs[*dependency].async_tainted);
+            sccs.push(AsyncEvaluationScc {
+                records: component,
+                dependencies,
+                contains_top_level_await,
+                async_tainted,
+            });
+        }
+
+        Ok(AsyncEvaluationPlan {
+            evaluation_order,
+            sccs,
+            record_scc,
+        })
     }
 
     /// Authorize every reachable static edge before the native runtime may
@@ -224,7 +566,6 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 )?;
                 receipts.push(authorizer.authorize(decision)?);
             }
-
             // Factory compilation, instantiation, and execution are separate
             // record-owned decisions. They use the initialization task
             // boundary rather than inheriting an importer context.
@@ -255,6 +596,69 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             }
         }
         Ok(receipts)
+    }
+
+    /// Decide every finite dynamic-import candidate without failing entry
+    /// linking merely because a dead branch would be denied. Only candidates
+    /// carrying receipts enter the native exact-spelling table.
+    pub fn authorize_dynamic_candidates<P: GraphImportPolicy>(
+        &self,
+        entry: &SourceId,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+    ) -> anyhow::Result<DynamicAuthorizationPlan> {
+        let mut receipts = Vec::new();
+        let mut allowed_specifiers: BTreeMap<SourceId, BTreeSet<String>> = BTreeMap::new();
+        let mut allowed_targets = BTreeSet::new();
+        let mut owners = self.evaluation_order(entry)?;
+        let mut seen_owners: BTreeSet<_> = owners.iter().cloned().collect();
+        let mut owner_index = 0;
+        while owner_index < owners.len() {
+            let source_id = owners[owner_index].clone();
+            owner_index += 1;
+            let bindings = self.dynamic_import_bindings(&source_id)?;
+            if bindings.is_empty() {
+                continue;
+            }
+            let context = contexts.get(&source_id).ok_or_else(|| {
+                anyhow::anyhow!("dynamic candidate owner {source_id:?} has no CapSec context")
+            })?;
+            for binding in bindings {
+                let decision = GraphDecisionSet::new(
+                    GraphOperationKind::DynamicImport,
+                    context.clone(),
+                    binding.target,
+                    &binding.specifier,
+                    super::identity::ResolutionKind::DynamicImport,
+                    super::identity::ConditionSet::for_kind(
+                        super::identity::ResolutionKind::DynamicImport,
+                    ),
+                    binding.attributes,
+                    None,
+                    None,
+                )?;
+                if let Some(receipt) = authorizer.authorize_if_allowed(decision)? {
+                    allowed_targets.insert(receipt.decision().resource.target.clone());
+                    allowed_specifiers
+                        .entry(source_id.clone())
+                        .or_default()
+                        .insert(binding.specifier);
+                    for member in self.evaluation_order(&receipt.decision().resource.target)? {
+                        if seen_owners.insert(member.clone()) {
+                            owners.push(member);
+                        }
+                    }
+                    receipts.push(receipt);
+                }
+            }
+        }
+        for target in allowed_targets {
+            receipts.extend(self.authorize_reachable_operations(&target, authorizer, contexts)?);
+        }
+        Ok(DynamicAuthorizationPlan {
+            receipts,
+            allowed_specifiers,
+        })
     }
 
     /// Resolve every factory import read to an authenticated ultimate cell or
@@ -502,6 +906,44 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         Ok(())
     }
 
+    fn visit_for_linkage(
+        &self,
+        source_id: &SourceId,
+        allowed_dynamic_specifiers: &BTreeMap<SourceId, BTreeSet<String>>,
+        visiting: &mut BTreeSet<SourceId>,
+        visited: &mut BTreeSet<SourceId>,
+        order: &mut Vec<SourceId>,
+    ) -> Result<(), GraphError> {
+        if visited.contains(source_id) || !visiting.insert(source_id.clone()) {
+            return Ok(());
+        }
+        let record = self.record(source_id)?;
+        let mut targets = BTreeSet::new();
+        for edge in &record.artifact.artifact().semantics.static_edges {
+            targets.insert(self.edge_target(record, &edge_specifier(edge))?.clone());
+        }
+        let allowed = allowed_dynamic_specifiers.get(source_id);
+        for (specifier, target) in self.dynamic_import_targets(source_id)? {
+            if allowed.is_some_and(|specifiers| specifiers.contains(&specifier)) {
+                targets.insert(target);
+            }
+        }
+        for target in targets {
+            self.visit_for_linkage(
+                &target,
+                allowed_dynamic_specifiers,
+                visiting,
+                visited,
+                order,
+            )?;
+        }
+        visiting.remove(source_id);
+        if visited.insert(source_id.clone()) {
+            order.push(source_id.clone());
+        }
+        Ok(())
+    }
+
     fn edge_target<'a>(
         &self,
         record: &'a PlannedRecord<'artifact>,
@@ -537,9 +979,9 @@ fn edge_specifier(edge: &StaticEdgeV1) -> String {
 mod tests {
     use super::*;
     use crate::module_loader::artifact::{
-        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, ModuleArtifactV1, ModuleSemanticsV1,
-        ProducerIdentityV1, SourceDialectV1, SourceGoalV1, SourceMapV1, TransformFingerprintV1,
-        MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, DynamicEdgeV1, ModuleArtifactV1,
+        ModulePayloadV1, ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1,
+        SourceMapV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
     };
     use crate::module_loader::identity::ImportAttributes;
     use capsec_semantics::model::{Digest, NonEmptyString};
@@ -621,6 +1063,7 @@ mod tests {
                 source_integrity: digest("source"),
                 transform_fingerprint: fingerprint,
                 static_edges,
+                dynamic_edges: Vec::new(),
                 export_descriptors,
                 commonjs_exports: None,
                 has_top_level_await,
@@ -656,6 +1099,19 @@ mod tests {
                     .unwrap(),
             })
             .unwrap()
+    }
+
+    fn with_dynamic_edges(
+        artifact: ModuleArtifactV1,
+        dynamic_edges: Vec<DynamicEdgeV1>,
+    ) -> ModuleArtifactV1 {
+        let factory_source = match artifact.payload {
+            ModulePayloadV1::Inline { factory_source, .. } => factory_source,
+            ModulePayloadV1::Carrier { .. } => panic!("graph fixtures are inline"),
+        };
+        let mut semantics = artifact.semantics;
+        semantics.dynamic_edges = dynamic_edges;
+        ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer).unwrap()
     }
 
     #[test]
@@ -805,11 +1261,150 @@ mod tests {
         assert_eq!(error.code, GraphErrorCode::ModuleLink);
         assert!(error.to_string().starts_with("ERR_MODULE_LINK:"));
 
-        let asynchronous = artifact(entry_id, vec![], vec![], true);
-        let error = SynchronousGraphPlan::new([(verify(&asynchronous), BTreeMap::new())])
-            .err()
-            .unwrap();
+        let asynchronous = artifact(entry_id.clone(), vec![], vec![], true);
+        let plan = SynchronousGraphPlan::new([(verify(&asynchronous), BTreeMap::new())]).unwrap();
+        let error = plan.synchronous_evaluation_order(&entry_id).err().unwrap();
         assert_eq!(error.code, GraphErrorCode::RequireAsyncModule);
         assert!(error.to_string().starts_with("ERR_REQUIRE_ASYNC_MODULE:"));
+    }
+
+    #[test]
+    fn synchronous_refusal_is_reachable_closure_scoped() {
+        let sync_id = source("sync");
+        let async_id = source("async");
+        let sync = artifact(sync_id.clone(), vec![], vec![], false);
+        let asynchronous = artifact(async_id.clone(), vec![], vec![], true);
+        let plan = SynchronousGraphPlan::new([
+            (verify(&sync), BTreeMap::new()),
+            (verify(&asynchronous), BTreeMap::new()),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            plan.synchronous_evaluation_order(&sync_id).unwrap(),
+            [sync_id]
+        );
+        assert_eq!(
+            plan.synchronous_evaluation_order(&async_id)
+                .unwrap_err()
+                .code,
+            GraphErrorCode::RequireAsyncModule
+        );
+    }
+
+    #[test]
+    fn async_plan_collapses_cycles_and_propagates_tla_taint() {
+        let leaf_id = source("leaf");
+        let cycle_a_id = source("cycle-a");
+        let cycle_b_id = source("cycle-b");
+        let entry_id = source("entry");
+        let leaf = artifact(leaf_id.clone(), vec![], vec![], true);
+        let cycle_a = artifact(
+            cycle_a_id.clone(),
+            vec![star("./b"), star("./leaf")],
+            vec![edge("./b"), edge("./leaf")],
+            false,
+        );
+        let cycle_b = artifact(
+            cycle_b_id.clone(),
+            vec![star("./a")],
+            vec![edge("./a")],
+            false,
+        );
+        let entry = artifact(
+            entry_id.clone(),
+            vec![star("./a")],
+            vec![edge("./a")],
+            false,
+        );
+        let plan = SynchronousGraphPlan::new([
+            (verify(&leaf), BTreeMap::new()),
+            (
+                verify(&cycle_a),
+                BTreeMap::from([
+                    ("./b".into(), cycle_b_id.clone()),
+                    ("./leaf".into(), leaf_id.clone()),
+                ]),
+            ),
+            (
+                verify(&cycle_b),
+                BTreeMap::from([("./a".into(), cycle_a_id.clone())]),
+            ),
+            (
+                verify(&entry),
+                BTreeMap::from([("./a".into(), cycle_a_id.clone())]),
+            ),
+        ])
+        .unwrap();
+
+        let asynchronous = plan.asynchronous_evaluation_plan(&entry_id).unwrap();
+        assert_eq!(asynchronous.sccs.len(), 3);
+        assert_eq!(asynchronous.sccs[0].records, [leaf_id.clone()]);
+        assert!(asynchronous.sccs[0].contains_top_level_await);
+        assert_eq!(
+            asynchronous.sccs[1]
+                .records
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([cycle_a_id.clone(), cycle_b_id.clone()])
+        );
+        assert_eq!(asynchronous.sccs[1].dependencies, [0]);
+        assert!(asynchronous.sccs[1].async_tainted);
+        assert_eq!(asynchronous.sccs[2].records, [entry_id.clone()]);
+        assert_eq!(asynchronous.sccs[2].dependencies, [1]);
+        assert!(asynchronous.is_async_tainted(&entry_id).unwrap());
+    }
+
+    #[test]
+    fn computed_dynamic_import_uses_only_the_authenticated_candidate_set() {
+        let entry_id = source("computed-entry");
+        let left_id = source("computed-left");
+        let right_id = source("computed-right");
+        let entry = with_dynamic_edges(
+            artifact(entry_id.clone(), vec![], vec![], false),
+            vec![DynamicEdgeV1::Computed { site: 0 }],
+        );
+        let left = artifact(left_id.clone(), vec![], vec![], false);
+        let right = artifact(right_id.clone(), vec![], vec![], false);
+        let plan = SynchronousGraphPlan::new([
+            (
+                verify(&entry),
+                BTreeMap::from([
+                    ("./left".into(), left_id.clone()),
+                    ("./right".into(), right_id.clone()),
+                ]),
+            ),
+            (verify(&left), BTreeMap::new()),
+            (verify(&right), BTreeMap::new()),
+        ])
+        .unwrap();
+        assert_eq!(
+            plan.dynamic_import_bindings(&entry_id)
+                .unwrap()
+                .into_iter()
+                .map(|binding| (
+                    binding.specifier,
+                    binding.target,
+                    binding.computed_candidate
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("./left".into(), left_id.clone(), true),
+                ("./right".into(), right_id.clone(), true),
+            ]
+        );
+        assert_eq!(
+            plan.linkage_order(&entry_id).unwrap(),
+            [left_id, right_id, entry_id]
+        );
+
+        let closed_id = source("closed-entry");
+        let closed = artifact(closed_id, vec![], vec![], false);
+        assert!(SynchronousGraphPlan::new([(
+            verify(&closed),
+            BTreeMap::from([("./unadvertised".into(), source("unadvertised"))]),
+        )])
+        .is_err());
     }
 }

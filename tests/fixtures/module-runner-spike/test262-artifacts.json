@@ -28,6 +28,7 @@
         "sourceIntegrity": "sha256-6jovMou15z2ef5aei4DRP/j2aMJ5l0CJMaB+S5LX6F0=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": false,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nassert.sameValue(this, undefined);\n}\n};\n}\n",
@@ -62,6 +63,7 @@
         "sourceIntegrity": "sha256-5TfmKCemvzJ7w7WWQxbf+JQ41isoK7AIW8XiGMHK7Yk=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [
           {
             "kind": "local",
@@ -102,6 +104,7 @@
         "sourceIntegrity": "sha256-A60KTb5Jv8OzdkjWBgvI972HVS/IfVqyvm2f3gUoj4Y=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [
           {
             "kind": "local",
@@ -142,6 +145,7 @@
         "sourceIntegrity": "sha256-bIpMmGKCYxRSwIT32VZsuGaYsMkWl1nose10x3lsQc4=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [
           {
             "kind": "local",
@@ -182,6 +186,7 @@
         "sourceIntegrity": "sha256-I1YhGgd/AWjlO50uJWdeps893MmRztgTYsyXW4v1R8U=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [
           {
             "kind": "local",
@@ -222,6 +227,7 @@
         "sourceIntegrity": "sha256-7c/ByQtwfvBoEXH0eP4J3dUYCoRLHX2WREqgHH3sGHk=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [
           {
             "kind": "local",
@@ -262,6 +268,7 @@
         "sourceIntegrity": "sha256-TwY7qwt0tLBuxUZO9RMV7Tv7uzx6hi3Pwa7Abs6gkIc=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [
           {
             "kind": "local",
@@ -302,6 +309,7 @@
         "sourceIntegrity": "sha256-bnEK9UWyeDSSxHqGY/MUcr6HVqJoW/uBOr6bbYJvDu0=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": false,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nconst constBinding = 89;\nassert.sameValue(constBinding, 89);\n}\n};\n}\n",
@@ -336,6 +344,7 @@
         "sourceIntegrity": "sha256-IFWBJpB2taoUESM2MMth9ezC9cqtNq3cz6mFUS4tzxA=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": false,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nlet letBinding = 1;\nassert.sameValue(letBinding, 1);\nletBinding = 2;\nassert.sameValue(letBinding, 2);\n}\n};\n}\n",
@@ -370,6 +379,7 @@
         "sourceIntegrity": "sha256-QHbXB2oW8Jr6TExnKlQBYRHidqjcOGjCtOTmPzBdcFA=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": false,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: function () {\nvar varBinding = 1;\nassert.sameValue(varBinding, 1);\nvarBinding = 2;\nassert.sameValue(varBinding, 2);\n}\n};\n}\n",
@@ -404,6 +414,7 @@
         "sourceIntegrity": "sha256-MgfnnG0+Hrq7cv9JFiWT6zgnJisnjymOarn1RCmkPNk=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar x;\nx = await 42;\nassert.sameValue(x, 42, \"number\");\nx = await \"\";\nassert.sameValue(x, \"\", \"string\");\nvar s = Symbol();\nx = await s;\nassert.sameValue(x, s, \"symbol\");\nx = await false;\nassert.sameValue(x, false, \"false\");\nx = await true;\nassert.sameValue(x, true, \"true\");\nx = await NaN;\nassert.sameValue(x, NaN, \"NaN\");\nx = await null;\nassert.sameValue(x, null, \"null\");\nx = await undefined;\nassert.sameValue(x, undefined, \"undefined\");\nvar obj = {};\nx = await obj;\nassert.sameValue(x, obj, \"object\");\nx = await Promise.resolve(1).then((v) => v * 2).then((v) => v * 3);\nassert.sameValue(x, 6, \"promise\");\n$DONE();\n}\n};\n}\n",
@@ -438,6 +449,7 @@
         "sourceIntegrity": "sha256-qDnYpghf4yMKuL2iR9HozEDtGkF/IhHpxOdi71NL3kw=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar x = await void 1;\nassert.sameValue(x, undefined);\n$DONE();\n}\n};\n}\n",
@@ -472,6 +484,7 @@
         "sourceIntegrity": "sha256-dgoAb6vjWBcLOghcIZ2G9mbeHPUz2OTF7NQvqeaht+4=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar completed = 0;\nvar p = Promise.resolve(true);\nif (await p) {\n\tcompleted += 1;\n}\nassert.sameValue(completed, 1);\n$DONE();\n}\n};\n}\n",
@@ -506,6 +519,7 @@
         "sourceIntegrity": "sha256-Cm6DCVkimeI3A9vVZMY6SfI3yACfoj527eJkU0WglOA=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar thenable = { then: function(resolve, reject) {\n\tresolve(42);\n} };\nassert.sameValue(await thenable, 42);\n$DONE();\n}\n};\n}\n",
@@ -540,6 +554,7 @@
         "sourceIntegrity": "sha256-Zw8UQcLfD9BcQKCbaHur5p9OtiBDgDC8WLid03z9BGY=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar thenable = { then: 42 };\nvar res = await thenable;\nassert.sameValue(res, thenable);\n$DONE();\n}\n};\n}\n",
@@ -574,6 +589,7 @@
         "sourceIntegrity": "sha256-/t81sRaG3qe9rKFbOkQ5NcgwBfxtnqGlt6Z/TUQsJ0Y=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nfunction fn() {\n\treturn 42;\n}\nawait function fn() {\n\treturn 111;\n};\nassert.sameValue(fn(), 42);\n$DONE();\n}\n};\n}\n",
@@ -608,6 +624,7 @@
         "sourceIntegrity": "sha256-sxd6AdOts7v6lZiatzNyyR7nd/C5dT5jnu5GZcm0g6Y=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar lol = false;\nvar x = { get y() {\n\tlol = true;\n} };\nvar g = 42;\nawait /x.y/g;\nif (lol) {\n\t$DONE(\"It should be a RegExp\");\n} else {\n\t$DONE();\n}\n}\n};\n}\n",
@@ -642,6 +659,7 @@
         "sourceIntegrity": "sha256-zec/QwdH7hQP6UHSVgP/cXVGAj3p9+DPJ8sFruHj/Fc=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nassert.sameValue(new (await Number)().valueOf(), 0);\nassert.sameValue(new (await String)().valueOf(), \"\");\nassert.sameValue(new (await Boolean)().valueOf(), false);\nassert.sameValue(new (await Array)().length, 0);\nassert.sameValue(new (await Map)().size, 0);\nassert.sameValue(new (await Set)().size, 0);\n$DONE();\n}\n};\n}\n",
@@ -676,6 +694,7 @@
         "sourceIntegrity": "sha256-FK7r2xhtEfnyrjPvR7fiyJKx+YEN42hjOeEcryUp6zo=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar value = await new Promise(function(res, rej) {\n\tres(42);\n});\nassert.sameValue(value, 42);\n$DONE();\n}\n};\n}\n",
@@ -710,6 +729,7 @@
         "sourceIntegrity": "sha256-zdoXXOWaVzgDns3Aj7wq5WUqp6LYUVGCHITKDThRclc=",
         "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
+        "dynamicEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
         "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar x;\ntry {\n\tawait Promise.reject(42);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, 42, \"number\");\ntry {\n\tawait Promise.reject(\"\");\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, \"\", \"string\");\ntry {\n\tvar s = Symbol();\n\tawait Promise.reject(s);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, s, \"symbol\");\ntry {\n\tawait Promise.reject(false);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, false, \"false\");\ntry {\n\tawait Promise.reject(true);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, true, \"true\");\ntry {\n\tawait Promise.reject(NaN);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, NaN, \"NaN\");\ntry {\n\tawait Promise.reject(null);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, null, \"null\");\ntry {\n\tawait Promise.reject(undefined);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, undefined, \"undefined\");\ntry {\n\tvar obj = {};\n\tawait Promise.reject(obj);\n} catch (e) {\n\tx = e;\n}\nassert.sameValue(x, obj, \"object\");\n$DONE();\n}\n};\n}\n",

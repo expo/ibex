@@ -163,6 +163,17 @@ int32_t ex_hermes_commonjs_record_link_require(
     size_t specifier_len,
     ExactModuleRunnerHandle target_record);
 
+/// Bind one authenticated CommonJS `import(specifier)` spelling to an ESM
+/// record. The body receives a promise-returning `dynamicImport` factory
+/// argument; missing, denied, and stale spellings reject asynchronously.
+int32_t ex_hermes_commonjs_record_link_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
 /// Evaluate a CommonJS record synchronously. Re-entry returns the early
 /// published partial exports; a throw evicts the record and invalidates handle.
 int32_t ex_hermes_commonjs_record_evaluate(
@@ -255,6 +266,25 @@ int32_t ex_hermes_module_record_link_import(
     const uint8_t* target_export,
     size_t target_export_len);
 
+/// Link a static evaluation dependency independently of imported binding
+/// reads. Side-effect-only and re-export edges participate here too.
+int32_t ex_hermes_module_record_link_dependency(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    ExactModuleRunnerHandle target_record);
+
+/// Link one already-authorized dynamic-import spelling to its exact target
+/// record. Literal edges and finite computed candidates share this table;
+/// absent or denied spellings reject without probing source state.
+int32_t ex_hermes_module_record_link_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
 /// Materialize the stable namespace, export callback, import context, and
 /// factory result. This does not run declare or execute.
 int32_t ex_hermes_module_record_instantiate(
@@ -280,6 +310,17 @@ int32_t ex_hermes_module_record_run_execute(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     int32_t* out_async,
+    char** out_error);
+
+/// Observe one record's terminal evaluation state without blocking or
+/// creating a new promise. `out_state` is 0 while suspended, 1 after
+/// fulfillment, and 2 after rejection. A rejected record also returns the
+/// record's sticky diagnostic through `out_error`.
+int32_t ex_hermes_module_record_poll_evaluation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    int32_t* out_state,
     char** out_error);
 
 /// Diagnostic serialization of the stable namespace. The namespace itself

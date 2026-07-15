@@ -5,6 +5,9 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-15 (ENG-25063 reconciled dependency-level TLA through the
+separate authenticated LLP 0026 runner while preserving the legacy session
+loader's entry-only refusal)
 **Revised:** 2026-07-12 (round-7 terminal two-family review — the last round of the
 four-document effort, closed under the human's bounded endgame authorization as a minimal
 pass; the document finishes **Draft**, not both-families-READY, matching all three siblings.
@@ -467,15 +470,21 @@ narrowing, and it is pinned by a fixture.
 | `.load <file>` | script + extensions | entry | no | yes | yes | `globalThis` |
 | Program-mode stdin | module | entry | yes | yes | yes | `undefined` |
 | One-shot `-e` / `-p` | script + extensions | entry | no | yes | yes | `globalThis` |
-| Imported file | module | dependency | yes | **no (v1)** | yes | `undefined` |
+| Imported file on the legacy session loader | module | dependency | yes | **no (legacy v1)** | yes | `undefined` |
+| Imported file on the LLP 0026 runner | module | dependency | yes | **yes** | yes | `undefined` |
 
-**Top-level `await` is an entry-only extension in v1.** The engine has no native
+**Top-level `await` is an entry-only extension on the legacy session path.** The engine has no native
 ESM and no native TLA, and the module loader lowers every module into a
 *synchronous* CommonJS `require()` chain — so a dependency that suspends has
 nowhere to suspend to. Honest dependency-level TLA needs an asynchronous
 linker/evaluator with dependency ordering, live bindings, async cycles, failure
-propagation and caching, and defined CJS interoperation. None of that exists,
-and this document will not pretend otherwise.
+propagation and caching, and defined CJS interoperation. None of that exists on
+the legacy loader, and this document will not pretend otherwise. The
+authenticated LLP 0026 runner is the separate implementation: it owns
+dependency-first SCC scheduling, one handled internal evaluation promise per
+record, fresh public `import()` promises, and sticky terminal failure.
+Consumers become dependency-TLA-capable only when they migrate to that runner;
+this document's legacy refusal does not silently widen them.
 
 Therefore: top-level `await` is available in **prompt input, `.load` content,
 program-mode stdin, and one-shot `-e`/`-p`** — the sources whose role is *entry*
@@ -514,9 +523,9 @@ target is refused at call time, with **the same named error**, before the select
 dependency is evaluated or enters the module cache; effects the entry already
 performed stand, and no preflight can honestly claim otherwise.
 
-An asynchronous module graph is a separate design (open question 4); v1 states
-the limit rather than shipping a plausible-looking lowering that is wrong under
-cycles.
+An asynchronous module graph is a separate design, now specified by accepted
+LLP 0026. The legacy path continues to state and enforce its limit rather than
+shipping a plausible-looking lowering that is wrong under cycles.
 
 **A note on how this document has been repaired, because the pattern is the point.** Three
 times now a guarantee here proved unsupportable by the mechanism beneath it — a rollback
@@ -2230,10 +2239,11 @@ say which is testing nothing.
    safety.
 3. Should the empty-completion discriminator come from a Hermes completion-record patch
    or from source instrumentation (§6)? It is slice 2 of the §8 patch program.
-4. Is dependency-level top-level `await` worth an asynchronous module linker — with
-   dependency ordering, live bindings, async cycles, failure caching, and CJS interop —
-   or is entry-only TLA the durable answer for a synchronous-`require` runtime?
-   Deviation (b) (copied-at-import values) rides on the same answer.
+4. **Resolved by accepted LLP 0026:** dependency-level top-level `await` uses
+   the authenticated asynchronous module runner, with dependency ordering,
+   live cells, SCC scheduling, sticky failure, and defined CJS interop.
+   Entry-only TLA remains the durable answer only for this document's legacy
+   synchronous session loader until that consumer migrates.
 5. **Which parser mechanism implements the Script-plus-`import`-plus-TLA goal** (§3) —
    a parser mode, a maintained fork, or a Script early-error validator run alongside a
    Module parse? The third is *not* sufficient on its own: a Module parse still rejects

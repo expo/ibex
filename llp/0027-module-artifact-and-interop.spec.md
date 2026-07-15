@@ -5,7 +5,8 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
+**Revised:** 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
+promise-returning CommonJS-to-ESM import ABI); 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
 snapshot adapters); 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
 producer adapter, and tamper fixtures)
 **Related:** LLP 0012 (pinned Node compatibility target); LLP 0014 (reserved policy attributes); LLP 0023 (source identity); LLP 0026 (accepted module-runner architecture); ENG-25059; ENG-25061
@@ -38,6 +39,7 @@ ModuleArtifactV1 {
     source_integrity
     transform_fingerprint
     static_edges[]
+    dynamic_edges[]         // literal spellings or stable computed-site ids
     export_descriptors[]
     commonjs_exports?
     has_top_level_await
@@ -50,11 +52,18 @@ ModuleArtifactV1 {
 }
 ```
 
-`static_edges` and `export_descriptors` are closed tagged variants, never
-free-form strings. Import edges distinguish named, default, namespace, and
+`static_edges`, `dynamic_edges`, and `export_descriptors` are closed tagged
+variants, never free-form strings. Import edges distinguish named, default, namespace, and
 side-effect forms. Re-export edges distinguish named and star forms. Export
 descriptors distinguish local, indirect, and star forms. Every edge with an
 authored specifier retains it and its validated runtime import attributes.
+Literal dynamic imports retain their authored spelling and attributes. A
+computed dynamic import retains only a stable producer-order site id; the exact
+specifier and target come from the authenticated finite candidate set and are
+checked at invocation, so an unselected spelling is denied without probing.
+For compatibility with already-issued v1 artifacts, an empty `dynamic_edges`
+array is omitted canonically and decodes as empty; a non-empty array is covered
+by the semantic digest.
 Reserved LLP 0014 policy keys are rejected: authority annotations are consumed
 into the armed policy before artifact emission and never enter this wire form.
 
@@ -86,7 +95,7 @@ deserialization.
 
 The semantic digest is carrier-independent and covers every semantic field:
 canonical `SourceId`, source kind, dialect, source integrity, transform
-fingerprint, typed static edges, typed export descriptors, CommonJS detected
+fingerprint, typed static and dynamic edges, typed export descriptors, CommonJS detected
 names and detector version where applicable, the exact logical factory bytes,
 top-level-await bit, and source map. Every semantic field is either covered or
 deterministically derived and recomputed from covered data.
@@ -139,6 +148,13 @@ current `module.exports`, including replacement before the recursive require.
 A throw evicts and invalidates the handle; successful completion permits one
 stable ESM adapter containing the two identity entries and detector-approved
 named snapshots.
+
+The CommonJS factory ABI is `(require, module, exports, __filename, __dirname,
+dynamicImport)`. `dynamicImport(specifier)` (also exposed as `require.import`
+for lowering adapters) returns a fresh promise for an authenticated linked ESM
+namespace and supports asynchronous target graphs. A missing, denied, stale,
+or malformed target returns a rejected promise rather than throwing from the
+factory call.
 
 For `require(ESM)`, an explicit ESM export named `'module.exports'` is returned
 directly. Otherwise the namespace object is returned, with `__esModule`

@@ -5087,6 +5087,18 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms) {
   } else if (runtime->pending_fs_ops.load(std::memory_order_relaxed) > 0) {
     // A pending async fs operation keeps the loop alive. (ENG-23497)
     has_referenced_work = true;
+  } else if (std::any_of(
+                 runtime->module_records.begin(),
+                 runtime->module_records.end(),
+                 [](const auto& record) {
+                   return record.second.state ==
+                       NativeModuleRecordState::Evaluating;
+                 })) {
+    // A suspended module graph is one live structured-evaluation unit. Its
+    // internal promise keeps the loop alive; individual import waiters do not
+    // become cancellation targets.
+    // @ref LLP 0025#6-interruption-and-cancellation
+    has_referenced_work = true;
   } else {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     if (!runtime->callbackQueue.empty()) has_referenced_work = true;
@@ -5258,6 +5270,14 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
   }
   // An in-flight async fs operation keeps the loop alive. (ENG-23497)
   if (runtime->pending_fs_ops.load(std::memory_order_relaxed) > 0) {
+    return 1;
+  }
+  if (std::any_of(
+          runtime->module_records.begin(),
+          runtime->module_records.end(),
+          [](const auto& record) {
+            return record.second.state == NativeModuleRecordState::Evaluating;
+          })) {
     return 1;
   }
   {

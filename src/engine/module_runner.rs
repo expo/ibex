@@ -5,7 +5,9 @@
 //! @ref LLP 0027#canonical-encoding-and-validation
 
 #[cfg(any(test, feature = "module-runner"))]
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
+use std::ffi::CString;
 use std::ffi::{c_char, c_void, CStr};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -15,7 +17,7 @@ use anyhow::{anyhow, bail, Result};
 
 use crate::module_loader::artifact::{SourceGoalV1, VerifiedModuleArtifactV1};
 #[cfg(any(test, feature = "module-runner"))]
-use crate::module_loader::graph::SynchronousGraphPlan;
+use crate::module_loader::graph::{AsyncEvaluationPlan, SynchronousGraphPlan};
 use crate::module_loader::identity::SourceId;
 #[cfg(any(test, feature = "module-runner"))]
 use crate::module_loader::security::{
@@ -98,6 +100,14 @@ unsafe extern "C" {
         specifier_len: usize,
         target_record: NativeModuleHandle,
     ) -> i32;
+    fn ex_hermes_commonjs_record_link_dynamic_import(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
     fn ex_hermes_commonjs_record_evaluate(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -150,6 +160,22 @@ unsafe extern "C" {
         target_export: *const u8,
         target_export_len: usize,
     ) -> i32;
+    #[cfg(any(test, feature = "module-runner"))]
+    fn ex_hermes_module_record_link_dependency(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        target_record: NativeModuleHandle,
+    ) -> i32;
+    #[cfg(any(test, feature = "module-runner"))]
+    fn ex_hermes_module_record_link_dynamic_import(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
     fn ex_hermes_module_record_instantiate(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -172,6 +198,13 @@ unsafe extern "C" {
         out_async: *mut i32,
         out_error: *mut *mut c_char,
     ) -> i32;
+    fn ex_hermes_module_record_poll_evaluation(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_state: *mut i32,
+        out_error: *mut *mut c_char,
+    ) -> i32;
     fn ex_hermes_module_record_namespace_json(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -180,6 +213,15 @@ unsafe extern "C" {
         out_error: *mut *mut c_char,
     ) -> i32;
     fn ex_hermes_free_string(value: *mut c_char);
+    #[cfg(test)]
+    fn ex_hermes_eval(
+        runtime: *mut c_void,
+        data: *const u8,
+        len: usize,
+        source_url: *const c_char,
+        is_bytecode: i32,
+        out_value: *mut *mut c_char,
+    ) -> i32;
 }
 
 /// Borrowed owner-thread access to one live Hermes runtime generation.
@@ -602,6 +644,33 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
         Ok(())
     }
 
+    pub fn link_dynamic_import(
+        &mut self,
+        specifier: &str,
+        target: &NativeModuleRecord<'_>,
+    ) -> Result<()> {
+        if !std::ptr::eq(self.runtime, target.runtime) {
+            bail!("CommonJS and ESM records belong to different runtime borrows");
+        }
+        if specifier.is_empty() {
+            bail!("CommonJS dynamic-import specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_commonjs_record_link_dynamic_import(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                specifier.as_ptr(),
+                specifier.len(),
+                target.live_handle()?,
+            )
+        };
+        if status != 0 {
+            bail!("native CommonJS dynamic-import link refused ({status})");
+        }
+        Ok(())
+    }
+
     pub fn evaluate(&mut self) -> Result<()> {
         let handle = self.live_handle()?;
         let mut evicted = 0;
@@ -645,6 +714,12 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
 pub enum ModuleExecutionKind {
     Synchronous,
     Asynchronous,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModuleEvaluationState {
+    Pending,
+    Evaluated,
 }
 
 impl NativeModuleRecord<'_> {
@@ -716,6 +791,47 @@ impl NativeModuleRecord<'_> {
         };
         if status != 0 {
             bail!("native import binding refused ({status})");
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    fn link_dependency_handle(&mut self, target: NativeModuleHandle) -> Result<()> {
+        let status = unsafe {
+            ex_hermes_module_record_link_dependency(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                target,
+            )
+        };
+        if status != 0 {
+            bail!("native evaluation dependency refused ({status})");
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    fn link_dynamic_import_handle(
+        &mut self,
+        specifier: &str,
+        target: NativeModuleHandle,
+    ) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("dynamic import specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_module_record_link_dynamic_import(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                specifier.as_ptr(),
+                specifier.len(),
+                target,
+            )
+        };
+        if status != 0 {
+            bail!("native dynamic import binding refused ({status})");
         }
         Ok(())
     }
@@ -814,6 +930,30 @@ impl NativeModuleRecord<'_> {
         }
     }
 
+    /// Poll the one internal evaluation promise owned by this record. This is
+    /// deliberately state-only: callers drive Hermes separately and never
+    /// wait on the runtime thread.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
+    pub fn poll_evaluation(&self) -> Result<ModuleEvaluationState> {
+        let mut state = -1;
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_module_record_poll_evaluation(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                &mut state,
+                &mut error,
+            )
+        };
+        native_result(status, error, "ModuleRecord evaluation poll")?;
+        match state {
+            0 => Ok(ModuleEvaluationState::Pending),
+            1 => Ok(ModuleEvaluationState::Evaluated),
+            _ => bail!("native ModuleRecord returned an invalid evaluation state"),
+        }
+    }
+
     pub fn namespace_json(&self) -> Result<String> {
         let mut json = std::ptr::null_mut();
         let mut error = std::ptr::null_mut();
@@ -863,9 +1003,20 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         authorizer: &ModuleGraphAuthorizer<'_, P>,
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
     ) -> Result<Self> {
-        let receipts =
+        let evaluation_order = plan.synchronous_evaluation_order(entry)?;
+        let mut receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
-        Self::link_inner(runtime, plan, entry, configs, receipts)
+        let dynamic = plan.authorize_dynamic_candidates(entry, authorizer, authority_contexts)?;
+        receipts.extend(dynamic.receipts);
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            evaluation_order,
+            configs,
+            receipts,
+            Some(dynamic.allowed_specifiers),
+        )
     }
 
     /// Diagnostic-only bypass for native ABI unit fixtures. Advertised builds
@@ -877,17 +1028,39 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         entry: &SourceId,
         configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
     ) -> Result<Self> {
-        Self::link_inner(runtime, plan, entry, configs, Vec::new())
+        let evaluation_order = plan.synchronous_evaluation_order(entry)?;
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            evaluation_order,
+            configs,
+            Vec::new(),
+            None,
+        )
     }
 
     fn link_inner(
         runtime: &'runtime NativeModuleRuntime<'runtime>,
         plan: &SynchronousGraphPlan<'_>,
         entry: &SourceId,
+        evaluation_order: Vec<SourceId>,
         mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
         authorization_receipts: Vec<AuthorizedGraphOperation>,
+        allowed_dynamic_specifiers: Option<BTreeMap<SourceId, BTreeSet<String>>>,
     ) -> Result<Self> {
-        let evaluation_order = plan.evaluation_order(entry)?;
+        let linkage_order = match &allowed_dynamic_specifiers {
+            Some(allowed) => plan.linkage_order_for_authorized(entry, allowed)?,
+            None => plan.linkage_order(entry)?,
+        };
+        if let Some(outside) = configs
+            .keys()
+            .find(|source_id| !plan.contains_record(source_id))
+        {
+            bail!(
+                "native configuration contains record outside the authenticated plan: {outside:?}"
+            );
+        }
         let generation = configs
             .get(entry)
             .ok_or_else(|| anyhow!("entry ModuleRecord has no native configuration"))?
@@ -898,7 +1071,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
 
         // Create every reachable record before publishing cells or links. The
         // native record retains its context and callable factory handles.
-        for source_id in &evaluation_order {
+        for source_id in &linkage_order {
             let config = configs.remove(source_id).ok_or_else(|| {
                 anyhow!("reachable ModuleRecord {source_id:?} has no native configuration")
             })?;
@@ -920,16 +1093,13 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             records.insert(source_id.clone(), record);
             meta_urls.insert(source_id.clone(), config.meta_url);
         }
-        if !configs.is_empty() {
-            bail!(
-                "native configuration contains records outside the entry closure: {:?}",
-                configs.keys().collect::<Vec<_>>()
-            );
-        }
+        // Configurations for denied or unselected dynamic candidates remain
+        // inert: no native record, factory compilation, or call-time table
+        // entry is created for them.
 
         // Materialize every namespace shape before linking any aliases. This
         // is the cycle boundary: every record identity and cell already exists.
-        for source_id in &evaluation_order {
+        for source_id in &linkage_order {
             let namespace = plan.namespace(source_id)?;
             let record = records
                 .get_mut(source_id)
@@ -939,7 +1109,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             }
         }
 
-        for source_id in &evaluation_order {
+        for source_id in &linkage_order {
             for (export_name, target) in plan.namespace(source_id)? {
                 if target.record == *source_id && target.binding == export_name {
                     continue;
@@ -968,12 +1138,65 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                         &binding.target.binding,
                     )?;
             }
+            let mut dependencies = BTreeSet::new();
+            for edge in &plan.artifact(source_id)?.artifact().semantics.static_edges {
+                let specifier = match edge {
+                    crate::module_loader::artifact::StaticEdgeV1::SideEffect {
+                        specifier, ..
+                    }
+                    | crate::module_loader::artifact::StaticEdgeV1::Default { specifier, .. }
+                    | crate::module_loader::artifact::StaticEdgeV1::Namespace {
+                        specifier, ..
+                    }
+                    | crate::module_loader::artifact::StaticEdgeV1::Named { specifier, .. }
+                    | crate::module_loader::artifact::StaticEdgeV1::ReExportNamed {
+                        specifier,
+                        ..
+                    }
+                    | crate::module_loader::artifact::StaticEdgeV1::ReExportStar {
+                        specifier,
+                        ..
+                    }
+                    | crate::module_loader::artifact::StaticEdgeV1::ReExportNamespace {
+                        specifier,
+                        ..
+                    } => specifier.as_str(),
+                };
+                let target = plan.literal_static_target(source_id, specifier)?.clone();
+                if dependencies.insert(target.clone()) {
+                    let target_handle = records
+                        .get(&target)
+                        .ok_or_else(|| anyhow!("evaluation dependency is outside linkage closure"))?
+                        .live_handle()?;
+                    records
+                        .get_mut(source_id)
+                        .expect("linkage order was used to create every record")
+                        .link_dependency_handle(target_handle)?;
+                }
+            }
+            for (specifier, target) in plan.dynamic_import_targets(source_id)? {
+                if allowed_dynamic_specifiers.as_ref().is_some_and(|allowed| {
+                    !allowed
+                        .get(source_id)
+                        .is_some_and(|specifiers| specifiers.contains(&specifier))
+                }) {
+                    continue;
+                }
+                let target_handle = records
+                    .get(&target)
+                    .ok_or_else(|| anyhow!("dynamic import target is outside linkage closure"))?
+                    .live_handle()?;
+                records
+                    .get_mut(source_id)
+                    .expect("linkage order was used to create every record")
+                    .link_dynamic_import_handle(&specifier, target_handle)?;
+            }
         }
 
         // Complete graph-wide instantiation and declaration before the first
         // body executes. Dependency-first order also matches the synchronous
         // DFS evaluation order for cycles and acyclic graphs.
-        for source_id in &evaluation_order {
+        for source_id in &linkage_order {
             let meta_url = meta_urls
                 .get(source_id)
                 .expect("every configured record has an import.meta URL");
@@ -982,7 +1205,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                 .expect("evaluation order was used to create every record")
                 .instantiate(meta_url, source_id == entry)?;
         }
-        for source_id in &evaluation_order {
+        for source_id in &linkage_order {
             records
                 .get_mut(source_id)
                 .expect("evaluation order was used to create every record")
@@ -1032,6 +1255,188 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
 
     pub fn entry(&self) -> &SourceId {
         &self.entry
+    }
+
+    pub fn namespace_json(&self, source_id: &SourceId) -> Result<String> {
+        self.records
+            .get(source_id)
+            .ok_or_else(|| anyhow!("namespace requested outside the linked entry closure"))?
+            .namespace_json()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AsyncGraphPoll {
+    Suspended,
+    Evaluated,
+}
+
+/// A linked ESM graph whose dependency-first progress is driven by polling.
+/// The graph owns every internal record promise until terminal settlement;
+/// callers drive the Hermes microtask/event loop between `poll` calls and no
+/// runtime thread is ever blocked.
+// @ref LLP 0024#7-the-session-record
+// @ref LLP 0025#6-interruption-and-cancellation
+#[cfg(any(test, feature = "module-runner"))]
+pub struct NativeAsynchronousGraph<'runtime> {
+    entry: SourceId,
+    schedule: AsyncEvaluationPlan,
+    records: BTreeMap<SourceId, NativeModuleRecord<'runtime>>,
+    next_scc: usize,
+    suspended_records: Vec<SourceId>,
+    evaluation_outcome: Option<std::result::Result<(), String>>,
+    _authorization_receipts: Vec<AuthorizedGraphOperation>,
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+impl<'runtime> NativeAsynchronousGraph<'runtime> {
+    pub fn link_authorized<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+    ) -> Result<Self> {
+        let schedule = plan.asynchronous_evaluation_plan(entry)?;
+        let mut receipts =
+            plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
+        let dynamic = plan.authorize_dynamic_candidates(entry, authorizer, authority_contexts)?;
+        receipts.extend(dynamic.receipts);
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            schedule,
+            configs,
+            receipts,
+            Some(dynamic.allowed_specifiers),
+        )
+    }
+
+    #[cfg(test)]
+    pub fn link(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+    ) -> Result<Self> {
+        let schedule = plan.asynchronous_evaluation_plan(entry)?;
+        Self::link_inner(runtime, plan, entry, schedule, configs, Vec::new(), None)
+    }
+
+    fn link_inner(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        schedule: AsyncEvaluationPlan,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorization_receipts: Vec<AuthorizedGraphOperation>,
+        allowed_dynamic_specifiers: Option<BTreeMap<SourceId, BTreeSet<String>>>,
+    ) -> Result<Self> {
+        let linked = NativeSynchronousGraph::link_inner(
+            runtime,
+            plan,
+            entry,
+            schedule.evaluation_order.clone(),
+            configs,
+            authorization_receipts,
+            allowed_dynamic_specifiers,
+        )?;
+        let NativeSynchronousGraph {
+            entry,
+            records,
+            _authorization_receipts,
+            ..
+        } = linked;
+        Ok(Self {
+            entry,
+            schedule,
+            records,
+            next_scc: 0,
+            suspended_records: Vec::new(),
+            evaluation_outcome: None,
+            _authorization_receipts,
+        })
+    }
+
+    /// Make deterministic progress until the next TLA suspension or terminal
+    /// outcome. A native rejection becomes the graph's sticky error and every
+    /// later poll reports the same diagnostic.
+    pub fn poll(&mut self) -> Result<AsyncGraphPoll> {
+        if let Some(outcome) = &self.evaluation_outcome {
+            return outcome
+                .clone()
+                .map(|()| AsyncGraphPoll::Evaluated)
+                .map_err(|detail| anyhow!(detail));
+        }
+        let outcome: Result<AsyncGraphPoll> = (|| {
+            if !self.suspended_records.is_empty() {
+                let mut pending = Vec::new();
+                for source_id in self.suspended_records.drain(..) {
+                    match self
+                        .records
+                        .get(&source_id)
+                        .expect("suspended record remains owned by its graph")
+                        .poll_evaluation()?
+                    {
+                        ModuleEvaluationState::Pending => pending.push(source_id),
+                        ModuleEvaluationState::Evaluated => {}
+                    }
+                }
+                self.suspended_records = pending;
+                if !self.suspended_records.is_empty() {
+                    return Ok(AsyncGraphPoll::Suspended);
+                }
+                self.next_scc += 1;
+            }
+
+            while self.next_scc < self.schedule.sccs.len() {
+                // All records in one SCC must be allowed to start before the
+                // component waits. Otherwise one TLA record can suspend ahead
+                // of a cyclic peer whose body is required to settle it.
+                // @ref LLP 0026#6-top-level-await-and-dynamic-import
+                for source_id in self.schedule.sccs[self.next_scc].records.clone() {
+                    let kind = self
+                        .records
+                        .get_mut(&source_id)
+                        .expect("async schedule retains every reachable record")
+                        .run_execute()?;
+                    if kind == ModuleExecutionKind::Asynchronous {
+                        self.suspended_records.push(source_id);
+                    }
+                }
+                if !self.suspended_records.is_empty() {
+                    return Ok(AsyncGraphPoll::Suspended);
+                }
+                self.next_scc += 1;
+            }
+            Ok(AsyncGraphPoll::Evaluated)
+        })();
+        match outcome {
+            Ok(AsyncGraphPoll::Evaluated) => {
+                self.evaluation_outcome = Some(Ok(()));
+                Ok(AsyncGraphPoll::Evaluated)
+            }
+            Ok(AsyncGraphPoll::Suspended) => Ok(AsyncGraphPoll::Suspended),
+            Err(error) => {
+                let detail = error.to_string();
+                self.evaluation_outcome = Some(Err(detail.clone()));
+                Err(anyhow!(detail))
+            }
+        }
+    }
+
+    pub fn is_suspended(&self) -> bool {
+        !self.suspended_records.is_empty()
+    }
+
+    pub fn entry(&self) -> &SourceId {
+        &self.entry
+    }
+
+    pub fn schedule(&self) -> &AsyncEvaluationPlan {
+        &self.schedule
     }
 
     pub fn namespace_json(&self, source_id: &SourceId) -> Result<String> {
@@ -1104,7 +1509,7 @@ fn native_result(status: i32, error: *mut c_char, operation: &str) -> Result<()>
 mod tests {
     use super::*;
     use crate::module_loader::artifact::{
-        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, CommonJsExportsV1,
+        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, CommonJsExportsV1, DynamicEdgeV1,
         ExportDescriptorV1, ModuleArtifactV1, ModuleSemanticsV1, ProducerIdentityV1,
         SourceDialectV1, SourceGoalV1, SourceMapV1, StaticEdgeV1, TransformFingerprintV1,
         MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
@@ -1116,6 +1521,7 @@ mod tests {
     unsafe extern "C" {
         fn ex_hermes_create_diagnostic() -> *mut c_void;
         fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
+        fn ex_hermes_poll(runtime: *mut c_void, now_ms: u64) -> i32;
         fn ex_hermes_destroy(runtime: *mut c_void);
     }
 
@@ -1208,6 +1614,7 @@ mod tests {
                 source_integrity: digest("source"),
                 transform_fingerprint: fingerprint,
                 static_edges,
+                dynamic_edges: Vec::new(),
                 export_descriptors,
                 commonjs_exports,
                 has_top_level_await: false,
@@ -1235,6 +1642,24 @@ mod tests {
             "function ($export) { return { declare: function () {}, execute: function () { $export('value', 42); } }; }",
             &["value"],
         )
+    }
+
+    fn asynchronous_artifact(
+        artifact: ModuleArtifactV1,
+        dynamic_edges: Vec<DynamicEdgeV1>,
+    ) -> ModuleArtifactV1 {
+        let factory_source = match artifact.payload {
+            crate::module_loader::artifact::ModulePayloadV1::Inline { factory_source, .. } => {
+                factory_source
+            }
+            crate::module_loader::artifact::ModulePayloadV1::Carrier { .. } => {
+                panic!("test artifacts are inline")
+            }
+        };
+        let mut semantics = artifact.semantics;
+        semantics.has_top_level_await = true;
+        semantics.dynamic_edges = dynamic_edges;
+        ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer).unwrap()
     }
 
     fn verify_test_artifact(artifact: &ModuleArtifactV1) -> VerifiedModuleArtifactV1<'_> {
@@ -1423,6 +1848,474 @@ mod tests {
             );
 
             drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn asynchronous_graph_suspends_dependencies_and_makes_rejection_sticky() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let dependency_id =
+                SourceId::synthetic("module-runner-test", "async-dependency").unwrap();
+            let entry_id = SourceId::synthetic("module-runner-test", "async-entry").unwrap();
+            let dependency = asynchronous_artifact(
+                test_artifact_with_factory(
+                    dependency_id.clone(),
+                    "function ($export) { return { declare: function () {}, execute: function () { return Promise.resolve(42).then(function (value) { $export('value', value); }); } }; }",
+                    &["value"],
+                ),
+                Vec::new(),
+            );
+            let entry = test_graph_artifact(
+                entry_id.clone(),
+                "function ($export, context) { return { declare: function () {}, execute: function () { $export('observed', context.importValue('./dependency', 'value')); } }; }",
+                vec![StaticEdgeV1::Named {
+                    specifier: NonEmptyString::new("./dependency").unwrap(),
+                    imported: NonEmptyString::new("value").unwrap(),
+                    local: NonEmptyString::new("value").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+                vec![ExportDescriptorV1::Local {
+                    exported: NonEmptyString::new("observed").unwrap(),
+                    local: NonEmptyString::new("observed").unwrap(),
+                }],
+            );
+            let plan = SynchronousGraphPlan::new([
+                (verify_test_artifact(&dependency), BTreeMap::new()),
+                (
+                    verify_test_artifact(&entry),
+                    BTreeMap::from([("./dependency".into(), dependency_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    format!("{label}.mjs"),
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph = NativeAsynchronousGraph::link(
+                &runtime,
+                &plan,
+                &entry_id,
+                BTreeMap::from([
+                    (
+                        dependency_id.clone(),
+                        config(dependency_id.clone(), "async-dependency"),
+                    ),
+                    (entry_id.clone(), config(entry_id.clone(), "async-entry")),
+                ]),
+            )
+            .unwrap();
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Suspended);
+            assert!(graph.is_suspended());
+            assert_ne!(ex_hermes_poll(raw, 0), -1);
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Evaluated);
+            assert_eq!(
+                graph.namespace_json(&entry_id).unwrap(),
+                r#"{"observed":42}"#
+            );
+
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let rejection_id = SourceId::synthetic("module-runner-test", "async-reject").unwrap();
+            let rejection = asynchronous_artifact(
+                test_artifact_with_factory(
+                    rejection_id.clone(),
+                    "function () { return { declare: function () {}, execute: function () { return Promise.reject(new Error('tla boom')); } }; }",
+                    &[],
+                ),
+                Vec::new(),
+            );
+            let rejection_plan =
+                SynchronousGraphPlan::new([(verify_test_artifact(&rejection), BTreeMap::new())])
+                    .unwrap();
+            let mut rejection_graph = NativeAsynchronousGraph::link(
+                &runtime,
+                &rejection_plan,
+                &rejection_id,
+                BTreeMap::from([(
+                    rejection_id.clone(),
+                    config(rejection_id.clone(), "async-reject"),
+                )]),
+            )
+            .unwrap();
+            assert_eq!(rejection_graph.poll().unwrap(), AsyncGraphPoll::Suspended);
+            assert_ne!(ex_hermes_poll(raw, 0), -1);
+            let first = rejection_graph.poll().unwrap_err().to_string();
+            let second = rejection_graph.poll().unwrap_err().to_string();
+            assert!(first.contains("tla boom"), "unexpected rejection: {first}");
+            assert_eq!(second, first);
+
+            drop(rejection_graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn asynchronous_scc_starts_every_peer_before_waiting() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let a_id = SourceId::synthetic("module-runner-test", "async-scc-a").unwrap();
+            let b_id = SourceId::synthetic("module-runner-test", "async-scc-b").unwrap();
+            let a = test_graph_artifact(
+                a_id.clone(),
+                "function () { return { declare: function () {}, execute: function () { globalThis.finishAsyncSccB(); } }; }",
+                vec![StaticEdgeV1::SideEffect {
+                    specifier: NonEmptyString::new("./b").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+                Vec::new(),
+            );
+            let b = asynchronous_artifact(
+                test_graph_artifact(
+                    b_id.clone(),
+                    "function ($export) { return { declare: function () {}, execute: function () { return new Promise(function (resolve) { globalThis.finishAsyncSccB = resolve; }).then(function () { $export('settled', true); }); } }; }",
+                    vec![StaticEdgeV1::SideEffect {
+                        specifier: NonEmptyString::new("./a").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    }],
+                    vec![ExportDescriptorV1::Local {
+                        exported: NonEmptyString::new("settled").unwrap(),
+                        local: NonEmptyString::new("settled").unwrap(),
+                    }],
+                ),
+                Vec::new(),
+            );
+            let plan = SynchronousGraphPlan::new([
+                (
+                    verify_test_artifact(&a),
+                    BTreeMap::from([("./b".into(), b_id.clone())]),
+                ),
+                (
+                    verify_test_artifact(&b),
+                    BTreeMap::from([("./a".into(), a_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    format!("{label}.mjs"),
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph = NativeAsynchronousGraph::link(
+                &runtime,
+                &plan,
+                &a_id,
+                BTreeMap::from([
+                    (a_id.clone(), config(a_id.clone(), "async-scc-a")),
+                    (b_id.clone(), config(b_id.clone(), "async-scc-b")),
+                ]),
+            )
+            .unwrap();
+            assert_eq!(graph.schedule().sccs.len(), 1);
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Suspended);
+            assert_ne!(ex_hermes_poll(raw, 0), -1);
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Evaluated);
+            assert_eq!(graph.namespace_json(&b_id).unwrap(), r#"{"settled":true}"#);
+
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn dynamic_import_returns_fresh_promises_over_one_async_record() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let target_id = SourceId::synthetic("module-runner-test", "dynamic-target").unwrap();
+            let peer_id = SourceId::synthetic("module-runner-test", "dynamic-peer").unwrap();
+            let entry_id = SourceId::synthetic("module-runner-test", "dynamic-entry").unwrap();
+            let target = test_graph_artifact(
+                target_id.clone(),
+                "function ($export) { return { declare: function () {}, execute: function () { globalThis.finishDynamicSccPeer(); $export('value', 7); } }; }",
+                vec![StaticEdgeV1::SideEffect {
+                    specifier: NonEmptyString::new("./peer").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+                vec![ExportDescriptorV1::Local {
+                    exported: NonEmptyString::new("value").unwrap(),
+                    local: NonEmptyString::new("value").unwrap(),
+                }],
+            );
+            let peer = asynchronous_artifact(
+                test_graph_artifact(
+                    peer_id.clone(),
+                    "function () { return { declare: function () {}, execute: function () { return new Promise(function (resolve) { globalThis.finishDynamicSccPeer = resolve; }); } }; }",
+                    vec![StaticEdgeV1::SideEffect {
+                        specifier: NonEmptyString::new("./target").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    }],
+                    Vec::new(),
+                ),
+                Vec::new(),
+            );
+            let entry = asynchronous_artifact(
+                test_artifact_with_factory(
+                    entry_id.clone(),
+                    "function ($export, context) { return { declare: function () {}, execute: function () { var first = context.dynamicImport('./target'); var second = context.dynamicImport('./target'); $export('fresh', first !== second); return Promise.all([first, second]).then(function (namespaces) { $export('sum', namespaces[0].value + namespaces[1].value); }); } }; }",
+                    &["fresh", "sum"],
+                ),
+                vec![DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+            );
+            let plan = SynchronousGraphPlan::new([
+                (
+                    verify_test_artifact(&target),
+                    BTreeMap::from([("./peer".into(), peer_id.clone())]),
+                ),
+                (
+                    verify_test_artifact(&peer),
+                    BTreeMap::from([("./target".into(), target_id.clone())]),
+                ),
+                (
+                    verify_test_artifact(&entry),
+                    BTreeMap::from([("./target".into(), target_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    format!("{label}.mjs"),
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph = NativeAsynchronousGraph::link(
+                &runtime,
+                &plan,
+                &entry_id,
+                BTreeMap::from([
+                    (
+                        target_id.clone(),
+                        config(target_id.clone(), "dynamic-target"),
+                    ),
+                    (peer_id.clone(), config(peer_id.clone(), "dynamic-peer")),
+                    (entry_id.clone(), config(entry_id.clone(), "dynamic-entry")),
+                ]),
+            )
+            .unwrap();
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Suspended);
+            for tick in 0..4 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+            }
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Evaluated);
+            assert_eq!(
+                graph.namespace_json(&entry_id).unwrap(),
+                r#"{"fresh":true,"sum":14}"#
+            );
+
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn mixed_dynamic_static_reentry_rejects_instead_of_deadlocking() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let a_id = SourceId::synthetic("module-runner-test", "async-cycle-a").unwrap();
+            let b_id = SourceId::synthetic("module-runner-test", "async-cycle-b").unwrap();
+            let a = asynchronous_artifact(
+                test_artifact_with_factory(
+                    a_id.clone(),
+                    "function ($export, context) { return { declare: function () {}, execute: function () { return context.dynamicImport('./b'); } }; }",
+                    &[],
+                ),
+                vec![DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./b").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+            );
+            let b = test_graph_artifact(
+                b_id.clone(),
+                "function () { return { declare: function () {}, execute: function () {} }; }",
+                vec![StaticEdgeV1::SideEffect {
+                    specifier: NonEmptyString::new("./a").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+                Vec::new(),
+            );
+            let plan = SynchronousGraphPlan::new([
+                (
+                    verify_test_artifact(&a),
+                    BTreeMap::from([("./b".into(), b_id.clone())]),
+                ),
+                (
+                    verify_test_artifact(&b),
+                    BTreeMap::from([("./a".into(), a_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    format!("{label}.mjs"),
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph = NativeAsynchronousGraph::link(
+                &runtime,
+                &plan,
+                &a_id,
+                BTreeMap::from([
+                    (a_id.clone(), config(a_id.clone(), "async-cycle-a")),
+                    (b_id.clone(), config(b_id.clone(), "async-cycle-b")),
+                ]),
+            )
+            .unwrap();
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Suspended);
+            assert_ne!(ex_hermes_poll(raw, 0), -1);
+            let error = graph.poll().unwrap_err().to_string();
+            assert!(
+                error.contains("ERR_ASYNC_MODULE_CYCLE"),
+                "unexpected async cycle error: {error}"
+            );
+
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn commonjs_dynamic_import_returns_an_esm_namespace_promise() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let esm_id = SourceId::synthetic("module-runner-test", "cjs-dynamic-esm").unwrap();
+            let cjs_id = SourceId::synthetic("module-runner-test", "cjs-dynamic-owner").unwrap();
+            let esm_artifact = asynchronous_artifact(
+                test_artifact_with_factory(
+                    esm_id.clone(),
+                    "function ($export) { return { declare: function () {}, execute: function () { return Promise.resolve().then(function () { $export('value', 31); }); } }; }",
+                    &["value"],
+                ),
+                Vec::new(),
+            );
+            let esm_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(esm_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let esm_factory = runtime
+                .compile_verified_factory(
+                    verify_test_artifact(&esm_artifact),
+                    0,
+                    None,
+                    1,
+                    "cjs-dynamic-esm.mjs",
+                )
+                .unwrap();
+            let mut esm = esm_factory.create_record(&esm_context, &esm_id).unwrap();
+            esm.declare_export("value").unwrap();
+            esm.instantiate("synthetic:module-runner-test/cjs-dynamic-esm", false)
+                .unwrap();
+            esm.run_declare().unwrap();
+
+            let cjs_artifact = test_commonjs_artifact(
+                cjs_id.clone(),
+                "function (require, module, exports, __filename, __dirname, dynamicImport) { dynamicImport('./esm').then(function (namespace) { globalThis.cjsDynamicValue = namespace.value; }); }",
+                &[],
+            );
+            let cjs_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(cjs_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let cjs_factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&cjs_artifact),
+                    0,
+                    None,
+                    1,
+                    "cjs-dynamic-owner.cjs",
+                )
+                .unwrap();
+            let mut cjs = cjs_factory
+                .create_commonjs_record(&cjs_context, &cjs_id, "/pkg/owner.cjs", "/pkg")
+                .unwrap();
+            cjs.link_dynamic_import("./esm", &esm).unwrap();
+            cjs.evaluate().unwrap();
+            for tick in 0..6 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+            }
+            let source = "String(globalThis.cjsDynamicValue)";
+            let source_url = CString::new("cjs-dynamic-observation.js").unwrap();
+            let mut output = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_eval(
+                    raw,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut output,
+                ),
+                0
+            );
+            assert!(!output.is_null());
+            assert_eq!(CStr::from_ptr(output).to_string_lossy(), "31");
+            ex_hermes_free_string(output);
+
+            drop(cjs);
+            drop(esm);
+            drop(cjs_factory);
+            drop(cjs_context);
+            drop(esm_factory);
+            drop(esm_context);
             drop(runtime);
             ex_hermes_destroy(raw);
         }
