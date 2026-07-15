@@ -347,10 +347,10 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                       }
 
                       if (!resolve || !reject) {
-                        {
+                        withRuntimePinned(target, [&]() {
                           std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
                           wrapper->fetchCallbacks.erase(req_id);
-                        }
+                        });
                         ex_hermes_notify_callback();
                         exactUnpinRuntimeNativeWorker(target);
                         return;
@@ -453,10 +453,10 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                             } catch (...) {
                             }
                           });
-                      {
+                      withRuntimePinned(target, [&]() {
                         std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
                         wrapper->fetchCallbacks.erase(req_id);
-                      }
+                      });
                       // pushRuntimeCallback wakes the host after publication,
                       // but the runtime may drain that callback before this
                       // worker releases the overlapping fetch keepalive. Wake

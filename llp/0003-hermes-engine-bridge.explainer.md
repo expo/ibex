@@ -132,9 +132,12 @@ that handoff: it moves the resolve/reject closures out of the request entry but
 keeps the entry registered until `pushRuntimeCallback` has published the
 completion in the runtime queue. `ex_hermes_has_pending_tasks()` therefore sees
 either the in-flight fetch or its queued completion, never a transient empty
-state between them. The worker notifies again after releasing the fetch entry,
-so a runtime that drained the newly queued callback during the overlap cannot
-park on a keepalive that disappeared immediately afterward `[observed]`
+state between them. Both entry-release branches re-pin the exact runtime
+generation around `fetchMutex` access, while the native-worker pin remains held
+through the final release and wake; teardown therefore cannot delete the handle
+between callback publication and cleanup. The worker notifies again after
+releasing the fetch entry, so a runtime that drained the newly queued callback
+during the overlap cannot park on a keepalive that disappeared immediately afterward `[observed]`
 (`src/engine/hermes_runtime_fetch.cc`; `src/engine/hermes_runtime.cc`).
 
 Cross-thread callback identity is the pair `(ExactHermesRuntime*,

@@ -126,6 +126,12 @@ fn fetch_completion_publishes_callback_before_releasing_pending_keepalive() {
     let release_notify = handoff
         .rfind("ex_hermes_notify_callback();")
         .expect("wake after pending fetch cleanup");
+    let worker_pin = handoff
+        .find("exactPinRuntimeNativeWorker(target)")
+        .expect("fetch producer teardown pin");
+    let worker_unpin = handoff
+        .rfind("exactUnpinRuntimeNativeWorker(target);")
+        .expect("fetch producer teardown unpin");
     let extraction = handoff
         .split("bool alive = withRuntimePinned")
         .nth(1)
@@ -133,8 +139,16 @@ fn fetch_completion_publishes_callback_before_releasing_pending_keepalive() {
         .expect("pending fetch callback extraction");
 
     assert!(
-        enqueue < erase && erase < release_notify,
-        "fetch completion must publish, release its keepalive, then wake the runtime"
+        worker_pin < enqueue
+            && enqueue < erase
+            && erase < release_notify
+            && release_notify < worker_unpin,
+        "fetch completion must stay teardown-pinned while it publishes, releases its keepalive, and wakes the runtime"
+    );
+    assert_eq!(
+        handoff.matches("withRuntimePinned(target, [&]() {").count(),
+        3,
+        "extraction and both pending-fetch cleanup branches must be registry-pinned"
     );
     assert!(
         !extraction.contains("fetchCallbacks.erase"),
