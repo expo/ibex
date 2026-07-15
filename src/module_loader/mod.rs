@@ -6,6 +6,8 @@
 
 pub mod artifact;
 #[cfg(any(test, feature = "module-runner"))]
+pub mod commonjs;
+#[cfg(any(test, feature = "module-runner"))]
 pub mod graph;
 pub mod identity;
 pub mod producer_spike;
