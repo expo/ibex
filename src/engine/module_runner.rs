@@ -1131,6 +1131,35 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             configs,
             receipts,
             Some(dynamic.allowed_specifiers),
+            None,
+        )
+    }
+
+    /// Prepared-graph entry. Carrier capabilities were admitted atomically by
+    /// the trusted loader and are matched to the same verified semantic plan.
+    pub fn link_authorized_prepared<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>,
+    ) -> Result<Self> {
+        let evaluation_order = plan.synchronous_evaluation_order(entry)?;
+        let mut receipts =
+            plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
+        let dynamic = plan.authorize_dynamic_candidates(entry, authorizer, authority_contexts)?;
+        receipts.extend(dynamic.receipts);
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            evaluation_order,
+            configs,
+            receipts,
+            Some(dynamic.allowed_specifiers),
+            Some(prepared_entries),
         )
     }
 
@@ -1152,6 +1181,28 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             configs,
             Vec::new(),
             None,
+            None,
+        )
+    }
+
+    #[cfg(test)]
+    pub fn link_prepared(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>,
+    ) -> Result<Self> {
+        let evaluation_order = plan.synchronous_evaluation_order(entry)?;
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            evaluation_order,
+            configs,
+            Vec::new(),
+            None,
+            Some(prepared_entries),
         )
     }
 
@@ -1163,6 +1214,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
         authorization_receipts: Vec<AuthorizedGraphOperation>,
         allowed_dynamic_specifiers: Option<BTreeMap<SourceId, BTreeSet<String>>>,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>>,
     ) -> Result<Self> {
         let linkage_order = match &allowed_dynamic_specifiers {
             Some(allowed) => plan.linkage_order_for_authorized(entry, allowed)?,
@@ -1197,13 +1249,26 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                 bail!("synchronous graph mixes execution generations");
             }
             let context = runtime.create_graph_context(config.evaluation_context)?;
-            let factory = runtime.compile_verified_factory(
-                plan.artifact(source_id)?,
-                config.principal_id,
-                config.compartment_identity.as_deref(),
-                generation,
-                &config.source_label,
-            )?;
+            let verified = plan.artifact(source_id)?;
+            let factory = match prepared_entries {
+                Some(entries) => runtime.load_verified_prepared_factory(
+                    verified,
+                    *entries.get(source_id).ok_or_else(|| {
+                        anyhow!("prepared graph has no admitted carrier entry for {source_id:?}")
+                    })?,
+                    config.principal_id,
+                    config.compartment_identity.as_deref(),
+                    generation,
+                    &config.source_label,
+                )?,
+                None => runtime.compile_verified_factory(
+                    verified,
+                    config.principal_id,
+                    config.compartment_identity.as_deref(),
+                    generation,
+                    &config.source_label,
+                )?,
+            };
             let record = factory.create_record(&context, source_id)?;
             records.insert(source_id.clone(), record);
             meta_urls.insert(source_id.clone(), config.meta_url);
@@ -1426,6 +1491,33 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
             configs,
             receipts,
             Some(dynamic.allowed_specifiers),
+            None,
+        )
+    }
+
+    pub fn link_authorized_prepared<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>,
+    ) -> Result<Self> {
+        let schedule = plan.asynchronous_evaluation_plan(entry)?;
+        let mut receipts =
+            plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
+        let dynamic = plan.authorize_dynamic_candidates(entry, authorizer, authority_contexts)?;
+        receipts.extend(dynamic.receipts);
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            schedule,
+            configs,
+            receipts,
+            Some(dynamic.allowed_specifiers),
+            Some(prepared_entries),
         )
     }
 
@@ -1437,7 +1529,16 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
     ) -> Result<Self> {
         let schedule = plan.asynchronous_evaluation_plan(entry)?;
-        Self::link_inner(runtime, plan, entry, schedule, configs, Vec::new(), None)
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            schedule,
+            configs,
+            Vec::new(),
+            None,
+            None,
+        )
     }
 
     fn link_inner(
@@ -1448,6 +1549,7 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
         authorization_receipts: Vec<AuthorizedGraphOperation>,
         allowed_dynamic_specifiers: Option<BTreeMap<SourceId, BTreeSet<String>>>,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>>,
     ) -> Result<Self> {
         let linked = NativeSynchronousGraph::link_inner(
             runtime,
@@ -1457,6 +1559,7 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
             configs,
             authorization_receipts,
             allowed_dynamic_specifiers,
+            prepared_entries,
         )?;
         let NativeSynchronousGraph {
             entry,
@@ -1973,6 +2076,72 @@ mod tests {
                 );
                 assert_eq!(record.namespace_json().unwrap(), r#"{"value":42}"#);
             }
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn prepared_carrier_enters_the_full_graph_linker() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let owner = Principal::Root {
+            identity: NonEmptyString::new("prepared-graph-project").unwrap(),
+        };
+        let source_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("entry.mjs").unwrap()],
+        )
+        .unwrap();
+        let inline = test_artifact(source_id.clone());
+        let (manifest, bytes) = PreparedModuleCarrierV1::from_inline_artifacts(
+            owner.clone(),
+            NonEmptyString::new("prepared-test").unwrap(),
+            digest("prepared-producer"),
+            digest("prepared-graph"),
+            [(
+                NonEmptyString::new("entry").unwrap(),
+                verify_test_artifact(&inline),
+            )],
+        )
+        .unwrap();
+        let carrier = AdmittedPreparedCarrierV1::decode_and_admit(
+            &manifest.encode_canonical().unwrap(),
+            &bytes,
+            &prepared_admission(owner, &manifest),
+        )
+        .unwrap();
+        let artifact = manifest.prepared_artifact("entry").unwrap();
+        let plan = SynchronousGraphPlan::new([(
+            verify_prepared_artifact(&artifact, &manifest),
+            BTreeMap::new(),
+        )])
+        .unwrap();
+        let entries = BTreeMap::from([(source_id.clone(), carrier.entry("entry").unwrap())]);
+        let configs = BTreeMap::from([(
+            source_id.clone(),
+            NativeModuleRecordConfig::new(
+                0,
+                None,
+                GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], 1).unwrap(),
+                "prepared-entry.mjs",
+                "file:prepared-graph-project/entry.mjs",
+            )
+            .unwrap(),
+        )]);
+
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let mut graph = NativeSynchronousGraph::link_prepared(
+                &runtime, &plan, &source_id, configs, &entries,
+            )
+            .unwrap();
+            graph.evaluate().unwrap();
+            assert_eq!(graph.namespace_json(&source_id).unwrap(), r#"{"value":42}"#);
+            drop(graph);
             drop(runtime);
             ex_hermes_destroy(raw);
         }

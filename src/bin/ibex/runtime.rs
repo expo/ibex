@@ -22,6 +22,28 @@ use std::time::Duration;
 /// compilation attempts for the rest of the process lifetime.
 static BYTECODE_INCOMPATIBLE: AtomicBool = AtomicBool::new(false);
 
+#[cfg(feature = "module-runner")]
+const LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR: &str = "0.1";
+
+#[cfg(feature = "module-runner")]
+fn legacy_module_loader_window_is_open() -> bool {
+    let version = env!("CARGO_PKG_VERSION");
+    let in_bounded_release = version == LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR
+        || version.starts_with(&format!("{LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR}."));
+    let explicitly_disabled = std::env::var("IBEX_LEGACY_MODULE_LOADER")
+        .ok()
+        .is_some_and(|value| matches!(value.as_str(), "0" | "false" | "FALSE" | "no" | "NO"));
+    in_bounded_release && !explicitly_disabled
+}
+
+#[cfg(feature = "module-runner")]
+fn module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
+    let executable = std::env::current_exe().context("locate module producer executable")?;
+    let bytes = std::fs::read(&executable)
+        .with_context(|| format!("read module producer executable {}", executable.display()))?;
+    ibex_runtime::module_loader::artifact::digest_bytes("ibex/module-producer-binary/1", &bytes)
+}
+
 const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
   if (g.__exactRuntimeLoaded === true) return;
 
@@ -1387,16 +1409,162 @@ impl Runtime {
         let absolute_path = normalize_windows_tool_path(absolute_path);
         let path_str = absolute_path.to_string_lossy();
         let exec_path = resolve_exec_path(&["ibex"]);
-        let entry_path = match absolute_path.extension().and_then(|s| s.to_str()) {
-            Some(ext)
-                if matches!(
-                    ext.to_ascii_lowercase().as_str(),
+
+        let script_entry = absolute_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
                     "mjs" | "js" | "cjs" | "ts" | "tsx" | "jsx" | "mts" | "cts"
-                ) =>
-            {
-                prepare_entry_with_format(&path_str, self.bundle_format).await?
+                )
+            });
+
+        #[cfg(feature = "module-runner")]
+        let (native_graph, prepared_source_path) = 'native_graph: {
+            use ibex_runtime::module_loader::runner_pipeline::{
+                build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
+                prepared_graph_cache_dir, publish_prepared_source_graph_v1,
+                SourceModuleGraphBuildV1,
+            };
+
+            if !script_entry {
+                (None, absolute_path.clone())
+            } else {
+                let producer_digest = module_producer_binary_digest()?;
+                // A warm prepared graph may be discovered through the
+                // existing v3 Rolldown manifest without running the bundler.
+                // On a cold miss, Host authentication and Oxc admission happen
+                // first; preparation is allowed only after that boundary.
+                // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+                let cache_root = runtime_cache_dir()?;
+                let mut existing_prepared_source = None;
+                let mut candidate_formats = vec![self.bundle_format];
+                if self.bundle_format == BundleFormat::Cjs {
+                    candidate_formats.push(BundleFormat::Esm);
+                }
+                for format in candidate_formats {
+                    let cache_key = bundle_cache_key(&absolute_path, format)?;
+                    let artifact_root = bundle_artifact_root(&cache_root, &cache_key);
+                    if let Some(output) =
+                        find_fresh_bundle(&artifact_root, &absolute_path, format).await
+                    {
+                        existing_prepared_source = Some(output);
+                        break;
+                    }
+                }
+
+                if let Some(prepared_source) = existing_prepared_source.as_ref() {
+                    if let Ok(manifest) = read_bundle_manifest(prepared_source).await {
+                        if valid_sha256(&manifest.graph_digest) {
+                            let deployment_digest =
+                                ibex_runtime::module_loader::artifact::digest_bytes(
+                                    "ibex/rolldown-deployment-graph/1",
+                                    manifest.graph_digest.as_bytes(),
+                                )?;
+                            if let Some(artifact_dir) = prepared_source.parent() {
+                                let cache_dir =
+                                    prepared_graph_cache_dir(artifact_dir, &deployment_digest);
+                                if cache_dir.join("index.json").is_file() {
+                                    match load_prepared_source_graph_v1(
+                                        &cache_dir,
+                                        &producer_digest,
+                                        &deployment_digest,
+                                    ) {
+                                        Ok(graph) => {
+                                            break 'native_graph (
+                                                Some(graph),
+                                                prepared_source.clone(),
+                                            );
+                                        }
+                                        Err(error) => {
+                                            agent_logs::record_bundler_log(
+                                                "warn",
+                                                format!(
+                                                    "Prepared module graph was stale or invalid and will be rebuilt: {error:#}"
+                                                ),
+                                                None,
+                                            );
+                                            std::fs::remove_dir_all(&cache_dir).with_context(
+                                                || {
+                                                    format!(
+                                                        "remove invalid prepared module cache {}",
+                                                        cache_dir.display()
+                                                    )
+                                                },
+                                            )?;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                match build_authenticated_source_graph_v1(
+                    &absolute_path,
+                    producer_digest.clone(),
+                    &engine::hermes::bytecode_cache_identity(),
+                )? {
+                    SourceModuleGraphBuildV1::Native(graph) => {
+                        let prepared_source =
+                            prepare_entry_for_bytecode_build(&path_str, self.bundle_format).await?;
+                        if prepared_source == absolute_path {
+                            (Some(graph), prepared_source)
+                        } else {
+                            let manifest = read_bundle_manifest(&prepared_source).await?;
+                            let deployment_digest =
+                                ibex_runtime::module_loader::artifact::digest_bytes(
+                                    "ibex/rolldown-deployment-graph/1",
+                                    manifest.graph_digest.as_bytes(),
+                                )?;
+                            let artifact_dir = prepared_source.parent().ok_or_else(|| {
+                                anyhow::anyhow!("prepared bundle has no artifact directory")
+                            })?;
+                            let cache_dir = publish_prepared_source_graph_v1(
+                                &graph,
+                                artifact_dir,
+                                deployment_digest.clone(),
+                            )?;
+                            let prepared = load_prepared_source_graph_v1(
+                                &cache_dir,
+                                &producer_digest,
+                                &deployment_digest,
+                            )?;
+                            (Some(prepared), prepared_source)
+                        }
+                    }
+                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                        if !legacy_module_loader_window_is_open() {
+                            anyhow::bail!(
+                                "native module runner does not support this graph and the bounded legacy loader window is closed: {}",
+                                requirement.reason
+                            );
+                        }
+                        eprintln!(
+                            "warning: native module runner compatibility fallback (expires after {}): {}",
+                            LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR,
+                            requirement.reason
+                        );
+                        (None, absolute_path.clone())
+                    }
+                }
             }
-            _ => absolute_path.clone(),
+        };
+
+        #[cfg(feature = "module-runner")]
+        let entry_path = if native_graph.is_some() {
+            prepared_source_path
+        } else if script_entry {
+            prepare_entry_with_format(&path_str, self.bundle_format).await?
+        } else {
+            absolute_path.clone()
+        };
+        #[cfg(not(feature = "module-runner"))]
+        let entry_path = if script_entry {
+            prepare_entry_with_format(&path_str, self.bundle_format).await?
+        } else {
+            absolute_path.clone()
         };
         // Hold a shared OS file lock for the entire execution. Quota pruning
         // takes the exclusive side, so lazy per-package chunk loads remain
@@ -1516,6 +1684,12 @@ impl Runtime {
         let chunk_dir_json =
             serde_json::to_string(&chunk_dir).unwrap_or_else(|_| "\"\"".to_string());
         let argv_code = format!("globalThis.__exactChunkDir = {chunk_dir_json};\n{argv_code}");
+
+        #[cfg(feature = "module-runner")]
+        if let Some(graph) = native_graph.as_ref() {
+            self.engine.eval_immediate(&argv_code).await?;
+            return self.engine.run_authenticated_module_graph(graph).await;
+        }
 
         if cfg!(windows) {
             let source = tokio::fs::read_to_string(&entry_path)

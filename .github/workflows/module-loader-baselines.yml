@@ -80,10 +80,15 @@ jobs:
 
       - name: Run native ESM and CommonJS record corpus
         run: |
+          cargo check --all-targets
+          cargo check --all-targets --no-default-features
           scripts/run-tests.sh --scope lib --features module-runner \
             engine::module_runner::tests -- --test-threads=1
           scripts/run-tests.sh --scope lib --features module-runner \
             module_loader::graph::tests
+          scripts/run-tests.sh --scope lib --features module-runner \
+            host::tests::authenticated_source_graph_round_trips_through_prepared_cache \
+            -- --test-threads=1
 
       - name: Run canonical and Test262 producer corpus on Hermes
         if: runner.os == 'macOS'

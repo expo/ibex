@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-06
-**Revised:** 2026-07-15 (LLP 0026 adoption adds the Rust/Oxc in-process zero-divergence mirror as a migration tier)
+**Revised:** 2026-07-15 (ENG-25066 made Tier 3 canonical for ordinary ESM; Tier 2 remains only for the bounded unsupported-shape window); 2026-07-15 (LLP 0026 adoption adds the Rust/Oxc in-process zero-divergence mirror as a migration tier)
 **Related:** LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0007 (transform convergence RFC); LLP 0009 (runtime transform scope); LLP 0018 (fail-loud tooling); LLP 0026 (module runner)
 
 ## Decision
@@ -48,12 +48,13 @@ During migration, Tier 1 remains canonical and Tier 3 is a zero-divergence
 mirror: every applicable shared-corpus behavior must match on real Hermes and
 its composed source maps must preserve the same locations. The bounded spike
 established feasibility and passed the canonical LLP 0019 capture fixture;
-the complete production pass remains staged implementation work. No
+the production factory pass now serves ordinary ESM by default. No
 bootstrap-scanner workaround may be applied to runner-emitted factory text.
 
-At LLP 0026's default-switch phase, Tier 3 becomes canonical and Tier 2
-retires. Any non-zero divergence requires an explicit revision here rather
-than an expected result hidden in the runner.
+Tier 3 is canonical for ordinary ESM. Tier 2 remains reachable only through
+the bounded 0.1 compatibility path for unsupported interop shapes and retires
+with that path. Any non-zero divergence requires an explicit revision here
+rather than an expected result hidden in the runner.
 
 ## Why multiple implementations exist during migration
 

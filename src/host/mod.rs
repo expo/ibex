@@ -1980,6 +1980,44 @@ impl Host {
             .register_module_package(module_id, package, locator);
     }
 
+    /// Install the runtime-local numeric projection selected by the native
+    /// graph owner. The semantic principal must already be an exact member of
+    /// the immutable armed snapshot; choosing an id cannot mint authority.
+    #[cfg(any(test, feature = "module-runner"))]
+    pub(crate) fn module_runner_principal_id(
+        &self,
+        principal: &capsec_semantics::model::Principal,
+    ) -> anyhow::Result<u32> {
+        if !self.typed_imports.contains_key(principal) {
+            anyhow::bail!("native principal projection is absent from the armed snapshot");
+        }
+        if principal.is_root() {
+            return Ok(0);
+        }
+        let mut mappings = self
+            .typed_module_principals
+            .write()
+            .map_err(|_| anyhow::anyhow!("native principal projection registry is poisoned"))?;
+        if let Some(existing_id) = mappings
+            .iter()
+            .find_map(|(id, existing)| (existing == principal).then_some(id))
+        {
+            return existing_id
+                .parse::<u32>()
+                .map_err(|_| anyhow::anyhow!("registered module principal id is not a u32"));
+        }
+        let principal_id = mappings
+            .keys()
+            .filter_map(|id| id.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("native principal projection overflow"))?;
+        let key = principal_id.to_string();
+        mappings.insert(key, principal.clone());
+        Ok(principal_id)
+    }
+
     /// Import-graph gate: may the module identified by `module_id` load
     /// `specifier` (a builtin like `node:fs` or a dependency package name)?
     ///
@@ -2131,6 +2169,65 @@ impl Host {
         &self,
         meta: ResolvedModule,
     ) -> anyhow::Result<ResolvedModule> {
+        self.load_authenticated_module_source_mode(meta, false)
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    pub(crate) fn load_authenticated_module_source_for_runner(
+        &self,
+        meta: ResolvedModule,
+    ) -> anyhow::Result<ResolvedModule> {
+        self.load_authenticated_module_source_mode(meta, true)
+    }
+
+    /// Re-admit a prepared record against the current immutable root binding
+    /// without parsing or transforming its source. Runtime caches are
+    /// untrusted: path ownership, object identity, SourceId, and source digest
+    /// must all still match before carrier bytes can execute.
+    #[cfg(any(test, feature = "module-runner"))]
+    pub(crate) fn authenticate_prepared_module_record(
+        &self,
+        path: &std::path::Path,
+        expected_source_id: &crate::module_loader::identity::SourceId,
+        expected_source_integrity: &capsec_semantics::model::Digest,
+    ) -> anyhow::Result<()> {
+        let snapshot = self.armed_snapshot.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("prepared module admission requires an armed snapshot")
+        })?;
+        let canonical = lexical_absolute_path(path)?;
+        let components = host_path_components(&canonical)?;
+        let root_principal = self
+            .typed_imports
+            .keys()
+            .find(|principal| principal.is_root())
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("armed root principal is absent"))?;
+        let principal = snapshot
+            .owner_for_host_components(&components)?
+            .unwrap_or(root_principal);
+        let binding = snapshot.root_binding_for_host_components(&principal, &components)?;
+        validate_armed_binding_object(&binding)?;
+        let relative = components
+            .strip_prefix(binding.host_path.components.as_slice())
+            .ok_or_else(|| anyhow::anyhow!("prepared module is outside its authenticated binding"))?
+            .to_vec();
+        let observed_source_id =
+            crate::module_loader::identity::SourceId::file(principal, relative)?;
+        if &observed_source_id != expected_source_id {
+            anyhow::bail!("prepared module path no longer authenticates its SourceId");
+        }
+        let bytes = authenticated_source_beneath_binding(&binding, &canonical)?;
+        if &crate::module_loader::artifact::source_integrity(&bytes)? != expected_source_integrity {
+            anyhow::bail!("prepared module source integrity changed");
+        }
+        Ok(())
+    }
+
+    fn load_authenticated_module_source_mode(
+        &self,
+        meta: ResolvedModule,
+        preserve_module_source: bool,
+    ) -> anyhow::Result<ResolvedModule> {
         if let Some(snapshot) = self.armed_snapshot.as_deref() {
             if let Some(expected_integrity) = meta.package_integrity.as_deref() {
                 let path = meta
@@ -2154,7 +2251,11 @@ impl Host {
                 .with_context(|| {
                     format!("failed to reauthenticate package source {}", path.display())
                 })?;
-                return self.module_loader.load_source_bytes(meta, bytes);
+                return if preserve_module_source {
+                    self.module_loader.load_runner_source_bytes(meta, bytes)
+                } else {
+                    self.module_loader.load_source_bytes(meta, bytes)
+                };
             }
             if let Some(path) = meta.path.as_deref() {
                 let components = host_path_components(path)?;
@@ -2175,10 +2276,18 @@ impl Host {
                             path.display()
                         )
                     })?;
-                return self.module_loader.load_source_bytes(meta, bytes);
+                return if preserve_module_source {
+                    self.module_loader.load_runner_source_bytes(meta, bytes)
+                } else {
+                    self.module_loader.load_source_bytes(meta, bytes)
+                };
             }
         }
-        self.module_loader.load_source(meta)
+        if preserve_module_source {
+            self.module_loader.load_runner_source(meta)
+        } else {
+            self.module_loader.load_source(meta)
+        }
     }
 
     /// Resolve a module to its metadata only — the resolved absolute path plus
@@ -4284,6 +4393,117 @@ mod tests {
             ("::ffff:8.8.8.8", PeerClass::Reserved),
         ] {
             assert_eq!(classify(address), expected, "{address}");
+        }
+    }
+
+    #[test]
+    fn native_module_principal_projection_reuses_authenticated_process_ids() {
+        let host = example_armed_host();
+        let root = host.typed_principal_for_module("0").unwrap();
+        assert_eq!(host.module_runner_principal_id(&root).unwrap(), 0);
+        let alien_root = capsec_semantics::model::Principal::Root {
+            identity: capsec_semantics::model::NonEmptyString::new("different-project").unwrap(),
+        };
+        assert!(host.module_runner_principal_id(&alien_root).is_err());
+        let package = host
+            .typed_imports
+            .keys()
+            .find(|principal| principal.is_package())
+            .cloned()
+            .unwrap();
+        let first = host.module_runner_principal_id(&package).unwrap();
+        let repeated = host.module_runner_principal_id(&package).unwrap();
+        assert_ne!(first, 0);
+        assert_eq!(first, repeated);
+        assert_eq!(
+            host.typed_principal_for_module(&first.to_string()),
+            Some(package)
+        );
+    }
+
+    #[test]
+    fn authenticated_source_graph_round_trips_through_prepared_cache() {
+        use std::ffi::c_void;
+        use std::ptr::NonNull;
+
+        use crate::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
+        use crate::module_loader::artifact::digest_bytes;
+        use crate::module_loader::runner_pipeline::{
+            build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
+            publish_prepared_source_graph_v1, SourceModuleGraphBuildV1,
+        };
+        use crate::module_loader::security::ModuleGraphAuthorizer;
+
+        unsafe extern "C" {
+            fn ex_hermes_create_diagnostic() -> *mut c_void;
+            fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
+            fn ex_hermes_destroy(runtime: *mut c_void);
+        }
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let fixture = tempfile::Builder::new()
+            .prefix("prepared-source-graph-")
+            .tempdir_in(test_project_root())
+            .unwrap();
+        let entry = fixture.path().join("entry.mjs");
+        let dependency = fixture.path().join("dependency.mjs");
+        std::fs::write(
+            &entry,
+            "import { value } from './dependency.mjs'; export const result = value + 1;\n",
+        )
+        .unwrap();
+        std::fs::write(&dependency, "export const value = 41;\n").unwrap();
+        crate::host::abi::install_host(example_armed_host());
+        let producer = digest_bytes("prepared-source-graph-test", b"producer").unwrap();
+        let graph =
+            match build_authenticated_source_graph_v1(&entry, producer.clone(), "hermes-test")
+                .unwrap()
+            {
+                SourceModuleGraphBuildV1::Native(graph) => graph,
+                SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                    panic!(
+                        "fixture unexpectedly required legacy loader: {}",
+                        requirement.reason
+                    )
+                }
+            };
+        assert_eq!(graph.records().count(), 2);
+        let deployment = digest_bytes("prepared-source-graph-test", b"deployment").unwrap();
+        let artifact_dir = fixture.path().join("bundle-artifact");
+        std::fs::create_dir(&artifact_dir).unwrap();
+        let cache =
+            publish_prepared_source_graph_v1(&graph, &artifact_dir, deployment.clone()).unwrap();
+        let loaded = load_prepared_source_graph_v1(&cache, &producer, &deployment).unwrap();
+        assert_eq!(loaded.records().count(), 2);
+        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 2);
+        let plan = loaded.plan().unwrap();
+        let (configs, contexts) = loaded.native_execution_inputs(1).unwrap();
+        let entries = loaded.prepared_entries().unwrap().unwrap();
+        let authorizer = ModuleGraphAuthorizer::new(loaded.snapshot());
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let mut native = NativeSynchronousGraph::link_authorized_prepared(
+                &runtime,
+                &plan,
+                loaded.entry(),
+                configs,
+                &authorizer,
+                &contexts,
+                &entries,
+            )
+            .unwrap();
+            native.evaluate().unwrap();
+            assert_eq!(
+                native.namespace_json(loaded.entry()).unwrap(),
+                r#"{"result":42}"#
+            );
+            drop(native);
+            drop(runtime);
+            ex_hermes_destroy(raw);
         }
     }
 

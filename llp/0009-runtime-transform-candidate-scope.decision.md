@@ -5,12 +5,17 @@
 **Systems:** Module Loader, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-15 (LLP 0026 adoption admits the ModuleRunner architecture as the selected replacement path); 2026-07-07 (ENG-22991: first-class TypeScript runtime direction clarified without reopening the transform-engine choice)
+**Revised:** 2026-07-15 (ENG-25066 completed the LLP 0026 ordinary-ESM default switch and retained this Decision only for the bounded legacy window); 2026-07-15 (LLP 0026 adoption admits the ModuleRunner architecture as the selected replacement path); 2026-07-07 (ENG-22991: first-class TypeScript runtime direction clarified without reopening the transform-engine choice)
 **Related:** LLP 0007; LLP 0026 (accepted ModuleRunner architecture); LLP 0027 (artifact and interop contract)
 
 ## Decision
 
-The runtime module loader keeps SWC as the default transform engine for now.
+The authenticated LLP 0026 module runner is the default for ordinary ESM.
+SWC is retained only as the file-at-a-time compatibility engine for explicitly
+unsupported graph shapes during the Ibex 0.1 window; setting
+`IBEX_LEGACY_MODULE_LOADER=0` closes that window early.
+
+Historically, the runtime module loader kept SWC as the default transform engine.
 The implementation of LLP 0007 adds an explicit in-process Oxc candidate behind
 `IBEX_RUNTIME_TRANSFORM=oxc` (or the legacy alias `EXACT_RUNTIME_TRANSFORM=oxc`)
 and separates its cache entries from SWC output, but it does **not** switch the
@@ -25,9 +30,9 @@ the current synchronous CommonJS loader contract.
 The accepted successor architecture is LLP 0026's ESM ModuleRunner. Its
 Rust/Oxc producer emits versioned `ModuleArtifact`s for a native-owned graph
 and a Hermes-owned runner rather than lowering each ESM file into an isolated
-CommonJS wrapper. This decision still governs the compatibility period: SWC
-remains the default file-at-a-time engine until LLP 0026's staged correctness,
-security, performance, and platform gates permit the default switch.
+CommonJS wrapper. This decision now governs only the compatibility period.
+Authentication, parsing, linking, or evaluation failures in the native runner
+never retry through SWC.
 
 ## TypeScript runtime direction
 
@@ -65,14 +70,14 @@ parity fixtures, but it cannot honestly claim to replace SWC for runtime-loaded
 
 - Cache keys include the selected in-process transform engine.
 - `EXACT_TRANSPILE_SCRIPT` remains the explicit subprocess override.
-- `IBEX_RUNTIME_TRANSFORM=oxc` is useful for fixture work and future migration
-  spikes, not production default behavior.
-- The default switch is blocked on the accepted LLP 0026 ModuleRunner passing
-  its staged gates; adopting the architecture does not itself retire SWC.
+- `IBEX_RUNTIME_TRANSFORM=oxc` affects only the retained legacy transform path;
+  it does not select the ordinary-ESM implementation.
+- Hosted platform and performance evidence remains a release gate, while the
+  code default is exercised continuously by the module-loader workflow.
 
 ## Follow-ups
 
 - Re-test Rolldown once the repo can move to a Rust toolchain that supports the
   current Oxc/Rolldown crates.
-- Implement the accepted LLP 0026 ModuleRunner program and preserve this
-  decision's compatibility boundary until its default-switch gate.
+- Remove the compatibility engine after the 0.1 window and LLP 0024's
+  parser-equivalence gate, or revise the governing contracts explicitly.

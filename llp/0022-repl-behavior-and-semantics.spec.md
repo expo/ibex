@@ -5,6 +5,7 @@
 **Systems:** CLI Runtime, REPL, Runtime, Module Loader, Security
 **Author:** Charlie Cheever / Codex / Claude
 **Date:** 2026-07-11
+**Revised:** 2026-07-15 (ENG-25066 switched file-module execution to the authenticated runner while preserving this document's script/prompt goals and session semantics)
 **Revised:** 2026-07-12 (round-8 revision, on dual-model round-7 review plus two
 independent Codex runs of round 6: names the rule the whole document turns on —
 *never tell the operator something untrue* — and applies it reflexively to §11,

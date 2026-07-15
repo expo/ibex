@@ -79,6 +79,17 @@ pub trait Engine: Send + Sync {
         )
     }
 
+    /// Evaluate one fully authenticated source graph through the native module
+    /// runner. Engines without that ABI fail closed instead of reopening or
+    /// rebundling the admitted sources.
+    #[cfg(feature = "module-runner")]
+    async fn run_authenticated_module_graph(
+        &self,
+        _graph: &crate::module_loader::runner_pipeline::SourceModuleGraphV1,
+    ) -> Result<Option<String>> {
+        anyhow::bail!("{} has no authenticated native module runner", self.name())
+    }
+
     /// Run a JavaScript file WITHOUT driving the event loop to quiescence, so a
     /// long-lived server/timer started by the file returns control to the caller.
     /// The REPL's `.load` uses this and lets its idle pump drive background work,

@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-13 (retained native-wrapper owner isolation and retry-safe release across filesystem, network, HTTP, WebSocket, SQLite, zlib, and TLS; TLS transport identity, bounded state, honest loopback authentication, strict client-identity verification, exact-size native reads, and fail-loud host errors); 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
+**Revised:** 2026-07-15 (ENG-25066 made authenticated ordinary ESM use the native module graph by default; unsupported interop retains the bounded 0.1 legacy path); 2026-07-13 (retained native-wrapper owner isolation and retry-safe release across filesystem, network, HTTP, WebSocket, SQLite, zlib, and TLS; TLS transport identity, bounded state, honest loopback authentication, strict client-identity verification, exact-size native reads, and fail-loud host errors); 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -74,6 +74,18 @@ The resolver is configured (`src/module_loader/mod.rs:67-105`) with
 
 ### Loading and on-the-fly transpilation
 
+For ordinary ESM, the default path now resolves and authenticates the complete
+reachable graph, produces Oxc-backed `ModuleArtifact`s, and links native module
+records on Hermes. Warm production loads admit the corresponding prepared
+graph and carriers from the Rolldown deployment cache. This path does not call
+the bootstrap `transformEsmToCjs` scanner. Authorization, parse, link, and
+evaluation failures fail closed.
+
+The file-at-a-time behavior below remains the compatibility path for explicitly
+unsupported CommonJS/JSON/builtin interop and computed dynamic import. It is
+bounded to the Ibex 0.1 line and can be disabled with
+`IBEX_LEGACY_MODULE_LOADER=0`.
+
 `load_source` reads the resolved file and always sends
 `.ts/.tsx/.jsx/.mts/.cts` through the selected in-process transform engine
 (`needs_transpile`). `.js/.mjs/.cjs` enters that Rust transform only when the
@@ -81,11 +93,11 @@ The resolver is configured (`src/module_loader/mod.rs:67-105`) with
 certain block-scoped loop closures. Ordinary JavaScript — including ordinary
 ESM-heavy JavaScript — is served unchanged by Rust `[observed]`
 (`src/module_loader/mod.rs`, `load_module_source`, `needs_transpile`, and
-`needs_js_downlevel`). The default in-process engine is SWC and lowers its
+`needs_js_downlevel`). The legacy in-process engine is SWC and lowers its
 selected inputs to CommonJS, but it applies no configured target-compatibility
 pass; describing that path generically as target "down-leveling" was therefore
 too broad `[observed]` (`src/module_loader/transpile.rs`,
-`transpile_with_swc`). Independently, the embedded bootstrap's
+`transpile_with_swc`). On that legacy path, the embedded bootstrap's
 `transformEsmToCjs` scanner rewrites ESM syntax file by file before the
 synchronous `require()`-shaped evaluator sees it `[observed]`
 (`src/engine/bootstrap/module-loader.js`). The implementation-neutral current

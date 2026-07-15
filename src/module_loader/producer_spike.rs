@@ -1564,7 +1564,10 @@ mod tests {
         else {
             panic!("production spike producer emits inline artifacts")
         };
-        assert!(factory.contains(".dynamicImport('./literal.mjs')"));
+        assert!(
+            factory.contains(".dynamicImport('./literal.mjs')")
+                || factory.contains(".dynamicImport(\"./literal.mjs\")")
+        );
         assert!(factory.contains(".dynamicImport(name)"));
     }
 }

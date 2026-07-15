@@ -5,7 +5,7 @@
 **Systems:** CLI Runtime, REPL, Runtime, Security
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-15 (ENG-25063 classified a TLA-suspended module graph as
+**Revised:** 2026-07-15 (ENG-25066 routed default file-module execution through the same TLA keepalive/cancellation unit); 2026-07-15 (ENG-25063 classified a TLA-suspended module graph as
 one keepalive/cancellation unit rather than one target per import waiter)
 **Revised:** 2026-07-12 (round-10, terminal. Families **split** — Fable `READY`, Codex `NOT READY` — so `Status` stays
 `Draft` (no both-READY on one revision). Codex's single Blocking was the scoped downstream straggler: `idle × CompletionQueued`

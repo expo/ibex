@@ -15,6 +15,8 @@ pub mod graph;
 pub mod identity;
 pub mod producer_spike;
 #[cfg(any(test, feature = "module-runner"))]
+pub mod runner_pipeline;
+#[cfg(any(test, feature = "module-runner"))]
 pub mod security;
 pub mod transpile;
 
@@ -136,6 +138,11 @@ impl ModuleLoader {
             // represented as an active condition. Import and require are
             // separate cache/authorization domains. @ref LLP 0026#1-source-admission-and-resolution
             condition_names: vec!["node".into(), condition.into()],
+            // `.js` source goal is inherited from the nearest package scope;
+            // explicit `.mjs/.cjs/.mts/.cts` still override below. Resolution
+            // metadata is needed before the runner may decide whether a graph
+            // is native or belongs to the bounded compatibility path.
+            module_type: true,
             // TS NodeNext convention: `./x.js` in TS sources refers to `./x.ts`
             // on disk. Real `.js` files keep priority, mirroring Vite's
             // resolution on the web side. @ref LLP 0004#the-oxc_resolver-configuration
@@ -425,6 +432,40 @@ impl ModuleLoader {
             module.kind = ModuleKind::CommonJs;
         }
         module.source = Some(source);
+        Ok(module)
+    }
+
+    /// Preserve authenticated source bytes for the Oxc module-artifact
+    /// producer. Unlike the compatibility loader, this never performs SWC
+    /// ESM-to-CommonJS or syntax-scanner-selected lowering.
+    pub(crate) fn load_runner_source_bytes(
+        &self,
+        mut module: ResolvedModule,
+        bytes: Vec<u8>,
+    ) -> Result<ResolvedModule> {
+        let path = module
+            .path
+            .as_ref()
+            .ok_or_else(|| anyhow!("Module path missing"))?;
+        module.source =
+            Some(String::from_utf8(bytes).with_context(|| {
+                format!("Module source is not valid UTF-8: {}", path.display())
+            })?);
+        Ok(module)
+    }
+
+    pub(crate) fn load_runner_source(&self, mut module: ResolvedModule) -> Result<ResolvedModule> {
+        if module.source.is_some() {
+            return Ok(module);
+        }
+        let path = module
+            .path
+            .as_ref()
+            .ok_or_else(|| anyhow!("Module path missing"))?;
+        module.source = Some(
+            std::fs::read_to_string(path)
+                .with_context(|| format!("Failed to read module {}", path.display()))?,
+        );
         Ok(module)
     }
 
@@ -955,7 +996,12 @@ impl ModuleLoader {
                 let is_probably_file = resolved
                     .extension()
                     .and_then(|ext| ext.to_str())
-                    .map(|ext| matches!(ext, "js" | "cjs" | "mjs" | "ts" | "tsx" | "jsx" | "json"))
+                    .map(|ext| {
+                        matches!(
+                            ext,
+                            "js" | "cjs" | "mjs" | "ts" | "tsx" | "jsx" | "mts" | "cts" | "json"
+                        )
+                    })
                     .unwrap_or(false);
                 if is_probably_file {
                     resolved
@@ -1040,6 +1086,18 @@ impl ModuleLoader {
             }
             None => ModuleKind::CommonJs,
         };
+        // Explicit Node/TypeScript module extensions are source-goal facts and
+        // outrank an absent or inherited package type from the resolver.
+        match full_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("mjs" | "mts") => kind = ModuleKind::Esm,
+            Some("cjs" | "cts") => kind = ModuleKind::CommonJs,
+            _ => {}
+        }
         // Force JSON kind for .json files regardless of what OXC reports,
         // so they get parsed with JSON.parse() instead of new Function().
         if full_path.extension().and_then(|e| e.to_str()) == Some("json") {
@@ -1818,7 +1876,7 @@ fn normalize_import_target(base: &Path, target: PathBuf) -> Option<PathBuf> {
         return Some(normalized);
     }
     if normalized.extension().is_none() {
-        for ext in ["js", "cjs", "mjs", "ts", "tsx", "jsx", "json"].iter() {
+        for ext in ["js", "cjs", "mjs", "ts", "tsx", "jsx", "mts", "cts", "json"] {
             let candidate = normalized.with_extension(ext);
             if candidate.exists() {
                 return Some(candidate);
@@ -1834,7 +1892,9 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
         .and_then(OsStr::to_str)
         .map(|ext| ext.to_ascii_lowercase())
     {
-        Some(ext) if matches!(ext.as_str(), "mjs" | "ts" | "tsx" | "jsx") => ModuleKind::Esm,
+        Some(ext) if matches!(ext.as_str(), "mjs" | "mts" | "ts" | "tsx" | "jsx") => {
+            ModuleKind::Esm
+        }
         Some(ext) if ext == "json" => ModuleKind::Json,
         _ => ModuleKind::CommonJs,
     }
@@ -2819,7 +2879,10 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(meta.path.unwrap(), file);
+        assert_eq!(
+            std::fs::canonicalize(meta.path.unwrap()).unwrap(),
+            std::fs::canonicalize(file).unwrap()
+        );
         assert!(meta.source.is_none(), "resolution must not open ESM source");
     }
 
@@ -3915,7 +3978,13 @@ for (let i = 0; i < 3; i++) {
 
         let loader = test_loader();
         let resolved = loader
-            .resolve("exports-import-only", Some(&dir.path().join("entry.js")))
+            .resolve_meta_typed(
+                "exports-import-only",
+                Some(&dir.path().join("entry.mjs")),
+                ResolutionKind::EsmStatic,
+                &ConditionSet::for_kind(ResolutionKind::EsmStatic),
+                &ImportAttributes::default(),
+            )
             .unwrap();
         assert!(resolved
             .path
@@ -4146,12 +4215,11 @@ for (let i = 0; i < 3; i++) {
     }
 
     // ENG-22950: a module that needs no transpile/downlevel is served verbatim.
-    // NOTE: the resolver runs with `module_type` detection disabled
-    // (ResolveOptions.module_type = false), so modules classify as CommonJs and
-    // the resolve-time single-read + prefetch branch (`kind == Esm`) is dormant
-    // in this configuration. Regardless of classification, a plain module must
-    // round-trip its source unchanged — this guards that the loader never
-    // corrupts or needlessly transpiles a pass-through module.
+    // Package-scope module-type detection is enabled, but this fixture has no
+    // `type: module` package boundary and therefore remains CommonJS.
+    // Regardless of classification, a plain module must round-trip its source
+    // unchanged — this guards that the loader never corrupts or needlessly
+    // transpiles a pass-through module.
     #[test]
     fn serves_plain_module_source_verbatim() {
         let dir = tempdir().unwrap();

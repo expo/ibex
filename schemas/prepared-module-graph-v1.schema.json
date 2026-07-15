@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/prepared-module-graph-v1.schema.json",
+  "title": "Ibex prepared module graph v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "entry",
+    "producerBinaryDigest",
+    "deploymentGraphDigest",
+    "records",
+    "carriers"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/prepared-module-graph/1" },
+    "entry": { "$ref": "#/$defs/sourceId" },
+    "producerBinaryDigest": { "$ref": "#/$defs/digest" },
+    "deploymentGraphDigest": { "$ref": "#/$defs/digest" },
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/record" }
+    },
+    "carriers": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/carrier" }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["encoding", "value"],
+      "properties": {
+        "encoding": { "enum": ["utf8", "base64url"] },
+        "value": { "type": "string" }
+      }
+    },
+    "principal": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "identity"],
+          "properties": {
+            "kind": { "const": "root" },
+            "identity": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name", "integrity", "locator"],
+          "properties": {
+            "kind": { "const": "package" },
+            "name": { "type": "string", "minLength": 1 },
+            "integrity": { "$ref": "#/$defs/digest" },
+            "locator": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "sourceId": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "principal", "path"],
+      "properties": {
+        "kind": { "const": "file" },
+        "principal": { "$ref": "#/$defs/principal" },
+        "path": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/component" }
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "path",
+        "bindings",
+        "artifact",
+        "carrierIndex",
+        "entryId"
+      ],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/sourceId" },
+        "path": { "type": "string", "minLength": 1 },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/sourceId" }
+        },
+        "artifact": { "$ref": "module-artifact-v1.schema.json" },
+        "carrierIndex": { "type": "integer", "minimum": 0 },
+        "entryId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "carrier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifestFile", "bytesFile"],
+      "properties": {
+        "manifestFile": {
+          "type": "string",
+          "pattern": "^carrier-[0-9]+\\.json$"
+        },
+        "bytesFile": {
+          "type": "string",
+          "pattern": "^carrier-[0-9]+\\.(js|hbc)$"
+        }
+      }
+    }
+  }
+}

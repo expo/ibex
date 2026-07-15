@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-13
-**Revised:** 2026-07-15 (ENG-25064 made source-table and Rolldown/HBC preparation share one authenticated carrier/artifact contract); 2026-07-15 (architecture fork resolved to the accepted LLP 0026 ModuleRunner branch); 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision); 2026-07-04 (devtools parser convergence: Acorn removed from first-party transform/import-grants scripts in favor of Rolldown/Oxc parser utilities); 2026-07-07 (Hermes-compat for-of / async-generator authority delegated to LLP 0019)
+**Revised:** 2026-07-15 (ENG-25066 made the authenticated Oxc producer/native linker the ordinary-ESM default); 2026-07-15 (ENG-25064 made source-table and Rolldown/HBC preparation share one authenticated carrier/artifact contract and connected it to the existing deployment cache); 2026-07-15 (architecture fork resolved to the accepted LLP 0026 ModuleRunner branch); 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision); 2026-07-04 (devtools parser convergence: Acorn removed from first-party transform/import-grants scripts in favor of Rolldown/Oxc parser utilities); 2026-07-07 (Hermes-compat for-of / async-generator authority delegated to LLP 0019)
 **Related:** LLP 0000; LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0006 (design principles); LLP 0009; LLP 0026 (accepted ModuleRunner architecture)
 
 ## Summary
@@ -63,8 +63,12 @@ per-principal JavaScript factory table, or that exact table can be compiled by
 the matching `hermesc` into HBC. Both representations retain the same
 `ModuleSemanticsV1`, semantic digest, original `SourceId`, typed edges, and
 source map; only the separately authenticated carrier encoding/digest changes.
-This is the contract the existing Rolldown cache and chunk publisher must emit,
-not a second bundled-module semantics.
+The existing Rolldown cache now emits that contract as a canonical
+`ibex/prepared-module-graph/1` index with one JavaScript factory carrier per
+defining principal. A warm load re-authenticates the deployment graph,
+original source identities, bindings, artifacts, and carrier bytes before the
+full native linker runs; it does not parse the application graph. This is an
+upgrade to the existing cache, not a second bundled-module semantics.
 
 ## Motivation
 

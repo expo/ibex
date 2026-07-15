@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
+**Revised:** 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
 promise-returning CommonJS-to-ESM import ABI); 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
 snapshot adapters); 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
 producer adapter, and tamper fixtures)
@@ -21,9 +21,11 @@ validation, digest domains, adapters, and observable interop behavior.
 The first implementation targets `ibex/module-artifact/1`. The canonical
 schema is `schemas/module-artifact-v1.schema.json`; the Rust codec and verifier
 are `src/module_loader/artifact.rs`; the checked-in tamper matrix is under
-`tests/fixtures/module-artifact-v1/`. The document remains Draft while the
-remaining prepared-publisher and interop integration is implemented. No producer output becomes trusted
-merely because it resembles this shape.
+`tests/fixtures/module-artifact-v1/`. Prepared graph publication is implemented
+by `src/module_loader/runner_pipeline.rs` and described by
+`schemas/prepared-module-graph-v1.schema.json`. The document remains Draft
+while the bounded CommonJS/JSON/builtin interop migration is completed. No
+producer output becomes trusted merely because it resembles this shape.
 
 ## Artifact envelope
 
@@ -122,6 +124,16 @@ version. Its strictly ordered entries contain an entry id, the complete
 original semantic core, and its recomputed semantic digest. Admission rejects
 cross-principal entries, bytes/metadata tamper, entry substitution, graph or
 producer drift, and stale engine/HBC identity before native evaluation.
+
+The graph-level cache index is `ibex/prepared-module-graph/1`, specified by
+`schemas/prepared-module-graph-v1.schema.json`. It binds the authenticated
+entry, producer and deployment digests, every original module's absolute
+source label, resolved-specifier map, prepared artifact, carrier/entry
+location, and the complete carrier inventory. It is strict canonical JCS.
+Reload independently admits every carrier and artifact, re-authenticates each
+source identity and integrity, re-resolves each authored edge against the
+current armed snapshot, and rejects mixed inline/prepared graphs before
+linking.
 
 `transform_fingerprint` includes parser/transform versions, Hermes target,
 TypeScript/JSX options, module-runner ABI, Hermes-compat pass version, CommonJS

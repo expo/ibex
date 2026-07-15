@@ -544,6 +544,76 @@ fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     }
 }
 
+#[cfg(any(test, feature = "module-runner"))]
+pub(crate) fn current_module_runner_snapshot(
+) -> anyhow::Result<std::sync::Arc<capsec_semantics::arming::ArmedSnapshot>> {
+    with_host(
+        |host| {
+            host.armed_snapshot()
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("module runner requires an armed snapshot"))
+        },
+        Err(anyhow::anyhow!("module runner host is not installed")),
+    )
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+pub(crate) fn resolve_module_for_runner(
+    specifier: &str,
+    referrer: Option<&std::path::Path>,
+    requester_module_id: Option<&str>,
+    kind: crate::module_loader::identity::ResolutionKind,
+) -> anyhow::Result<crate::module_loader::ResolvedModule> {
+    with_host(
+        |host| {
+            let mut meta = host.resolve_module_meta_for_principal_typed(
+                specifier,
+                referrer,
+                requester_module_id,
+                kind,
+            )?;
+            if meta
+                .path
+                .as_deref()
+                .and_then(std::path::Path::extension)
+                .and_then(|value| value.to_str())
+                .is_some_and(|extension| {
+                    matches!(
+                        extension.to_ascii_lowercase().as_str(),
+                        "mjs" | "mts" | "ts" | "tsx" | "jsx"
+                    )
+                })
+            {
+                meta.kind = crate::module_loader::ModuleKind::Esm;
+            }
+            host.load_authenticated_module_source_for_runner(meta)
+        },
+        Err(anyhow::anyhow!("module runner host is not installed")),
+    )
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+pub(crate) fn module_runner_principal_id(
+    principal: &capsec_semantics::model::Principal,
+) -> anyhow::Result<u32> {
+    with_host(
+        |host| host.module_runner_principal_id(principal),
+        Err(anyhow::anyhow!("module runner host is not installed")),
+    )
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+pub(crate) fn authenticate_prepared_module_record(
+    path: &std::path::Path,
+    source_id: &crate::module_loader::identity::SourceId,
+    source_integrity: &capsec_semantics::model::Digest,
+) -> anyhow::Result<()> {
+    with_host(
+        |host| host.authenticate_prepared_module_record(path, source_id, source_integrity),
+        Err(anyhow::anyhow!("module runner host is not installed")),
+    )
+}
+
 fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
     let context_id = PENDING_HOST_CONTEXT.with(|pending| pending.0.get());
     if context_id == 0 {

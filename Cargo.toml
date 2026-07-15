@@ -115,13 +115,15 @@ swc_ecma_transforms_module = "49.0.0"
 swc_ecma_transforms_react = "49.0.0"
 
 [features]
-default = []
+# LLP 0026 native module graphs are the ordinary source evaluator. The
+# bounded 0.1 compatibility window retains the old bundler only for module
+# shapes the authenticated v1 graph explicitly classifies as unsupported.
+default = ["module-runner"]
 app-host = []
 # Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer
 # but never selects it as the runtime evaluator or enables artifact caching.
 module-runner-spike = []
-# Experimental LLP 0026 graph linker. This compiles the authenticated graph
-# path but does not select it as the default evaluator.
+# LLP 0026 authenticated graph producer, linker, and Hermes evaluator.
 module-runner = []
 # Compiles the hyper-based localhost HTTP server backing `exact:http` and the
 # agent endpoints (the `ex_host_http_*` C symbols). App hosts and the full

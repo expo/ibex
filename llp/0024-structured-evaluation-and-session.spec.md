@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-15 (ENG-25065 defined runner-backed session cache identity per execution generation while preserving legacy retry behavior); 2026-07-15 (ENG-25063 reconciled dependency-level TLA through the
+**Revised:** 2026-07-15 (ENG-25066 made the separate authenticated file-module runner the default without changing structured script/session evaluation); 2026-07-15 (ENG-25065 defined runner-backed session cache identity per execution generation while preserving legacy retry behavior); 2026-07-15 (ENG-25063 reconciled dependency-level TLA through the
 separate authenticated LLP 0026 runner while preserving the legacy session
 loader's entry-only refusal)
 **Revised:** 2026-07-12 (round-7 terminal two-family review — the last round of the
