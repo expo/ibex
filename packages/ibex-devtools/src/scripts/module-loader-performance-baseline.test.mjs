@@ -37,8 +37,14 @@ test('macOS module-loader performance baseline is explicit and non-vacuous', () 
     'contended measurements must never be presented as budget evidence',
   );
   assert.equal(conditions.preparedProfileRequiresDigestVerifiedBundleArtifact, true);
+  assert.equal(conditions.transpileProfilesRequireDigestVerifiedCacheArtifact, true);
 
-  for (const profile of ['directSourceMjs', 'swcSelectedTs', 'preparedRolldownMjs']) {
+  for (const profile of [
+    'directSourceMjs',
+    'swcSelectedTs',
+    'scannerSelectedJs',
+    'preparedRolldownMjs',
+  ]) {
     assert.ok(report.profiles[profile], `missing ${profile}`);
     assertSummary(report.profiles[profile].cold, `${profile}.cold`);
     assertSummary(report.profiles[profile].warm, `${profile}.warm`);

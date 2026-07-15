@@ -27,7 +27,7 @@
     "release": "25.5.0",
     "cpu": "Apple M5 Max"
   },
-  "revision": "1ce83596529b97080e1d03a8c38633cd1679699a",
+  "revision": "c18aa547191d89f23fa619851a814afa49470f98",
   "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
   "ibexBinaryBytes": 55929312,
   "graphModules": 40,
@@ -35,55 +35,72 @@
     "hostContentionObserved": true,
     "usableForPerformanceBudget": false,
     "preparedProfileRequiresDigestVerifiedBundleArtifact": true,
+    "transpileProfilesRequireDigestVerifiedCacheArtifact": true,
     "note": "Unrelated build processes were active during runtime sampling; retain values as provenance, not as an accepted performance budget."
   },
   "profiles": {
     "directSourceMjs": {
       "cold": {
         "samples": 5,
-        "minMs": 89.783,
-        "medianMs": 98.625,
-        "meanMs": 97.961,
-        "maxMs": 104.577
+        "minMs": 126.3,
+        "medianMs": 147.002,
+        "meanMs": 154.627,
+        "maxMs": 218.05
       },
       "warm": {
         "samples": 5,
-        "minMs": 92.931,
-        "medianMs": 99.297,
-        "meanMs": 105.828,
-        "maxMs": 134.722
+        "minMs": 111.377,
+        "medianMs": 131.315,
+        "meanMs": 129.628,
+        "maxMs": 144.894
       }
     },
     "swcSelectedTs": {
       "cold": {
         "samples": 5,
-        "minMs": 198.739,
-        "medianMs": 215.872,
-        "meanMs": 216.632,
-        "maxMs": 232.835
+        "minMs": 547.912,
+        "medianMs": 615.348,
+        "meanMs": 717.974,
+        "maxMs": 1129.347
       },
       "warm": {
         "samples": 5,
-        "minMs": 90.705,
-        "medianMs": 106.219,
-        "meanMs": 107.25,
-        "maxMs": 126.608
+        "minMs": 120.882,
+        "medianMs": 174.306,
+        "meanMs": 162.738,
+        "maxMs": 192.405
+      }
+    },
+    "scannerSelectedJs": {
+      "cold": {
+        "samples": 5,
+        "minMs": 318.487,
+        "medianMs": 352.575,
+        "meanMs": 354.541,
+        "maxMs": 414.634
+      },
+      "warm": {
+        "samples": 5,
+        "minMs": 114.334,
+        "medianMs": 139.966,
+        "meanMs": 134.302,
+        "maxMs": 143.034
       }
     },
     "preparedRolldownMjs": {
       "cold": {
         "samples": 5,
-        "minMs": 1013.299,
-        "medianMs": 1092.77,
-        "meanMs": 1082.689,
-        "maxMs": 1151.835
+        "minMs": 1326.996,
+        "medianMs": 1394.025,
+        "meanMs": 1433.742,
+        "maxMs": 1632.79
       },
       "warm": {
         "samples": 5,
-        "minMs": 304.087,
-        "medianMs": 306.163,
-        "meanMs": 309.46,
-        "maxMs": 321.02
+        "minMs": 463.951,
+        "medianMs": 505.218,
+        "meanMs": 506.991,
+        "maxMs": 579.859
       }
     }
   },

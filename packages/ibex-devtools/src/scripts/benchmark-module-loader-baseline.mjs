@@ -60,16 +60,16 @@ function parseArgs(argv) {
   return options;
 }
 
-function createGraph(root, extension, count = 40) {
+function createGraph(root, extension, { count = 40, scannerSelected = false } = {}) {
   mkdirSync(root, { recursive: true });
   writeFileSync(path.join(root, 'package.json'), '{"private":true,"type":"commonjs"}\n');
   for (let index = count - 1; index >= 0; index -= 1) {
     const next = index + 1 < count ? `import { value as next } from './m${index + 1}.${extension}';` : 'const next = 0;';
     const type = extension === 'ts' ? ': number' : '';
-    writeFileSync(
-      path.join(root, `m${index}.${extension}`),
-      `${next}\nexport const value${type} = next + 1;\n`,
-    );
+    const value = scannerSelected
+      ? 'const values = [next];\nconst captures = [];\nfor (let item of values) captures.push(() => item);\nexport const value = captures[0]() + 1;'
+      : `export const value${type} = next + 1;`;
+    writeFileSync(path.join(root, `m${index}.${extension}`), `${next}\n${value}\n`);
   }
   writeFileSync(
     path.join(root, 'entry.js'),
@@ -90,6 +90,24 @@ function findBundleManifests(home) {
       const candidate = path.join(directory, entry.name);
       if (entry.isDirectory()) pending.push(candidate);
       else if (entry.isFile() && entry.name.endsWith('.deps.json')) manifests.push(candidate);
+    }
+  }
+  return manifests;
+}
+
+function findTranspileManifests(home) {
+  const candidates = [
+    path.join(home, 'Library', 'Caches', 'Exact', 'typescript', 'loader'),
+    path.join(home, 'cache', 'exact', 'typescript', 'loader'),
+  ];
+  const pending = candidates.filter((candidate) => existsSync(candidate));
+  const manifests = [];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) pending.push(candidate);
+      else if (entry.isFile() && entry.name === 'manifest.json') manifests.push(candidate);
     }
   }
   return manifests;
@@ -135,9 +153,13 @@ function summarize(values) {
   };
 }
 
-function measureProfile(options, extension, { bypassPreparation }) {
+function measureProfile(
+  options,
+  extension,
+  { bypassPreparation, scannerSelected = false, requireTranspileArtifact = false },
+) {
   const project = mkdtempSync(path.join(os.tmpdir(), `ibex-module-baseline-${extension}-`));
-  createGraph(project, extension);
+  createGraph(project, extension, { scannerSelected });
   const cold = [];
   const warm = [];
   try {
@@ -151,6 +173,11 @@ function measureProfile(options, extension, { bypassPreparation }) {
             `prepared profile did not publish a digest-verified bundle artifact\nstderr:\n${run.stderr}`,
           );
         }
+        if (requireTranspileArtifact && findTranspileManifests(coldHome).length === 0) {
+          throw new Error(
+            `transpile profile did not publish a digest-verified cache artifact\nstderr:\n${run.stderr}`,
+          );
+        }
       } finally {
         rmSync(coldHome, { recursive: true, force: true });
       }
@@ -161,6 +188,11 @@ function measureProfile(options, extension, { bypassPreparation }) {
       if (!bypassPreparation && findBundleManifests(warmHome).length === 0) {
         throw new Error(
           `prepared profile did not publish a digest-verified bundle artifact\nstderr:\n${primingRun.stderr}`,
+        );
+      }
+      if (requireTranspileArtifact && findTranspileManifests(warmHome).length === 0) {
+        throw new Error(
+          `transpile profile did not publish a digest-verified cache artifact\nstderr:\n${primingRun.stderr}`,
         );
       }
       for (let sample = 0; sample < options.samples; sample += 1) {
@@ -200,13 +232,22 @@ function main() {
       hostContentionObserved: options.hostContentionObserved,
       usableForPerformanceBudget: !options.hostContentionObserved,
       preparedProfileRequiresDigestVerifiedBundleArtifact: true,
+      transpileProfilesRequireDigestVerifiedCacheArtifact: true,
       note: options.hostContentionObserved
         ? 'Unrelated build processes were active during runtime sampling; retain values as provenance, not as an accepted performance budget.'
         : 'No unrelated build process was observed during runtime sampling.',
     },
     profiles: {
       directSourceMjs: measureProfile(options, 'mjs', { bypassPreparation: true }),
-      swcSelectedTs: measureProfile(options, 'ts', { bypassPreparation: true }),
+      swcSelectedTs: measureProfile(options, 'ts', {
+        bypassPreparation: true,
+        requireTranspileArtifact: true,
+      }),
+      scannerSelectedJs: measureProfile(options, 'js', {
+        bypassPreparation: true,
+        scannerSelected: true,
+        requireTranspileArtifact: true,
+      }),
       preparedRolldownMjs: measureProfile(options, 'mjs', { bypassPreparation: false }),
     },
     compile: {
