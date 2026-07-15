@@ -9,6 +9,8 @@ pub mod carrier;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod commonjs;
 #[cfg(any(test, feature = "module-runner"))]
+pub mod generation;
+#[cfg(any(test, feature = "module-runner"))]
 pub mod graph;
 pub mod identity;
 pub mod producer_spike;
