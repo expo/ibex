@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/module-artifact-v1.schema.json",
+  "title": "Ibex ModuleArtifact v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "semantics", "semanticDigest", "payload", "producer"],
+  "properties": {
+    "schema": { "const": "ibex/module-artifact/1" },
+    "semantics": { "$ref": "#/$defs/semantics" },
+    "semanticDigest": { "$ref": "#/$defs/digest" },
+    "payload": { "$ref": "#/$defs/payload" },
+    "producer": { "$ref": "#/$defs/producer" }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "sourceId": {
+      "type": "string",
+      "pattern": "^ibex-source-id-v1:[A-Za-z0-9_-]+$"
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "type": { "const": "json" } }
+    },
+    "fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "producer",
+        "parserVersion",
+        "transformVersion",
+        "hermesTarget",
+        "typescriptJsxOptionsDigest",
+        "moduleRunnerAbi",
+        "hermesCompatVersion",
+        "commonjsDetector",
+        "commonjsDetectorVersion",
+        "outputOptionsDigest"
+      ],
+      "properties": {
+        "producer": { "$ref": "#/$defs/nonEmpty" },
+        "parserVersion": { "$ref": "#/$defs/nonEmpty" },
+        "transformVersion": { "$ref": "#/$defs/nonEmpty" },
+        "hermesTarget": { "$ref": "#/$defs/nonEmpty" },
+        "typescriptJsxOptionsDigest": { "$ref": "#/$defs/digest" },
+        "moduleRunnerAbi": { "$ref": "#/$defs/nonEmpty" },
+        "hermesCompatVersion": { "$ref": "#/$defs/nonEmpty" },
+        "commonjsDetector": { "$ref": "#/$defs/nonEmpty" },
+        "commonjsDetectorVersion": { "$ref": "#/$defs/nonEmpty" },
+        "outputOptionsDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "edgeBase": {
+      "type": "object",
+      "properties": {
+        "specifier": { "$ref": "#/$defs/nonEmpty" },
+        "attributes": { "$ref": "#/$defs/attributes" }
+      },
+      "required": ["specifier", "attributes"]
+    },
+    "staticEdge": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "specifier", "attributes"],
+          "properties": {
+            "kind": { "const": "side-effect" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" },
+            "attributes": { "$ref": "#/$defs/attributes" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "specifier", "local", "attributes"],
+          "properties": {
+            "kind": { "enum": ["default", "namespace"] },
+            "specifier": { "$ref": "#/$defs/nonEmpty" },
+            "local": { "$ref": "#/$defs/nonEmpty" },
+            "attributes": { "$ref": "#/$defs/attributes" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "specifier", "imported", "local", "attributes"],
+          "properties": {
+            "kind": { "const": "named" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" },
+            "imported": { "$ref": "#/$defs/nonEmpty" },
+            "local": { "$ref": "#/$defs/nonEmpty" },
+            "attributes": { "$ref": "#/$defs/attributes" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "specifier", "imported", "exported", "attributes"],
+          "properties": {
+            "kind": { "const": "re-export-named" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" },
+            "imported": { "$ref": "#/$defs/nonEmpty" },
+            "exported": { "$ref": "#/$defs/nonEmpty" },
+            "attributes": { "$ref": "#/$defs/attributes" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "specifier", "attributes"],
+          "properties": {
+            "kind": { "const": "re-export-star" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" },
+            "attributes": { "$ref": "#/$defs/attributes" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "specifier", "exported", "attributes"],
+          "properties": {
+            "kind": { "const": "re-export-namespace" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" },
+            "exported": { "$ref": "#/$defs/nonEmpty" },
+            "attributes": { "$ref": "#/$defs/attributes" }
+          }
+        }
+      ]
+    },
+    "exportDescriptor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "exported", "local"],
+          "properties": {
+            "kind": { "const": "local" },
+            "exported": { "$ref": "#/$defs/nonEmpty" },
+            "local": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "exported", "specifier", "imported"],
+          "properties": {
+            "kind": { "const": "indirect" },
+            "exported": { "$ref": "#/$defs/nonEmpty" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" },
+            "imported": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "specifier"],
+          "properties": {
+            "kind": { "const": "star" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "exported", "specifier"],
+          "properties": {
+            "kind": { "const": "namespace" },
+            "exported": { "$ref": "#/$defs/nonEmpty" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" }
+          }
+        }
+      ]
+    },
+    "sourceMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "sourceIds", "names", "mappings"],
+      "properties": {
+        "version": { "const": 3 },
+        "sourceIds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/sourceId" }
+        },
+        "names": { "type": "array", "items": { "type": "string" } },
+        "mappings": { "type": "string" }
+      }
+    },
+    "commonjsExports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detector", "detectorVersion", "names"],
+      "properties": {
+        "detector": { "$ref": "#/$defs/nonEmpty" },
+        "detectorVersion": { "$ref": "#/$defs/nonEmpty" },
+        "names": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmpty" }
+        }
+      }
+    },
+    "semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceId",
+        "sourceGoal",
+        "dialect",
+        "sourceIntegrity",
+        "transformFingerprint",
+        "staticEdges",
+        "exportDescriptors",
+        "commonjsExports",
+        "hasTopLevelAwait",
+        "factoryDigest",
+        "sourceMap"
+      ],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/sourceId" },
+        "sourceGoal": { "enum": ["module", "common-js", "json", "builtin"] },
+        "dialect": { "type": ["string", "null"], "enum": ["js", "jsx", "ts", "tsx", null] },
+        "sourceIntegrity": { "$ref": "#/$defs/digest" },
+        "transformFingerprint": { "$ref": "#/$defs/fingerprint" },
+        "staticEdges": { "type": "array", "items": { "$ref": "#/$defs/staticEdge" } },
+        "exportDescriptors": { "type": "array", "items": { "$ref": "#/$defs/exportDescriptor" } },
+        "commonjsExports": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/commonjsExports" }] },
+        "hasTopLevelAwait": { "type": "boolean" },
+        "factoryDigest": { "$ref": "#/$defs/digest" },
+        "sourceMap": { "$ref": "#/$defs/sourceMap" }
+      }
+    },
+    "payload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "encoding", "factorySource"],
+          "properties": {
+            "kind": { "const": "inline" },
+            "encoding": { "const": "utf8" },
+            "factorySource": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "carrierDigest", "entryId", "entryFactoryDigest"],
+          "properties": {
+            "kind": { "const": "carrier" },
+            "carrierDigest": { "$ref": "#/$defs/digest" },
+            "entryId": { "$ref": "#/$defs/nonEmpty" },
+            "entryFactoryDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "producer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "producerId", "producerBinaryDigest"],
+          "properties": {
+            "kind": { "const": "in-process" },
+            "producerId": { "$ref": "#/$defs/nonEmpty" },
+            "producerBinaryDigest": { "$ref": "#/$defs/digest" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "producerId", "producerBinaryDigest", "deploymentGraphDigest"],
+          "properties": {
+            "kind": { "const": "prepared" },
+            "producerId": { "$ref": "#/$defs/nonEmpty" },
+            "producerBinaryDigest": { "$ref": "#/$defs/digest" },
+            "deploymentGraphDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    }
+  }
+}

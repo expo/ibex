@@ -5,6 +5,8 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
+producer adapter, and tamper fixtures)
 **Related:** LLP 0012 (pinned Node compatibility target); LLP 0014 (reserved policy attributes); LLP 0023 (source identity); LLP 0026 (accepted module-runner architecture); ENG-25059; ENG-25061
 
 ## Summary
@@ -14,10 +16,12 @@ format and the ESM/CommonJS interop boundary adopted by LLP 0026. LLP 0026
 continues to own architecture and migration sequencing; this Spec owns bytes,
 validation, digest domains, adapters, and observable interop behavior.
 
-The first implementation targets `ibex/module-artifact/1`. It remains Draft
-until ENG-25059 checks in the canonical schema, codecs, malformed fixtures,
-and native validation path. No producer output becomes trusted merely because
-it resembles this shape.
+The first implementation targets `ibex/module-artifact/1`. The canonical
+schema is `schemas/module-artifact-v1.schema.json`; the Rust codec and verifier
+are `src/module_loader/artifact.rs`; the checked-in tamper matrix is under
+`tests/fixtures/module-artifact-v1/`. The document remains Draft while the
+ENG-25061 interop half is implemented. No producer output becomes trusted
+merely because it resembles this shape.
 
 ## Artifact envelope
 
@@ -26,18 +30,22 @@ A logical artifact contains:
 ```text
 ModuleArtifactV1 {
   schema                    // exactly "ibex/module-artifact/1"
-  source_id                 // canonical authenticated LLP 0023 encoding
-  source_kind               // esm | commonjs | json | builtin | synthetic
-  dialect                   // js | jsx | ts | tsx
-  source_integrity
-  transform_fingerprint
-  static_edges[]
-  export_descriptors[]
-  has_top_level_await
-  factory_bytes | carrier_entry_ref
-  source_map
+  semantics {
+    source_id               // canonical authenticated LLP 0023 encoding
+    source_goal             // module | common-js | json | builtin
+    dialect                 // js | jsx | ts | tsx | null
+    source_integrity
+    transform_fingerprint
+    static_edges[]
+    export_descriptors[]
+    commonjs_exports?
+    has_top_level_await
+    factory_digest
+    source_map              // SourceId indices, never host labels
+  }
   semantic_digest
-  payload_binding
+  payload                   // inline factory bytes | carrier entry binding
+  producer                  // in-process | prepared
 }
 ```
 
@@ -56,18 +64,22 @@ authenticated display labels.
 
 ## Canonical encoding and validation
 
-ENG-25059 defines one deterministic byte encoding and checks in its JSON Schema
-or equivalent closed structural schema alongside codecs. Decoders reject at
-least unknown fields, duplicate keys, unknown enum/tag values, non-canonical
+The deterministic encoding is RFC 8785-style JCS JSON over strict I-JSON input.
+The checked-in JSON Schema is a review artifact; the Rust decoder independently
+enforces the closed structure and semantic cross-field invariants. Decoders
+reject at least unknown fields, duplicate keys, unknown enum/tag values, non-canonical
 ordering or encoding, malformed `SourceId`s, unsupported schema or ABI
 versions, inconsistent source-kind fields, reserved policy attributes,
 non-canonical digests, and payload bindings that do not verify.
 
-Prepared artifacts are admitted only when their digest is bound into the
-authenticated deployment graph. The only trusted producers are the in-process
-host-authority transform and a build-time Rolldown/Oxc producer whose output is
-so bound. Native code independently validates every semantic claim before
-cache publication or factory compilation.
+Prepared artifacts are admitted only when their semantic digest is bound into
+the authenticated deployment graph and both the graph digest and prepared
+producer binary digest match. Inline artifacts require the expected in-process
+producer binary. Both paths also match the authenticated `SourceId`, source
+integrity, expected producer identity, and transform-fingerprint digest.
+Successful verification yields a `VerifiedModuleArtifactV1` token; cache
+publication and factory compilation consume that token rather than raw
+deserialization.
 
 ## Digest domains
 
@@ -93,6 +105,11 @@ project identity collision domain.
 `transform_fingerprint` includes parser/transform versions, Hermes target,
 TypeScript/JSX options, module-runner ABI, Hermes-compat pass version, CommonJS
 detector version, and every output-affecting option.
+
+The cache-key digest additionally covers the artifact schema, canonical
+`SourceId`, source integrity, transform-fingerprint digest, loaded engine binary
+digest, producer binary digest, and runtime-configuration digest. No host path,
+source label, carrier path, or cache directory participates.
 
 ## ESM/CommonJS interop matrix
 
@@ -147,12 +164,14 @@ fixtures cover namespace keys and descriptors, `'module.exports'`,
 `__esModule`, falsy defaults, replacement/mutation, cycles, throws/eviction,
 TLA refusal, in-flight overlap, and source/prepared equivalence on real Hermes.
 
-## Open questions
+## Resolved and open questions
 
-- Which deterministic encoding best serves native validation while preserving
-  inspectable canonical fixtures?
-- Does v1 store factory bytes directly in the semantic core when the physical
-  form is carrier-only, or reconstruct them from a separately authenticated
-  canonical factory table?
+- **Resolved:** v1 uses strict canonical JCS JSON, with a checked-in closed JSON
+  Schema and an independent Rust verifier.
+- **Resolved:** the semantic core stores a domain-separated factory digest.
+  Inline payloads supply and verify the bytes; carrier payloads bind a carrier
+  digest, entry identity, and the same factory digest. Thus cross-carrier forms
+  retain one semantic digest without reconstructing bytes merely to identify
+  the module.
 - Which exact stable error codes and descriptor details need Ibex-owned names
   rather than direct pinned-oracle parity?

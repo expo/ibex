@@ -1,8 +1,9 @@
-//! Fixture-only Oxc producer used by the LLP 0026 adoption-gate spike.
+//! Oxc module producer proven by the LLP 0026 adoption-gate spike.
 //!
-//! This is deliberately not wired into the evaluator or artifact cache. The
-//! spike has no interim path-based `SourceId`; it proves the uncertain
-//! transform/factory seam against enumerated fixtures and real Hermes only.
+//! The spike bundles remain fixture-only and are not wired into the evaluator
+//! or cache. `produce_module_artifact_v1` is the production typed adapter and
+//! requires an authenticated `SourceId`; it cannot emit the spike's interim
+//! path identity.
 //! @ref LLP 0026#adoption-gate — acceptance requires executed canonical
 //! artifacts before implementation proceeds beyond spike scope.
 
@@ -13,9 +14,9 @@ use anyhow::{anyhow, bail, Context, Result};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     AssignmentExpression, AssignmentTarget, Declaration, ExportDefaultDeclarationKind,
-    ForOfStatement, FunctionBody, IdentifierReference, ImportDeclarationSpecifier,
-    ImportExpression, ImportOrExportKind, MetaProperty, Program, SimpleAssignmentTarget, Statement,
-    UpdateExpression, VariableDeclarationKind,
+    ForOfStatement, FunctionBody, IdentifierReference, ImportAttributeKey,
+    ImportDeclarationSpecifier, ImportExpression, ImportOrExportKind, MetaProperty, Program,
+    SimpleAssignmentTarget, Statement, UpdateExpression, VariableDeclarationKind, WithClause,
 };
 use oxc_ast_visit::{walk, Visit};
 use oxc_codegen::{Codegen, CodegenOptions};
@@ -28,8 +29,40 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use super::artifact::{
+    digest_bytes, source_integrity, CanonicalSourceId, ExportDescriptorV1, ModuleArtifactV1,
+    ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1, SourceMapV1,
+    StaticEdgeV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+};
+use super::identity::{ImportAttributes, SourceId};
+use capsec_semantics::model::{Digest as CapsecDigest, NonEmptyString};
+
 pub const SPIKE_TRANSFORM_FINGERPRINT: &str =
     "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1";
+
+pub fn module_artifact_transform_fingerprint_v1(
+    hermes_target: &str,
+) -> Result<TransformFingerprintV1> {
+    let option_digest = |label: &str| {
+        source_integrity(label.as_bytes()).expect("static fingerprint input is valid")
+    };
+    Ok(TransformFingerprintV1 {
+        producer: NonEmptyString::new("ibex-oxc-module-producer").unwrap(),
+        parser_version: NonEmptyString::new("oxc-0.121.0").unwrap(),
+        transform_version: NonEmptyString::new("ibex-module-artifact-producer-1").unwrap(),
+        hermes_target: NonEmptyString::new(hermes_target).map_err(anyhow::Error::msg)?,
+        typescript_jsx_options_digest: option_digest(
+            "typescript=strip;jsx=classic;module-goal=true;decorators=off",
+        ),
+        module_runner_abi: NonEmptyString::new("ibex-module-runner-1").unwrap(),
+        hermes_compat_version: NonEmptyString::new("llp0019-hermes-compat-1").unwrap(),
+        commonjs_detector: NonEmptyString::new("cjs-module-lexer").unwrap(),
+        commonjs_detector_version: NonEmptyString::new("2.1.0").unwrap(),
+        output_options_digest: option_digest(
+            "factory=declare-execute;source-map=v3-source-id;minify=false",
+        ),
+    })
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,6 +122,8 @@ pub struct SpikeModuleArtifact {
 pub struct SpikeStaticEdge {
     pub specifier: String,
     pub kind: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imported: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -438,10 +473,12 @@ pub fn produce_spike_artifact(
         match statement {
             Statement::ImportDeclaration(declaration) => {
                 let specifier = declaration.source.value.to_string();
+                let attributes = import_attributes(&declaration.with_clause)?;
                 let Some(specifiers) = &declaration.specifiers else {
                     static_edges.push(SpikeStaticEdge {
                         specifier,
                         kind: "sideEffect".to_string(),
+                        attributes,
                         imported: None,
                         local: None,
                     });
@@ -459,6 +496,7 @@ pub fn produce_spike_artifact(
                             static_edges.push(SpikeStaticEdge {
                                 specifier: specifier.clone(),
                                 kind: "named".to_string(),
+                                attributes: attributes.clone(),
                                 imported: Some(imported_name),
                                 local: Some(local),
                             });
@@ -470,6 +508,7 @@ pub fn produce_spike_artifact(
                             static_edges.push(SpikeStaticEdge {
                                 specifier: specifier.clone(),
                                 kind: "default".to_string(),
+                                attributes: attributes.clone(),
                                 imported: Some("default".to_string()),
                                 local: Some(local),
                             });
@@ -480,6 +519,7 @@ pub fn produce_spike_artifact(
                             static_edges.push(SpikeStaticEdge {
                                 specifier: specifier.clone(),
                                 kind: "namespace".to_string(),
+                                attributes: attributes.clone(),
                                 imported: Some("*".to_string()),
                                 local: Some(local),
                             });
@@ -489,6 +529,7 @@ pub fn produce_spike_artifact(
                 }
             }
             Statement::ExportNamedDeclaration(declaration) => {
+                let attributes = import_attributes(&declaration.with_clause)?;
                 if let Some(inner) = &declaration.declaration {
                     for name in declaration_names(inner)? {
                         exported.insert(name.clone());
@@ -505,6 +546,7 @@ pub fn produce_spike_artifact(
                         static_edges.push(SpikeStaticEdge {
                             specifier: source.value.to_string(),
                             kind: "reExport".to_string(),
+                            attributes: attributes.clone(),
                             imported: Some(imported_name.clone()),
                             local: None,
                         });
@@ -543,6 +585,7 @@ pub fn produce_spike_artifact(
                 static_edges.push(SpikeStaticEdge {
                     specifier: specifier.clone(),
                     kind: "reExportStar".to_string(),
+                    attributes: import_attributes(&declaration.with_clause)?,
                     imported: Some("*".to_string()),
                     local: None,
                 });
@@ -622,6 +665,279 @@ pub fn produce_spike_artifact(
         factory_source,
         source_map,
         hermes_compat_passes: visitor.hermes_compat_passes.into_iter().collect(),
+    })
+}
+
+/// Production v1 adapter over the proven Oxc spike producer. The adapter is
+/// intentionally typed and fail-closed: lossy spike fields do not pass through
+/// as free-form artifact variants.
+/// @ref LLP 0027#artifact-envelope — the producer emits the closed semantic
+/// core and authenticates the inline factory separately.
+pub fn produce_module_artifact_v1(
+    source_id: SourceId,
+    source_name: &str,
+    source_path: &Path,
+    source: &str,
+    producer_binary_digest: CapsecDigest,
+    hermes_target: &str,
+) -> Result<ModuleArtifactV1> {
+    let spike = produce_spike_artifact("module-artifact-v1", source_name, source_path, source)?;
+    let fingerprint = module_artifact_transform_fingerprint_v1(hermes_target)?;
+    let static_edges = spike
+        .static_edges
+        .iter()
+        .map(|edge| static_edge_v1(edge, &spike.export_descriptors))
+        .collect::<Result<Vec<_>>>()?;
+    let export_descriptors = spike
+        .export_descriptors
+        .iter()
+        .map(export_descriptor_v1)
+        .collect::<Result<Vec<_>>>()?;
+    let source_map = SourceMapV1 {
+        version: spike.source_map["version"]
+            .as_u64()
+            .and_then(|version| u8::try_from(version).ok())
+            .ok_or_else(|| anyhow!("producer source map has no supported version"))?,
+        source_ids: vec![CanonicalSourceId(source_id.clone())],
+        names: spike.source_map["names"]
+            .as_array()
+            .ok_or_else(|| anyhow!("producer source map has no names array"))?
+            .iter()
+            .map(|name| {
+                name.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| anyhow!("producer source-map name is not a string"))
+            })
+            .collect::<Result<Vec<_>>>()?,
+        mappings: spike.source_map["mappings"]
+            .as_str()
+            .ok_or_else(|| anyhow!("producer source map has no mappings string"))?
+            .to_owned(),
+    };
+    let dialect = match spike.dialect.as_str() {
+        "JS" | "MJS" => SourceDialectV1::Js,
+        "JSX" => SourceDialectV1::Jsx,
+        "TS" | "MTS" => SourceDialectV1::Ts,
+        "TSX" => SourceDialectV1::Tsx,
+        other => bail!("unsupported producer source dialect {other:?}"),
+    };
+    let factory_digest = digest_bytes(
+        MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+        spike.factory_source.as_bytes(),
+    )?;
+    let semantics = ModuleSemanticsV1 {
+        source_id: CanonicalSourceId(source_id),
+        source_goal: SourceGoalV1::Module,
+        dialect: Some(dialect),
+        source_integrity: source_integrity(source.as_bytes())?,
+        transform_fingerprint: fingerprint,
+        static_edges,
+        export_descriptors,
+        commonjs_exports: None,
+        has_top_level_await: spike.has_top_level_await,
+        factory_digest,
+        source_map,
+    };
+    ModuleArtifactV1::new_inline(
+        semantics,
+        spike.factory_source,
+        ProducerIdentityV1::InProcess {
+            producer_id: NonEmptyString::new("ibex-runtime-oxc").map_err(anyhow::Error::msg)?,
+            producer_binary_digest,
+        },
+    )
+}
+
+fn non_empty(value: &str, label: &str) -> Result<NonEmptyString> {
+    NonEmptyString::new(value).map_err(|error| anyhow!("invalid {label}: {error}"))
+}
+
+fn import_attributes(
+    with_clause: &Option<oxc_allocator::Box<'_, WithClause<'_>>>,
+) -> Result<BTreeMap<String, String>> {
+    let mut attributes = BTreeMap::new();
+    let Some(with_clause) = with_clause else {
+        return Ok(attributes);
+    };
+    for attribute in &with_clause.with_entries {
+        let key = match &attribute.key {
+            ImportAttributeKey::Identifier(identifier) => identifier.name.as_str(),
+            ImportAttributeKey::StringLiteral(literal) => literal.value.as_str(),
+        };
+        let value = attribute.value.value.as_str();
+        if attributes
+            .insert(key.to_owned(), value.to_owned())
+            .is_some()
+        {
+            bail!("duplicate import attribute {key:?}");
+        }
+    }
+    Ok(attributes)
+}
+
+fn static_edge_v1(
+    edge: &SpikeStaticEdge,
+    exports: &[SpikeExportDescriptor],
+) -> Result<StaticEdgeV1> {
+    let specifier = non_empty(&edge.specifier, "static-edge specifier")?;
+    let attributes = ImportAttributes::new(edge.attributes.clone())?;
+    Ok(match edge.kind.as_str() {
+        "sideEffect" => StaticEdgeV1::SideEffect {
+            specifier,
+            attributes,
+        },
+        "default" => StaticEdgeV1::Default {
+            specifier,
+            local: non_empty(
+                edge.local
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("default edge has no local"))?,
+                "default local",
+            )?,
+            attributes,
+        },
+        "namespace" => StaticEdgeV1::Namespace {
+            specifier,
+            local: non_empty(
+                edge.local
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("namespace edge has no local"))?,
+                "namespace local",
+            )?,
+            attributes,
+        },
+        "named" => StaticEdgeV1::Named {
+            specifier,
+            imported: non_empty(
+                edge.imported
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("named edge has no imported name"))?,
+                "imported name",
+            )?,
+            local: non_empty(
+                edge.local
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("named edge has no local"))?,
+                "named local",
+            )?,
+            attributes,
+        },
+        "reExport" => {
+            let imported = edge
+                .imported
+                .as_deref()
+                .ok_or_else(|| anyhow!("re-export edge has no imported name"))?;
+            let exported = exports
+                .iter()
+                .find(|descriptor| {
+                    descriptor.kind == "indirect"
+                        && descriptor.specifier.as_deref() == Some(edge.specifier.as_str())
+                        && descriptor.imported.as_deref() == Some(imported)
+                })
+                .and_then(|descriptor| descriptor.exported.as_deref())
+                .ok_or_else(|| anyhow!("re-export edge has no matching export descriptor"))?;
+            StaticEdgeV1::ReExportNamed {
+                specifier,
+                imported: non_empty(imported, "re-export imported name")?,
+                exported: non_empty(exported, "re-export exported name")?,
+                attributes,
+            }
+        }
+        "reExportStar" => {
+            let namespace = exports.iter().find(|descriptor| {
+                descriptor.kind == "namespace"
+                    && descriptor.specifier.as_deref() == Some(edge.specifier.as_str())
+            });
+            if let Some(namespace) = namespace {
+                StaticEdgeV1::ReExportNamespace {
+                    specifier,
+                    exported: non_empty(
+                        namespace
+                            .exported
+                            .as_deref()
+                            .ok_or_else(|| anyhow!("namespace re-export has no exported name"))?,
+                        "namespace re-export name",
+                    )?,
+                    attributes,
+                }
+            } else {
+                StaticEdgeV1::ReExportStar {
+                    specifier,
+                    attributes,
+                }
+            }
+        }
+        other => bail!("unsupported producer static-edge kind {other:?}"),
+    })
+}
+
+fn export_descriptor_v1(descriptor: &SpikeExportDescriptor) -> Result<ExportDescriptorV1> {
+    Ok(match descriptor.kind.as_str() {
+        "local" => ExportDescriptorV1::Local {
+            exported: non_empty(
+                descriptor
+                    .exported
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("local export has no exported name"))?,
+                "exported name",
+            )?,
+            local: non_empty(
+                descriptor
+                    .local
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("local export has no local name"))?,
+                "local export name",
+            )?,
+        },
+        "indirect" => ExportDescriptorV1::Indirect {
+            exported: non_empty(
+                descriptor
+                    .exported
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("indirect export has no exported name"))?,
+                "indirect exported name",
+            )?,
+            specifier: non_empty(
+                descriptor
+                    .specifier
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("indirect export has no specifier"))?,
+                "indirect specifier",
+            )?,
+            imported: non_empty(
+                descriptor
+                    .imported
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("indirect export has no imported name"))?,
+                "indirect imported name",
+            )?,
+        },
+        "star" => ExportDescriptorV1::Star {
+            specifier: non_empty(
+                descriptor
+                    .specifier
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("star export has no specifier"))?,
+                "star specifier",
+            )?,
+        },
+        "namespace" => ExportDescriptorV1::Namespace {
+            exported: non_empty(
+                descriptor
+                    .exported
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("namespace export has no exported name"))?,
+                "namespace exported name",
+            )?,
+            specifier: non_empty(
+                descriptor
+                    .specifier
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("namespace export has no specifier"))?,
+                "namespace specifier",
+            )?,
+        },
+        other => bail!("unsupported producer export-descriptor kind {other:?}"),
     })
 }
 
@@ -1052,6 +1368,7 @@ pub fn default_spike_manifest(repo_root: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use capsec_semantics::model::{PathComponent, Principal};
 
     #[test]
     fn fixture_producer_is_deterministic_and_exercises_oxc() {
@@ -1106,5 +1423,67 @@ mod tests {
 
         assert!(artifact.has_top_level_await);
         assert!(artifact.factory_source.contains("await /x.y/g"));
+    }
+
+    #[test]
+    fn production_adapter_emits_canonical_authenticated_artifact() {
+        let source_id = SourceId::file(
+            Principal::Root {
+                identity: NonEmptyString::new("project-fixture").unwrap(),
+            },
+            vec![PathComponent::utf8("entry.mjs").unwrap()],
+        )
+        .unwrap();
+        let producer_digest = source_integrity(b"producer-binary").unwrap();
+        let artifact = produce_module_artifact_v1(
+            source_id.clone(),
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            "import { value } from 'dep'; export { value };",
+            producer_digest.clone(),
+            "hermes-bytecode-96",
+        )
+        .unwrap();
+        let bytes = artifact.encode_canonical().unwrap();
+        let decoded = ModuleArtifactV1::decode_canonical(&bytes).unwrap();
+        decoded
+            .verify_for_admission(
+                &super::super::artifact::ArtifactAdmissionV1::TrustedInProcess {
+                    expected_source_id: source_id,
+                    expected_source_integrity: source_integrity(
+                        b"import { value } from 'dep'; export { value };",
+                    )
+                    .unwrap(),
+                    expected_producer_id: NonEmptyString::new("ibex-runtime-oxc").unwrap(),
+                    producer_binary_digest: producer_digest,
+                    transform_fingerprint_digest: module_artifact_transform_fingerprint_v1(
+                        "hermes-bytecode-96",
+                    )
+                    .unwrap()
+                    .digest()
+                    .unwrap(),
+                },
+            )
+            .unwrap();
+        assert_eq!(decoded.semantics.static_edges.len(), 1);
+        assert_eq!(decoded.semantics.export_descriptors.len(), 1);
+    }
+
+    #[test]
+    fn production_adapter_preserves_json_import_attributes() {
+        let source_id = SourceId::synthetic("fixture", "json-import").unwrap();
+        let artifact = produce_module_artifact_v1(
+            source_id,
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            "import data from './data.json' with { type: 'json' }; export default data;",
+            source_integrity(b"producer-binary").unwrap(),
+            "hermes-bytecode-96",
+        )
+        .unwrap();
+        let StaticEdgeV1::Default { attributes, .. } = &artifact.semantics.static_edges[0] else {
+            panic!("expected default JSON edge")
+        };
+        assert!(attributes.asserts_json());
     }
 }
