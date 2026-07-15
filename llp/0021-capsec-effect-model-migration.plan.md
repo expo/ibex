@@ -230,6 +230,44 @@ mode of ordinary `ibex run`. Embedders must select an explicit supported profile
 and successfully arm it; the legacy host constructor must not silently create a
 production runtime that claims package security while running permissively.
 
+<<<<<<< HEAD
+=======
+### Module initialization and trusted source acquisition
+
+LLP 0026 adds one explicit boundary to full deputy intersection. A module
+factory's once-per-execution-generation initialization is an autonomous,
+record-owned task: it executes in the defining principal's authenticated
+compartment, and the constrained-principal set begins at that initialization
+task boundary. Importer frames physically above a synchronous `require()` do
+not join initialization-time decisions. This preserves deterministic module
+state across cold/warm, synchronous/asynchronous, and competing-importer
+orders. It does not widen the module's own grants. Calls through exports after
+initialization continue to intersect the complete live caller and scheduler
+chain exactly as before.
+
+Module source acquisition is classified as a narrow trusted-loader operation,
+not as `fs:list`/`fs:read` authority borrowed from the importer. It may occur
+only after the exact authenticated import edge authorizes and is bound to that
+edge's `SourceId`, source binding, locator, integrity, requesting record, and
+graph generation. It is non-delegable and conveys no general filesystem
+authority. The generated coverage registry rows for module-source acquisition
+must use this classification before the ModuleRunner security integration can
+claim conformance; denial, no-probe, cache-hit, prepared-carrier, and
+wrong-principal fixtures are mandatory.
+
+ENG-25062 implements that boundary as a typed `GraphDecisionSet` over the
+exact requesting and target `SourceId`, resolution kind, conditions,
+attributes, actor, effect owner, schedule-time identity, canonical constrained
+set, stage, atomicity group, graph generation, and coverage edge. Successful
+authorization returns an opaque receipt bound to the armed snapshot digest and
+all four authority generations. Source, cache, and prepared-carrier access is
+possible only through a closure entered after the receipt is revalidated for
+the exact target and generation. Module factories remain reachability-only at
+the graph boundary; host effects they perform still enter ordinary typed
+semantic-core `DecisionSet`s at their native effect gates. Generated target
+cells remain unsupported until executed conformance evidence promotes them.
+
+>>>>>>> bfb048f6 (ENG-25062 authorize native module graph operations)
 ## WP0 semantic contract
 
 ENG-24144 freezes the following contract for WP1–WP11. The machine-readable

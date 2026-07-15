@@ -584,6 +584,27 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     });
   }
 
+  test("module runner separates edge authorization from trusted access", () => {
+    const gate = classifyObservedSurface(
+      surface("loader", "module-runner-edge-authorization"),
+      context,
+    );
+    expect(gate.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+    for (const name of [
+      "module-runner-cache-access",
+      "module-runner-prepared-carrier-access",
+      "module-runner-trusted-source-acquisition",
+    ]) {
+      expect(classifyObservedSurface(surface("loader", name), context).edge).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "trusted-loader-source-acquisition",
+      });
+    }
+  });
+
   test("escape matching does not treat identifier substrings as escape surfaces", () => {
     const diffieHellmanNames = reviewedBuiltinExportNames()
       .filter((name) =>
@@ -3754,8 +3775,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(
       edgeByObservedKey.get("host-abi:ex_hermes_module_compile_factory"),
     ).toMatchObject({
-      classification: "closed",
-      cap: "vm:evaluate",
+      classification: "non-capability",
+      rationaleId: "module-reachability-only",
     });
     expect(
       edgeByObservedKey.get("host-abi:ex_hermes_module_release_handle"),

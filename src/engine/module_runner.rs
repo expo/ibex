@@ -17,6 +17,10 @@ use crate::module_loader::artifact::{SourceGoalV1, VerifiedModuleArtifactV1};
 #[cfg(any(test, feature = "module-runner"))]
 use crate::module_loader::graph::SynchronousGraphPlan;
 use crate::module_loader::identity::SourceId;
+#[cfg(any(test, feature = "module-runner"))]
+use crate::module_loader::security::{
+    AuthorizedGraphOperation, GraphAuthorityContext, GraphImportPolicy, ModuleGraphAuthorizer,
+};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -844,15 +848,44 @@ pub struct NativeSynchronousGraph<'runtime> {
     evaluation_order: Vec<SourceId>,
     records: BTreeMap<SourceId, NativeModuleRecord<'runtime>>,
     evaluation_outcome: Option<std::result::Result<(), String>>,
+    _authorization_receipts: Vec<AuthorizedGraphOperation>,
 }
 
 #[cfg(any(test, feature = "module-runner"))]
 impl<'runtime> NativeSynchronousGraph<'runtime> {
+    /// Production graph entry: authenticate the complete reachable edge set
+    /// before compiling the first factory.
+    pub fn link_authorized<P: GraphImportPolicy>(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+    ) -> Result<Self> {
+        let receipts =
+            plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
+        Self::link_inner(runtime, plan, entry, configs, receipts)
+    }
+
+    /// Diagnostic-only bypass for native ABI unit fixtures. Advertised builds
+    /// have no unauthenticated graph-link entry.
+    #[cfg(test)]
     pub fn link(
         runtime: &'runtime NativeModuleRuntime<'runtime>,
         plan: &SynchronousGraphPlan<'_>,
         entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+    ) -> Result<Self> {
+        Self::link_inner(runtime, plan, entry, configs, Vec::new())
+    }
+
+    fn link_inner(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
         mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        authorization_receipts: Vec<AuthorizedGraphOperation>,
     ) -> Result<Self> {
         let evaluation_order = plan.evaluation_order(entry)?;
         let generation = configs
@@ -961,6 +994,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             evaluation_order,
             records,
             evaluation_outcome: None,
+            _authorization_receipts: authorization_receipts,
         })
     }
 

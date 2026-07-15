@@ -770,6 +770,11 @@
         "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
       },
       {
+        "id": "trusted-loader-source-acquisition",
+        "predicate": "source-cache-or-carrier-access-after-an-exact-immutable-generation-bound-module-edge-authorization",
+        "rationale": "The trusted loader may acquire only the source, cache entry, or prepared carrier named by a previously authorized exact module edge; the receipt is non-delegable and conveys no filesystem authority."
+      },
+      {
         "id": "unbound-owned-resource",
         "predicate": "allocate-an-unbound-unconnected-resource-without-contacting-an-external-peer-or-namespace",
         "rationale": "Allocating an unbound local resource carries no external authority until a later bind, connect, transfer, or use operation."

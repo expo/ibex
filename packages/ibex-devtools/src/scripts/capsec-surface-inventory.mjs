@@ -14437,6 +14437,38 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
   // distinct decision branches in load(), not duplicate handwritten tables.
   fixedSurface(
     "loader",
+    "module-runner-edge-authorization",
+    fixedEvidence("rust-function", "src/module_loader/security.rs", "authorize"),
+  ),
+  fixedSurface(
+    "loader",
+    "module-runner-trusted-source-acquisition",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/security.rs",
+      "authorize_then_access",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "module-runner-cache-access",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/security.rs",
+      "authorize_then_access",
+    ),
+  ),
+  fixedSurface(
+    "loader",
+    "module-runner-prepared-carrier-access",
+    implementationContainer(
+      "rust-function",
+      "src/module_loader/security.rs",
+      "authorize_then_access",
+    ),
+  ),
+  fixedSurface(
+    "loader",
     "install",
     implementationContainer(
       "cpp-function",

@@ -10,8 +10,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
-use super::artifact::{ExportDescriptorV1, StaticEdgeV1, VerifiedModuleArtifactV1};
+use super::artifact::{
+    ExportDescriptorV1, ModulePayloadV1, StaticEdgeV1, VerifiedModuleArtifactV1,
+};
 use super::identity::SourceId;
+use super::security::{
+    AuthorizedGraphOperation, GraphAuthorityContext, GraphDecisionSet, GraphImportPolicy,
+    GraphOperationKind, ModuleGraphAuthorizer,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ExportTarget {
@@ -137,6 +143,118 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let mut order = Vec::new();
         self.visit_for_evaluation(entry, &mut visiting, &mut visited, &mut order)?;
         Ok(order)
+    }
+
+    /// Authorize every reachable static edge before the native runtime may
+    /// compile or instantiate any factory. The returned receipts are retained
+    /// by the graph and remain bound to this snapshot and graph generation.
+    // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
+    pub fn authorize_reachable_operations<P: GraphImportPolicy>(
+        &self,
+        entry: &SourceId,
+        authorizer: &ModuleGraphAuthorizer<'_, P>,
+        contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
+    ) -> anyhow::Result<Vec<AuthorizedGraphOperation>> {
+        let mut receipts = Vec::new();
+        for source_id in self.evaluation_order(entry)? {
+            let context = contexts.get(&source_id).ok_or_else(|| {
+                anyhow::anyhow!("reachable ModuleRecord {source_id:?} has no CapSec context")
+            })?;
+            if context.requesting_record != source_id {
+                anyhow::bail!("CapSec context requester disagrees with {source_id:?}");
+            }
+            let record = self.record(&source_id)?;
+            for edge in &record.artifact.artifact().semantics.static_edges {
+                let (specifier, attributes, kind) = match edge {
+                    StaticEdgeV1::SideEffect {
+                        specifier,
+                        attributes,
+                    }
+                    | StaticEdgeV1::Default {
+                        specifier,
+                        attributes,
+                        ..
+                    }
+                    | StaticEdgeV1::Namespace {
+                        specifier,
+                        attributes,
+                        ..
+                    }
+                    | StaticEdgeV1::Named {
+                        specifier,
+                        attributes,
+                        ..
+                    } => (
+                        specifier,
+                        attributes,
+                        if attributes.asserts_json() {
+                            GraphOperationKind::JsonLoad
+                        } else {
+                            GraphOperationKind::StaticImport
+                        },
+                    ),
+                    StaticEdgeV1::ReExportNamed {
+                        specifier,
+                        attributes,
+                        ..
+                    }
+                    | StaticEdgeV1::ReExportStar {
+                        specifier,
+                        attributes,
+                    }
+                    | StaticEdgeV1::ReExportNamespace {
+                        specifier,
+                        attributes,
+                        ..
+                    } => (specifier, attributes, GraphOperationKind::ReExport),
+                };
+                let target = self.edge_target(record, specifier.as_str())?.clone();
+                let decision = GraphDecisionSet::new(
+                    kind,
+                    context.clone(),
+                    target,
+                    specifier.as_str(),
+                    super::identity::ResolutionKind::EsmStatic,
+                    super::identity::ConditionSet::for_kind(
+                        super::identity::ResolutionKind::EsmStatic,
+                    ),
+                    attributes.clone(),
+                    None,
+                    None,
+                )?;
+                receipts.push(authorizer.authorize(decision)?);
+            }
+
+            // Factory compilation, instantiation, and execution are separate
+            // record-owned decisions. They use the initialization task
+            // boundary rather than inheriting an importer context.
+            let artifact = record.artifact.artifact();
+            let initialization =
+                GraphAuthorityContext::initialization(source_id.clone(), context.graph_generation)?;
+            let carrier_digest = match &artifact.payload {
+                ModulePayloadV1::Inline { .. } => None,
+                ModulePayloadV1::Carrier { carrier_digest, .. } => Some(carrier_digest.clone()),
+            };
+            for kind in [
+                GraphOperationKind::CompileFactory,
+                GraphOperationKind::InstantiateFactory,
+                GraphOperationKind::ExecuteFactory,
+            ] {
+                let decision = GraphDecisionSet::new(
+                    kind,
+                    initialization.clone(),
+                    source_id.clone(),
+                    source_id.encode()?,
+                    super::identity::ResolutionKind::Entry,
+                    super::identity::ConditionSet::for_kind(super::identity::ResolutionKind::Entry),
+                    super::identity::ImportAttributes::default(),
+                    Some(artifact.semantics.source_integrity.clone()),
+                    carrier_digest.clone(),
+                )?;
+                receipts.push(authorizer.authorize(decision)?);
+            }
+        }
+        Ok(receipts)
     }
 
     /// Resolve every factory import read to an authenticated ultimate cell or

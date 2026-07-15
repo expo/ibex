@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
+**Revised:** 2026-07-15 (ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
 **Related:** LLP 0002 (host embedding ABI); LLP 0003 (Hermes engine bridge); LLP 0004 (module loading); LLP 0005 (hermetic build); LLP 0006 (native-first diagnostics); LLP 0007 (transform convergence); LLP 0009 (runtime transform scope); LLP 0012 (runtime identity / Node compatibility target); LLP 0013 (package compartments); LLP 0014 (import policy); LLP 0018 (fail-loud agent tooling); LLP 0019 (Hermes-compat transform authority); LLP 0021 (CapSec effect model); LLP 0022 (REPL behavior); LLP 0023 (source identity); LLP 0024 (structured evaluation); LLP 0025 (terminal session ownership); LLP 0027 (artifact wire and ESM/CommonJS interop contract)
 
 ## Summary
@@ -639,6 +639,17 @@ every legitimate importer. The corpus adds a red-team fixture in which a
 minimal-authority importer triggers initialization of an effectful
 privileged module, alongside the sticky-error poisoning scenario the
 amendment forecloses.
+
+ENG-25062 realizes the synchronous half of this contract in
+`module_loader::security`: every reachable static import, re-export, and JSON
+edge must produce a typed graph decision and immutable-snapshot receipt before
+the native graph compiles a factory. The same closed operation algebra reserves
+dynamic import, literal/computed `require`, cache, prepared-carrier, and factory
+operations for their owning phases. Receipt checks bind the exact target,
+coverage edge, snapshot digest, authority generations, and graph generation;
+chunk co-residence and cache presence therefore confer no authorization. The
+unauthenticated linker remains test-only, and target cells stay unsupported
+until their executed fixture evidence exists.
 
 **Binding cells live in the Hermes runner, behind opaque native handles.**
 JavaScript-side cells keep every binding read and setter dispatch inside the

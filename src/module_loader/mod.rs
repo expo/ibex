@@ -11,6 +11,8 @@ pub mod commonjs;
 pub mod graph;
 pub mod identity;
 pub mod producer_spike;
+#[cfg(any(test, feature = "module-runner"))]
+pub mod security;
 pub mod transpile;
 
 use anyhow::{anyhow, Context, Result};

@@ -114427,7 +114427,7 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo.default.closed"
+        "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo.default.non-capability"
       ]
     },
     {
@@ -114493,7 +114493,7 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default.closed"
+        "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default.non-capability"
       ]
     },
     {
@@ -115865,7 +115865,7 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default.closed"
+        "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default.non-capability"
       ]
     },
     {
@@ -115965,7 +115965,7 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.host.abi.ex.hermes.module.record.instantiate.043epyu.default.closed"
+        "surface.host.abi.ex.hermes.module.record.instantiate.043epyu.default.non-capability"
       ]
     },
     {
@@ -116097,7 +116097,7 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a.default.closed"
+        "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a.default.non-capability"
       ]
     },
     {
@@ -116129,7 +116129,7 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon.default.closed"
+        "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon.default.non-capability"
       ]
     },
     {
@@ -136397,6 +136397,132 @@
         "surface.loader.lazy.installer.exactensurewebcrypto.node.crypto.0rd0si8.main.cannot-widen-authority",
         "surface.loader.lazy.installer.exactensurewebcrypto.node.crypto.0rd0si8.main.non-capability",
         "surface.loader.lazy.installer.exactensurewebcrypto.node.crypto.0rd0si8.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.module.runner.cache.access.0xf8bln",
+      "observedKey": "loader:module-runner-cache-access",
+      "branchId": "surface.loader.module.runner.cache.access.0xf8bln.main",
+      "enforcementBranchId": "surface.loader.module.runner.cache.access.0xf8bln.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:module-runner-cache-access"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "sourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "terminalObservedKey": "loader:module-runner-cache-access"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize_then_access"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.module.runner.cache.access.0xf8bln.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.module.runner.edge.authorization.0qnrmj5",
+      "observedKey": "loader:module-runner-edge-authorization",
+      "branchId": "surface.loader.module.runner.edge.authorization.0qnrmj5.main",
+      "enforcementBranchId": "surface.loader.module.runner.edge.authorization.0qnrmj5.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:module-runner-edge-authorization"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/security.rs#authorize"
+        ],
+        "sourceRefs": [
+          "src/module_loader/security.rs#authorize"
+        ],
+        "terminalObservedKey": "loader:module-runner-edge-authorization"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.loader.module.runner.edge.authorization.0qnrmj5.main.cannot-widen-authority",
+        "surface.loader.module.runner.edge.authorization.0qnrmj5.main.non-capability",
+        "surface.loader.module.runner.edge.authorization.0qnrmj5.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.module.runner.prepared.carrier.access.1iok9a9",
+      "observedKey": "loader:module-runner-prepared-carrier-access",
+      "branchId": "surface.loader.module.runner.prepared.carrier.access.1iok9a9.main",
+      "enforcementBranchId": "surface.loader.module.runner.prepared.carrier.access.1iok9a9.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:module-runner-prepared-carrier-access"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "sourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "terminalObservedKey": "loader:module-runner-prepared-carrier-access"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize_then_access"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.module.runner.prepared.carrier.access.1iok9a9.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.module.runner.trusted.source.acquisition.0bstk81",
+      "observedKey": "loader:module-runner-trusted-source-acquisition",
+      "branchId": "surface.loader.module.runner.trusted.source.acquisition.0bstk81.main",
+      "enforcementBranchId": "surface.loader.module.runner.trusted.source.acquisition.0bstk81.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:module-runner-trusted-source-acquisition"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "sourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "terminalObservedKey": "loader:module-runner-trusted-source-acquisition"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize_then_access"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.module.runner.trusted.source.acquisition.0bstk81.main.non-capability"
       ]
     },
     {
@@ -265597,14 +265723,8 @@
         "surface.cli.positional.ibex.20eval.code.value.name.code.0j3wy53",
         "surface.cli.repl.13s1r60",
         "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
-        "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
-        "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
         "surface.host.abi.ex.hermes.create.diagnostic.1t314ff",
         "surface.host.abi.ex.hermes.eval.1t7nlsx",
-        "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
-        "surface.host.abi.ex.hermes.module.record.instantiate.043epyu",
-        "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a",
-        "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
         "surface.native.op.exactallownativessyntax.08ves7l",
         "surface.native.op.exactcompateval.08n83kx",
         "surface.native.op.global.asyncfunction.12527a5",
@@ -265614,7 +265734,7 @@
         "surface.startup.script.bytecode.1d41kkw",
         "surface.startup.script.eval.19993vd"
       ],
-      "rationale": "Closed by 49 observed surface edges."
+      "rationale": "Closed by 43 observed surface edges."
     },
     {
       "definitionId": "wasi:instantiate",
@@ -265692,44 +265812,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-neqWHaZbMW-FyUo7G-5skQkDROk0YK0XEK4WxBrrt0I"
+      "rawContentDigest": "sha256-3XSi6Uz7_DRI82AJ-7ID1PX66zSCeKgoo_JlBFyTN10"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-p1z5Kt2-J6lGcTc8bY_OmYI_-Q2y93Ctsodxw9rJyJw"
+      "rawContentDigest": "sha256-xEsQj9GvIdWS6IdMqy-uBx0Nc-Nl0-Q9tL7maJdIULg"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-JEB4MlQe3R6bhKmwSKHxc7wVRqXgDd_Y8uOyv1Mz57M"
+      "rawContentDigest": "sha256-om3KJ3rh8crmgaS2NL7FphWH5TAGLDRE0MwLC4epXB0"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-nQ0DM3cKludlDIGB8eu_KLDvYypZ5g8UIhTZ2caSwuo"
+      "rawContentDigest": "sha256-L--4F26Q76asNvkuOOwJ9Gtvdw_SRXc85IVYagJkx20"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-4V-qgyU-tpUeb1xq4YOjRaO-j33preEdUoUhfbiqSQ4"
+      "rawContentDigest": "sha256-0AlXGbXSuzLZoq26Rx3IXmmViSvjeRVBbvif7dmTCdo"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-CPNbQ-LbN2wkmrux4t12UhyOrUYZkI3dWN4pxLWRtks"
+      "rawContentDigest": "sha256-X8Tg2je6-8FB54cdSf99P9eS2JNLqhhqsFXliboU7zs"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-9ekLb9OR7OefwIQevBc-mFqFWMo53K2fRW9DhvIx4XQ"
+      "rawContentDigest": "sha256-ZWEoB0BLHBAdBgMR3lvZVgFXGwn_EdyNGVp1dRi2nyQ"
     }
   ],
   "counts": {
-    "observedReferences": 12815,
-    "logicalSurfaces": 7136,
-    "enforcementBranches": 7335,
-    "coverageEdges": 7136,
-    "targetCells": 7136
+    "observedReferences": 12819,
+    "logicalSurfaces": 7140,
+    "enforcementBranches": 7339,
+    "coverageEdges": 7140,
+    "targetCells": 7140
   }
 }

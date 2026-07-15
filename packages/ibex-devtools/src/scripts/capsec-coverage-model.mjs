@@ -6078,6 +6078,10 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "lazy-installer:__exactEnsureStreamEnhance:stream/web",
     "lazy-installer:__exactEnsureWebCrypto:crypto",
     "lazy-installer:__exactEnsureWebCrypto:node:crypto",
+    "module-runner-cache-access",
+    "module-runner-edge-authorization",
+    "module-runner-prepared-carrier-access",
+    "module-runner-trusted-source-acquisition",
     "native-addon-module",
     "native-resolve",
     "operation:cache:canonicalize",
@@ -9229,6 +9233,19 @@ function loaderClassification(surface) {
   };
   const fullLoaderEffects = () => fullLoaderEffectSpec(loaderOptions);
 
+  if (name === "module-runner-edge-authorization") {
+    return nonCapabilitySpec("authority-control-plane", "WP8");
+  }
+  if (
+    new Set([
+      "module-runner-cache-access",
+      "module-runner-prepared-carrier-access",
+      "module-runner-trusted-source-acquisition",
+    ]).has(name)
+  ) {
+    return nonCapabilitySpec("trusted-loader-source-acquisition", "WP7");
+  }
+
   // Escape hatches precede both source-derived function and kind families.
   if (/wasi|wasm/u.test(name)) {
     return closedSpec(
@@ -9477,6 +9494,24 @@ function loaderClassification(surface) {
       ]).has(name)
     ) {
       return fullLoaderEffectSpec(loaderOptions);
+    }
+    if (
+      new Set([
+        "function:rust:authorize_then_access",
+        "function:rust:with_authorized_access",
+      ]).has(name)
+    ) {
+      return nonCapabilitySpec("trusted-loader-source-acquisition", "WP7");
+    }
+    if (
+      new Set([
+        "function:rust:authorize",
+        "function:rust:authorize_reachable_operations",
+        "function:rust:initialization",
+        "function:rust:validate",
+      ]).has(name)
+    ) {
+      return nonCapabilitySpec("authority-control-plane", "WP8");
     }
     if (name === "function:rust:is_builtin_specifier") {
       return nonCapabilitySpec("module-reachability-only", "WP7");
@@ -12156,10 +12191,9 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_module_record_run_execute",
       ]).has(surface.name)
     ) {
-      return closedSpec(
-        "vm:evaluate",
+      return nonCapabilitySpec(
+        "module-reachability-only",
         "WP8",
-        "The experimental native graph runner compiles or executes authenticated module factories; it remains closed until the graph authorization profile lands.",
       );
     }
     if (surface.name === "ex_hermes_module_record_namespace_json") {
