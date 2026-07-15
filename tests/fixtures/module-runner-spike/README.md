@@ -22,5 +22,7 @@ node packages/ibex-devtools/src/scripts/run-module-runner-spike.mjs \
 
 The test262 sample and its regeneration instructions are described in
 `TEST262-NOTICE.md`. Its threshold was frozen at 18/20 before execution; the
-checked macOS arm64 result is 19/20. The one failed case remains raw evidence,
-not an expected divergence selected after the run.
+checked macOS arm64 result is 20/20 with no expected divergences. The final
+case passed after the producer began forcing its promised Module parse goal
+for plain `.js` inputs; previously Oxc parsed `await /regexp/` in Script goal
+as a chain of divisions.

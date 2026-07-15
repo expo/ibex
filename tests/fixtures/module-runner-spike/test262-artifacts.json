@@ -1,6 +1,6 @@
 {
   "schema": "ibex/module-runner-test262-artifacts/1",
-  "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+  "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
   "subsetSchema": "ibex/module-runner-test262-subset/1",
   "upstream": {
     "repository": "https://github.com/tc39/test262",
@@ -26,7 +26,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-6jovMou15z2ef5aei4DRP/j2aMJ5l0CJMaB+S5LX6F0=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": false,
@@ -60,7 +60,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-5TfmKCemvzJ7w7WWQxbf+JQ41isoK7AIW8XiGMHK7Yk=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [
           {
@@ -100,7 +100,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-A60KTb5Jv8OzdkjWBgvI972HVS/IfVqyvm2f3gUoj4Y=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [
           {
@@ -140,7 +140,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-bIpMmGKCYxRSwIT32VZsuGaYsMkWl1nose10x3lsQc4=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [
           {
@@ -180,7 +180,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-I1YhGgd/AWjlO50uJWdeps893MmRztgTYsyXW4v1R8U=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [
           {
@@ -220,7 +220,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-7c/ByQtwfvBoEXH0eP4J3dUYCoRLHX2WREqgHH3sGHk=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [
           {
@@ -260,7 +260,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-TwY7qwt0tLBuxUZO9RMV7Tv7uzx6hi3Pwa7Abs6gkIc=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [
           {
@@ -300,7 +300,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-bnEK9UWyeDSSxHqGY/MUcr6HVqJoW/uBOr6bbYJvDu0=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": false,
@@ -334,7 +334,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-IFWBJpB2taoUESM2MMth9ezC9cqtNq3cz6mFUS4tzxA=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": false,
@@ -368,7 +368,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-QHbXB2oW8Jr6TExnKlQBYRHidqjcOGjCtOTmPzBdcFA=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": false,
@@ -402,7 +402,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-MgfnnG0+Hrq7cv9JFiWT6zgnJisnjymOarn1RCmkPNk=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
@@ -436,7 +436,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-qDnYpghf4yMKuL2iR9HozEDtGkF/IhHpxOdi71NL3kw=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
@@ -470,7 +470,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-dgoAb6vjWBcLOghcIZ2G9mbeHPUz2OTF7NQvqeaht+4=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
@@ -504,7 +504,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-Cm6DCVkimeI3A9vVZMY6SfI3yACfoj527eJkU0WglOA=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
@@ -538,7 +538,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-Zw8UQcLfD9BcQKCbaHur5p9OtiBDgDC8WLid03z9BGY=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
@@ -572,7 +572,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-/t81sRaG3qe9rKFbOkQ5NcgwBfxtnqGlt6Z/TUQsJ0Y=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
@@ -601,7 +601,32 @@
       "upstreamFileSha256": "d0b06c3dfacb4e792dd6b56205a5b8ba17b0a9400f6d37430540189e2871894d",
       "executableBodySha256": "b3177a01d3adb3bbfa95989ab73372c91ee777f0b9753e639eee4665c9b483a6",
       "expectedDivergence": null,
-      "producerError": "Oxc could not parse transformed entry.js: [OxcDiagnostic { inner: OxcDiagnosticInner { message: \"Expected a semicolon or an implicit semicolon after a statement, but found none\", labels: Some([LabeledSpan { label: None, span: SourceSpan { offset: SourceOffset(80), length: 0 }, primary: false }]), help: Some(\"Try inserting a semicolon here\"), note: None, severity: Error, code: OxcCode { scope: None, number: None }, url: None } }]"
+      "artifact": {
+        "fixtureId": "top-level-await/await-expr-regexp",
+        "sourceName": "entry.js",
+        "dialect": "JS",
+        "sourceIntegrity": "sha256-sxd6AdOts7v6lZiatzNyyR7nd/C5dT5jnu5GZcm0g6Y=",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+        "staticEdges": [],
+        "exportDescriptors": [],
+        "hasTopLevelAwait": true,
+        "factorySource": "function (__ibex_export$0, __ibex_context$0) {\n\"use strict\";\nreturn {\ndeclare: function () {\n\n},\nexecute: async function () {\nvar lol = false;\nvar x = { get y() {\n\tlol = true;\n} };\nvar g = 42;\nawait /x.y/g;\nif (lol) {\n\t$DONE(\"It should be a RegExp\");\n} else {\n\t$DONE();\n}\n}\n};\n}\n",
+        "sourceMap": {
+          "version": 3,
+          "file": "entry.js.factory.js",
+          "names": [],
+          "sources": [
+            "entry.js"
+          ],
+          "sourcesContent": [
+            "var lol = false;\nvar x = {\n  get y() {\n    lol = true;\n  }\n};\n\nvar g = 42;\n\nawait /x.y/g;\n\nif (lol) {\n  $DONE('It should be a RegExp');\n} else {\n  $DONE();\n}\n"
+          ],
+          "mappings": ";;;;;;;AAAA;AACA;AAEA;AAAA;AAIA;AAEA;AAEA;AACA;AAJA;AAMA;AAJA",
+          "x_ibex_composed": true,
+          "x_ibex_factory_lines": 21
+        },
+        "hermesCompatPasses": []
+      }
     },
     {
       "id": "top-level-await/new-await-parens",
@@ -615,7 +640,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-zec/QwdH7hQP6UHSVgP/cXVGAj3p9+DPJ8sFruHj/Fc=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
@@ -649,7 +674,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-FK7r2xhtEfnyrjPvR7fiyJKx+YEN42hjOeEcryUp6zo=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,
@@ -683,7 +708,7 @@
         "sourceName": "entry.js",
         "dialect": "JS",
         "sourceIntegrity": "sha256-zdoXXOWaVzgDns3Aj7wq5WUqp6LYUVGCHITKDThRclc=",
-        "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+        "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
         "staticEdges": [],
         "exportDescriptors": [],
         "hasTopLevelAwait": true,

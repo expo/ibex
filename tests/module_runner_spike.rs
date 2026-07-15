@@ -68,7 +68,7 @@ fn predeclared_test262_threshold_passes_on_real_hermes() {
         .find(|line| line.starts_with("module-runner test262 spike:"))
         .expect("non-empty test262 real-Hermes summary");
     assert!(
-        summary.contains("19/20") && summary.contains("threshold 18/20 (met)"),
+        summary.contains("20/20") && summary.contains("threshold 18/20 (met)"),
         "unexpected summary: {summary}"
     );
 }

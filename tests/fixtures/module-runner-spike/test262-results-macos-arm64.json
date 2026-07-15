@@ -5,7 +5,7 @@
     "commit": "f2d1435644797268dca1f7988cad5a4e89ccd8d2",
     "license": "BSD-3-Clause"
   },
-  "transformFingerprint": "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1",
+  "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
   "hermes": {
     "binaryName": "hermes",
     "versionOutput": "LLVM (http://llvm.org/):\n  LLVH version 8.0.0svn\n  Optimized build\n\nHermes JavaScript compiler and Virtual Machine.\n  Hermes release version: 1.0.0\n  HBC bytecode version: 99\n\n  Features:\n    Unicode RegExp Property Escapes\n    Zip file input",
@@ -21,7 +21,7 @@
     "percent": 90
   },
   "total": 20,
-  "passed": 19,
+  "passed": 20,
   "thresholdMet": true,
   "expectedDivergences": [],
   "results": [
@@ -158,9 +158,8 @@
       "suite": "top-level-await",
       "upstreamPath": "test/language/module-code/top-level-await/await-expr-regexp.js",
       "expectedDivergence": null,
-      "ok": false,
-      "stage": "producer",
-      "error": "Oxc could not parse transformed entry.js: [OxcDiagnostic { inner: OxcDiagnosticInner { message: \"Expected a semicolon or an implicit semicolon after a statement, but found none\", labels: Some([LabeledSpan { label: None, span: SourceSpan { offset: SourceOffset(80), length: 0 }, primary: false }]), help: Some(\"Try inserting a semicolon here\"), note: None, severity: Error, code: OxcCode { scope: None, number: None }, url: None } }]"
+      "ok": true,
+      "stage": "hermes"
     },
     {
       "id": "top-level-await/new-await-parens",

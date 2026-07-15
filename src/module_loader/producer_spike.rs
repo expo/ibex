@@ -29,7 +29,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 pub const SPIKE_TRANSFORM_FINGERPRINT: &str =
-    "ibex-module-runner-spike/1+oxc-0.121.0+hermes-abi-draft-1";
+    "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -419,9 +419,10 @@ pub fn produce_spike_artifact(
     let parsed = Parser::new(&allocator, &intermediate.code, SourceType::mjs()).parse();
     if !parsed.errors.is_empty() {
         bail!(
-            "Oxc could not parse transformed {}: {:?}",
+            "Oxc could not parse transformed {}: {:?}\ntransformed source:\n{}",
             source_name,
-            parsed.errors
+            parsed.errors,
+            intermediate.code
         );
     }
     let program = parsed.program;
@@ -626,7 +627,14 @@ pub fn produce_spike_artifact(
 
 fn transform_with_oxc(path: &Path, source: &str) -> Result<IntermediateSource> {
     let allocator = Allocator::default();
-    let source_type = SourceType::from_path(path).unwrap_or_else(|_| SourceType::mjs());
+    // The producer contract is an ESM artifact regardless of whether the
+    // resolved pathname ends in `.js`, `.mjs`, `.ts`, or `.tsx`. Leaving a
+    // plain `.js` path in Script goal makes `await /regexp/` lex as identifier
+    // division identifier division identifier before module metadata exists.
+    // @ref LLP 0026#parse-once-never-infer-grammar-with-runtime-regular-expressions
+    let source_type = SourceType::from_path(path)
+        .unwrap_or_else(|_| SourceType::mjs())
+        .with_module(true);
     let parsed = Parser::new(&allocator, source, source_type).parse();
     if !parsed.errors.is_empty() {
         bail!(
@@ -1084,5 +1092,19 @@ mod tests {
             rendered, checked_in,
             "regenerate the test262 spike artifacts"
         );
+    }
+
+    #[test]
+    fn producer_forces_module_goal_for_plain_js_top_level_await_regexp() {
+        let artifact = produce_spike_artifact(
+            "await-regexp",
+            "entry.js",
+            Path::new("test262/top-level-await/await-expr-regexp.js"),
+            "var g = 42;\nawait /x.y/g;\n",
+        )
+        .expect("produce Module-goal artifact");
+
+        assert!(artifact.has_top_level_await);
+        assert!(artifact.factory_source.contains("await /x.y/g"));
     }
 }
