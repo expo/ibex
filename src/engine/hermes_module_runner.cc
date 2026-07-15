@@ -40,6 +40,36 @@ std::string safeSourceLabel(const uint8_t* bytes, size_t length) {
   return label.empty() ? std::string("ibex-module-factory") : label;
 }
 
+class CarrierMemoryBuffer : public facebook::jsi::Buffer {
+ public:
+  CarrierMemoryBuffer(const uint8_t* data, size_t length)
+      : bytes_(data, data + length) {}
+  size_t size() const override { return bytes_.size(); }
+  const uint8_t* data() const override { return bytes_.data(); }
+
+ private:
+  std::vector<uint8_t> bytes_;
+};
+
+class CarrierAlignedBytecodeBuffer : public facebook::jsi::Buffer {
+ public:
+  CarrierAlignedBytecodeBuffer(const uint8_t* data, size_t length)
+      : size_(length), storage_(length + alignof(std::max_align_t)) {
+    const auto address = reinterpret_cast<uintptr_t>(storage_.data());
+    const auto alignment = alignof(std::max_align_t);
+    const auto aligned = (address + alignment - 1) & ~(alignment - 1);
+    data_ = reinterpret_cast<uint8_t*>(aligned);
+    std::memcpy(data_, data, length);
+  }
+  size_t size() const override { return size_; }
+  const uint8_t* data() const override { return data_; }
+
+ private:
+  size_t size_;
+  std::vector<uint8_t> storage_;
+  uint8_t* data_{nullptr};
+};
+
 facebook::jsi::Object compartmentFor(
     facebook::jsi::Runtime& rt, const std::string& identity) {
   auto registryValue = rt.global().getProperty(rt, "__compartments");
@@ -855,6 +885,194 @@ extern "C" int32_t ex_hermes_module_compile_factory(
     }
 #endif
     writeError(out_error, "unknown module factory compilation failure");
+  }
+  return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+}
+
+// Carrier bytes have already passed Rust manifest, digest, producer, graph,
+// principal, and engine admission. Native code evaluates the authenticated
+// per-principal table and selects exactly one original-module factory.
+// @ref LLP 0026#9-production-artifacts-and-bytecode
+extern "C" int32_t ex_hermes_module_load_carrier_factory(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint32_t source_goal,
+    uint32_t principal_id,
+    uint64_t graph_generation,
+    const uint8_t* compartment_identity,
+    size_t compartment_identity_len,
+    const uint8_t* semantic_digest,
+    size_t semantic_digest_len,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    const uint8_t* carrier_bytes,
+    size_t carrier_bytes_len,
+    uint32_t carrier_encoding,
+    const uint8_t* entry_id,
+    size_t entry_id_len,
+    const uint8_t* source_label,
+    size_t source_label_len,
+    ExactModuleRunnerHandle* out_factory,
+    char** out_error) {
+  if (out_error) *out_error = nullptr;
+  if (out_factory) *out_factory = ExactModuleRunnerHandle{{0, 0, 0}};
+
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 1 ||
+      carrier_encoding > 1 || out_factory == nullptr ||
+      semantic_digest == nullptr || source_id == nullptr || source_id_len == 0 ||
+      carrier_bytes == nullptr || carrier_bytes_len == 0 || entry_id == nullptr ||
+      entry_id_len == 0 || source_label == nullptr ||
+      (compartment_identity_len != 0 && compartment_identity == nullptr)) {
+    writeError(out_error, "prepared carrier load received invalid input");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  if (!runtime->module_compartment_binder) {
+    writeError(out_error, "native module compartment binder is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  const std::string digest(
+      reinterpret_cast<const char*>(semantic_digest), semantic_digest_len);
+  if (!validDigest(digest)) {
+    writeError(out_error, "module artifact semantic digest is not canonical");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string compartment(
+      reinterpret_cast<const char*>(compartment_identity),
+      compartment_identity_len);
+  if (principal_id != 0 && compartment.empty()) {
+    writeError(out_error, "non-root module factory requires a compartment identity");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+
+  ScopedRuntimeSecurityContext securityContext(runtime);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
+
+  try {
+    auto& rt = *runtime->runtime;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+    if (runtime->attribution_runtime == nullptr) {
+      throw facebook::jsi::JSError(
+          rt, "prepared carrier attribution VM is unavailable");
+    }
+    ex_hermes_vm_set_pending_package_id(runtime->attribution_runtime, principal_id);
+#else
+    if (principal_id != 0 || !compartment.empty()) {
+      throw facebook::jsi::JSError(
+          rt, "non-root prepared carrier requires the attributed Hermes build");
+    }
+#endif
+
+    std::shared_ptr<facebook::jsi::Buffer> buffer;
+    if (carrier_encoding == 1) {
+      buffer = std::make_shared<CarrierAlignedBytecodeBuffer>(
+          carrier_bytes, carrier_bytes_len);
+      const auto* alignedData = buffer->data();
+#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
+      std::string reason;
+      if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
+              alignedData, carrier_bytes_len, &reason)) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+        ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
+#endif
+        writeError(out_error, "Bytecode sanity check failed: " + reason);
+        return 2;
+      }
+#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
+      std::string reason;
+      auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+          facebook::hermes::makeHermesRootAPI());
+      if (root == nullptr ||
+          !root->hermesBytecodeSanityCheck(
+              alignedData, carrier_bytes_len, &reason)) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+        ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
+#endif
+        writeError(
+            out_error,
+            "Bytecode sanity check failed: " +
+                (root == nullptr ? std::string("Hermes root API unavailable")
+                                 : reason));
+        return 2;
+      }
+#else
+      (void)alignedData;
+#endif
+    } else {
+      buffer = std::make_shared<CarrierMemoryBuffer>(
+          carrier_bytes, carrier_bytes_len);
+    }
+
+    const std::string label = safeSourceLabel(source_label, source_label_len);
+    auto tableValue = rt.evaluateJavaScript(buffer, label);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+    ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
+#endif
+    if (!tableValue.isObject()) {
+      throw facebook::jsi::JSError(
+          rt, "prepared carrier did not evaluate to a factory table");
+    }
+    auto table = tableValue.asObject(rt);
+    const std::string entry(
+        reinterpret_cast<const char*>(entry_id), entry_id_len);
+    auto property = facebook::jsi::PropNameID::forUtf8(rt, entry);
+    if (!table.hasProperty(rt, property)) {
+      throw facebook::jsi::JSError(rt, "prepared carrier entry is absent");
+    }
+    auto factoryValue = table.getProperty(rt, property);
+    if (!factoryValue.isObject() ||
+        !factoryValue.asObject(rt).isFunction(rt)) {
+      throw facebook::jsi::JSError(
+          rt, "prepared carrier entry is not a module factory");
+    }
+    auto factory = factoryValue.asObject(rt).asFunction(rt);
+    if (!compartment.empty()) {
+      auto targetCompartment = compartmentFor(rt, compartment);
+      runtime->module_compartment_binder->call(
+          rt, factory, targetCompartment);
+    }
+
+    const uint64_t id = nextHandleId(runtime);
+    ModuleFactoryEntry stored;
+    stored.graph_generation = graph_generation;
+    stored.source_goal = static_cast<uint8_t>(source_goal);
+    stored.principal_id = principal_id;
+    stored.compartment_identity = compartment;
+    stored.semantic_digest = digest;
+    stored.source_id.assign(
+        reinterpret_cast<const char*>(source_id), source_id_len);
+    stored.factory = std::make_shared<facebook::jsi::Function>(
+        std::move(factory));
+    runtime->module_factories.emplace(id, std::move(stored));
+    out_factory->opaque[0] = runtime_nonce;
+    out_factory->opaque[1] = graph_generation;
+    out_factory->opaque[2] = id;
+    return EXACT_RUNTIME_DRIVE_OK;
+  } catch (const facebook::jsi::JSError& error) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+    if (runtime->attribution_runtime != nullptr) {
+      ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
+    }
+#endif
+    writeError(out_error, error.getMessage());
+  } catch (const std::exception& error) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+    if (runtime->attribution_runtime != nullptr) {
+      ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
+    }
+#endif
+    writeError(out_error, error.what());
+  } catch (...) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+    if (runtime->attribution_runtime != nullptr) {
+      ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
+    }
+#endif
+    writeError(out_error, "unknown prepared carrier load failure");
   }
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }

@@ -597,7 +597,7 @@ fn digest_value(domain: &str, value: &serde_json::Value) -> Result<Digest> {
     digest_bytes(domain, &canonical)
 }
 
-fn semantics_digest(semantics: &ModuleSemanticsV1) -> Result<Digest> {
+pub(crate) fn semantics_digest(semantics: &ModuleSemanticsV1) -> Result<Digest> {
     digest_value(
         MODULE_ARTIFACT_SEMANTIC_DOMAIN_V1,
         &serde_json::to_value(semantics)?,

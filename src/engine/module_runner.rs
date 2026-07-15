@@ -15,7 +15,8 @@ use std::rc::Rc;
 
 use anyhow::{anyhow, bail, Result};
 
-use crate::module_loader::artifact::{SourceGoalV1, VerifiedModuleArtifactV1};
+use crate::module_loader::artifact::{ModulePayloadV1, SourceGoalV1, VerifiedModuleArtifactV1};
+use crate::module_loader::carrier::{PreparedCarrierEncodingV1, VerifiedPreparedCarrierEntryV1};
 #[cfg(any(test, feature = "module-runner"))]
 use crate::module_loader::graph::{AsyncEvaluationPlan, SynchronousGraphPlan};
 use crate::module_loader::identity::SourceId;
@@ -45,6 +46,28 @@ unsafe extern "C" {
         source_id_len: usize,
         factory_source: *const u8,
         factory_source_len: usize,
+        source_label: *const u8,
+        source_label_len: usize,
+        out_factory: *mut NativeModuleHandle,
+        out_error: *mut *mut c_char,
+    ) -> i32;
+    fn ex_hermes_module_load_carrier_factory(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        source_goal: u32,
+        principal_id: u32,
+        graph_generation: u64,
+        compartment_identity: *const u8,
+        compartment_identity_len: usize,
+        semantic_digest: *const u8,
+        semantic_digest_len: usize,
+        source_id: *const u8,
+        source_id_len: usize,
+        carrier_bytes: *const u8,
+        carrier_bytes_len: usize,
+        carrier_encoding: u32,
+        entry_id: *const u8,
+        entry_id_len: usize,
         source_label: *const u8,
         source_label_len: usize,
         out_factory: *mut NativeModuleHandle,
@@ -343,6 +366,98 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
         if status != 0 {
             let detail = take_error(error);
             bail!("native module factory compile refused ({status}): {detail}");
+        }
+        if !error.is_null() {
+            unsafe { ex_hermes_free_string(error) };
+        }
+        Ok(CompiledModuleFactory {
+            runtime: self,
+            handle: Some(handle),
+        })
+    }
+
+    /// Load one factory from an already-admitted, per-principal prepared
+    /// carrier. Both capabilities must agree on the physical carrier entry and
+    /// on the original module semantics before any carrier byte is evaluated.
+    pub fn load_verified_prepared_factory(
+        &'runtime self,
+        verified: VerifiedModuleArtifactV1<'_>,
+        carrier_entry: VerifiedPreparedCarrierEntryV1<'_>,
+        principal_id: u32,
+        compartment_identity: Option<&str>,
+        graph_generation: u64,
+        source_label: &str,
+    ) -> Result<CompiledModuleFactory<'runtime>> {
+        if graph_generation == 0 {
+            bail!("module graph generation must be nonzero");
+        }
+        let artifact = verified.artifact();
+        let (carrier_digest, entry_id, entry_factory_digest) = match &artifact.payload {
+            ModulePayloadV1::Carrier {
+                carrier_digest,
+                entry_id,
+                entry_factory_digest,
+            } => (carrier_digest, entry_id, entry_factory_digest),
+            ModulePayloadV1::Inline { .. } => {
+                bail!("prepared factory loading requires a carrier artifact")
+            }
+        };
+        let manifest = carrier_entry.manifest();
+        let entry = carrier_entry.entry();
+        if carrier_digest != &manifest.carrier_digest
+            || entry_id != &entry.entry_id
+            || entry_factory_digest != &entry.semantics.factory_digest
+            || artifact.semantic_digest != entry.semantic_digest
+            || artifact.semantics != entry.semantics
+        {
+            bail!("prepared carrier entry does not match the admitted module artifact");
+        }
+        let native_goal = match artifact.semantics.source_goal {
+            SourceGoalV1::Module => 0,
+            SourceGoalV1::CommonJs => 1,
+            SourceGoalV1::Json | SourceGoalV1::Builtin => {
+                bail!("prepared factory loading requires an executable source goal")
+            }
+        };
+        let native_encoding = match &manifest.encoding {
+            PreparedCarrierEncodingV1::JavascriptFactoryTable => 0,
+            PreparedCarrierEncodingV1::HermesBytecode { .. } => 1,
+        };
+        let compartment = compartment_identity.unwrap_or("");
+        let digest = artifact.semantic_digest.as_str();
+        let source_id = artifact.semantics.source_id.0.encode()?;
+        let mut handle = NativeModuleHandle::default();
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_module_load_carrier_factory(
+                self.raw.as_ptr(),
+                self.nonce,
+                native_goal,
+                principal_id,
+                graph_generation,
+                compartment.as_ptr(),
+                compartment.len(),
+                digest.as_ptr(),
+                digest.len(),
+                source_id.as_ptr(),
+                source_id.len(),
+                carrier_entry.bytes().as_ptr(),
+                carrier_entry.bytes().len(),
+                native_encoding,
+                entry.entry_id.as_str().as_ptr(),
+                entry.entry_id.as_str().len(),
+                source_label.as_ptr(),
+                source_label.len(),
+                &mut handle,
+                &mut error,
+            )
+        };
+        if status != 0 {
+            let detail = take_error(error);
+            if status == 2 {
+                bail!("prepared Hermes bytecode refused before execution: {detail}");
+            }
+            bail!("native prepared module factory load refused ({status}): {detail}");
         }
         if !error.is_null() {
             unsafe { ex_hermes_free_string(error) };
@@ -1514,6 +1629,9 @@ mod tests {
         SourceDialectV1, SourceGoalV1, SourceMapV1, StaticEdgeV1, TransformFingerprintV1,
         MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
     };
+    use crate::module_loader::carrier::{
+        AdmittedPreparedCarrierV1, PreparedCarrierAdmissionV1, PreparedModuleCarrierV1,
+    };
     use crate::module_loader::identity::ImportAttributes;
     use capsec_semantics::model::{Digest, NonEmptyString, PathComponent, Principal};
 
@@ -1678,6 +1796,48 @@ mod tests {
             .unwrap()
     }
 
+    fn prepared_admission(
+        owner: Principal,
+        manifest: &PreparedModuleCarrierV1,
+    ) -> PreparedCarrierAdmissionV1 {
+        PreparedCarrierAdmissionV1 {
+            expected_principal: owner,
+            expected_producer_id: NonEmptyString::new("prepared-test").unwrap(),
+            producer_binary_digest: digest("prepared-producer"),
+            deployment_graph_digest: digest("prepared-graph"),
+            authorized_semantic_digests: manifest
+                .entries
+                .iter()
+                .map(|entry| entry.semantic_digest.clone())
+                .collect(),
+            expected_engine_binary_digest: None,
+            expected_bytecode_version: None,
+        }
+    }
+
+    fn verify_prepared_artifact<'a>(
+        artifact: &'a ModuleArtifactV1,
+        manifest: &PreparedModuleCarrierV1,
+    ) -> VerifiedModuleArtifactV1<'a> {
+        artifact
+            .verify_for_admission(&ArtifactAdmissionV1::DigestBoundPrepared {
+                expected_source_id: artifact.semantics.source_id.0.clone(),
+                expected_source_integrity: digest("source"),
+                expected_producer_id: NonEmptyString::new("prepared-test").unwrap(),
+                producer_binary_digest: digest("prepared-producer"),
+                deployment_graph_digest: digest("prepared-graph"),
+                expected_carrier_digest: manifest.carrier_digest.clone(),
+                expected_entry_id: NonEmptyString::new("entry").unwrap(),
+                authorized_semantic_digests: [artifact.semantic_digest.clone()].into(),
+                transform_fingerprint_digest: artifact
+                    .semantics
+                    .transform_fingerprint
+                    .digest()
+                    .unwrap(),
+            })
+            .unwrap()
+    }
+
     #[test]
     fn native_handle_has_no_pointer_or_javascript_identity() {
         assert_eq!(std::mem::size_of::<NativeModuleHandle>(), 24);
@@ -1697,6 +1857,125 @@ mod tests {
         let context = GraphEvaluationContext::new(source_id, 4, 3, [9, 3, 9, 4], 7).unwrap();
         assert_eq!(context.constrained_principals, vec![3, 4, 9]);
         assert_eq!(context.graph_generation, 7);
+    }
+
+    #[test]
+    fn prepared_source_and_hbc_carriers_execute_the_same_original_module() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let owner = Principal::Root {
+            identity: NonEmptyString::new("prepared-project").unwrap(),
+        };
+        let source_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("entry.mjs").unwrap()],
+        )
+        .unwrap();
+        let source_artifact = test_artifact(source_id.clone());
+        let (source_manifest, source_bytes) = PreparedModuleCarrierV1::from_inline_artifacts(
+            owner.clone(),
+            NonEmptyString::new("prepared-test").unwrap(),
+            digest("prepared-producer"),
+            digest("prepared-graph"),
+            [(
+                NonEmptyString::new("entry").unwrap(),
+                verify_test_artifact(&source_artifact),
+            )],
+        )
+        .unwrap();
+
+        let hermesc = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tools/hermes")
+            .join(if cfg!(target_os = "windows") {
+                "hermesc.exe"
+            } else if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+                "hermesc-macos-arm64"
+            } else if cfg!(target_os = "macos") {
+                "hermesc-macos-x64"
+            } else if cfg!(target_arch = "aarch64") {
+                "hermesc-linux-arm64"
+            } else {
+                "hermesc-linux-x64"
+            });
+        if !hermesc.is_file() {
+            eprintln!(
+                "skipping prepared HBC equivalence: {} is absent",
+                hermesc.display()
+            );
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let source_path = temp.path().join("carrier.js");
+        let hbc_path = temp.path().join("carrier.hbc");
+        std::fs::write(&source_path, &source_bytes).unwrap();
+        let status = std::process::Command::new(&hermesc)
+            .args(["-O", "-emit-binary", "-out"])
+            .arg(&hbc_path)
+            .arg(&source_path)
+            .status()
+            .unwrap();
+        assert!(
+            status.success(),
+            "matching hermesc must compile the carrier"
+        );
+        let hbc_bytes = std::fs::read(hbc_path).unwrap();
+        let engine_digest = digest("prepared-engine");
+        let hbc_manifest = source_manifest
+            .bind_hermes_bytecode(&hbc_bytes, engine_digest.clone(), 1)
+            .unwrap();
+
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            for (manifest, bytes, is_hbc) in [
+                (&source_manifest, source_bytes.as_slice(), false),
+                (&hbc_manifest, hbc_bytes.as_slice(), true),
+            ] {
+                let mut admission = prepared_admission(owner.clone(), manifest);
+                if is_hbc {
+                    admission.expected_engine_binary_digest = Some(engine_digest.clone());
+                    admission.expected_bytecode_version = Some(1);
+                }
+                let carrier = AdmittedPreparedCarrierV1::decode_and_admit(
+                    &manifest.encode_canonical().unwrap(),
+                    bytes,
+                    &admission,
+                )
+                .unwrap();
+                let prepared_artifact = manifest.prepared_artifact("entry").unwrap();
+                let verified = verify_prepared_artifact(&prepared_artifact, manifest);
+                let context = runtime
+                    .create_graph_context(
+                        GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], 1).unwrap(),
+                    )
+                    .unwrap();
+                let factory = runtime
+                    .load_verified_prepared_factory(
+                        verified,
+                        carrier.entry("entry").unwrap(),
+                        0,
+                        None,
+                        1,
+                        if is_hbc { "carrier.hbc" } else { "carrier.js" },
+                    )
+                    .unwrap();
+                let mut record = factory.create_record(&context, &source_id).unwrap();
+                record.declare_export("value").unwrap();
+                record
+                    .instantiate("file:prepared-project/entry.mjs", true)
+                    .unwrap();
+                record.run_declare().unwrap();
+                assert_eq!(
+                    record.run_execute().unwrap(),
+                    ModuleExecutionKind::Synchronous
+                );
+                assert_eq!(record.namespace_json().unwrap(), r#"{"value":42}"#);
+            }
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
     }
 
     #[test]

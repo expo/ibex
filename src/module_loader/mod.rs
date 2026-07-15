@@ -5,6 +5,7 @@
 //! incrementally (see TODOs).
 
 pub mod artifact;
+pub mod carrier;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod commonjs;
 #[cfg(any(test, feature = "module-runner"))]
