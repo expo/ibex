@@ -27,6 +27,22 @@ extern "C" {
 /// Opaque handle to an Exact Hermes runtime
 typedef struct ExactHermesRuntime ExactHermesRuntime;
 
+/// Generation-bearing native module-runner capability. The words are an
+/// opaque ABI payload; callers must not inspect or synthesize them. Every
+/// operation validates all three against the runtime registry before JSI.
+typedef struct ExactModuleRunnerHandle {
+    uint64_t opaque[3];
+} ExactModuleRunnerHandle;
+
+typedef enum ExactRuntimeDriveStatus {
+    EXACT_RUNTIME_DRIVE_OK = 0,
+    EXACT_RUNTIME_DRIVE_INVALID = -1,
+    EXACT_RUNTIME_DRIVE_STALE = -2,
+    EXACT_RUNTIME_DRIVE_OFF_OWNER = -3,
+    EXACT_RUNTIME_DRIVE_REENTRANT = -4,
+    EXACT_RUNTIME_DRIVE_ENGINE_ERROR = -5,
+} ExactRuntimeDriveStatus;
+
 /// Exact embedder execution contexts. App and agent runtimes receive separate
 /// operation endowment sets through `ex_hermes_set_exact_host_call_async`.
 /// UI worklets are created through `ex_worklet_create` and deliberately cannot
@@ -80,6 +96,75 @@ uint64_t ex_hermes_current_runtime_nonce(void);
 uint64_t ex_hermes_current_principal_id(void);
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);
+
+/// Generation-bearing destruction with a stable refusal status. The legacy
+/// void destroy symbol delegates here with the currently registered nonce.
+int32_t ex_hermes_try_destroy(ExactHermesRuntime* runtime,
+                              uint64_t runtime_nonce);
+
+// =============================================================================
+// Native module-runner ABI
+// =============================================================================
+
+/// Compile a verified UTF-8 module factory under a native-selected principal
+/// and compartment. This symbol is never installed on the JavaScript global.
+/// The caller must pass the live runtime nonce and an artifact semantic digest
+/// already admitted by the Rust ModuleArtifact verifier.
+int32_t ex_hermes_module_compile_factory(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint32_t principal_id,
+    uint64_t graph_generation,
+    const uint8_t* compartment_identity,
+    size_t compartment_identity_len,
+    const uint8_t* semantic_digest,
+    size_t semantic_digest_len,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    const uint8_t* factory_source,
+    size_t factory_source_len,
+    const uint8_t* source_label,
+    size_t source_label_len,
+    ExactModuleRunnerHandle* out_factory,
+    char** out_error);
+
+/// Release one factory/record/context capability. Stale, wrong-runtime, and
+/// already-released handles fail closed without dereferencing their payload.
+int32_t ex_hermes_module_release_handle(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle handle);
+
+/// Mint an immutable graph-context token. Principal vectors must be strictly
+/// increasing and duplicate-free; the token remains runtime/generation scoped.
+int32_t ex_hermes_graph_context_create(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation,
+    const uint8_t* requesting_source_id,
+    size_t requesting_source_id_len,
+    uint32_t effect_owner,
+    uint32_t schedule_owner,
+    const uint32_t* constrained_principals,
+    size_t constrained_principals_len,
+    ExactModuleRunnerHandle* out_context);
+
+/// Retain one immutable context token for an asynchronous carrier.
+int32_t ex_hermes_graph_context_retain(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle context);
+
+/// Create an opaque native ModuleRecord handle from an authenticated factory
+/// and graph context without exposing either JSI object to JavaScript.
+int32_t ex_hermes_module_create_record(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle factory,
+    ExactModuleRunnerHandle context,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    ExactModuleRunnerHandle* out_record);
 
 // =============================================================================
 // Evaluation

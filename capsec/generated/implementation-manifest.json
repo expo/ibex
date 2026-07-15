@@ -115567,6 +115567,74 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6",
+      "observedKey": "host-abi:ex_hermes_graph_context_create",
+      "branchId": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_graph_context_create"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_create"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_create"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_graph_context_create"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_create"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default.non-capability",
+        "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.graph.context.retain.1norhoj",
+      "observedKey": "host-abi:ex_hermes_graph_context_retain",
+      "branchId": "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_graph_context_retain"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_retain"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_retain"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_graph_context_retain"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_retain"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default.non-capability",
+        "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
       "observedKey": "host-abi:ex_hermes_has_pending_tasks",
       "branchId": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c.default",
@@ -115600,6 +115668,106 @@
         "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c.default.non-capability",
         "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c.default.principal-restore",
         "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c.default.snapshot-mismatch-deny"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
+      "observedKey": "host-abi:ex_hermes_module_compile_factory",
+      "branchId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_compile_factory"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_compile_factory"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default.non-capability",
+        "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
+      "observedKey": "host-abi:ex_hermes_module_create_record",
+      "branchId": "surface.host.abi.ex.hermes.module.create.record.0hokcts.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.create.record.0hokcts.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_create_record"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_create_record"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.create.record.0hokcts.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.create.record.0hokcts.default.non-capability",
+        "surface.host.abi.ex.hermes.module.create.record.0hokcts.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8",
+      "observedKey": "host-abi:ex_hermes_module_release_handle",
+      "branchId": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_release_handle"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_release_handle"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_release_handle"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_release_handle"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_release_handle"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.release.handle.1cr80y8.default.non-capability"
       ]
     },
     {
@@ -116263,6 +116431,38 @@
         "surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.ios.non-capability",
         "surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.ios.principal-restore",
         "surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.ios.snapshot-mismatch-deny"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.try.destroy.0zf7qwp",
+      "observedKey": "host-abi:ex_hermes_try_destroy",
+      "branchId": "surface.host.abi.ex.hermes.try.destroy.0zf7qwp.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.try.destroy.0zf7qwp.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_try_destroy"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_try_destroy"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_try_destroy"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_try_destroy"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_try_destroy"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.try.destroy.0zf7qwp.default.non-capability"
       ]
     },
     {
@@ -147705,10 +147905,12 @@
           "native-op:__compartments"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#__compartments",
           "src/engine/hermes_runtime.cc#__compartments",
           "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__compartments"
         ],
         "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#__compartments",
           "src/engine/hermes_runtime.cc#__compartments",
           "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__compartments"
         ],
@@ -147720,6 +147922,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#__compartments",
         "src/engine/hermes_runtime.cc#__compartments",
         "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__compartments"
       ],
@@ -265088,44 +265291,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-4WFpmUKWj2fyvmBpBmYavoemjVGC1DBP9BV57RVDheY"
+      "rawContentDigest": "sha256-pDSWeFO3fNC-focvKPwe2OqYoMY9N2eGgtUSKsixFWc"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-JAOYzK5GpnuNW4LkPm2P2ws6VYSlv37FFVqO7B-CrTc"
+      "rawContentDigest": "sha256-z1NhggaRsQ66Q4FvCQ52HHDFERSQCDuX2iwxEUaFdqI"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-Ti1yMUoCC5bOTPgs5tWe9fi-mqxOMuUaoQw3dMwSzoA"
+      "rawContentDigest": "sha256-PJ2sPOr8UNOSMzuwxWnAchfHYMy9sGwrrphaoNv4KAs"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-J76jtEg7hSkBqtwEoMWHMzu79Bl7QOxTINNmWGMsMLg"
+      "rawContentDigest": "sha256-dOBvLVrRZ6MKdpnns2zVI31C4qq6-QvRsVb0hhNlr-g"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-_8skdMHuvsYjkXwX0LrlQz1lIWQYjZT2DtjUwJPLbpQ"
+      "rawContentDigest": "sha256-SLZeS5Wx6gYHLOxtBuLpTLz_4bnoF66h14kxFWcBtLw"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-UyicDw4_wxRF0dqj0eeHXla3K8tWqnObvLXxcuerMgQ"
+      "rawContentDigest": "sha256-hVUwzmFzkzK9g2GNprDEZMVJ3LQr4QET-f5Foq8NojY"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-9_3zo4c047u8ZXeMsIGkWhnE5Y0Jb_krfNUPjbGxYaQ"
+      "rawContentDigest": "sha256-2IaM4h9twbNdGjMCsKCIXdjIxXsHddS2MePd6Zg6QpE"
     }
   ],
   "counts": {
-    "observedReferences": 12796,
-    "logicalSurfaces": 7118,
-    "enforcementBranches": 7317,
-    "coverageEdges": 7118,
-    "targetCells": 7118
+    "observedReferences": 12803,
+    "logicalSurfaces": 7124,
+    "enforcementBranches": 7323,
+    "coverageEdges": 7124,
+    "targetCells": 7124
   }
 }

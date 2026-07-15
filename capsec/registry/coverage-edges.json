@@ -140210,6 +140210,26 @@
       "rationale": "Runtime heap and GC inspection is closed."
     },
     {
+      "id": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_graph_context_create"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.graph.context.retain.1norhoj",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_graph_context_retain"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
       "classification": "non-capability",
       "surface": {
@@ -140218,6 +140238,36 @@
       },
       "rationaleId": "callback-attribution-carrier",
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_compile_factory"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_create_record"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_release_handle"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.host.abi.ex.hermes.next.timer.0ae38c4",
@@ -140408,6 +140458,16 @@
       },
       "rationaleId": "callback-attribution-carrier",
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.try.destroy.0zf7qwp",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_try_destroy"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.host.abi.ex.host.armed.endowments.19wlvvz",

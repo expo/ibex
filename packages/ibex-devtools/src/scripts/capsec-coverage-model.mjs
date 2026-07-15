@@ -5126,7 +5126,12 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_gc",
     "ex_hermes_get_gc_stats",
     "ex_hermes_get_heap_info",
+    "ex_hermes_graph_context_create",
+    "ex_hermes_graph_context_retain",
     "ex_hermes_has_pending_tasks",
+    "ex_hermes_module_compile_factory",
+    "ex_hermes_module_create_record",
+    "ex_hermes_module_release_handle",
     "ex_hermes_next_timer",
     "ex_hermes_notify_callback",
     "ex_hermes_now_ms",
@@ -5146,6 +5151,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_kernel_handle",
     "ex_hermes_set_module_dispatch_callback",
     "ex_hermes_set_module_sync_callback",
+    "ex_hermes_try_destroy",
     "ex_host_armed_endowments",
     "ex_host_authorize_exact_endowment",
     "ex_host_authorize_typed_environment_read_stack",
@@ -12105,6 +12111,24 @@ function classifyConcreteSurface(surface) {
   }
   if (surface.kind === "host-abi") {
     if (!REVIEWED_HOST_ABI_NAMES.has(surface.name)) return null;
+    if (
+      new Set([
+        "ex_hermes_graph_context_create",
+        "ex_hermes_graph_context_retain",
+        "ex_hermes_module_compile_factory",
+        "ex_hermes_module_create_record",
+      ]).has(surface.name)
+    ) {
+      return nonCapabilitySpec("authority-control-plane", "WP8");
+    }
+    if (
+      new Set([
+        "ex_hermes_module_release_handle",
+        "ex_hermes_try_destroy",
+      ]).has(surface.name)
+    ) {
+      return nonCapabilitySpec("authority-release", "WP8");
+    }
     if (surface.name === "ex_hermes_current_runtime_nonce") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }

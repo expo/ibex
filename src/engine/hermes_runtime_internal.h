@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../include/exact_runtime.h"
+
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -95,6 +97,31 @@ struct ExactHostCallAsyncEntry {
 
 struct ExactHermesRuntime;
 
+struct ModuleFactoryEntry {
+  uint64_t graph_generation{0};
+  uint32_t principal_id{0};
+  std::string compartment_identity;
+  std::string semantic_digest;
+  std::string source_id;
+  std::shared_ptr<facebook::jsi::Function> factory;
+};
+
+struct GraphContextEntry {
+  uint64_t graph_generation{0};
+  std::string requesting_source_id;
+  uint32_t effect_owner{0};
+  uint32_t schedule_owner{0};
+  std::vector<uint32_t> constrained_principals;
+  uint32_t references{1};
+};
+
+struct NativeModuleRecordEntry {
+  uint64_t graph_generation{0};
+  std::string source_id;
+  uint64_t context_handle_id{0};
+  std::shared_ptr<facebook::jsi::Function> factory;
+};
+
 // A runtime address is not an identity: allocators routinely reuse the same
 // address after destroy/recreate. Every asynchronous producer therefore
 // carries the creation nonce it observed while the handle was live, and the
@@ -149,6 +176,15 @@ struct ExactHermesRuntime {
   std::unordered_map<uint32_t, std::string> script_id_to_name;
   std::unordered_map<std::string, std::string> sources_by_name;
   std::thread::id runtime_thread;
+  // Private evaluator capabilities captured before lockdown deletes/tames the
+  // corresponding globals. They are reachable only through the native module
+  // ABI and are released on the runtime owner thread during teardown.
+  std::shared_ptr<facebook::jsi::Function> module_function_constructor;
+  std::shared_ptr<facebook::jsi::Function> module_compartment_binder;
+  uint64_t next_module_handle_id{1};
+  std::unordered_map<uint64_t, ModuleFactoryEntry> module_factories;
+  std::unordered_map<uint64_t, GraphContextEntry> graph_contexts;
+  std::unordered_map<uint64_t, NativeModuleRecordEntry> module_records;
   uint64_t next_timer_id{1};
   std::unordered_map<uint64_t, TimerEntry> timers;
   std::deque<NextTickEntry> next_tick;
@@ -263,6 +299,25 @@ struct ExactHermesRuntime {
                                    size_t payload_len,
                                    void* context) = nullptr;
   void* exact_host_call_async_context = nullptr;
+};
+
+/// Common owner-thread, liveness, generation, and non-reentrancy gate for
+/// every entry point that drives JSI or module-runner state.
+/// @ref LLP 0002#runtime-driving-thread-contract
+class ExactRuntimeDriveGuard {
+ public:
+  ExactRuntimeDriveGuard(ExactHermesRuntime* runtime, uint64_t expectedNonce = 0);
+  ~ExactRuntimeDriveGuard();
+  ExactRuntimeDriveGuard(const ExactRuntimeDriveGuard&) = delete;
+  ExactRuntimeDriveGuard& operator=(const ExactRuntimeDriveGuard&) = delete;
+
+  int32_t status() const { return status_; }
+  explicit operator bool() const { return status_ == EXACT_RUNTIME_DRIVE_OK; }
+
+ private:
+  ExactHermesRuntime* runtime_{nullptr};
+  uint64_t nonce_{0};
+  int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
 
 struct NativeWebSocketCallbackContext {

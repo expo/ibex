@@ -5,8 +5,8 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points)
-**Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
 ## Summary
@@ -73,6 +73,50 @@ debugger surface (`include/exact_runtime.h:216-249`), and GC/heap introspection
 (`include/exact_runtime.h:256-264`).
 These are part of the embedding API but are convenience/optional layers, not the
 minimal contract `[inferred]`.
+
+### Runtime-driving thread contract
+
+Every entry point that drives one Hermes runtime — including creation,
+`ex_hermes_eval`, event-loop polling and callback delivery, module-runner
+ingresses, and destruction — is owner-thread-only and serialized per runtime.
+An off-owner or concurrent drive refuses with a stable error before touching
+JSI, graph state, or event-loop state. Same-thread nesting into a *different*
+runtime remains permitted and restores the outer runtime's attribution context
+on unwind; recursive or overlapping drive of the same runtime is not.
+
+This is the normative contract adopted with LLP 0026. ENG-25060 applies one
+registry-backed refusal guard to eval, poll, module-runner operations, and
+generation-bearing destruction. It checks liveness and nonce without first
+dereferencing the caller's pointer, then owner thread and same-runtime active
+drive. Same-thread nested different-runtime entry remains valid because active
+drive state is per registry generation. The remaining public JSI-mutating
+setter inventory must either use this gate or retain an equivalent explicit
+owner check; the generated ABI inventory prevents an unreviewed new route.
+
+### Native module-runner ABI
+
+The provisional `ex_hermes_module_*` and `ex_hermes_graph_context_*` family is
+native-only: no symbol is installed on the JavaScript global. Its fixed
+`ExactModuleRunnerHandle` payload is an opaque `(runtime nonce, graph
+generation, registry id)` capability. Every use checks all three before JSI;
+release, wrong-runtime use, destroy/recreate, and address reuse therefore fail
+without dereferencing stale payload state.
+
+Rust's safe compiler entry accepts only `VerifiedModuleArtifactV1`, then passes
+the admitted semantic digest and factory bytes to the C ABI. Principal,
+compartment, generation, and `GraphEvaluationContext` come from native graph
+state rather than artifact JavaScript. The engine captures the real Function
+constructor and Domain binder before lockdown, never republishes them, and
+compiles package bytes through a trampoline whose authenticated Domain is bound
+before invocation. Hermes consequently propagates both principal and
+compartment to the package factory before compiling it. Opaque factory,
+context, and ModuleRecord handles own all JSI values and are destroyed on the
+runtime owner thread.
+
+This family is a provisional extension, not an addition to LLP 0000's five-
+function semver-major minimum. `ex_hermes_try_destroy(runtime, nonce)` is the
+generation-bearing, status-returning lifecycle companion; the legacy void
+destroy symbol delegates to it and reports owner/reentrancy refusal.
 
 ### Restricted-worklet SharedValue access
 
@@ -238,34 +282,8 @@ target may advertise. The
 existence of this ABI by itself is not target-conformance evidence and does not
 relax the unsupported-target refusal.
 
-`ex_host_prepare_exact_armed_embedder_artifacts` is the target-local binding
-step. It accepts an already-authenticated generic Ibex template pair plus the
-raw Exact operation-manifest bytes, validates the manifest's schema, operation
-ordering and uniqueness, exhaustive one-context projection, four exact agent
-control operations, nonempty app set, and empty UI-worklet set, then
-materializes those exact bytes as an immutable content-addressed fifth
-artifact. It derives every endowment from those bytes, freshens the nonce and
-paired digest, and re-authenticates the result. This step runs after app
-installation: filesystem object identities for the mapped engine and protected
-files cannot truthfully be minted on a different packaging machine. It still
-cannot advertise or install an unsupported target.
-
-`ex_host_build_exact_armed_embedder_artifacts` is the normal installed-app
-producer. It accepts only the installed project-root path and the same raw
-manifest bytes, loads the actual mapped engine identity and checked CapSec
-identities, authors Exact's canonical empty package policy/graph, binds the
-installed project and cache roots, materializes policy, graph, registry, and
-manifest as immutable content-addressed artifacts, includes the engine as the
-fifth protected object, and returns a construction-fresh authenticated pair.
-The producer deliberately does not accept caller-authored identity or package
-facts. Exact's current application is a single bundled root; a future
-package-bearing application must pass Ibex's canonical generated policy through
-a separately specified input rather than being flattened by this API.
-
-These five new symbols (`ex_hermes_set_exact_host_call_async`, its resolver,
-`ex_host_prepare_armed_embedder_artifacts`, and
-`ex_host_prepare_exact_armed_embedder_artifacts`, plus
-`ex_host_build_exact_armed_embedder_artifacts`) are a public, provisional
+These three new symbols (`ex_hermes_set_exact_host_call_async`, its resolver,
+and `ex_host_prepare_armed_embedder_artifacts`) are a public, provisional
 extension for the pinned Exact consumer, not an expansion of LLP 0000's five-
 function semver-major minimum. Until this Draft spec is accepted, a breaking
 change requires an atomic Ibex commit plus Exact submodule/consumer update; it

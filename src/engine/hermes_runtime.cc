@@ -823,6 +823,7 @@ void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 void cancelAllFetchCallbacks(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms);
+static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms);
 extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
 extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime);
@@ -837,6 +838,8 @@ enum class RuntimeLifecycleState : uint8_t {
 struct RuntimeRegistryEntry {
   uint64_t nonce;
   RuntimeLifecycleState state;
+  std::thread::id owner;
+  bool drive_active;
 };
 
 std::unordered_map<ExactHermesRuntime*, RuntimeRegistryEntry> g_activeRuntimes;
@@ -912,7 +915,42 @@ void registerRuntime(ExactHermesRuntime* runtime) {
   if (!runtime || runtime->runtime_nonce == 0) return;
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
   g_activeRuntimes[runtime] =
-      RuntimeRegistryEntry{runtime->runtime_nonce, RuntimeLifecycleState::Running};
+      RuntimeRegistryEntry{runtime->runtime_nonce, RuntimeLifecycleState::Running,
+                           runtime->runtime_thread, false};
+}
+
+ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
+    ExactHermesRuntime* runtime, uint64_t expectedNonce)
+    : runtime_(runtime) {
+  if (runtime == nullptr) return;
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  auto it = g_activeRuntimes.find(runtime);
+  if (it == g_activeRuntimes.end() ||
+      it->second.state != RuntimeLifecycleState::Running ||
+      (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
+    status_ = EXACT_RUNTIME_DRIVE_STALE;
+    return;
+  }
+  if (it->second.owner != std::this_thread::get_id()) {
+    status_ = EXACT_RUNTIME_DRIVE_OFF_OWNER;
+    return;
+  }
+  if (it->second.drive_active) {
+    status_ = EXACT_RUNTIME_DRIVE_REENTRANT;
+    return;
+  }
+  it->second.drive_active = true;
+  nonce_ = it->second.nonce;
+  status_ = EXACT_RUNTIME_DRIVE_OK;
+}
+
+ExactRuntimeDriveGuard::~ExactRuntimeDriveGuard() {
+  if (status_ != EXACT_RUNTIME_DRIVE_OK || runtime_ == nullptr) return;
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  auto it = g_activeRuntimes.find(runtime_);
+  if (it != g_activeRuntimes.end() && it->second.nonce == nonce_) {
+    it->second.drive_active = false;
+  }
 }
 
 void unregisterRuntime(ExactHermesRuntime* runtime) {
@@ -979,14 +1017,29 @@ void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target) {
   }
 }
 
-static bool beginRuntimeTeardown(RuntimeCallbackTarget target) {
+static int32_t beginRuntimeTeardown(
+    ExactHermesRuntime* runtime,
+    uint64_t expectedNonce,
+    RuntimeCallbackTarget* outTarget) {
+  if (runtime == nullptr || outTarget == nullptr) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-  auto it = g_activeRuntimes.find(target.runtime);
-  if (it == g_activeRuntimes.end() || it->second.nonce != target.nonce) {
-    return false;
+  auto it = g_activeRuntimes.find(runtime);
+  if (it == g_activeRuntimes.end() ||
+      it->second.state != RuntimeLifecycleState::Running ||
+      (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  if (it->second.owner != std::this_thread::get_id()) {
+    return EXACT_RUNTIME_DRIVE_OFF_OWNER;
+  }
+  if (it->second.drive_active) {
+    return EXACT_RUNTIME_DRIVE_REENTRANT;
   }
   it->second.state = RuntimeLifecycleState::Closing;
-  return true;
+  *outTarget = RuntimeCallbackTarget{runtime, it->second.nonce};
+  return EXACT_RUNTIME_DRIVE_OK;
 }
 
 static void drainRuntimeFinalizers(ExactHermesRuntime* runtime) {
@@ -3114,6 +3167,30 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   }
 
+  // Capture the two evaluator capabilities the native runner needs before the
+  // hardening seal deletes the Domain binder and lockdown tames Function.
+  // Neither reference is published back to JavaScript. Package code therefore
+  // cannot select a principal, compartment, or source to compile.
+  // @ref LLP 0026#4-native-graph-owner-and-hermes-runner
+  {
+    auto constructor = rt.global().getProperty(rt, "Function");
+    auto binder = rt.global().getProperty(rt, "__exactSetCompartmentFor");
+    if (!constructor.isObject() || !constructor.asObject(rt).isFunction(rt) ||
+        !binder.isObject() || !binder.asObject(rt).isFunction(rt)) {
+      if (handle->armed) {
+        throw std::runtime_error(
+            "native module runner evaluator capabilities are unavailable");
+      }
+    } else {
+      handle->module_function_constructor =
+          std::make_shared<facebook::jsi::Function>(
+              constructor.asObject(rt).asFunction(rt));
+      handle->module_compartment_binder =
+          std::make_shared<facebook::jsi::Function>(
+              binder.asObject(rt).asFunction(rt));
+    }
+  }
+
   // @ref LLP 0013#phase-0 — end-of-bootstrap capability hardening seal. The
   // module-attribution setter (`__exactSetActiveModuleId`) and the self-grant
   // function (`__exactGrantCapability`) are ambient-authority escape hatches:
@@ -3860,23 +3937,23 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
 }
 
 extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
-  if (runtime == nullptr) {
-    return;
+  auto status = ex_hermes_try_destroy(runtime, 0);
+  if (status == EXACT_RUNTIME_DRIVE_OFF_OWNER) {
+    ex_host_console_log(1, "ex_hermes_destroy refused off the runtime owner thread");
+  } else if (status == EXACT_RUNTIME_DRIVE_REENTRANT) {
+    ex_host_console_log(1, "ex_hermes_destroy refused during an active runtime drive");
   }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    // Every field holding a JSI value must be destroyed on its owning thread.
-    // Silently continuing here is Hermes value-table corruption, not a
-    // recoverable embedding error.
-    ex_host_console_log(1, "ex_hermes_destroy must run on the runtime owner thread");
-    std::terminate();
+}
+
+extern "C" int32_t ex_hermes_try_destroy(
+    ExactHermesRuntime* runtime, uint64_t runtime_nonce) {
+  RuntimeCallbackTarget target;
+  auto status = beginRuntimeTeardown(runtime, runtime_nonce, &target);
+  if (status != EXACT_RUNTIME_DRIVE_OK) {
+    return status;
   }
   uint64_t hostContext = runtime->host_context_id;
-  auto target = exactRuntimeCallbackTarget(runtime);
   ScopedRuntimeSecurityContext securityContext(runtime);
-
-  if (!beginRuntimeTeardown(target)) {
-    return;
-  }
 
   // Stop/cancel callback sources while the exact generation remains
   // registered in Closing. Already-admitted JSI-bearing producers retain a
@@ -3911,6 +3988,7 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   // destroyed on this thread before Hermes itself.
   delete runtime;
   ex_host_release_context(hostContext);
+  return EXACT_RUNTIME_DRIVE_OK;
 }
 
 extern "C" int ex_hermes_eval(
@@ -3937,6 +4015,12 @@ extern "C" int ex_hermes_eval(
 
   if (out_value) {
     *out_value = nullptr;
+  }
+
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    writeOutError("Hermes eval refused by the runtime drive gate");
+    return drive.status();
   }
 
   if (!runtime || !data || len == 0) {
@@ -4118,7 +4202,7 @@ extern "C" int ex_hermes_eval(
             break;
           }
 
-          int executed = ex_hermes_poll(runtime, nowMs());
+          int executed = pollRuntime(runtime, nowMs());
           if (executed < 0) {
             if (!writeOutString("Hermes task execution failed while awaiting Promise result")) {
               return 1;
@@ -4938,11 +5022,7 @@ static int pollTypedAuthorityGenerations(ExactHermesRuntime* runtime) {
   return 0;
 }
 
-extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
-  if (!runtime) {
-    return 0;
-  }
-
+static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms) {
   ScopedRuntimeSecurityContext securityContext(runtime);
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
@@ -5126,6 +5206,12 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   }
 
   return executed;
+}
+
+extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return drive.status();
+  return pollRuntime(runtime, now_ms);
 }
 
 extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime) {
