@@ -787,11 +787,18 @@ extern "C" int32_t ex_hermes_module_compile_factory(
         "\"use strict\";return function(__ibexCtor,__ibexSource,__ibexLabel){"
         "return __ibexCtor(\"\\\"use strict\\\";return (\"+__ibexSource+"
         "\");\\n//# sourceURL=\"+__ibexLabel)();};";
-    auto trampolineValue = runtime->module_function_constructor->call(
+    auto trampolineConstructorValue = runtime->module_function_constructor->call(
         rt, facebook::jsi::String::createFromUtf8(rt, kTrampolineBody));
+    if (!trampolineConstructorValue.isObject() ||
+        !trampolineConstructorValue.asObject(rt).isFunction(rt)) {
+      throw facebook::jsi::JSError(
+          rt, "module compiler did not return a trampoline constructor");
+    }
+    auto trampolineValue =
+        trampolineConstructorValue.asObject(rt).asFunction(rt).call(rt);
     if (!trampolineValue.isObject() ||
         !trampolineValue.asObject(rt).isFunction(rt)) {
-      throw facebook::jsi::JSError(rt, "module compiler did not return a trampoline");
+      throw facebook::jsi::JSError(rt, "module compiler did not create a trampoline");
     }
     auto trampoline = trampolineValue.asObject(rt).asFunction(rt);
     if (bindCompartment) {
