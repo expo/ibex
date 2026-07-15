@@ -1636,12 +1636,13 @@ two different concepts (§2's table now separates them).
 What this document states is the **requirement** identity must satisfy, and the session's
 use of it:
 
-- **One file is one module instance**, whichever principal reached it and however it was
-  spelled: root's `import "foo/util.js"` and package `foo`'s own `require("./util")` share
-  the instance, so module-level state and `instanceof` survive the root/package boundary —
-  while the two callers' *authorization* decisions are still taken against their own
-  bindings. LLP 0023 §2.3 delivers this by keying on the **defining** principal, which is
-  caller-independent.
+- **One equal `SourceId` is one module instance**, whichever principal reached it:
+  root's `import "foo/util.js"` and package `foo`'s own `require("./util")` share the
+  instance when those requests resolve to the same defining-principal-relative source.
+  Case/normalization aliases that LLP 0023 deliberately gives distinct `SourceId`s stay
+  distinct instances. The two callers' *authorization* decisions are still taken against
+  their own bindings; LLP 0023 §2.3 delivers caller-independent cache identity by keying
+  on the **defining** principal inside `SourceId`.
 - Identity must **not collapse compartments** when one inode is reachable from two package
   roots, or a filesystem coincidence would decide a package's execution compartment
   (LLP 0013).
@@ -2259,10 +2260,10 @@ say which is testing nothing.
    *dependency visibility* — retiring deviation (d) and most of §7.1's syntax-directed
    table — at the cost of a larger patch. It should be costed against the three slices
    of the §8 patch program, since it is the same VM surface.
-10. What canonical source URL identifies a module reached through two aliased spellings
-    that LLP 0023 §2.3 unifies to one identity? Source maps and stack frames key on the
-    source label, so import order must not decide it (LLP 0023 leaves the canonical
-    display spelling open).
+10. *(Resolved by LLP 0023 §2.3.)* `SourceLabel` is the volume-canonical virtual
+    spelling of the retained object's canonical physical location: symlinks use the
+    target spelling, while distinct hard-link entries use their own entry spellings.
+    Import order never selects the source-map or stack-frame label.
 11. Is a **background lifecycle request** — a root-attributed `process.exit(n)` from a timer
     when no evaluation is in flight — a new control-event variant, or a unit-generic
     extension of the evaluation-outcome union? The `lifecycle` outcome (§6) is input-scoped;

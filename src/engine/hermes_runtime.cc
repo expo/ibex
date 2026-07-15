@@ -390,6 +390,7 @@ extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint
 extern "C" int64_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 extern "C" char* ex_host_module_resolve(uint64_t requester_module_id,
+                                         uint32_t resolution_kind,
                                          const char* specifier,
                                          const char* referrer);
 extern "C" char* ex_host_resolve_manifest_builtin_internal(
@@ -397,6 +398,7 @@ extern "C" char* ex_host_resolve_manifest_builtin_internal(
 // Metadata-only resolve for require.resolve: resolved path + package fields, no
 // module body read/transpile. (ENG-23007)
 extern "C" char* ex_host_module_resolve_meta(uint64_t requester_module_id,
+                                              uint32_t resolution_kind,
                                               const char* specifier,
                                               const char* referrer);
 extern "C" void ex_host_free_string(char* value);
@@ -2622,7 +2624,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto resolveModuleFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactModuleResolve"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -2635,8 +2637,15 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isString()) {
           referrer = args[1].toString(runtime).utf8(runtime);
         }
+        uint32_t resolutionKind = 0;
+        if (count > 2 && args[2].isNumber()) {
+          auto value = args[2].asNumber();
+          if (value >= 0 && value <= 3) {
+            resolutionKind = static_cast<uint32_t>(value);
+          }
+        }
         char* json = ex_host_module_resolve(
-            currentPrincipalId(), spec.c_str(),
+            currentPrincipalId(), resolutionKind, spec.c_str(),
             referrer.empty() ? nullptr : referrer.c_str());
         if (!json) {
           return facebook::jsi::Value::null();
@@ -2697,7 +2706,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto resolveModuleMetaFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactModuleResolveMeta"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -2710,8 +2719,15 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isString()) {
           referrer = args[1].toString(runtime).utf8(runtime);
         }
+        uint32_t resolutionKind = 0;
+        if (count > 2 && args[2].isNumber()) {
+          auto value = args[2].asNumber();
+          if (value >= 0 && value <= 3) {
+            resolutionKind = static_cast<uint32_t>(value);
+          }
+        }
         char* json = ex_host_module_resolve_meta(
-            currentPrincipalId(), spec.c_str(),
+            currentPrincipalId(), resolutionKind, spec.c_str(),
             referrer.empty() ? nullptr : referrer.c_str());
         if (!json) {
           return facebook::jsi::Value::null();

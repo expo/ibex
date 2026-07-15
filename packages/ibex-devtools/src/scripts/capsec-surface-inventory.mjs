@@ -12041,6 +12041,7 @@ export function scanJavaScriptLoaderRoutes(
     ["loadInternal", "entry:load-internal"],
     ["localRequire", "entry:local-require"],
     ["moduleDynamicImport", "entry:module-dynamic-import"],
+    ["moduleStaticImport", "entry:module-static-import"],
   ]);
   for (const [definition, route] of definitionRoutes) {
     if (!definitions.has(definition)) {

@@ -150932,6 +150932,464 @@
             }
           },
           {
+            "id": "surface.loader.entry.module.static.import.1kce2vv",
+            "classification": "effects",
+            "surface": {
+              "kind": "loader",
+              "name": "entry:module-static-import"
+            },
+            "effects": [
+              {
+                "cap": "env:read",
+                "selectorNormalizer": "environment.name.selector.v1",
+                "occurrenceNormalizer": "environment.name.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:list",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:read",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:write",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "process:spawn",
+                "selectorNormalizer": "process.executable.selector.v1",
+                "occurrenceNormalizer": "process.executable.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery",
+                  "commit",
+                  "delivery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "stdio:read",
+                "selectorNormalizer": "stdio.selector.v1",
+                "occurrenceNormalizer": "stdio.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "stdio:write",
+                "selectorNormalizer": "stdio.selector.v1",
+                "occurrenceNormalizer": "stdio.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "loader-referrer"
+            ],
+            "effectOwnerSource": "loader-referrer",
+            "gate": "loader-admission",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "builtin-or-memory",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "builtin-or-memory"
+                  }
+                ],
+                "effects": [],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "cached-transform",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "cached-transform"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:write",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "disk-source",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "disk-source"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "external-transform",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "external-transform"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:write",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "process:spawn",
+                    "selectorNormalizer": "process.executable.selector.v1",
+                    "occurrenceNormalizer": "process.executable.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "stdio:read",
+                    "selectorNormalizer": "stdio.selector.v1",
+                    "occurrenceNormalizer": "stdio.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "stdio:write",
+                    "selectorNormalizer": "stdio.selector.v1",
+                    "occurrenceNormalizer": "stdio.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              }
+            ],
+            "atomicityGroup": "surface.loader.entry.module.static.import.1kce2vv.decision",
+            "lifetimeContract": "child-process",
+            "barriers": {
+              "authorizeBefore": [
+                "module-resolution",
+                "source-read",
+                "module-admission"
+              ],
+              "recheckAt": [
+                "dynamic-import"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
             "id": "surface.loader.entry.require.resolve.0i97kvw",
             "classification": "effects",
             "surface": {
@@ -153331,6 +153789,464 @@
               }
             ],
             "atomicityGroup": "surface.loader.function.javascript.moduledynamicimport.19ocrkj.decision",
+            "lifetimeContract": "child-process",
+            "barriers": {
+              "authorizeBefore": [
+                "module-resolution",
+                "source-read",
+                "module-admission"
+              ],
+              "recheckAt": [
+                "dynamic-import"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
+            "id": "surface.loader.function.javascript.modulestaticimport.02xy8he",
+            "classification": "effects",
+            "surface": {
+              "kind": "loader",
+              "name": "function:javascript:moduleStaticImport"
+            },
+            "effects": [
+              {
+                "cap": "env:read",
+                "selectorNormalizer": "environment.name.selector.v1",
+                "occurrenceNormalizer": "environment.name.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:list",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:read",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:write",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "process:spawn",
+                "selectorNormalizer": "process.executable.selector.v1",
+                "occurrenceNormalizer": "process.executable.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery",
+                  "commit",
+                  "delivery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "stdio:read",
+                "selectorNormalizer": "stdio.selector.v1",
+                "occurrenceNormalizer": "stdio.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "stdio:write",
+                "selectorNormalizer": "stdio.selector.v1",
+                "occurrenceNormalizer": "stdio.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "loader-referrer"
+            ],
+            "effectOwnerSource": "loader-referrer",
+            "gate": "loader-admission",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "builtin-or-memory",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "builtin-or-memory"
+                  }
+                ],
+                "effects": [],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "cached-transform",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "cached-transform"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:write",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "disk-source",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "disk-source"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "external-transform",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "external-transform"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:write",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "process:spawn",
+                    "selectorNormalizer": "process.executable.selector.v1",
+                    "occurrenceNormalizer": "process.executable.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "stdio:read",
+                    "selectorNormalizer": "stdio.selector.v1",
+                    "occurrenceNormalizer": "stdio.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "stdio:write",
+                    "selectorNormalizer": "stdio.selector.v1",
+                    "occurrenceNormalizer": "stdio.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              }
+            ],
+            "atomicityGroup": "surface.loader.function.javascript.modulestaticimport.02xy8he.decision",
             "lifetimeContract": "child-process",
             "barriers": {
               "authorizeBefore": [
@@ -157124,6 +158040,922 @@
             }
           },
           {
+            "id": "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+            "classification": "effects",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:resolve_meta_from_bound_package_typed"
+            },
+            "effects": [
+              {
+                "cap": "env:read",
+                "selectorNormalizer": "environment.name.selector.v1",
+                "occurrenceNormalizer": "environment.name.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:list",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:read",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:write",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "process:spawn",
+                "selectorNormalizer": "process.executable.selector.v1",
+                "occurrenceNormalizer": "process.executable.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery",
+                  "commit",
+                  "delivery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "stdio:read",
+                "selectorNormalizer": "stdio.selector.v1",
+                "occurrenceNormalizer": "stdio.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "stdio:write",
+                "selectorNormalizer": "stdio.selector.v1",
+                "occurrenceNormalizer": "stdio.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "loader-referrer"
+            ],
+            "effectOwnerSource": "loader-referrer",
+            "gate": "loader-admission",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "builtin-or-memory",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "builtin-or-memory"
+                  }
+                ],
+                "effects": [],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "cached-transform",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "cached-transform"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:write",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "disk-source",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "disk-source"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "external-transform",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "external-transform"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:write",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "process:spawn",
+                    "selectorNormalizer": "process.executable.selector.v1",
+                    "occurrenceNormalizer": "process.executable.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "stdio:read",
+                    "selectorNormalizer": "stdio.selector.v1",
+                    "occurrenceNormalizer": "stdio.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "stdio:write",
+                    "selectorNormalizer": "stdio.selector.v1",
+                    "occurrenceNormalizer": "stdio.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              }
+            ],
+            "atomicityGroup": "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk.decision",
+            "lifetimeContract": "child-process",
+            "barriers": {
+              "authorizeBefore": [
+                "module-resolution",
+                "source-read",
+                "module-admission"
+              ],
+              "recheckAt": [
+                "dynamic-import"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
+            "id": "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
+            "classification": "effects",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:resolve_meta_typed"
+            },
+            "effects": [
+              {
+                "cap": "env:read",
+                "selectorNormalizer": "environment.name.selector.v1",
+                "occurrenceNormalizer": "environment.name.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:list",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:read",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:write",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "process:spawn",
+                "selectorNormalizer": "process.executable.selector.v1",
+                "occurrenceNormalizer": "process.executable.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery",
+                  "commit",
+                  "delivery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "stdio:read",
+                "selectorNormalizer": "stdio.selector.v1",
+                "occurrenceNormalizer": "stdio.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "stdio:write",
+                "selectorNormalizer": "stdio.selector.v1",
+                "occurrenceNormalizer": "stdio.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "loader-referrer"
+            ],
+            "effectOwnerSource": "loader-referrer",
+            "gate": "loader-admission",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "builtin-or-memory",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "builtin-or-memory"
+                  }
+                ],
+                "effects": [],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "cached-transform",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "cached-transform"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:write",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "disk-source",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "disk-source"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "external-transform",
+                "when": [
+                  {
+                    "fact": "loader.execution.route",
+                    "equals": "external-transform"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "env:read",
+                    "selectorNormalizer": "environment.name.selector.v1",
+                    "occurrenceNormalizer": "environment.name.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:write",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "process:spawn",
+                    "selectorNormalizer": "process.executable.selector.v1",
+                    "occurrenceNormalizer": "process.executable.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "stdio:read",
+                    "selectorNormalizer": "stdio.selector.v1",
+                    "occurrenceNormalizer": "stdio.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "stdio:write",
+                    "selectorNormalizer": "stdio.selector.v1",
+                    "occurrenceNormalizer": "stdio.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "child-process",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              }
+            ],
+            "atomicityGroup": "surface.loader.function.rust.resolve.meta.typed.1o68m2x.decision",
+            "lifetimeContract": "child-process",
+            "barriers": {
+              "authorizeBefore": [
+                "module-resolution",
+                "source-read",
+                "module-admission"
+              ],
+              "recheckAt": [
+                "dynamic-import"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
             "id": "surface.loader.function.rust.resolve.package.import.1ekm6ob",
             "classification": "effects",
             "surface": {
@@ -158910,6 +160742,16 @@
                 "object-identity-mismatch"
               ]
             }
+          },
+          {
+            "id": "surface.loader.function.rust.validate.import.attributes.0qchd64",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:validate_import_attributes"
+            },
+            "rationaleId": "internal-data-transform",
+            "rationale": "Transforming already-held bytes or strings carries no independent external authority."
           },
           {
             "id": "surface.loader.import.needs.0gk4sot",
@@ -181010,6 +182852,209 @@
             }
           },
           {
+            "id": "surface.loader.route.resolution.rust.resolve.meta.typed.11cq4bq",
+            "classification": "effects",
+            "surface": {
+              "kind": "loader",
+              "name": "route:resolution:rust:resolve_meta_typed"
+            },
+            "effects": [
+              {
+                "cap": "fs:list",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:read",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "loader-referrer"
+            ],
+            "effectOwnerSource": "loader-referrer",
+            "gate": "loader-admission",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "builtin-or-memory",
+                "when": [
+                  {
+                    "fact": "loader.source.kind",
+                    "equals": "builtin-or-memory"
+                  }
+                ],
+                "effects": [],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "metadata",
+                "when": [
+                  {
+                    "fact": "loader.source.kind",
+                    "equals": "metadata"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "on-disk",
+                "when": [
+                  {
+                    "fact": "loader.source.kind",
+                    "equals": "on-disk"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "fs:list",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  },
+                  {
+                    "cap": "fs:read",
+                    "selectorNormalizer": "fs.path.selector.v1",
+                    "occurrenceNormalizer": "fs.path.occurrence.v1",
+                    "stages": [
+                      "commit",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "implicit-self",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "loader-referrer"
+                ],
+                "effectOwnerSource": "loader-referrer",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "module-resolution",
+                    "source-read",
+                    "module-admission"
+                  ],
+                  "recheckAt": [
+                    "dynamic-import"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "object-identity-mismatch"
+                  ]
+                }
+              }
+            ],
+            "atomicityGroup": "surface.loader.route.resolution.rust.resolve.meta.typed.11cq4bq.decision",
+            "lifetimeContract": "operation",
+            "barriers": {
+              "authorizeBefore": [
+                "module-resolution",
+                "source-read",
+                "module-admission"
+              ],
+              "recheckAt": [
+                "dynamic-import"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
             "id": "surface.loader.route.resolution.rust.resolve.package.import.16ouylg",
             "classification": "effects",
             "surface": {
@@ -183583,6 +185628,16 @@
             "rationale": "Transforming already-held bytes or strings carries no independent external authority."
           },
           {
+            "id": "surface.loader.route.resolution.rust.strip.file.specifier.decorations.0z6tnsv",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:resolution:rust:strip_file_specifier_decorations"
+            },
+            "rationaleId": "internal-data-transform",
+            "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+          },
+          {
             "id": "surface.loader.route.resolution.rust.touch.transpile.artifact.08ucm58",
             "classification": "effects",
             "surface": {
@@ -185022,6 +187077,16 @@
             "surface": {
               "kind": "loader",
               "name": "route:resolution:rust:unique_tmp_path"
+            },
+            "rationaleId": "internal-data-transform",
+            "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+          },
+          {
+            "id": "surface.loader.route.resolution.rust.validate.import.attributes.10zvr6j",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:resolution:rust:validate_import_attributes"
             },
             "rationaleId": "internal-data-transform",
             "rationale": "Transforming already-held bytes or strings carries no independent external authority."

@@ -4,6 +4,7 @@
 //! Node-style package resolution and full ESM/CJS interop are implemented
 //! incrementally (see TODOs).
 
+pub mod identity;
 #[cfg(any(test, feature = "module-runner-spike"))]
 pub mod producer_spike;
 pub mod transpile;
@@ -21,6 +22,8 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
+use identity::{ConditionSet, ImportAttributes, ResolutionKind, SourceId};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
     Esm,
@@ -31,6 +34,9 @@ pub enum ModuleKind {
 
 #[derive(Debug, Clone)]
 pub struct ResolvedModule {
+    /// Authenticated record identity. Host paths remain display/debug labels
+    /// and must never replace this key in the armed runtime.
+    pub source_id: Option<SourceId>,
     pub id: String,
     pub kind: ModuleKind,
     pub path: Option<PathBuf>,
@@ -60,7 +66,8 @@ pub struct ResolvedModule {
 
 pub struct ModuleLoader {
     builtins: HashMap<String, String>,
-    resolver: Resolver,
+    resolver_import: Resolver,
+    resolver_require: Resolver,
     /// Memoized `version` per package root dir (the nearest `package.json`), so
     /// version derivation is one read per package, not per module. (ENG-22621)
     package_versions: std::sync::RwLock<HashMap<PathBuf, Option<String>>>,
@@ -104,7 +111,7 @@ impl ModuleLoader {
     pub fn new() -> Self {
         let builtins = build_builtin_registry(BUILTIN_MANIFEST_REGISTRATIONS);
 
-        let options = ResolveOptions {
+        let options_for = |condition: &str| ResolveOptions {
             extensions: vec![
                 ".js".into(),
                 ".cjs".into(),
@@ -116,12 +123,10 @@ impl ModuleLoader {
                 ".cts".into(),
                 ".json".into(),
             ],
-            condition_names: vec![
-                "node".into(),
-                "require".into(),
-                "import".into(),
-                "default".into(),
-            ],
+            // `default` is unconditional in package exports and must not be
+            // represented as an active condition. Import and require are
+            // separate cache/authorization domains. @ref LLP 0026#1-source-admission-and-resolution
+            condition_names: vec!["node".into(), condition.into()],
             // TS NodeNext convention: `./x.js` in TS sources refers to `./x.ts`
             // on disk. Real `.js` files keep priority, mirroring Vite's
             // resolution on the web side. @ref LLP 0004#the-oxc_resolver-configuration
@@ -138,7 +143,8 @@ impl ModuleLoader {
 
         Self {
             builtins,
-            resolver: Resolver::new(options),
+            resolver_import: Resolver::new(options_for("import")),
+            resolver_require: Resolver::new(options_for("require")),
             package_versions: std::sync::RwLock::new(HashMap::new()),
         }
     }
@@ -177,34 +183,75 @@ impl ModuleLoader {
     }
 
     pub fn resolve(&self, specifier: &str, referrer: Option<&Path>) -> Result<ResolvedModule> {
-        let meta = self.resolve_meta(specifier, referrer)?;
+        let meta = self.resolve_meta_typed(
+            specifier,
+            referrer,
+            ResolutionKind::CommonJsRequire,
+            &ConditionSet::for_kind(ResolutionKind::CommonJsRequire),
+            &ImportAttributes::default(),
+        )?;
         self.load_source(meta)
     }
 
     pub fn resolve_meta(&self, specifier: &str, referrer: Option<&Path>) -> Result<ResolvedModule> {
+        self.resolve_meta_typed(
+            specifier,
+            referrer,
+            ResolutionKind::CommonJsRequire,
+            &ConditionSet::for_kind(ResolutionKind::CommonJsRequire),
+            &ImportAttributes::default(),
+        )
+    }
+
+    pub fn resolve_meta_typed(
+        &self,
+        specifier: &str,
+        referrer: Option<&Path>,
+        kind: ResolutionKind,
+        conditions: &ConditionSet,
+        attributes: &ImportAttributes,
+    ) -> Result<ResolvedModule> {
         let specifier = specifier.trim();
         if specifier.is_empty() {
             return Err(anyhow!("Empty module specifier"));
         }
+        let specifier = strip_file_specifier_decorations(specifier);
+        if !attributes.is_empty() && kind == ResolutionKind::CommonJsRequire {
+            return Err(anyhow!(
+                "CommonJS require does not accept import attributes"
+            ));
+        }
         if specifier.starts_with('#') {
             if let Some(referrer_path) = referrer {
-                if let Some(module) = self.resolve_package_import(specifier, referrer_path) {
-                    return Ok(module);
+                if let Some(module) =
+                    self.resolve_package_import(specifier, referrer_path, conditions)
+                {
+                    return Self::validate_import_attributes(module, kind, attributes);
                 }
             }
             return Err(anyhow!("Failed to resolve package import {}", specifier));
         }
         if let Some(source) = self.builtins.get(specifier) {
-            return Ok(ResolvedModule {
-                id: specifier.to_string(),
-                kind: ModuleKind::Builtin,
-                path: None,
-                source: Some(source.clone()),
-                package_name: None,
-                package_root: None,
-                package_version: None,
-                package_integrity: None,
-            });
+            let source_key = BUILTIN_MANIFEST_REGISTRATIONS
+                .iter()
+                .find(|registration| registration.specifier == specifier)
+                .map(|registration| registration.source_key)
+                .ok_or_else(|| anyhow!("builtin registry record has no manifest identity"))?;
+            return Self::validate_import_attributes(
+                ResolvedModule {
+                    source_id: Some(SourceId::builtin("ibex-runtime", source_key)?),
+                    id: specifier.to_string(),
+                    kind: ModuleKind::Builtin,
+                    path: None,
+                    source: Some(source.clone()),
+                    package_name: None,
+                    package_root: None,
+                    package_version: None,
+                    package_integrity: None,
+                },
+                kind,
+                attributes,
+            );
         }
 
         if specifier.starts_with("exact:") {
@@ -215,7 +262,29 @@ impl ModuleLoader {
             return Err(anyhow!("Unsupported node builtin: {}", specifier));
         }
 
-        self.resolve_with_oxc(specifier, referrer)
+        let resolved = self.resolve_with_oxc(specifier, referrer, kind)?;
+        Self::validate_import_attributes(resolved, kind, attributes)
+    }
+
+    fn validate_import_attributes(
+        module: ResolvedModule,
+        resolution_kind: ResolutionKind,
+        attributes: &ImportAttributes,
+    ) -> Result<ResolvedModule> {
+        if attributes.asserts_json() && module.kind != ModuleKind::Json {
+            return Err(anyhow!(
+                "type=json import attribute requires a JSON module target"
+            ));
+        }
+        if module.kind == ModuleKind::Json
+            && resolution_kind != ResolutionKind::CommonJsRequire
+            && !attributes.asserts_json()
+        {
+            return Err(anyhow!(
+                "ESM JSON import requires the type=json import attribute"
+            ));
+        }
+        Ok(module)
     }
 
     pub(crate) fn is_builtin_specifier(&self, specifier: &str) -> bool {
@@ -229,11 +298,27 @@ impl ModuleLoader {
     /// semantics while anchoring every permitted lookup at `package_root`; the
     /// legacy `main`/subpath case is rewritten to an exact relative lookup.
     /// @ref LLP 0021#decision-staging-and-principal-semantics
+    #[allow(dead_code)] // retained as the reviewed CommonJS compatibility surface
     pub(crate) fn resolve_meta_from_bound_package(
         &self,
         specifier: &str,
         package_name: &str,
         package_root: &Path,
+    ) -> Result<ResolvedModule> {
+        self.resolve_meta_from_bound_package_typed(
+            specifier,
+            package_name,
+            package_root,
+            ResolutionKind::CommonJsRequire,
+        )
+    }
+
+    pub(crate) fn resolve_meta_from_bound_package_typed(
+        &self,
+        specifier: &str,
+        package_name: &str,
+        package_root: &Path,
+        kind: ResolutionKind,
     ) -> Result<ResolvedModule> {
         let specifier = specifier.trim();
         let requested_name = package_name_from_bare_specifier(specifier)
@@ -276,7 +361,8 @@ impl ModuleLoader {
         } else {
             format!(".{suffix}")
         };
-        let mut resolved = self.resolve_with_oxc_at(&anchored_specifier, package_root, false)?;
+        let mut resolved =
+            self.resolve_with_oxc_at(&anchored_specifier, package_root, false, kind)?;
         resolved.package_name = Some(package_name.to_owned());
         resolved.package_root = Some(package_root.to_path_buf());
         resolved.package_version = manifest
@@ -286,13 +372,18 @@ impl ModuleLoader {
         Ok(resolved)
     }
 
-    fn resolve_package_import(&self, specifier: &str, referrer: &Path) -> Option<ResolvedModule> {
+    fn resolve_package_import(
+        &self,
+        specifier: &str,
+        referrer: &Path,
+        conditions: &ConditionSet,
+    ) -> Option<ResolvedModule> {
         let package_root = find_package_root(referrer)?;
         let manifest_path = package_root.join("package.json");
         let manifest = read_package_manifest(&manifest_path).ok()?;
         let imports = manifest.get("imports")?.as_object()?;
 
-        let raw_target = resolve_package_import_target(specifier, imports)?;
+        let raw_target = resolve_package_import_target(specifier, imports, conditions)?;
         let target_path = normalize_import_target(&package_root, package_root.join(raw_target))?;
 
         let (package_name, package_root_from_path) =
@@ -300,6 +391,7 @@ impl ModuleLoader {
         let package_root_for_record = package_root_from_path.or_else(|| Some(package_root.clone()));
         let package_version = self.package_version_for(&target_path);
         Some(ResolvedModule {
+            source_id: None,
             id: target_path.to_string_lossy().to_string(),
             kind: module_kind_from_path(&target_path),
             path: Some(target_path),
@@ -319,11 +411,25 @@ impl ModuleLoader {
             .path
             .as_ref()
             .ok_or_else(|| anyhow!("Module path missing"))?;
-        let source = self
-            .load_module_source(path)
-            .with_context(|| format!("Failed to read module {}", path.display()))?;
+        let (source, lowered) = self.load_module_source(path)?;
+        if lowered {
+            module.kind = ModuleKind::CommonJs;
+        }
         module.source = Some(source);
         Ok(module)
+    }
+
+    /// Read and lower a module only after Host has completed the staged
+    /// identity/edge authorization. Resolution-only paths never call this.
+    fn load_module_source(&self, path: &Path) -> Result<(String, bool)> {
+        let source = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read module {}", path.display()))?;
+        let needs_lowering = Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source);
+        if needs_lowering {
+            let target = Self::transpile_target_for_source(&source);
+            return Ok((self.transpile_module(path, target, &source)?, true));
+        }
+        Ok((source, false))
     }
 
     /// Compile source bytes that were captured while authenticating the
@@ -342,6 +448,7 @@ impl ModuleLoader {
         let source = String::from_utf8(bytes)
             .with_context(|| format!("Module source is not valid UTF-8: {}", path.display()))?;
         let source = if Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source) {
+            module.kind = ModuleKind::CommonJs;
             let target = Self::transpile_target_for_source(&source);
             self.transpile_module(path, target, &source)?
         } else {
@@ -351,16 +458,6 @@ impl ModuleLoader {
         // integrity traversal are eligible for execution.
         module.source = Some(source);
         Ok(module)
-    }
-
-    fn load_module_source(&self, path: &Path) -> Result<String> {
-        let source = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read module {}", path.display()))?;
-        if Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source) {
-            let target = Self::transpile_target_for_source(&source);
-            return self.transpile_module(path, target, &source);
-        }
-        Ok(source)
     }
 
     fn needs_transpile(path: &Path) -> bool {
@@ -823,7 +920,12 @@ impl ModuleLoader {
         )
     }
 
-    fn resolve_with_oxc(&self, specifier: &str, referrer: Option<&Path>) -> Result<ResolvedModule> {
+    fn resolve_with_oxc(
+        &self,
+        specifier: &str,
+        referrer: Option<&Path>,
+        kind: ResolutionKind,
+    ) -> Result<ResolvedModule> {
         let base_dir = if let Some(path) = referrer {
             let resolved = if path.is_absolute() {
                 path.to_path_buf()
@@ -859,7 +961,7 @@ impl ModuleLoader {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         };
 
-        self.resolve_with_oxc_at(specifier, &base_dir, true)
+        self.resolve_with_oxc_at(specifier, &base_dir, true, kind)
     }
 
     fn resolve_with_oxc_at(
@@ -867,8 +969,15 @@ impl ModuleLoader {
         specifier: &str,
         base_dir: &Path,
         retry_bare_as_relative: bool,
+        kind: ResolutionKind,
     ) -> Result<ResolvedModule> {
-        let resolution = match self.resolver.resolve(&base_dir, specifier) {
+        let resolver = match kind {
+            ResolutionKind::CommonJsRequire => &self.resolver_require,
+            ResolutionKind::EsmStatic | ResolutionKind::DynamicImport | ResolutionKind::Entry => {
+                &self.resolver_import
+            }
+        };
+        let resolution = match resolver.resolve(&base_dir, specifier) {
             Ok(resolution) => resolution,
             Err(err) => {
                 // Native hosts pass referrer-relative entry paths without a
@@ -883,7 +992,7 @@ impl ModuleLoader {
                     && !Path::new(specifier).is_absolute()
                     && base_dir.join(specifier).exists();
                 if path_like {
-                    self.resolver
+                    resolver
                         .resolve(&base_dir, &format!("./{specifier}"))
                         .with_context(|| format!("Failed to resolve module {}", specifier))?
                 } else {
@@ -927,23 +1036,13 @@ impl ModuleLoader {
         if full_path.extension().and_then(|e| e.to_str()) == Some("json") {
             kind = ModuleKind::Json;
         }
-        // Classify an ESM candidate with a SINGLE source read and reuse it.
-        // A TS/JSX module is detected by extension (no read) and served as CJS.
-        // Otherwise read the source once: a module that needs JS downleveling
-        // flips to CJS and is (re)read by the transpile path; a plain ESM module
-        // is served verbatim, so we stash the source we already read on the
-        // resolved module and let `load_source` skip the redundant second read
-        // and downlevel re-scan on the hot path (modern ESM-heavy node_modules).
-        let mut prefetched_source: Option<String> = None;
+        // Extension-only classification is safe before source authorization.
+        // Body-dependent syntax/downlevel classification occurs in
+        // `load_source{,_bytes}` after the source-acquisition gate.
+        // @ref LLP 0023#21-staged-authorization-identity
         if kind == ModuleKind::Esm {
             if Self::needs_transpile(&full_path) {
                 kind = ModuleKind::CommonJs;
-            } else if let Ok(source) = std::fs::read_to_string(&full_path) {
-                if Self::needs_js_downlevel(&full_path, &source) {
-                    kind = ModuleKind::CommonJs;
-                } else {
-                    prefetched_source = Some(source);
-                }
             }
         }
 
@@ -969,10 +1068,11 @@ impl ModuleLoader {
             }
         }
         Ok(ResolvedModule {
+            source_id: None,
             id: full_path.to_string_lossy().to_string(),
             kind,
             path: Some(full_path),
-            source: prefetched_source,
+            source: None,
             package_name,
             package_root,
             package_version,
@@ -1599,6 +1699,20 @@ fn package_name_from_bare_specifier(specifier: &str) -> Option<String> {
     Some(first.to_string())
 }
 
+fn strip_file_specifier_decorations(specifier: &str) -> &str {
+    let file_like = specifier.starts_with('.')
+        || specifier.starts_with('/')
+        || Path::new(specifier).is_absolute();
+    if !file_like {
+        return specifier;
+    }
+    let end = specifier
+        .char_indices()
+        .find_map(|(index, character)| matches!(character, '?' | '#').then_some(index))
+        .unwrap_or(specifier.len());
+    &specifier[..end]
+}
+
 fn find_package_root(start: &Path) -> Option<PathBuf> {
     let mut current = if start.is_file() {
         start.parent()?.to_path_buf()
@@ -1616,7 +1730,11 @@ fn find_package_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
-fn pick_package_import_path(value: &Value, subpath: Option<&str>) -> Option<String> {
+fn pick_package_import_path(
+    value: &Value,
+    subpath: Option<&str>,
+    conditions: &ConditionSet,
+) -> Option<String> {
     match value {
         Value::String(target) => {
             if let Some(subpath) = subpath {
@@ -1627,11 +1745,11 @@ fn pick_package_import_path(value: &Value, subpath: Option<&str>) -> Option<Stri
             Some(target.to_string())
         }
         Value::Object(map) => {
-            // This loader runs CommonJS `require()`; among CJS-compatible
-            // conditions, `default` remains the lowest-priority fallback.
-            for condition in ["node", "require", "import", "default"] {
+            for condition in conditions.names().chain(std::iter::once("default")) {
                 if let Some(condition_target) = map.get(condition) {
-                    if let Some(path) = pick_package_import_path(condition_target, subpath) {
+                    if let Some(path) =
+                        pick_package_import_path(condition_target, subpath, conditions)
+                    {
                         return Some(path);
                     }
                 }
@@ -1645,9 +1763,10 @@ fn pick_package_import_path(value: &Value, subpath: Option<&str>) -> Option<Stri
 fn resolve_package_import_target(
     specifier: &str,
     imports: &serde_json::Map<String, Value>,
+    conditions: &ConditionSet,
 ) -> Option<String> {
     if let Some(value) = imports.get(specifier) {
-        if let Some(path) = pick_package_import_path(value, None) {
+        if let Some(path) = pick_package_import_path(value, None, conditions) {
             return Some(path);
         }
     }
@@ -1676,7 +1795,7 @@ fn resolve_package_import_target(
 
     let (prefix, value) = best?;
     let subpath = &specifier[prefix.len()..];
-    pick_package_import_path(value, Some(subpath))
+    pick_package_import_path(value, Some(subpath), conditions)
 }
 
 fn normalize_import_target(base: &Path, target: PathBuf) -> Option<PathBuf> {
@@ -2603,6 +2722,20 @@ mod tests {
             .path
             .unwrap()
             .ends_with("node_modules/exports-pkg/cjs.js"));
+
+        let imported = loader
+            .resolve_meta_typed(
+                "exports-pkg",
+                Some(&dir.path().join("entry.mjs")),
+                ResolutionKind::EsmStatic,
+                &ConditionSet::for_kind(ResolutionKind::EsmStatic),
+                &ImportAttributes::default(),
+            )
+            .unwrap();
+        assert!(imported
+            .path
+            .unwrap()
+            .ends_with("node_modules/exports-pkg/esm.js"));
     }
 
     // ENG-23007: `require.resolve` needs only the resolved path, so `resolve_meta`
@@ -2662,6 +2795,121 @@ mod tests {
     }
 
     #[test]
+    fn resolve_meta_does_not_prefetch_plain_esm_body() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("mod.mjs");
+        std::fs::write(&file, "export const answer = 42;").unwrap();
+
+        let meta = test_loader()
+            .resolve_meta_typed(
+                "./mod.mjs",
+                Some(&dir.path().join("entry.mjs")),
+                ResolutionKind::EsmStatic,
+                &ConditionSet::for_kind(ResolutionKind::EsmStatic),
+                &ImportAttributes::default(),
+            )
+            .unwrap();
+
+        assert_eq!(meta.path.unwrap(), file);
+        assert!(meta.source.is_none(), "resolution must not open ESM source");
+    }
+
+    #[test]
+    fn file_query_and_fragment_do_not_change_resolved_identity_input() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("mod.js");
+        std::fs::write(&file, "module.exports = 1;").unwrap();
+        let referrer = dir.path().join("entry.js");
+        let loader = test_loader();
+
+        let plain = loader.resolve_meta("./mod.js", Some(&referrer)).unwrap();
+        let decorated = loader
+            .resolve_meta("./mod.js?cache=one#section", Some(&referrer))
+            .unwrap();
+
+        assert_eq!(plain.path, decorated.path);
+        assert_eq!(plain.id, decorated.id);
+    }
+
+    #[test]
+    fn ambiguous_js_source_goal_follows_authenticated_package_type() {
+        let dir = tempdir().unwrap();
+        let esm = dir.path().join("esm");
+        let cjs = dir.path().join("cjs");
+        std::fs::create_dir_all(&esm).unwrap();
+        std::fs::create_dir_all(&cjs).unwrap();
+        std::fs::write(esm.join("package.json"), r#"{"type":"module"}"#).unwrap();
+        std::fs::write(cjs.join("package.json"), r#"{"type":"commonjs"}"#).unwrap();
+        std::fs::write(esm.join("value.js"), "export const value = 1;").unwrap();
+        std::fs::write(cjs.join("value.js"), "module.exports = 1;").unwrap();
+        let loader = test_loader();
+
+        let esm_meta = loader
+            .resolve_meta_typed(
+                "./value.js",
+                Some(&esm.join("entry.mjs")),
+                ResolutionKind::EsmStatic,
+                &ConditionSet::for_kind(ResolutionKind::EsmStatic),
+                &ImportAttributes::default(),
+            )
+            .unwrap();
+        let cjs_meta = loader
+            .resolve_meta_typed(
+                "./value.js",
+                Some(&cjs.join("entry.mjs")),
+                ResolutionKind::EsmStatic,
+                &ConditionSet::for_kind(ResolutionKind::EsmStatic),
+                &ImportAttributes::default(),
+            )
+            .unwrap();
+
+        assert_eq!(esm_meta.kind, ModuleKind::Esm);
+        assert_eq!(cjs_meta.kind, ModuleKind::CommonJs);
+    }
+
+    #[test]
+    fn json_import_attributes_are_typed_and_fail_closed() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("value.json"), r#"{"value":1}"#).unwrap();
+        std::fs::write(dir.path().join("value.js"), "export const value = 1;").unwrap();
+        let referrer = dir.path().join("entry.mjs");
+        let loader = test_loader();
+        let json_attributes = ImportAttributes::new([("type".into(), "json".into())]).unwrap();
+
+        assert!(loader
+            .resolve_meta_typed(
+                "./value.json",
+                Some(&referrer),
+                ResolutionKind::EsmStatic,
+                &ConditionSet::for_kind(ResolutionKind::EsmStatic),
+                &ImportAttributes::default(),
+            )
+            .is_err());
+        assert_eq!(
+            loader
+                .resolve_meta_typed(
+                    "./value.json",
+                    Some(&referrer),
+                    ResolutionKind::EsmStatic,
+                    &ConditionSet::for_kind(ResolutionKind::EsmStatic),
+                    &json_attributes,
+                )
+                .unwrap()
+                .kind,
+            ModuleKind::Json
+        );
+        assert!(loader
+            .resolve_meta_typed(
+                "./value.js",
+                Some(&referrer),
+                ResolutionKind::EsmStatic,
+                &ConditionSet::for_kind(ResolutionKind::EsmStatic),
+                &json_attributes,
+            )
+            .is_err());
+    }
+
+    #[test]
     fn package_import_condition_prefers_require_over_import() {
         // `require` is the correct branch for the CJS loader; `default` remains
         // the lowest-priority fallback. (ENG-23457)
@@ -2671,8 +2919,29 @@ mod tests {
             "default": "./browser.js",
         });
         assert_eq!(
-            pick_package_import_path(&value, None),
+            pick_package_import_path(
+                &value,
+                None,
+                &ConditionSet::for_kind(ResolutionKind::CommonJsRequire),
+            ),
             Some("./cjs.js".to_string())
+        );
+    }
+
+    #[test]
+    fn package_import_condition_keeps_import_and_require_separate() {
+        let value: Value = serde_json::json!({
+            "import": "./esm.mjs",
+            "require": "./cjs.js",
+            "default": "./fallback.js",
+        });
+        assert_eq!(
+            pick_package_import_path(
+                &value,
+                None,
+                &ConditionSet::for_kind(ResolutionKind::EsmStatic),
+            ),
+            Some("./esm.mjs".to_string())
         );
     }
 
@@ -2680,7 +2949,11 @@ mod tests {
     fn package_import_condition_falls_back_to_default() {
         let value: Value = serde_json::json!({ "default": "./browser.js" });
         assert_eq!(
-            pick_package_import_path(&value, None),
+            pick_package_import_path(
+                &value,
+                None,
+                &ConditionSet::for_kind(ResolutionKind::CommonJsRequire),
+            ),
             Some("./browser.js".to_string())
         );
     }
@@ -2695,11 +2968,19 @@ mod tests {
             Value::String("./src/internal/*.js".to_string()),
         );
         assert_eq!(
-            resolve_package_import_target("#internal/thing", &imports),
+            resolve_package_import_target(
+                "#internal/thing",
+                &imports,
+                &ConditionSet::for_kind(ResolutionKind::CommonJsRequire),
+            ),
             Some("./src/internal/thing.js".to_string())
         );
         assert_eq!(
-            resolve_package_import_target("#internal-utils", &imports),
+            resolve_package_import_target(
+                "#internal-utils",
+                &imports,
+                &ConditionSet::for_kind(ResolutionKind::CommonJsRequire),
+            ),
             None
         );
     }
@@ -2714,11 +2995,19 @@ mod tests {
         imports.insert("#a/*".to_string(), Value::String("./a/*.js".to_string()));
         imports.insert("#a/b/*".to_string(), Value::String("./ab/*.js".to_string()));
         assert_eq!(
-            resolve_package_import_target("#a/b/thing", &imports),
+            resolve_package_import_target(
+                "#a/b/thing",
+                &imports,
+                &ConditionSet::for_kind(ResolutionKind::CommonJsRequire),
+            ),
             Some("./ab/thing.js".to_string())
         );
         assert_eq!(
-            resolve_package_import_target("#a/thing", &imports),
+            resolve_package_import_target(
+                "#a/thing",
+                &imports,
+                &ConditionSet::for_kind(ResolutionKind::CommonJsRequire),
+            ),
             Some("./a/thing.js".to_string())
         );
     }

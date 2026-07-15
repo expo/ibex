@@ -3195,7 +3195,19 @@ fn module_resolve_args(
 /// bridges: everything except the module `source`. `require.resolve` needs only
 /// these; the full `require`/`import` load path additionally attaches `source`.
 fn module_meta_json(module: &crate::module_loader::ResolvedModule) -> serde_json::Value {
+    let source_id = module
+        .source_id
+        .as_ref()
+        .map(crate::module_loader::identity::SourceId::encode)
+        .transpose();
+    let source_id = match source_id {
+        Ok(value) => value,
+        Err(error) => {
+            return json!({ "error": format!("invalid authenticated SourceId: {error:#}") })
+        }
+    };
     json!({
+        "sourceId": source_id,
         "id": module.id,
         "kind": match module.kind {
             crate::module_loader::ModuleKind::Builtin => "builtin",
@@ -3227,6 +3239,7 @@ fn module_resolve_cstring(payload: &serde_json::Value) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn ex_host_module_resolve(
     requester_module_id: u64,
+    resolution_kind: u32,
     specifier: *const c_char,
     referrer: *const c_char,
 ) -> *mut c_char {
@@ -3234,13 +3247,17 @@ pub extern "C" fn ex_host_module_resolve(
         return ptr::null_mut();
     };
 
+    let resolution_kind =
+        crate::module_loader::identity::ResolutionKind::from_abi_code(resolution_kind);
     let resolved = with_host(
         |host| {
+            let resolution_kind = resolution_kind?;
             let path = referrer.as_ref().map(std::path::PathBuf::from);
-            host.resolve_module_for_principal(
+            host.resolve_module_for_principal_typed(
                 &spec,
                 path.as_deref(),
                 Some(&requester_module_id.to_string()),
+                resolution_kind,
             )
         },
         Err(anyhow::anyhow!("Host not initialized")),
@@ -3301,6 +3318,7 @@ pub extern "C" fn ex_host_resolve_manifest_builtin_internal(
 #[no_mangle]
 pub extern "C" fn ex_host_module_resolve_meta(
     requester_module_id: u64,
+    resolution_kind: u32,
     specifier: *const c_char,
     referrer: *const c_char,
 ) -> *mut c_char {
@@ -3308,13 +3326,17 @@ pub extern "C" fn ex_host_module_resolve_meta(
         return ptr::null_mut();
     };
 
+    let resolution_kind =
+        crate::module_loader::identity::ResolutionKind::from_abi_code(resolution_kind);
     let resolved = with_host(
         |host| {
+            let resolution_kind = resolution_kind?;
             let path = referrer.as_ref().map(std::path::PathBuf::from);
-            host.resolve_module_meta_for_principal(
+            host.resolve_module_meta_for_principal_typed(
                 &spec,
                 path.as_deref(),
                 Some(&requester_module_id.to_string()),
+                resolution_kind,
             )
         },
         Err(anyhow::anyhow!("Host not initialized")),

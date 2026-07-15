@@ -113,3 +113,33 @@ test('distinct builtins are not collapsed', () => {
   const require = makeRequire();
   expect(require('fs')).not.toBe(require('events'));
 });
+
+test('authenticated sourceId, not a host path label, keys user module records', () => {
+  const sandbox: any = {};
+  sandbox.globalThis = sandbox;
+  sandbox.console = console;
+  sandbox.Symbol = Symbol;
+  sandbox.Promise = Promise;
+  sandbox.__exactPinProcessStreams = function () {};
+  sandbox.__exactModuleResolve = function (specifier: string) {
+    const sourceId =
+      specifier === 'alias-a' || specifier === 'alias-a-second-spelling'
+        ? 'source:shared'
+        : `source:${specifier}`;
+    return JSON.stringify({
+      sourceId,
+      id: '/host/private/shared-label.js',
+      kind: 'cjs',
+      path: '/host/private/shared-label.js',
+      source: `module.exports = { specifier: ${JSON.stringify(specifier)} };`,
+    });
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(loaderSource, sandbox, { filename: 'module-loader.js' });
+
+  const first = sandbox.require('alias-a');
+  const sameIdentity = sandbox.require('alias-a-second-spelling');
+  const samePathDifferentIdentity = sandbox.require('alias-b');
+  expect(first).toBe(sameIdentity);
+  expect(first).not.toBe(samePathDifferentIdentity);
+});

@@ -250,6 +250,7 @@
         "__filename",
         "__dirname",
         "__exactDynamicImport",
+        "__exactStaticImport",
         source);
     } finally {
       if (__privSetPendingPackageId) {
@@ -4795,13 +4796,13 @@
         /^\s*(const|let|var)\s+([\s\S]+?)\s*=\s*await\s+globalThis\["import"\]\(([\s\S]+)\)\s*;?\s*$/
       );
       if (m) {
-        out.push(m[1] + " " + m[2] + " = require(" + m[3] + ");");
+        out.push(m[1] + " " + m[2] + " = __exactStaticImport(" + m[3] + ");");
         continue;
       }
 
       m = trimmed.match(/^\s*await\s+globalThis\["import"\]\(([\s\S]+)\)\s*;?\s*$/);
       if (m) {
-        out.push("require(" + m[1] + ");");
+        out.push("__exactStaticImport(" + m[1] + ");");
         continue;
       }
 
@@ -4815,13 +4816,13 @@
 
       m = trimmed.match(/^\s*import\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
-        out.push("require(" + quote(m[2]) + ");");
+        out.push("__exactStaticImport(" + quote(m[2]) + ");");
         continue;
       }
 
       m = trimmed.match(/^\s*import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
-        out.push("var " + m[1] + " = require(" + quote(m[3]) + ");");
+        out.push("var " + m[1] + " = __exactStaticImport(" + quote(m[3]) + ");");
         continue;
       }
 
@@ -4830,7 +4831,7 @@
       );
       if (m) {
         var namedImport = "__exmod" + (importCounter++);
-        out.push("var " + namedImport + " = require(" + quote(m[4]) + ");");
+        out.push("var " + namedImport + " = __exactStaticImport(" + quote(m[4]) + ");");
         out.push(
           "var " +
             m[1] +
@@ -4853,7 +4854,7 @@
       );
       if (m) {
         var nsImport = "__exmod" + (importCounter++);
-        out.push("var " + nsImport + " = require(" + quote(m[4]) + ");");
+        out.push("var " + nsImport + " = __exactStaticImport(" + quote(m[4]) + ");");
         out.push(
           "var " +
             m[1] +
@@ -4881,7 +4882,7 @@
         out.push(
           "var " +
             m[1] +
-            " = (function(__exm){ return __exm && __exm.__esModule ? __exm.default : __exm; })(require(" +
+            " = (function(__exm){ return __exm && __exm.__esModule ? __exm.default : __exm; })(__exactStaticImport(" +
             quote(m[3]) +
             "));"
         );
@@ -4891,7 +4892,7 @@
       m = trimmed.match(/^\s*import\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         var named = "__exmod" + (importCounter++);
-        out.push("var " + named + " = require(" + quote(m[3]) + ");");
+        out.push("var " + named + " = __exactStaticImport(" + quote(m[3]) + ");");
         emitNamedBindings(m[1], named);
         continue;
       }
@@ -4899,7 +4900,7 @@
       m = trimmed.match(/^\s*export\s*\*\s*from\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
         var exportFrom = "__exmod" + (importCounter++);
-        out.push("var " + exportFrom + " = require(" + quote(m[2]) + ");");
+        out.push("var " + exportFrom + " = __exactStaticImport(" + quote(m[2]) + ");");
         out.push("for (var __exk in " + exportFrom + ") {");
         out.push("  if (Object.prototype.hasOwnProperty.call(" + exportFrom + ", __exk)) {");
         out.push("    module.exports[__exk] = " + exportFrom + "[__exk];");
@@ -4916,7 +4917,7 @@
       m = trimmed.match(/^\s*export\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         var exportFrom = "__exmod" + (importCounter++);
-        out.push("var " + exportFrom + " = require(" + quote(m[3]) + ");");
+        out.push("var " + exportFrom + " = __exactStaticImport(" + quote(m[3]) + ");");
         emitExportBindings(m[1], exportFrom, true, false);
         continue;
       }
@@ -4926,7 +4927,7 @@
       );
       if (m) {
         var nsExport = "__exmod" + (importCounter++);
-        out.push("var " + nsExport + " = require(" + quote(m[3]) + ");");
+        out.push("var " + nsExport + " = __exactStaticImport(" + quote(m[3]) + ");");
         out.push("module.exports." + m[1] + " = " + nsExport + ";");
         continue;
       }
@@ -5175,7 +5176,7 @@
     __builtinCanonicalByAlias[id] = canonical;
     return canonical;
   }
-  function load(specifier, referrer, parent, manifestBuiltinInternal) {
+  function load(specifier, referrer, parent, manifestBuiltinInternal, resolutionKind) {
     __exactPinProcessStreams();
 
     // @ref LLP 0013#mechanism-3 — per-package chunk requires (`__ibexpkg__*`)
@@ -5299,7 +5300,7 @@
     }
     const json = manifestBuiltinInternal
       ? __privResolveManifestBuiltinInternal(resolvedSpecifier)
-      : __exactModuleResolve(resolvedSpecifier, referrer || "");
+      : __exactModuleResolve(resolvedSpecifier, referrer || "", resolutionKind || 0);
     if (!json) {
       throw new Error("Module not found: " + specifier);
     }
@@ -5340,12 +5341,13 @@
       }
     }
     const id = record.id || resolvedSpecifier;
-    // Builtins share one instance across all their aliases; user modules stay
-    // keyed by their (path-based) id. (ENG-22981)
-    const cacheKey = record.kind === 'builtin'
+    // Armed records are keyed by portable authenticated source identity. The
+    // path/id remains a SourceLabel for Node-compatible diagnostics only.
+    // Unarmed diagnostic hosts retain the legacy key. @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+    const cacheKey = record.sourceId || (record.kind === 'builtin'
       ? builtinCacheKeyFor(id, record.source)
-      : id;
-    var moduleId = idToModuleId(id);
+      : id);
+    var moduleId = idToModuleId(record.sourceId || id);
     if (cache[cacheKey]) {
       return cache[cacheKey].exports;
     }
@@ -5495,7 +5497,8 @@
         next,
         filename,
         module,
-        manifestBuiltinEvaluationActive
+        manifestBuiltinEvaluationActive,
+        0
       );
       // Skip interop for ESM-shimmed modules — the shim's generated
       // import bindings already handle default/named/namespace access.
@@ -5542,10 +5545,22 @@
     const moduleDynamicImport = function(specifier, options) {
       return importImpl(specifier, options, filename, module);
     };
+    const moduleStaticImport = function(specifier) {
+      checkImportGate(specifier, module && module.__exactPackageId);
+      return load(specifier, filename, module, false, 1);
+    };
     const invokeModuleBody = function(moduleBody) {
       manifestBuiltinEvaluationActive = isManifestBuiltinRecord;
       try {
-        moduleBody(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+        moduleBody(
+          localRequire,
+          module,
+          module.exports,
+          filename,
+          dir,
+          moduleDynamicImport,
+          moduleStaticImport
+        );
       } finally {
         manifestBuiltinEvaluationActive = false;
       }
@@ -5894,7 +5909,7 @@
     var resolveMeta = (typeof __exactModuleResolveMeta === 'function')
       ? __exactModuleResolveMeta
       : __exactModuleResolve;
-    var json = resolveMeta(specifier, referrer || "");
+    var json = resolveMeta(specifier, referrer || "", 0);
     if (!json) {
       throw new Error("Cannot find module '" + specifier + "'");
     }
@@ -6154,7 +6169,7 @@
           var __iresolve = (typeof __exactModuleResolveMeta === 'function')
             ? __exactModuleResolveMeta
             : __exactModuleResolve;
-          var __irj = __iresolve(stripViteImportQuery(specifier), referrer);
+          var __irj = __iresolve(stripViteImportQuery(specifier), referrer, 2);
           if (__irj) {
             var __irec = JSON.parse(__irj);
             if (!__irec.error) __itp = packageNameForRecord(__irec, parent);
@@ -6171,7 +6186,7 @@
       // Grant capabilities if provided
       grantCapabilities(specifier, options);
 
-      var module = load(specifier, referrer, parent);
+      var module = load(specifier, referrer, parent, false, 2);
       // Wrap CommonJS modules to look like ESM: { default: module, ...module }
       // This allows: const mod = await import('foo'); mod.default or mod.something
       if (module && !module.__esModule) {

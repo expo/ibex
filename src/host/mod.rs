@@ -2059,8 +2059,13 @@ impl Host {
         specifier: &str,
         referrer: Option<&std::path::Path>,
     ) -> anyhow::Result<ResolvedModule> {
-        let meta =
-            self.resolve_module_meta_for_principal_inner(specifier, referrer, None, false)?;
+        let meta = self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            None,
+            false,
+            crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+        )?;
         self.load_authenticated_module_source(meta)
     }
 
@@ -2075,6 +2080,24 @@ impl Host {
             referrer,
             requester_module_id,
             false,
+            crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+        )?;
+        self.load_authenticated_module_source(meta)
+    }
+
+    pub fn resolve_module_for_principal_typed(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+        requester_module_id: Option<&str>,
+        kind: crate::module_loader::identity::ResolutionKind,
+    ) -> anyhow::Result<ResolvedModule> {
+        let meta = self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            requester_module_id,
+            false,
+            kind,
         )?;
         self.load_authenticated_module_source(meta)
     }
@@ -2185,7 +2208,29 @@ impl Host {
         referrer: Option<&std::path::Path>,
         requester_module_id: Option<&str>,
     ) -> anyhow::Result<ResolvedModule> {
-        self.resolve_module_meta_for_principal_inner(specifier, referrer, requester_module_id, true)
+        self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            requester_module_id,
+            true,
+            crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+        )
+    }
+
+    pub fn resolve_module_meta_for_principal_typed(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+        requester_module_id: Option<&str>,
+        kind: crate::module_loader::identity::ResolutionKind,
+    ) -> anyhow::Result<ResolvedModule> {
+        self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            requester_module_id,
+            true,
+            kind,
+        )
     }
 
     fn resolve_module_meta_for_principal_inner(
@@ -2194,10 +2239,14 @@ impl Host {
         referrer: Option<&std::path::Path>,
         requester_module_id: Option<&str>,
         authorize_path_disclosure: bool,
+        resolution_kind: crate::module_loader::identity::ResolutionKind,
     ) -> anyhow::Result<ResolvedModule> {
         if self.unarmed_closed {
             anyhow::bail!("unarmed host cannot resolve executable modules");
         }
+        let resolution_conditions =
+            crate::module_loader::identity::ConditionSet::for_kind(resolution_kind);
+        let import_attributes = crate::module_loader::identity::ImportAttributes::default();
         let armed_resolution = if let Some(snapshot) = self.armed_snapshot.as_deref() {
             let root_principal = self
                 .typed_imports
@@ -2229,6 +2278,9 @@ impl Host {
                 specifier,
                 referrer,
                 self.module_loader.is_builtin_specifier(specifier),
+                resolution_kind,
+                &resolution_conditions,
+                &import_attributes,
             )?;
             let requester_key = requester_module_id
                 .map(str::to_owned)
@@ -2267,8 +2319,14 @@ impl Host {
         let mut meta = match armed_resolution.as_ref().map(|(_, _, _, _, plan)| plan) {
             Some(ArmedModuleResolution::BoundPackage { name, root }) => self
                 .module_loader
-                .resolve_meta_from_bound_package(specifier, name, root)?,
-            _ => self.module_loader.resolve_meta(specifier, referrer)?,
+                .resolve_meta_from_bound_package_typed(specifier, name, root, resolution_kind)?,
+            _ => self.module_loader.resolve_meta_typed(
+                specifier,
+                referrer,
+                resolution_kind,
+                &resolution_conditions,
+                &import_attributes,
+            )?,
         };
         if let Some(path) = meta.path.as_ref() {
             if let Some((snapshot, root_principal, requester, requester_key, plan)) =
@@ -2344,6 +2402,16 @@ impl Host {
                         }
                     }
                 }
+                let source_components = components
+                    .strip_prefix(binding.host_path.components.as_slice())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("resolved module is outside its authenticated root binding")
+                    })?
+                    .to_vec();
+                meta.source_id = Some(crate::module_loader::identity::SourceId::file(
+                    target_principal.clone(),
+                    source_components,
+                )?);
                 if authorize_path_disclosure {
                     let requester_key = requester_key.as_deref().ok_or_else(|| {
                         anyhow::anyhow!(
@@ -2562,6 +2630,9 @@ fn preflight_armed_module_resolution(
     specifier: &str,
     referrer: Option<&std::path::Path>,
     builtin: bool,
+    resolution_kind: crate::module_loader::identity::ResolutionKind,
+    conditions: &crate::module_loader::identity::ConditionSet,
+    attributes: &crate::module_loader::identity::ImportAttributes,
 ) -> anyhow::Result<ArmedModuleResolution> {
     let requester_policy = imports
         .get(requester)
@@ -2609,6 +2680,17 @@ fn preflight_armed_module_resolution(
             anyhow::bail!("Import denied by authenticated package graph");
         }
         let principal = candidates[0];
+        let condition_names = conditions.names().map(str::to_owned).collect::<Vec<_>>();
+        if !snapshot.authenticates_module_edge(
+            requester,
+            specifier,
+            principal,
+            resolution_kind.wire_name(),
+            &condition_names,
+            attributes.entries(),
+        ) {
+            anyhow::bail!("Import denied by authenticated package graph");
+        }
         let bindings = snapshot
             .root_bindings()?
             .into_iter()
@@ -2650,7 +2732,17 @@ fn preflight_armed_module_resolution(
                 .any(|allowed| allowed == locator.as_str()),
             _ => false,
         };
-        if !allowed {
+        let condition_names = conditions.names().map(str::to_owned).collect::<Vec<_>>();
+        if !allowed
+            || !snapshot.authenticates_module_edge(
+                requester,
+                specifier,
+                &target_principal,
+                resolution_kind.wire_name(),
+                &condition_names,
+                attributes.entries(),
+            )
+        {
             anyhow::bail!("Import denied by authenticated package graph");
         }
     }
@@ -3710,12 +3802,81 @@ mod tests {
         let mut value: serde_json::Value = serde_json::from_slice(source).unwrap();
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
-        mutator(&mut value);
         let project_root = test_project_root();
         value["rootBindings"][1]["hostPath"]["components"] =
             serde_json::to_value(host_path_components(project_root).unwrap()).unwrap();
         value["rootBindings"][1]["object"] =
             serde_json::to_value(object_identity_for_host_path(project_root).unwrap()).unwrap();
+        let baseline_package_root = project_root.join("node_modules/image-lib");
+        std::fs::create_dir_all(&baseline_package_root).unwrap();
+        value["rootBindings"][0]["hostPath"]["components"] =
+            serde_json::to_value(host_path_components(&baseline_package_root).unwrap()).unwrap();
+        value["rootBindings"][0]["object"] =
+            serde_json::to_value(object_identity_for_host_path(&baseline_package_root).unwrap())
+                .unwrap();
+        mutator(&mut value);
+
+        let root_bindings = value["rootBindings"].as_array().unwrap().clone();
+        let project_components = root_bindings
+            .iter()
+            .find(|binding| binding["logicalRoot"] == "project")
+            .unwrap()["hostPath"]["components"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for node in value["packageGraph"]["nodes"].as_array_mut().unwrap() {
+            let principal = node["principal"].clone();
+            let binding = root_bindings
+                .iter()
+                .find(|binding| binding.get("owner") == Some(&principal))
+                .unwrap();
+            let package_components = binding["hostPath"]["components"].as_array().unwrap();
+            let relative = package_components
+                .strip_prefix(project_components.as_slice())
+                .unwrap();
+            node["resolvingSpecifier"] = principal["name"].clone();
+            node["rootObject"] = binding["object"].clone();
+            node["virtualAliases"] = serde_json::json!([{
+                "root": "project",
+                "components": relative,
+            }]);
+            node["platformDisposition"] = serde_json::json!("required");
+        }
+        let authored_edges = value["packageGraph"]["importEdges"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut typed_edges = Vec::new();
+        for edge in authored_edges {
+            if edge.get("requestSpecifier").is_some() {
+                typed_edges.push(edge);
+                continue;
+            }
+            let request = edge["imported"]["name"].as_str().unwrap();
+            for (kind, conditions) in [
+                ("common-js-require", vec!["node", "require"]),
+                ("dynamic-import", vec!["import", "node"]),
+                ("esm-static", vec!["import", "node"]),
+            ] {
+                typed_edges.push(serde_json::json!({
+                    "importer": edge["importer"],
+                    "imported": edge["imported"],
+                    "requestSpecifier": request,
+                    "resolutionKind": kind,
+                    "conditions": conditions,
+                    "attributes": {},
+                }));
+            }
+        }
+        value["packageGraph"]["importEdges"] = serde_json::Value::Array(typed_edges);
+        value["packageGraph"]["digest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                "ibex:capsec:package-graph:1",
+                &value["packageGraph"],
+                &["digest".to_owned()],
+            )
+            .unwrap(),
+        );
         let digest = capsec_semantics::digest::compute_checked_contract_digest(
             capsec_semantics::digest::DigestKind::ArmedSnapshot,
             &value,
@@ -5094,6 +5255,18 @@ mod tests {
                 .unwrap();
             assert_eq!(resolved.path.as_deref(), Some(target.as_path()));
             assert!(resolved.source.is_none());
+            let source_id = resolved
+                .source_id
+                .as_ref()
+                .expect("armed file resolution must carry a SourceId");
+            let root_principal = host
+                .typed_principal_for_module("0")
+                .expect("armed host must expose its root principal");
+            assert_eq!(source_id.defining_principal(), Some(&root_principal));
+            assert!(
+                !source_id.encode().unwrap().contains(root.to_str().unwrap()),
+                "portable SourceId must not embed the host project path"
+            );
         }
         let observed = host.take_typed_conformance_observations();
         assert_eq!(

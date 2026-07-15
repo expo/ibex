@@ -2032,6 +2032,28 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     let mut graph_edges = Vec::new();
     let root_principal = serde_json::json!({"kind": "root", "identity": "project-root"});
     let mut package_bindings = Vec::new();
+    // @ref LLP 0023#12-package-bindings-are-derived-from-the-graph-and-contained-in-the-project
+    // — snapshot edges bind the caller-visible request and resolution mode to
+    // one exact package principal before the resolver can inspect its root.
+    let push_typed_edges = |edges: &mut Vec<serde_json::Value>,
+                            importer: &serde_json::Value,
+                            imported: &serde_json::Value,
+                            request_specifier: &str| {
+        for (resolution_kind, conditions) in [
+            ("common-js-require", vec!["node", "require"]),
+            ("dynamic-import", vec!["import", "node"]),
+            ("esm-static", vec!["import", "node"]),
+        ] {
+            edges.push(serde_json::json!({
+                "importer": importer,
+                "imported": imported,
+                "requestSpecifier": request_specifier,
+                "resolutionKind": resolution_kind,
+                "conditions": conditions,
+                "attributes": {},
+            }));
+        }
+    };
     let installed_packages = authenticated_installed_packages(&project_root, policy_principals)?;
     for row in policy_principals {
         let principal = row["principal"].clone();
@@ -2056,11 +2078,6 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             "imports": row["imports"].clone(),
             "endowments": row["endowments"].clone(),
         }));
-        graph_nodes.push(serde_json::json!({"principal": principal}));
-        graph_edges.push(serde_json::json!({
-            "importer": root_principal,
-            "imported": principal,
-        }));
         if let (Some(name), Some(locator), Some(integrity)) = (
             principal["name"].as_str(),
             principal["locator"].as_str(),
@@ -2083,6 +2100,25 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             let package_root = matches[0].root.clone();
             let object = runtime_object_identity_json(&package_root)?;
             let package_components = runtime_path_components_json(&package_root)?;
+            let project_relative = package_root.strip_prefix(&project_root).with_context(|| {
+                format!(
+                    "authenticated package root {} is outside project {}",
+                    package_root.display(),
+                    project_root.display()
+                )
+            })?;
+            let virtual_components = runtime_path_components_json(project_relative)?;
+            graph_nodes.push(serde_json::json!({
+                "principal": principal,
+                "resolvingSpecifier": name,
+                "rootObject": object,
+                "virtualAliases": [{
+                    "root": "project",
+                    "components": virtual_components,
+                }],
+                "platformDisposition": "required",
+            }));
+            push_typed_edges(&mut graph_edges, &root_principal, &principal, name);
             package_bindings.push(serde_json::json!({
                     "logicalRoot": "package",
                     "owner": principal,
@@ -2112,10 +2148,10 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             let imported = principals_by_locator.get(locator).with_context(|| {
                 format!("canonical policy imports unknown package locator {locator}")
             })?;
-            graph_edges.push(serde_json::json!({
-                "importer": importer,
-                "imported": imported,
-            }));
+            let request_specifier = imported["name"]
+                .as_str()
+                .context("canonical imported principal has no package name")?;
+            push_typed_edges(&mut graph_edges, &importer, imported, request_specifier);
         }
     }
     let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(

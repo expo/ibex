@@ -5892,6 +5892,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "entry:load-internal",
     "entry:local-require",
     "entry:module-dynamic-import",
+    "entry:module-static-import",
     "entry:require-resolve",
     "entry:resolve-path",
     "esm-module",
@@ -5923,6 +5924,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:looksLikeModuleSyntax",
     "function:javascript:makeWindowsCryptoModule",
     "function:javascript:moduleDynamicImport",
+    "function:javascript:moduleStaticImport",
     "function:javascript:packagePrincipalFor",
     "function:javascript:pushDebugModuleSource",
     "function:javascript:resolveModulePath",
@@ -5950,12 +5952,15 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:resolve",
     "function:rust:resolve_meta",
     "function:rust:resolve_meta_from_bound_package",
+    "function:rust:resolve_meta_from_bound_package_typed",
+    "function:rust:resolve_meta_typed",
     "function:rust:resolve_package_import",
     "function:rust:resolve_package_import_target",
     "function:rust:resolve_transpile_cache_dir",
     "function:rust:resolve_with_oxc",
     "function:rust:resolve_with_oxc_at",
     "function:rust:transpile_module",
+    "function:rust:validate_import_attributes",
     "import-needs",
     "import-policy-bare",
     "import-policy-resolved-path",
@@ -6281,6 +6286,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:read_transpile_cache",
     "route:resolution:rust:resolve",
     "route:resolution:rust:resolve_meta",
+    "route:resolution:rust:resolve_meta_typed",
     "route:resolution:rust:resolve_package_import",
     "route:resolution:rust:resolve_package_import_target",
     "route:resolution:rust:resolve_transpile_cache_dir",
@@ -6300,6 +6306,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:source_needs_for_of_scoping_fix",
     "route:resolution:rust:source_needs_loop_scope_downlevel",
     "route:resolution:rust:stamp",
+    "route:resolution:rust:strip_file_specifier_decorations",
     "route:resolution:rust:touch_transpile_artifact",
     "route:resolution:rust:transpile_cache_dir",
     "route:resolution:rust:transpile_cache_is_valid",
@@ -6314,6 +6321,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:transpile_with_swc",
     "route:resolution:rust:unique_staged_transpile_input",
     "route:resolution:rust:unique_tmp_path",
+    "route:resolution:rust:validate_import_attributes",
     "route:resolution:rust:verify_transpile_override_identity",
     "route:resolution:rust:wait_for_transpile_test_barrier",
     "route:resolution:rust:walk",
@@ -9313,7 +9321,7 @@ function loaderClassification(surface) {
   if (name.startsWith("route:")) {
     const functionName = name.split(":").at(-1);
     if (
-      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path)$/u.test(
+      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|strip_file_specifier_decorations|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path|validate_import_attributes)$/u.test(
         functionName,
       )
     ) {
@@ -9334,7 +9342,7 @@ function loaderClassification(surface) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (
-      /^(?:read_package_manifest|package_version_for|resolve_meta|resolve_meta_from_bound_package|resolve_package_import|resolve_package_import_target|resolve_with_oxc|resolve_with_oxc_at)$/u.test(
+      /^(?:read_package_manifest|package_version_for|resolve_meta|resolve_meta_from_bound_package|resolve_meta_from_bound_package_typed|resolve_meta_typed|resolve_package_import|resolve_package_import_target|resolve_with_oxc|resolve_with_oxc_at)$/u.test(
         functionName,
       )
     ) {
@@ -9439,10 +9447,13 @@ function loaderClassification(surface) {
         "function:javascript:importimpl",
         "function:javascript:load",
         "function:javascript:moduledynamicimport",
+        "function:javascript:modulestaticimport",
         "function:rust:load_module_source",
         "function:rust:load_source",
         "function:rust:load_source_bytes",
         "function:rust:resolve_meta_from_bound_package",
+        "function:rust:resolve_meta_from_bound_package_typed",
+        "function:rust:resolve_meta_typed",
         "function:rust:resolve",
         "function:rust:resolve_with_oxc_at",
       ]).has(name)
@@ -9451,6 +9462,14 @@ function loaderClassification(surface) {
     }
     if (name === "function:rust:is_builtin_specifier") {
       return nonCapabilitySpec("module-reachability-only", "WP7");
+    }
+    if (
+      new Set([
+        "function:rust:strip_file_specifier_decorations",
+        "function:rust:validate_import_attributes",
+      ]).has(name)
+    ) {
+      return nonCapabilitySpec("internal-data-transform", "WP1");
     }
     if (name === "function:rust:normalize_import_target") {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);

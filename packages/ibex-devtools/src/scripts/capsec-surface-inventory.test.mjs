@@ -2603,6 +2603,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       }
       var localRequire = function() {};
       var moduleDynamicImport = function() {};
+      var moduleStaticImport = function() {};
       globalThis.require = function() {};
       globalThis.require.resolve = function() {};
       globalThis.__exactRequire = function() {};
@@ -2622,6 +2623,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "entry:global-require",
         "entry:require-resolve",
         "entry:module-dynamic-import",
+        "entry:module-static-import",
       ]),
     );
 
