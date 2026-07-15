@@ -140288,6 +140288,16 @@
             "rationale": "The experimental native graph runner compiles or executes authenticated module factories; it remains closed until the graph authorization profile lands."
           },
           {
+            "id": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_record_link_export"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm",
             "classification": "non-capability",
             "surface": {

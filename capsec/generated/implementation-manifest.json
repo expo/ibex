@@ -115803,6 +115803,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t",
+      "observedKey": "host-abi:ex_hermes_module_record_link_export",
+      "branchId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_link_export"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_export"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_export"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_link_export"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_export"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default.non-capability",
+        "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm",
       "observedKey": "host-abi:ex_hermes_module_record_link_import",
       "branchId": "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm.default",
@@ -265490,44 +265524,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-HC4eq-QqkcO_4KVIEyNdTwPJsTulJnbLzzPWOh-GfOA"
+      "rawContentDigest": "sha256-sOmolWR9LRb9YCza0DXZ9lHlF_xzeT9k2EN_snzrBzU"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-onpCa2FMD9yOvtNGlfPzr-_jtNxJW0Y2LYmQWsOpkBU"
+      "rawContentDigest": "sha256-Cz2SG6haUzuRsZGL3YkhXfzvT_tOofXGHcENfKGe_8g"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-2jmc7xux1DNWclHtShNp20hhBughxLFujqQ20o-xnKY"
+      "rawContentDigest": "sha256-kRoj54_PyDgjMpUZ2mr1pIxfs1vg3hlywx41IhYwjaE"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-o5RCjEpd2CKoR8qj3SBAeeQqoMb0mbqNe13A5PYMFhg"
+      "rawContentDigest": "sha256-iHl98RFLFhl4dxxhnEFsxq2OpzczICFQaa5gft6hKXI"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-0VRFBo53JQDWxON-v2ffvqq-RxOX5_FIFxtknz2HkvA"
+      "rawContentDigest": "sha256-TSXcaVWc-600oZydab6bPbFWsqomCpUW4MB4tJMTiIg"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-nOZWh4JUFpg2QaDb8cxm6Xj16adYGyIzdvk09jKV8Aw"
+      "rawContentDigest": "sha256-dwSV398DX2J5Oti37c4-9byzIeZ6HruGpxv3LsB2t20"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-RcIgNtKKYx8DySP2k4aHBnltZLlIAijfVjabCmb6U9w"
+      "rawContentDigest": "sha256-iq8ghZWCzSZMRBcQrVd_69G8p10HsBVi8U6VW2hSUPY"
     }
   ],
   "counts": {
-    "observedReferences": 12809,
-    "logicalSurfaces": 7130,
-    "enforcementBranches": 7329,
-    "coverageEdges": 7130,
-    "targetCells": 7130
+    "observedReferences": 12810,
+    "logicalSurfaces": 7131,
+    "enforcementBranches": 7330,
+    "coverageEdges": 7131,
+    "targetCells": 7131
   }
 }

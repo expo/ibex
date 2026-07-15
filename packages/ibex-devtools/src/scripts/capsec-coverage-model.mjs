@@ -5133,6 +5133,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_module_create_record",
     "ex_hermes_module_record_declare_export",
     "ex_hermes_module_record_instantiate",
+    "ex_hermes_module_record_link_export",
     "ex_hermes_module_record_link_import",
     "ex_hermes_module_record_namespace_json",
     "ex_hermes_module_record_run_declare",
@@ -12123,6 +12124,7 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_graph_context_retain",
         "ex_hermes_module_create_record",
         "ex_hermes_module_record_declare_export",
+        "ex_hermes_module_record_link_export",
         "ex_hermes_module_record_link_import",
       ]).has(surface.name)
     ) {

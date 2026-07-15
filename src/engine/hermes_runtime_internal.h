@@ -127,6 +127,8 @@ enum class NativeModuleRecordState : uint8_t {
 struct NativeModuleBindingCell {
   bool initialized{false};
   std::shared_ptr<facebook::jsi::Value> value;
+  uint64_t alias_record_id{0};
+  std::string alias_export;
 };
 
 struct NativeModuleImportBinding {

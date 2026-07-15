@@ -7,6 +7,7 @@
 
 #include <cstring>
 #include <limits>
+#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -90,24 +91,47 @@ NativeModuleRecordEntry* callbackRecordFor(
 
 facebook::jsi::Value readBinding(
     facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t recordId,
     NativeModuleRecordEntry& record,
     const std::string& exportName) {
-  if (exportName == "*") {
-    if (!record.namespace_object) {
-      throw facebook::jsi::JSError(rt, "module namespace is not instantiated");
+  auto* current = &record;
+  uint64_t currentId = recordId;
+  std::string currentName = exportName;
+  std::set<std::pair<uint64_t, std::string>> visited;
+  while (true) {
+    if (!visited.emplace(currentId, currentName).second) {
+      throw facebook::jsi::JSError(rt, "cyclic module export alias");
     }
-    return facebook::jsi::Value(rt, *record.namespace_object);
+    if (currentName == "*") {
+      if (!current->namespace_object) {
+        throw facebook::jsi::JSError(
+            rt, "module namespace is not instantiated");
+      }
+      return facebook::jsi::Value(rt, *current->namespace_object);
+    }
+    auto cell = current->export_cells.find(currentName);
+    if (cell == current->export_cells.end()) {
+      throw facebook::jsi::JSError(
+          rt, "module does not export '" + currentName + "'");
+    }
+    if (cell->second.alias_record_id != 0) {
+      auto target = runtime->module_records.find(cell->second.alias_record_id);
+      if (target == runtime->module_records.end() ||
+          target->second.graph_generation != current->graph_generation) {
+        throw facebook::jsi::JSError(rt, "module export alias is stale");
+      }
+      currentId = cell->second.alias_record_id;
+      currentName = cell->second.alias_export;
+      current = &target->second;
+      continue;
+    }
+    if (!cell->second.initialized || !cell->second.value) {
+      throw facebook::jsi::JSError(
+          rt, "Cannot access '" + currentName + "' before initialization");
+    }
+    return facebook::jsi::Value(rt, *cell->second.value);
   }
-  auto cell = record.export_cells.find(exportName);
-  if (cell == record.export_cells.end()) {
-    throw facebook::jsi::JSError(
-        rt, "module does not export '" + exportName + "'");
-  }
-  if (!cell->second.initialized || !cell->second.value) {
-    throw facebook::jsi::JSError(
-        rt, "Cannot access '" + exportName + "' before initialization");
-  }
-  return facebook::jsi::Value(rt, *cell->second.value);
 }
 
 void rememberRecordError(
@@ -446,6 +470,42 @@ extern "C" int32_t ex_hermes_module_record_declare_export(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+extern "C" int32_t ex_hermes_module_record_link_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len,
+    ExactModuleRunnerHandle target_record,
+    const uint8_t* target_export,
+    size_t target_export_len) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  auto* target = recordFor(runtime, target_record);
+  if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeModuleRecordState::New ||
+      entry->graph_generation != target->graph_generation ||
+      export_name == nullptr || export_name_len == 0 ||
+      target_export == nullptr || target_export_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string name(
+      reinterpret_cast<const char*>(export_name), export_name_len);
+  const std::string targetName(
+      reinterpret_cast<const char*>(target_export), target_export_len);
+  auto cell = entry->export_cells.find(name);
+  if (cell == entry->export_cells.end() || cell->second.initialized ||
+      cell->second.alias_record_id != 0 ||
+      (targetName != "*" && target->export_cells.find(targetName) ==
+                                target->export_cells.end())) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  cell->second.alias_record_id = target_record.opaque[2];
+  cell->second.alias_export = targetName;
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 extern "C" int32_t ex_hermes_module_record_link_import(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -542,7 +602,8 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
             if (current == nullptr) {
               throw facebook::jsi::JSError(rt, "stale module namespace");
             }
-            return readBinding(rt, *current, name);
+            return readBinding(
+                rt, target.runtime, recordId, *current, name);
           });
       facebook::jsi::Object descriptor(rt);
       descriptor.setProperty(rt, "enumerable", true);
@@ -579,6 +640,10 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
           if (cell == current->export_cells.end()) {
             throw facebook::jsi::JSError(
                 rt, "module attempted to publish undeclared export '" + name + "'");
+          }
+          if (cell->second.alias_record_id != 0) {
+            throw facebook::jsi::JSError(
+                rt, "module attempted to publish indirect export '" + name + "'");
           }
           cell->second.value =
               std::make_shared<facebook::jsi::Value>(rt, args[1]);
@@ -617,7 +682,11 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
             throw facebook::jsi::JSError(rt, "module import target is stale");
           }
           return readBinding(
-              rt, targetRecord->second, binding->second.target_export);
+              rt,
+              target.runtime,
+              binding->second.target_record_id,
+              targetRecord->second,
+              binding->second.target_export);
         });
     context.setProperty(rt, "importValue", std::move(importValue));
     facebook::jsi::Object meta(rt);

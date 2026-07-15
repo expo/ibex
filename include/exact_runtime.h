@@ -175,6 +175,18 @@ int32_t ex_hermes_module_record_declare_export(
     const uint8_t* export_name,
     size_t export_name_len);
 
+/// Turn a declared export cell into a live view of an authenticated target
+/// cell or namespace. Used for indirect, namespace, and resolved star exports.
+int32_t ex_hermes_module_record_link_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len,
+    ExactModuleRunnerHandle target_record,
+    const uint8_t* target_export,
+    size_t target_export_len);
+
 /// Bind one factory `context.importValue(specifier, imported)` lookup to an
 /// authenticated target record/cell. `target_export == "*"` selects the
 /// target's stable namespace object.

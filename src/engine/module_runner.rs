@@ -77,6 +77,16 @@ unsafe extern "C" {
         export_name: *const u8,
         export_name_len: usize,
     ) -> i32;
+    fn ex_hermes_module_record_link_export(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        export_name: *const u8,
+        export_name_len: usize,
+        target_record: NativeModuleHandle,
+        target_export: *const u8,
+        target_export_len: usize,
+    ) -> i32;
     fn ex_hermes_module_record_link_import(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -422,6 +432,39 @@ impl NativeModuleRecord<'_> {
         Ok(())
     }
 
+    /// Link a declared export as a live view of another record's export or
+    /// namespace (`target_export == "*"`). The target must belong to the same
+    /// runtime and graph generation.
+    pub fn link_export(
+        &mut self,
+        export_name: &str,
+        target: &NativeModuleRecord<'_>,
+        target_export: &str,
+    ) -> Result<()> {
+        if !std::ptr::eq(self.runtime, target.runtime) {
+            bail!("module export records belong to different runtime borrows");
+        }
+        if export_name.is_empty() || target_export.is_empty() {
+            bail!("module export binding strings must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_module_record_link_export(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                export_name.as_ptr(),
+                export_name.len(),
+                target.live_handle()?,
+                target_export.as_ptr(),
+                target_export.len(),
+            )
+        };
+        if status != 0 {
+            bail!("native export binding refused ({status})");
+        }
+        Ok(())
+    }
+
     pub fn instantiate(&mut self, meta_url: &str, is_main: bool) -> Result<()> {
         if meta_url.is_empty() {
             bail!("module import.meta URL must not be empty");
@@ -722,6 +765,7 @@ mod tests {
             let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
             let target_id = SourceId::synthetic("module-runner-test", "target").unwrap();
             let importer_id = SourceId::synthetic("module-runner-test", "importer").unwrap();
+            let reexport_id = SourceId::synthetic("module-runner-test", "reexport").unwrap();
             let target_artifact = test_artifact_with_factory(
                 target_id.clone(),
                 "function ($export) { let count; function increment() { $export('count', ++count); } return { declare: function () { $export('increment', increment); }, execute: function () { count = 0; $export('count', count); } }; }",
@@ -732,6 +776,11 @@ mod tests {
                 "function ($export, context) { return { declare: function () {}, execute: function () { const before = context.importValue('./target', 'count'); context.importValue('./target', 'increment')(); $export('observed', before + ':' + context.importValue('./target', 'count')); } }; }",
                 &["observed"],
             );
+            let reexport_artifact = test_artifact_with_factory(
+                reexport_id.clone(),
+                "function () { return { declare: function () {}, execute: function () {} }; }",
+                &["count", "target"],
+            );
             let target_context = runtime
                 .create_graph_context(
                     GraphEvaluationContext::new(target_id.clone(), 0, 0, [0], 1).unwrap(),
@@ -740,6 +789,11 @@ mod tests {
             let importer_context = runtime
                 .create_graph_context(
                     GraphEvaluationContext::new(importer_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let reexport_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(reexport_id.clone(), 0, 0, [0], 1).unwrap(),
                 )
                 .unwrap();
             let target_factory = runtime
@@ -760,6 +814,15 @@ mod tests {
                     "importer.mjs",
                 )
                 .unwrap();
+            let reexport_factory = runtime
+                .compile_verified_factory(
+                    verify_test_artifact(&reexport_artifact),
+                    0,
+                    None,
+                    1,
+                    "reexport.mjs",
+                )
+                .unwrap();
             let mut target = target_factory
                 .create_record(&target_context, &target_id)
                 .unwrap();
@@ -775,6 +838,13 @@ mod tests {
             importer
                 .link_import("./target", "increment", &target, "increment")
                 .unwrap();
+            let mut reexport = reexport_factory
+                .create_record(&reexport_context, &reexport_id)
+                .unwrap();
+            reexport.declare_export("count").unwrap();
+            reexport.declare_export("target").unwrap();
+            reexport.link_export("count", &target, "count").unwrap();
+            reexport.link_export("target", &target, "*").unwrap();
 
             target
                 .instantiate("synthetic:module-runner-test/target", false)
@@ -782,8 +852,12 @@ mod tests {
             importer
                 .instantiate("synthetic:module-runner-test/importer", true)
                 .unwrap();
+            reexport
+                .instantiate("synthetic:module-runner-test/reexport", false)
+                .unwrap();
             target.run_declare().unwrap();
             importer.run_declare().unwrap();
+            reexport.run_declare().unwrap();
             assert_eq!(
                 target.run_execute().unwrap(),
                 ModuleExecutionKind::Synchronous
@@ -794,11 +868,18 @@ mod tests {
             );
             assert_eq!(target.namespace_json().unwrap(), r#"{"count":1}"#);
             assert_eq!(importer.namespace_json().unwrap(), r#"{"observed":"0:1"}"#);
+            assert_eq!(
+                reexport.namespace_json().unwrap(),
+                r#"{"count":1,"target":{"count":1}}"#
+            );
 
+            drop(reexport);
             drop(importer);
             drop(target);
+            drop(reexport_factory);
             drop(importer_factory);
             drop(target_factory);
+            drop(reexport_context);
             drop(importer_context);
             drop(target_context);
             drop(runtime);
