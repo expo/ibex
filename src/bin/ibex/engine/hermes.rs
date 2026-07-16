@@ -2940,6 +2940,15 @@ async fn compile_source_to_bytecode_with_compiler(
     let source_map_path = source_map
         .map(|path| {
             let path = absolute_path(path);
+            let parent = path
+                .parent()
+                .context("source-map output has no parent directory")?;
+            let name = path
+                .file_name()
+                .context("source-map output has no file name")?;
+            let path = std::fs::canonicalize(parent)
+                .context("cannot authenticate source-map output directory")?
+                .join(name);
             path.to_str()
                 .context("bytecode cache does not support non-UTF-8 source-map paths")
                 .map(str::to_owned)
@@ -3881,6 +3890,102 @@ cp \"$input\" \"$out\"\n";
             .unwrap()
             .dedup();
         mutate(&mut value);
+
+        // Production snapshots require the package graph's location and
+        // typed-edge provenance. The checked-in canonical snapshot is a
+        // contract fixture, so materialize those production-only fields after
+        // the caller has replaced any principals or bindings.
+        let project_components = value["rootBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|binding| binding["logicalRoot"] == "project")
+            .expect("production test snapshot must bind the project root")["hostPath"]
+            ["components"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for binding in value["rootBindings"].as_array_mut().unwrap() {
+            let Some(owner) = binding.get("owner") else {
+                continue;
+            };
+            let components = binding["hostPath"]["components"]
+                .as_array()
+                .expect("test package binding must have path components");
+            if components.starts_with(&project_components) {
+                continue;
+            }
+            let package_name = owner["name"]
+                .as_str()
+                .expect("test package binding owner must have a name");
+            let mut relocated = project_components.clone();
+            relocated.extend([
+                serde_json::json!({"encoding": "utf8", "value": "node_modules"}),
+                serde_json::json!({"encoding": "utf8", "value": package_name}),
+            ]);
+            binding["hostPath"]["components"] = serde_json::Value::Array(relocated);
+        }
+        let root_bindings = value["rootBindings"].as_array().unwrap().clone();
+        for node in value["packageGraph"]["nodes"].as_array_mut().unwrap() {
+            let principal = node["principal"].clone();
+            let binding = root_bindings
+                .iter()
+                .find(|binding| binding.get("owner") == Some(&principal))
+                .expect("package graph node must have a test root binding");
+            let package_name = principal["name"]
+                .as_str()
+                .expect("test package principal must have a name");
+            node["resolvingSpecifier"] = serde_json::json!(package_name);
+            node["rootObject"] = binding["object"].clone();
+            let package_components = binding["hostPath"]["components"]
+                .as_array()
+                .expect("test package binding must have path components");
+            let virtual_components = package_components
+                .strip_prefix(project_components.as_slice())
+                .expect("normalized package binding must be below the project root");
+            node["virtualAliases"] = serde_json::json!([{
+                "root": "project",
+                "components": virtual_components
+            }]);
+            node["platformDisposition"] = serde_json::json!("required");
+        }
+        let authored_edges = value["packageGraph"]["importEdges"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut typed_edges = Vec::new();
+        for edge in authored_edges {
+            if edge.get("requestSpecifier").is_some() {
+                typed_edges.push(edge);
+                continue;
+            }
+            let request = edge["imported"]["name"]
+                .as_str()
+                .expect("test imported principal must have a name");
+            for (kind, conditions) in [
+                ("common-js-require", vec!["node", "require"]),
+                ("dynamic-import", vec!["import", "node"]),
+                ("esm-static", vec!["import", "node"]),
+            ] {
+                typed_edges.push(serde_json::json!({
+                    "importer": edge["importer"],
+                    "imported": edge["imported"],
+                    "requestSpecifier": request,
+                    "resolutionKind": kind,
+                    "conditions": conditions,
+                    "attributes": {},
+                }));
+            }
+        }
+        value["packageGraph"]["importEdges"] = serde_json::Value::Array(typed_edges);
+        value["packageGraph"]["digest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                "ibex:capsec:package-graph:1",
+                &value["packageGraph"],
+                &["digest".to_owned()],
+            )
+            .unwrap(),
+        );
         let digest = capsec_semantics::digest::compute_checked_contract_digest(
             capsec_semantics::digest::DigestKind::ArmedSnapshot,
             &value,

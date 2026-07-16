@@ -1430,6 +1430,12 @@ impl Runtime {
 
             if !script_entry {
                 (None, absolute_path.clone())
+            } else if self._host.armed_snapshot().is_none() {
+                // Audit/diagnostic runtimes deliberately have no immutable
+                // armed snapshot. They retain the compatibility evaluator;
+                // production runner admission never manufactures authority
+                // from that weaker host.
+                (None, absolute_path.clone())
             } else {
                 let producer_digest = module_producer_binary_digest()?;
                 // A warm prepared graph may be discovered through the
@@ -5836,6 +5842,56 @@ mod tests {
         .unwrap();
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        let package_principal = value["packageGraph"]["nodes"][0]["principal"].clone();
+        let root_principal = value["rootIdentity"].clone();
+        let package_object = value["rootBindings"][0]["object"].clone();
+        value["packageGraph"]["nodes"][0] = serde_json::json!({
+            "principal": package_principal.clone(),
+            "resolvingSpecifier": "image-lib",
+            "rootObject": package_object,
+            "virtualAliases": [{
+                "root": "project",
+                "components": [
+                    {"encoding": "utf8", "value": "node_modules"},
+                    {"encoding": "utf8", "value": "image-lib"}
+                ]
+            }],
+            "platformDisposition": "required"
+        });
+        value["packageGraph"]["importEdges"] = serde_json::json!([
+            {
+                "importer": root_principal.clone(),
+                "imported": package_principal.clone(),
+                "requestSpecifier": "image-lib",
+                "resolutionKind": "common-js-require",
+                "conditions": ["node", "require"],
+                "attributes": {}
+            },
+            {
+                "importer": root_principal.clone(),
+                "imported": package_principal.clone(),
+                "requestSpecifier": "image-lib",
+                "resolutionKind": "dynamic-import",
+                "conditions": ["import", "node"],
+                "attributes": {}
+            },
+            {
+                "importer": root_principal,
+                "imported": package_principal,
+                "requestSpecifier": "image-lib",
+                "resolutionKind": "esm-static",
+                "conditions": ["import", "node"],
+                "attributes": {}
+            }
+        ]);
+        value["packageGraph"]["digest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                "ibex:capsec:package-graph:1",
+                &value["packageGraph"],
+                &["digest".to_owned()],
+            )
+            .unwrap(),
+        );
         let engine = crate::engine::hermes::HermesEngine::loaded_engine_identity()
             .expect("arming fixture requires the authenticated loaded engine");
         value["engine"]["target"] = serde_json::Value::String(exact_runtime_target());
