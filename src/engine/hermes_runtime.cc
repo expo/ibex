@@ -340,6 +340,9 @@ extern "C" int32_t ex_host_authorize_exact_endowment(
     const char* operation_manifest_digest,
     const uint32_t* operation_ids,
     size_t operation_count);
+extern "C" int32_t ex_host_authorize_embedder_capability_set(
+    uint64_t host_context_id,
+    uint32_t installed_flags);
 extern "C" int32_t ex_host_typed_dynamic_grant(uint64_t module_id,
                                                  const uint8_t* request,
                                                  size_t request_len);
@@ -1934,6 +1937,59 @@ void defineExactCapability(
       exactObject,
       facebook::jsi::String::createFromAscii(rt, name),
       descriptor);
+}
+
+void removeProvisionalExactCapability(
+    ExactHermesRuntime* runtime,
+    const char* name) noexcept {
+  try {
+    auto& rt = *runtime->runtime;
+    auto exactValue = rt.global().getProperty(rt, "exact");
+    if (!exactValue.isObject()) return;
+    auto exactObject = exactValue.getObject(rt);
+    auto descriptor = rt.global()
+                          .getPropertyAsObject(rt, "Object")
+                          .getPropertyAsFunction(rt, "getOwnPropertyDescriptor")
+                          .call(
+                              rt,
+                              exactObject,
+                              facebook::jsi::String::createFromAscii(rt, name));
+    if (!descriptor.isObject()) return;
+    auto configurable = descriptor.getObject(rt).getProperty(rt, "configurable");
+    if (!configurable.isBool() || !configurable.getBool()) return;
+    rt.global()
+        .getPropertyAsObject(rt, "Reflect")
+        .getPropertyAsFunction(rt, "deleteProperty")
+        .call(
+            rt,
+            exactObject,
+            facebook::jsi::String::createFromAscii(rt, name));
+  } catch (...) {
+    // Rollback is best effort only after the primary install failure. A sealed
+    // property is intentionally irreversible and occurs only after finalize.
+  }
+}
+
+void rollbackExactHostIngress(ExactHermesRuntime* runtime) noexcept {
+  if (!runtime) return;
+  removeProvisionalExactCapability(runtime, "invokeHostAsync");
+  runtime->exact_host_call_async_fn = nullptr;
+  runtime->exact_host_call_async_context = nullptr;
+  runtime->exact_host_context = 0;
+  runtime->exact_host_operations.clear();
+}
+
+bool sealExactHostIngress(ExactHermesRuntime* runtime) {
+  if (!runtime->exact_host_call_async_fn) return true;
+  auto& rt = *runtime->runtime;
+  auto exactValue = rt.global().getProperty(rt, "exact");
+  if (!exactValue.isObject()) return false;
+  auto exactObject = exactValue.getObject(rt);
+  auto installed = exactObject.getProperty(rt, "invokeHostAsync");
+  if (!installed.isObject() || !installed.getObject(rt).isFunction(rt)) return false;
+  defineExactCapability(
+      rt, exactObject, "invokeHostAsync", std::move(installed), false);
+  return true;
 }
 
 void installGlobals(struct ExactHermesRuntime* handle) {
@@ -3960,6 +4016,10 @@ extern "C" int32_t ex_hermes_try_destroy(
   // registered in Closing. Already-admitted JSI-bearing producers retain a
   // native-worker pin, may enqueue their captures, and are drained below.
   unregisterAndroidHostFunctions(runtime);
+  // The GPU mailbox is plain native state and deliberately holds no
+  // realm-long worker pin. Detach before closing the service realm, then
+  // continue teardown without waiting for a provider terminal callback.
+  exactGpuBeginRuntimeTeardown(runtime);
   unregisterSignalRuntime(runtime);
   disableDebugger(runtime);
   forgetHostCallTargets(target);
@@ -4029,6 +4089,12 @@ extern "C" int ex_hermes_eval(
 
   if (!runtime || !data || len == 0) {
     writeOutError("Hermes eval received invalid input");
+    return 1;
+  }
+  if (runtime->embedder_capability_state ==
+          EmbedderCapabilityState::Configuring ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+    writeOutError("Hermes embedder capability transaction is not finalized");
     return 1;
   }
 
@@ -4694,6 +4760,8 @@ namespace {
 constexpr size_t kMaxExactHostOperationCount = 4096;
 constexpr size_t kMaxExactHostPayloadBytes = 16 * 1024 * 1024;
 constexpr size_t kMaxExactPendingHostCalls = 1024;
+constexpr uint32_t kEmbedderCapabilityExactIngress = 1u << 0;
+constexpr uint32_t kEmbedderCapabilityGpuProvider = 1u << 1;
 
 bool exactHostContextIsValid(uint32_t context) {
   return context == EXACT_EMBEDDER_CONTEXT_APP ||
@@ -4701,6 +4769,74 @@ bool exactHostContextIsValid(uint32_t context) {
 }
 
 }  // namespace
+
+extern "C" int32_t ex_hermes_begin_embedder_capabilities_v1(
+    ExactHermesRuntime* runtime) {
+  // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — no user
+  // evaluation may race provisional native capability publication.
+  if (!runtime || !runtime->runtime) {
+    return EXACT_EMBEDDER_CAPABILITIES_INVALID_ARGUMENT;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    return EXACT_EMBEDDER_CAPABILITIES_WRONG_THREAD;
+  }
+  if (runtime->restricted) {
+    return EXACT_EMBEDDER_CAPABILITIES_RESTRICTED_RUNTIME;
+  }
+  if (runtime->embedder_capability_state !=
+          EmbedderCapabilityState::LegacyAutoFinalize ||
+      runtime->exact_host_call_async_fn || exactGpuBindingInstalled(runtime)) {
+    return EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE;
+  }
+  runtime->embedder_capability_state = EmbedderCapabilityState::Configuring;
+  return EXACT_EMBEDDER_CAPABILITIES_OK;
+}
+
+extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime) {
+    return EXACT_EMBEDDER_CAPABILITIES_INVALID_ARGUMENT;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    return EXACT_EMBEDDER_CAPABILITIES_WRONG_THREAD;
+  }
+  if (runtime->restricted) {
+    return EXACT_EMBEDDER_CAPABILITIES_RESTRICTED_RUNTIME;
+  }
+  if (runtime->embedder_capability_state !=
+      EmbedderCapabilityState::Configuring) {
+    return EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE;
+  }
+
+  uint32_t installed = 0;
+  if (runtime->exact_host_call_async_fn) {
+    installed |= kEmbedderCapabilityExactIngress;
+  }
+  if (exactGpuBindingInstalled(runtime)) {
+    installed |= kEmbedderCapabilityGpuProvider;
+  }
+  if (ex_host_authorize_embedder_capability_set(
+          runtime->host_context_id, installed) != 1) {
+    rollbackExactHostIngress(runtime);
+    exactGpuRollbackInstall(runtime);
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    return EXACT_EMBEDDER_CAPABILITIES_AUTHENTICATION_FAILED;
+  }
+
+  try {
+    if (!finalizeCompartmentBaselineForEmbedder(runtime) ||
+        !sealExactHostIngress(runtime)) {
+      throw std::runtime_error("embedder capability finalization failed");
+    }
+  } catch (...) {
+    rollbackExactHostIngress(runtime);
+    exactGpuRollbackInstall(runtime);
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
+  }
+  runtime->embedder_capability_state = EmbedderCapabilityState::Finalized;
+  return EXACT_EMBEDDER_CAPABILITIES_OK;
+}
 
 extern "C" int ex_hermes_set_exact_host_call_async(
     ExactHermesRuntime* runtime,
@@ -4731,6 +4867,10 @@ extern "C" int ex_hermes_set_exact_host_call_async(
       runtime->exact_host_context != 0 ||
       !runtime->exact_host_operations.empty()) {
     return -5;
+  }
+  if (runtime->embedder_capability_state == EmbedderCapabilityState::Finalized ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+    return -9;
   }
 
   std::unordered_set<uint32_t> operations;
@@ -4865,51 +5005,24 @@ extern "C" int ex_hermes_set_exact_host_call_async(
     // below is immediately visible through every package compartment too.
     defineExactCapability(
         rt, exactObject, "invokeHostAsync", std::move(invoke), true);
-    if (!finalizeCompartmentBaselineForEmbedder(runtime)) {
+    if (runtime->embedder_capability_state ==
+        EmbedderCapabilityState::Configuring) {
+      // The explicit transaction keeps the method removable until every
+      // authenticated native capability has been installed.
+      return 0;
+    }
+    if (ex_host_authorize_embedder_capability_set(
+            runtime->host_context_id, kEmbedderCapabilityExactIngress) != 1 ||
+        !finalizeCompartmentBaselineForEmbedder(runtime) ||
+        !sealExactHostIngress(runtime)) {
+      runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
       throw facebook::jsi::JSError(
           rt,
-          "exact.invokeHostAsync could not finalize the package-compartment baseline");
+          "exact.invokeHostAsync could not authenticate and finalize the package-compartment baseline");
     }
-    auto installed = exactObject.getProperty(rt, "invokeHostAsync");
-    defineExactCapability(
-        rt, exactObject, "invokeHostAsync", std::move(installed), false);
+    runtime->embedder_capability_state = EmbedderCapabilityState::Finalized;
   } catch (...) {
-    try {
-      auto& rt = *runtime->runtime;
-      auto exactValue = rt.global().getProperty(rt, "exact");
-      if (exactValue.isObject()) {
-        auto exactObject = exactValue.getObject(rt);
-        auto descriptor = rt.global()
-                              .getPropertyAsObject(rt, "Object")
-                              .getPropertyAsFunction(rt, "getOwnPropertyDescriptor")
-                              .call(
-                                  rt,
-                                  exactObject,
-                                  facebook::jsi::String::createFromAscii(
-                                      rt, "invokeHostAsync"));
-        if (descriptor.isObject()) {
-          auto configurable = descriptor.getObject(rt).getProperty(
-              rt, "configurable");
-          if (configurable.isBool() && configurable.getBool()) {
-            rt.global()
-                .getPropertyAsObject(rt, "Reflect")
-                .getPropertyAsFunction(rt, "deleteProperty")
-                .call(
-                    rt,
-                    exactObject,
-                    facebook::jsi::String::createFromAscii(
-                        rt, "invokeHostAsync"));
-          }
-        }
-      }
-    } catch (...) {
-      // The primary failure still wins. A successfully sealed property is
-      // intentionally irreversible and can only occur after finalization.
-    }
-    runtime->exact_host_call_async_fn = nullptr;
-    runtime->exact_host_call_async_context = nullptr;
-    runtime->exact_host_context = 0;
-    runtime->exact_host_operations.clear();
+    rollbackExactHostIngress(runtime);
     return -6;
   }
   return 0;

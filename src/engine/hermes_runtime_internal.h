@@ -99,6 +99,14 @@ struct ExactHostCallAsyncEntry {
 };
 
 struct ExactHermesRuntime;
+struct ExactGpuRuntimeBinding;
+
+enum class EmbedderCapabilityState : uint8_t {
+  LegacyAutoFinalize,
+  Configuring,
+  Finalized,
+  Failed,
+};
 
 struct ModuleFactoryEntry {
   uint64_t graph_generation{0};
@@ -230,6 +238,11 @@ struct ExactHermesRuntime {
   // process-global environment toggles that other threads can observe/race.
   bool armed{false};
   bool structural_lockdown{false};
+  // Multi-capability embedders opt into an explicit construction transaction.
+  // Legacy Exact-only callers remain on the historical auto-finalize path.
+  // Only the runtime owner thread mutates this state.
+  EmbedderCapabilityState embedder_capability_state{
+      EmbedderCapabilityState::LegacyAutoFinalize};
   // Strict JSON [{locator,endowments}] projection copied from the immutable
   // armed Host context. Locator punctuation is data, never bootstrap syntax.
   std::string snapshot_endowments_json;
@@ -384,6 +397,9 @@ struct ExactHermesRuntime {
                                    size_t payload_len,
                                    void* context) = nullptr;
   void* exact_host_call_async_context = nullptr;
+  // Optional provider-independent Exact GPU service registration. The binding
+  // owns only native state; no JSI value or physical WGPU handle crosses it.
+  std::shared_ptr<ExactGpuRuntimeBinding> gpu_binding;
 };
 
 /// Common owner-thread, liveness, generation, and non-reentrancy gate for
@@ -1280,6 +1296,10 @@ extern "C" void ex_hermes_notify_callback();
 // including while destroy waits for native producer pins to drain.
 bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
                           std::function<void()> fn);
+
+bool exactGpuBindingInstalled(const ExactHermesRuntime* runtime);
+void exactGpuRollbackInstall(ExactHermesRuntime* runtime);
+void exactGpuBeginRuntimeTeardown(ExactHermesRuntime* runtime);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);

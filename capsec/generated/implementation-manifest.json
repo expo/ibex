@@ -114297,6 +114297,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g",
+      "observedKey": "host-abi:ex_hermes_begin_embedder_capabilities_v1",
+      "branchId": "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_begin_embedder_capabilities_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_begin_embedder_capabilities_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_begin_embedder_capabilities_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_begin_embedder_capabilities_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_begin_embedder_capabilities_v1"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g.default.non-capability",
+        "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
       "observedKey": "host-abi:ex_hermes_bytecode_version",
       "branchId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv.default",
@@ -115673,6 +115707,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n",
+      "observedKey": "host-abi:ex_hermes_finalize_embedder_capabilities_v1",
+      "branchId": "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_finalize_embedder_capabilities_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_finalize_embedder_capabilities_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_finalize_embedder_capabilities_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_finalize_embedder_capabilities_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_finalize_embedder_capabilities_v1"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n.default.non-capability",
+        "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.free.string.123yf3v",
       "observedKey": "host-abi:ex_hermes_free_string",
       "branchId": "surface.host.abi.ex.hermes.free.string.123yf3v.default",
@@ -115798,6 +115866,70 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.get.heap.info.0sv0nxd.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
+      "observedKey": "host-abi:ex_hermes_gpu_provider_abi_version",
+      "branchId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_gpu_provider_abi_version"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_abi_version"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_abi_version"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_gpu_provider_abi_version"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_abi_version"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n",
+      "observedKey": "host-abi:ex_hermes_gpu_provider_descriptor_size_v1",
+      "branchId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_gpu_provider_descriptor_size_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_descriptor_size_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_descriptor_size_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_gpu_provider_descriptor_size_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#ex_hermes_gpu_provider_descriptor_size_v1"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n.default.non-capability"
       ]
     },
     {
@@ -116853,6 +116985,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc",
+      "observedKey": "host-abi:ex_hermes_set_gpu_provider_v1",
+      "branchId": "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_set_gpu_provider_v1"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu.cc#ex_hermes_set_gpu_provider_v1"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu.cc#ex_hermes_set_gpu_provider_v1"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_set_gpu_provider_v1"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu.cc#ex_hermes_set_gpu_provider_v1"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc.default.non-capability",
+        "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.set.host.call.16xhko5",
       "observedKey": "host-abi:ex_hermes_set_host_call",
       "branchId": "surface.host.abi.ex.hermes.set.host.call.16xhko5.default",
@@ -117160,6 +117326,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p",
+      "observedKey": "host-abi:ex_host_authorize_embedder_capability_set",
+      "branchId": "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_authorize_embedder_capability_set"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_embedder_capability_set"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_embedder_capability_set"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_authorize_embedder_capability_set"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_embedder_capability_set"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p.default.non-capability",
+        "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
       "observedKey": "host-abi:ex_host_authorize_exact_endowment",
       "branchId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se.default",
@@ -117191,6 +117391,40 @@
         "surface.host.abi.ex.host.authorize.exact.endowment.035a1se.default.cannot-widen-authority",
         "surface.host.abi.ex.host.authorize.exact.endowment.035a1se.default.non-capability",
         "surface.host.abi.ex.host.authorize.exact.endowment.035a1se.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd",
+      "observedKey": "host-abi:ex_host_authorize_exact_gpu_provider",
+      "branchId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_authorize_exact_gpu_provider"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_exact_gpu_provider"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_exact_gpu_provider"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_authorize_exact_gpu_provider"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_exact_gpu_provider"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd.default.non-capability",
+        "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd.default.post-lockdown-invariant"
       ]
     },
     {
@@ -266207,44 +266441,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-wS2qZUbRa1lp17TR6U4cPwav1ZvPBlztev89ueZ8VZs"
+      "rawContentDigest": "sha256-uefIPvDfLCCVkD3t2KBXYx2zSB2GGbHFhARZPO3YGjU"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-41nO_T_Dj8PbRqWyCrgsmqZxLRDntEGfuLmgUES-ZRI"
+      "rawContentDigest": "sha256-9zt4qb-cqBtmSCb3amaY2TUPJbR9rEfjCQz0ARAIbw4"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-S9rC5GLKCFoqUFyjNREvpF_YTKhNriCktUymZQjwt0g"
+      "rawContentDigest": "sha256-6O4n7woJBVdB2t5EeGAGnt-7Eb28IOkuVZoO2vUpc1E"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-3y1jNOuNGoN00qs0YSpE9YP3k8UhyCIqT-J1JaePgf4"
+      "rawContentDigest": "sha256-aKvKsKSYV-JFF_ZcNZ_lmzyQB2f-L8u-DVeoQIL0KSk"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-SqvTC2M5JK0mnPZrlSkyLI43zcJrYPvNK91rf-BkKnU"
+      "rawContentDigest": "sha256-MtGXF_SoHTr5O0Hv1j3tvqh8la1MDKYg_djWDkCyi2g"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-Hcyx0GxHNhR4uZyh5pn-YjutigbKbEXExm_MOE06yRQ"
+      "rawContentDigest": "sha256-4d1hoM1l2lKiC3P68_43mE6oNnVCwO_KhP7nkLxXYbg"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-IRZz6qLq2brHsHNMaUesu1jti1yv__BipaHXTHTc77c"
+      "rawContentDigest": "sha256-_5e149H-3UQ5MNT_aCNZt7gcxnmPSOScpx-0HzVfaUI"
     }
   ],
   "counts": {
-    "observedReferences": 12831,
-    "logicalSurfaces": 7152,
-    "enforcementBranches": 7351,
-    "coverageEdges": 7152,
-    "targetCells": 7152
+    "observedReferences": 12838,
+    "logicalSurfaces": 7159,
+    "enforcementBranches": 7358,
+    "coverageEdges": 7159,
+    "targetCells": 7159
   }
 }

@@ -394,6 +394,61 @@ impl Host {
         expected == operations
     }
 
+    /// Authenticate the complete optional GPU service descriptor before the
+    /// engine retains native state or invokes the service. Diagnostic hosts are
+    /// explicitly unarmed; armed hosts require an exact snapshot binding.
+    #[allow(clippy::too_many_arguments)]
+    pub fn authorizes_exact_gpu_provider(
+        &self,
+        abi_version: u32,
+        profile_id: &str,
+        profile_digest: &capsec_semantics::model::Digest,
+        webgpu_c_vocabulary_digest: &capsec_semantics::model::Digest,
+        operation_set_digest: &capsec_semantics::model::Digest,
+        semantic_program_digest: &capsec_semantics::model::Digest,
+        operations: &[u32],
+        topology_id: u32,
+    ) -> bool {
+        let Some(snapshot) = self.armed_snapshot() else {
+            return true;
+        };
+        let Ok(Some(binding)) = snapshot.exact_gpu_provider_binding() else {
+            return false;
+        };
+        binding.abi_version == abi_version
+            && binding.profile_id == profile_id
+            && &binding.profile_digest == profile_digest
+            && &binding.webgpu_c_vocabulary_digest == webgpu_c_vocabulary_digest
+            && &binding.operation_set_digest == operation_set_digest
+            && &binding.semantic_program_digest == semantic_program_digest
+            && binding.operation_ids == operations
+            && topology_id == 1
+            && binding.topology == "isolated-per-logical-device-v1"
+    }
+
+    /// The explicit construction transaction finalizes only when its installed
+    /// native capability set exactly equals the immutable armed snapshot.
+    pub fn authorizes_embedder_capability_set(&self, installed_flags: u32) -> bool {
+        let Some(snapshot) = self.armed_snapshot() else {
+            return true;
+        };
+        const EXACT_INGRESS: u32 = 1 << 0;
+        const GPU_PROVIDER: u32 = 1 << 1;
+        let mut expected = 0;
+        if snapshot.exact_embedder_binding().ok().flatten().is_some() {
+            expected |= EXACT_INGRESS;
+        }
+        if snapshot
+            .exact_gpu_provider_binding()
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            expected |= GPU_PROVIDER;
+        }
+        installed_flags & !(EXACT_INGRESS | GPU_PROVIDER) == 0 && installed_flags == expected
+    }
+
     pub fn decision_context(
         &self,
     ) -> Option<&Arc<RwLock<capsec_semantics::decision::VerifiedDecisionContext>>> {
@@ -4069,6 +4124,9 @@ mod tests {
                         capsec_semantics::arming::ProtectedArtifactRole::ExactOperationManifest => {
                             digest_at(&["exactEmbedder", "operationManifestDigest"])
                         }
+                        capsec_semantics::arming::ProtectedArtifactRole::ExactWebgpuProfile => {
+                            digest_at(&["exactGpuProvider", "profileDigest"])
+                        }
                         capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy => {
                             digest_at(&["policyDigest"])
                         }
@@ -4136,6 +4194,78 @@ mod tests {
             &[7, 11]
         ));
         assert!(!host.authorizes_exact_endowment(1, None, &[7, 11]));
+    }
+
+    #[test]
+    fn armed_gpu_authorization_binds_every_descriptor_identity_field() {
+        use capsec_semantics::model::Digest;
+
+        let digest = |letter: char| {
+            Digest::new(format!("sha256-{}A", letter.to_string().repeat(42))).unwrap()
+        };
+        let profile = digest('A');
+        let vocabulary = digest('B');
+        let operations = digest('C');
+        let semantics = digest('D');
+        let host = example_armed_host_with(|value| {
+            value["exactGpuProvider"] = serde_json::json!({
+                "schema": "exact/webgpu-provider/1",
+                "abiVersion": 65536,
+                "profileId": "exact-webgpu-phase1a-draft",
+                "profileDigest": profile,
+                "webgpuCVocabularyDigest": vocabulary,
+                "operationSetDigest": operations,
+                "semanticProgramDigest": semantics,
+                "operationIds": [7, 11, 19],
+                "topology": "isolated-per-logical-device-v1"
+            });
+            value["protectedObjects"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "role": "exact-webgpu-profile",
+                    "object": {
+                        "platform": "unix",
+                        "volume": "fixture-volume",
+                        "file": "exact-webgpu-profile"
+                    },
+                    "deniedActions": ["fs:write"]
+                }));
+        });
+
+        assert!(host.authorizes_exact_gpu_provider(
+            65536,
+            "exact-webgpu-phase1a-draft",
+            &profile,
+            &vocabulary,
+            &operations,
+            &semantics,
+            &[7, 11, 19],
+            1,
+        ));
+        assert!(!host.authorizes_exact_gpu_provider(
+            65536,
+            "exact-webgpu-phase1a-draft",
+            &profile,
+            &vocabulary,
+            &operations,
+            &semantics,
+            &[7, 19],
+            1,
+        ));
+        assert!(!host.authorizes_exact_gpu_provider(
+            65536,
+            "exact-webgpu-phase1a-draft",
+            &profile,
+            &vocabulary,
+            &operations,
+            &semantics,
+            &[7, 11, 19],
+            9,
+        ));
+        assert!(host.authorizes_embedder_capability_set(1 << 1));
+        assert!(!host.authorizes_embedder_capability_set(0));
+        assert!(!host.authorizes_embedder_capability_set((1 << 0) | (1 << 1)));
     }
 
     #[test]

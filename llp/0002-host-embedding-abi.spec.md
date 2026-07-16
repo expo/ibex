@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-16 (adds the optional, versioned Exact GPU service registration seam and an additive multi-capability construction transaction; the checkpoint publishes no WebGPU JS surface); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
@@ -318,6 +318,73 @@ extension for the pinned Exact consumer, not an expansion of LLP 0000's five-
 function semver-major minimum. Until this Draft spec is accepted, a breaking
 change requires an atomic Ibex commit plus Exact submodule/consumer update; it
 must never silently preserve an older ambient bridge.
+
+### The optional Exact GPU service registration seam
+
+Ibex exposes a versioned, optional registration boundary for an Exact-owned GPU
+service. This is deliberately **not** the physical wgpu-native API. Raw
+`WGPUDevice`, `WGPUQueue`, provider function pointers, and provider-owned Rust
+types never cross the Ibex boundary. Exact remains responsible for GPU
+accounts, authority contexts, semantic validation, sequencing, and physical
+provider generations; Ibex sees only opaque realm/account tokens and a copied
+`ExactGpuServiceApiV1` table `[observed]` (`include/exact_runtime.h`;
+`src/engine/hermes_runtime_gpu.cc`).
+
+`ExactHermesGpuProviderDescriptorV1` binds ABI version, profile identity, the
+WebGPU C-vocabulary digest, operation-set digest, semantic-program digest,
+topology, and the complete sorted operation-ID set. An armed snapshot may name
+the same `exact/webgpu-provider/1` identity and conditionally protects its
+profile artifact as `exact-webgpu-profile`. Ibex compares the whole descriptor
+through the runtime-scoped Host context before retaining the service or calling
+`open_realm`; a generic armed snapshot cannot acquire the seam after creation.
+Diagnostic runtimes keep their explicit unarmed test posture. The
+`webgpu-binding` Cargo feature controls whether a descriptor can be installed;
+the ABI symbols and version query remain present when it is off, and installation
+returns the stable unsupported result.
+
+The service owns no Hermes or JSI value. `open_realm` receives a ref-counted
+plain-native client sink and must return without invoking it. A callback during
+`open_realm` is a protocol violation and fails installation. A successful open
+may retain the sink for later service-thread callbacks. This foundation
+checkpoint records and discards those plain events only; it does not install
+`navigator.gpu`, `createImageBitmap`, or any other JavaScript API. Presence of
+the C ABI is therefore neither WebGPU support nor conformance evidence.
+
+The previous Exact setter finalized the package baseline immediately because it
+was the only package-visible native addition. Multi-capability embedders use an
+additive owner-thread transaction:
+
+1. `ex_hermes_begin_embedder_capabilities_v1` enters `Configuring` before user
+   evaluation.
+2. The embedder installs the Exact operation ingress and any authenticated GPU
+   service. Setters publish only removable provisional state.
+3. `ex_hermes_finalize_embedder_capabilities_v1` verifies that the installed
+   capability set exactly equals the armed snapshot, refreshes the compartment
+   baseline once, and seals the Exact method.
+
+`ex_hermes_eval` refuses while the transaction is `Configuring` or failed.
+Finalization failure rolls back the provisional Exact method, closes any opened
+GPU realm, and is terminal for that runtime. Existing Exact-only consumers that
+do not call `begin` retain the legacy single-setter auto-finalization behavior;
+an armed snapshot that expects more than that Exact ingress cannot use the
+legacy path.
+
+GPU teardown is a nonblocking release path. Runtime destruction changes the
+plain callback mailbox to `Detached`, calls `close_realm` once, releases its
+service reference, and proceeds without waiting for a provider terminal event.
+The service may finish or quarantine backend work in native state and release
+its retained mailbox later. Late callbacks observe `Detached` and are discarded
+without dereferencing a runtime address. No realm-long native-worker pin is
+permitted; a later JS binding may take only a short generation pin while
+enqueueing one owner-thread drain. Release, cancel, retire, and realm close stay
+available independently of positive GPU authority.
+
+These GPU and construction-transaction symbols are provisional extensions for
+the pinned Exact consumer. Registration/finalization are classified as CapSec
+authority-control and the two ABI queries as runtime-bootstrap state; teardown
+continues through the existing runtime release path. Every future public GPU
+operation remains unsupported until generated operation inventory, typed
+effects, fixtures, and target cells are complete.
 
 ## The Rust host surface
 

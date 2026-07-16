@@ -58362,6 +58362,23 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -58917,6 +58934,23 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.free.string.123yf3v",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -58980,6 +59014,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.hermes.get.heap.info.0sv0nxd.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -59508,6 +59576,23 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.set.host.call.16xhko5",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -59655,6 +59740,23 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -59667,6 +59769,23 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.host.authorize.exact.endowment.035a1se.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."

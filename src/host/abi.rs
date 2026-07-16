@@ -757,6 +757,111 @@ pub unsafe extern "C" fn ex_host_authorize_exact_endowment(
     }) as i32
 }
 
+fn digest_from_raw_sha256(bytes: *const u8) -> Option<capsec_semantics::model::Digest> {
+    if bytes.is_null() {
+        return None;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(bytes, 32) };
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+    capsec_semantics::model::Digest::new(format!("sha256-{encoded}")).ok()
+}
+
+/// Authenticate one complete optional Exact GPU service descriptor against the
+/// runtime-scoped armed snapshot. All pointer data is borrowed for this call.
+/// No service state has been retained when this function runs.
+///
+/// # Safety
+///
+/// Non-null digest pointers address exactly 32 readable bytes, `profile_id`
+/// addresses `profile_id_len` bytes, and `operation_ids` addresses
+/// `operation_count` readable `u32` values.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn ex_host_authorize_exact_gpu_provider(
+    context_id: u64,
+    abi_version: u32,
+    profile_id: *const u8,
+    profile_id_len: usize,
+    profile_digest: *const u8,
+    webgpu_c_vocabulary_digest: *const u8,
+    operation_set_digest: *const u8,
+    semantic_program_digest: *const u8,
+    operation_ids: *const u32,
+    operation_count: usize,
+    topology_id: u32,
+) -> i32 {
+    if context_id == 0
+        || profile_id.is_null()
+        || profile_id_len == 0
+        || profile_id_len > 256
+        || operation_ids.is_null()
+        || operation_count == 0
+        || operation_count > 4096
+    {
+        return 0;
+    }
+    let Ok(profile_id) =
+        std::str::from_utf8(unsafe { std::slice::from_raw_parts(profile_id, profile_id_len) })
+    else {
+        return 0;
+    };
+    let Some(profile_digest) = digest_from_raw_sha256(profile_digest) else {
+        return 0;
+    };
+    let Some(webgpu_c_vocabulary_digest) = digest_from_raw_sha256(webgpu_c_vocabulary_digest)
+    else {
+        return 0;
+    };
+    let Some(operation_set_digest) = digest_from_raw_sha256(operation_set_digest) else {
+        return 0;
+    };
+    let Some(semantic_program_digest) = digest_from_raw_sha256(semantic_program_digest) else {
+        return 0;
+    };
+    let operations = unsafe { std::slice::from_raw_parts(operation_ids, operation_count) };
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| Arc::clone(&record.host))
+        })
+    });
+    host.is_some_and(|host| {
+        host.authorizes_exact_gpu_provider(
+            abi_version,
+            profile_id,
+            &profile_digest,
+            &webgpu_c_vocabulary_digest,
+            &operation_set_digest,
+            &semantic_program_digest,
+            operations,
+            topology_id,
+        )
+    }) as i32
+}
+
+/// Verify that an explicit construction transaction installed exactly the
+/// capability roles named by its runtime-scoped armed snapshot.
+#[no_mangle]
+pub extern "C" fn ex_host_authorize_embedder_capability_set(
+    context_id: u64,
+    installed_flags: u32,
+) -> i32 {
+    if context_id == 0 {
+        return 0;
+    }
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| Arc::clone(&record.host))
+        })
+    });
+    host.is_some_and(|host| host.authorizes_embedder_capability_set(installed_flags)) as i32
+}
+
 #[doc(hidden)]
 pub fn installed_typed_decision_count() -> usize {
     with_host(Host::typed_decision_count, 0)

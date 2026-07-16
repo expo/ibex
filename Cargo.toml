@@ -137,6 +137,11 @@ host-http-server = []
 # recipe harness. The production decision path is unchanged; the observer is
 # inert until a test explicitly scopes one terminal branch.
 capsec-conformance-observer = []
+# Compiles the optional, provider-independent Exact GPU service registration
+# seam. The public version/query/install ABI remains present without this
+# feature and deterministically reports unsupported; no wgpu dependency or JS
+# WebGPU surface is part of this checkpoint. @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+webgpu-binding = []
 openssl-crypto = ["dep:openssl-sys"]
 # Retained as a CLI scheduling profile switch. The callback symbol itself is
 # always supplied by the library; the CLI registers a wake hook at runtime so

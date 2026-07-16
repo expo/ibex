@@ -5098,6 +5098,7 @@ function reviewedNameSet(names, label) {
 const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
   [
     "ex_android_initialize",
+    "ex_hermes_begin_embedder_capabilities_v1",
     "ex_hermes_bytecode_version",
     "ex_hermes_callback_backlog",
     "ex_hermes_commonjs_create_record",
@@ -5131,10 +5132,13 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_engine_binary_path",
     "ex_hermes_engine_mapped_object",
     "ex_hermes_eval",
+    "ex_hermes_finalize_embedder_capabilities_v1",
     "ex_hermes_free_string",
     "ex_hermes_gc",
     "ex_hermes_get_gc_stats",
     "ex_hermes_get_heap_info",
+    "ex_hermes_gpu_provider_abi_version",
+    "ex_hermes_gpu_provider_descriptor_size_v1",
     "ex_hermes_graph_context_create",
     "ex_hermes_graph_context_retain",
     "ex_hermes_has_pending_tasks",
@@ -5166,6 +5170,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_dispatch_callback",
     "ex_hermes_set_dispatch_with_debug_context_callback",
     "ex_hermes_set_exact_host_call_async",
+    "ex_hermes_set_gpu_provider_v1",
     "ex_hermes_set_host_call",
     "ex_hermes_set_host_call_async",
     "ex_hermes_set_host_wake_hook",
@@ -5175,7 +5180,9 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_module_sync_callback",
     "ex_hermes_try_destroy",
     "ex_host_armed_endowments",
+    "ex_host_authorize_embedder_capability_set",
     "ex_host_authorize_exact_endowment",
+    "ex_host_authorize_exact_gpu_provider",
     "ex_host_authorize_typed_environment_read_stack",
     "ex_host_authorize_typed_fs_stack",
     "ex_host_authorize_typed_network_stack",
@@ -11736,8 +11743,23 @@ function abiEscapeClassification(name) {
 
 function embedderAbiClassification(name) {
   if (/^exhermes/u.test(name)) {
-    if (name === "exhermessetexacthostcallasync") {
+    if (
+      new Set([
+        "exhermesbeginembeddercapabilitiesv1",
+        "exhermesfinalizeembeddercapabilitiesv1",
+        "exhermessetexacthostcallasync",
+        "exhermessetgpuproviderv1",
+      ]).has(name)
+    ) {
       return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
+    if (
+      new Set([
+        "exhermesgpuproviderabiversion",
+        "exhermesgpuproviderdescriptorsizev1",
+      ]).has(name)
+    ) {
+      return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
     }
     if (name === "exhermesresolveexacthostcall") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
@@ -11887,7 +11909,9 @@ function hostAbiClassification(name) {
   if (
     new Set([
       "exhostarmedendowments",
+      "exhostauthorizeembeddercapabilityset",
       "exhostauthorizeexactendowment",
+      "exhostauthorizeexactgpuprovider",
       "exhostbuildexactarmedembedderartifacts",
       "exhostinstallarmed",
       "exhostmatchesarmedsnapshotdigest",

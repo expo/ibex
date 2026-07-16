@@ -53,6 +53,150 @@ typedef enum ExactEmbedderContext {
     EXACT_EMBEDDER_CONTEXT_AGENT = 2,
 } ExactEmbedderContext;
 
+/// Result codes for the additive embedder-capability construction transaction.
+/// The transaction is optional: legacy Exact-only consumers retain the
+/// one-setter auto-finalization path documented below.
+typedef enum ExactEmbedderCapabilitiesStatus {
+    EXACT_EMBEDDER_CAPABILITIES_OK = 0,
+    EXACT_EMBEDDER_CAPABILITIES_INVALID_ARGUMENT = -1,
+    EXACT_EMBEDDER_CAPABILITIES_RESTRICTED_RUNTIME = -2,
+    EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE = -3,
+    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED = -4,
+    EXACT_EMBEDDER_CAPABILITIES_WRONG_THREAD = -7,
+    EXACT_EMBEDDER_CAPABILITIES_AUTHENTICATION_FAILED = -8,
+} ExactEmbedderCapabilitiesStatus;
+
+/// Versioned optional Exact GPU service ABI. This is a provider-independent
+/// semantic service boundary, not the wgpu-native ABI. No WGPU object or raw
+/// physical provider handle crosses it.
+#define EXACT_GPU_SERVICE_ABI_VERSION_V1 UINT32_C(0x00010000)
+#define EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_DEVICE_V1 UINT32_C(1)
+
+typedef enum ExactGpuProviderStatus {
+    EXACT_GPU_PROVIDER_OK = 0,
+    EXACT_GPU_PROVIDER_INVALID_ARGUMENT = -1,
+    EXACT_GPU_PROVIDER_RESTRICTED_RUNTIME = -2,
+    EXACT_GPU_PROVIDER_UNSUPPORTED = -3,
+    EXACT_GPU_PROVIDER_ALREADY_INSTALLED = -4,
+    EXACT_GPU_PROVIDER_ABI_MISMATCH = -5,
+    EXACT_GPU_PROVIDER_AUTHENTICATION_FAILED = -6,
+    EXACT_GPU_PROVIDER_WRONG_THREAD = -7,
+    EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION = -8,
+    EXACT_GPU_PROVIDER_INVALID_STATE = -9,
+    EXACT_GPU_PROVIDER_OPEN_FAILED = -10,
+} ExactGpuProviderStatus;
+
+typedef enum ExactGpuClientEventReceipt {
+    EXACT_GPU_CLIENT_EVENT_DISCARDED = 0,
+    EXACT_GPU_CLIENT_EVENT_ACCEPTED = 1,
+    EXACT_GPU_CLIENT_EVENT_PROTOCOL_VIOLATION = -1,
+} ExactGpuClientEventReceipt;
+
+typedef enum ExactGpuServiceEventKind {
+    EXACT_GPU_SERVICE_EVENT_OPERATION_COMPLETE = 1,
+    EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR = 2,
+    EXACT_GPU_SERVICE_EVENT_DEVICE_LOST = 3,
+    EXACT_GPU_SERVICE_EVENT_REALM_CLOSED = 4,
+} ExactGpuServiceEventKind;
+
+typedef uint64_t ExactGpuRealmTokenV1;
+typedef uint64_t ExactGpuAccountTokenV1;
+
+typedef struct ExactGpuRealmOpenV1 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t context_kind;
+    uint32_t reserved;
+    uint64_t runtime_nonce;
+} ExactGpuRealmOpenV1;
+
+typedef struct ExactGpuSemanticCallV1 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t operation_id;
+    uint32_t flags;
+    uint64_t completion_id;
+    uint64_t device_ordinal;
+    uint64_t queue_ordinal;
+    ExactGpuAccountTokenV1 account_token;
+    const uint8_t* payload;
+    size_t payload_len;
+} ExactGpuSemanticCallV1;
+
+typedef struct ExactGpuRetireBatchV1 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    const uint64_t* logical_handles;
+    size_t logical_handle_count;
+} ExactGpuRetireBatchV1;
+
+typedef struct ExactGpuServiceEventV1 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t kind;
+    uint32_t flags;
+    ExactGpuRealmTokenV1 realm_token;
+    uint64_t operation_id;
+    uint64_t completion_id;
+    int32_t status;
+    uint32_t reserved;
+    const uint8_t* payload;
+    size_t payload_len;
+} ExactGpuServiceEventV1;
+
+typedef struct ExactGpuClientSinkV1 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    void (*retain_client)(void* client_context);
+    void (*release_client)(void* client_context);
+    int32_t (*on_event)(void* client_context,
+                        const ExactGpuServiceEventV1* event);
+} ExactGpuClientSinkV1;
+
+typedef struct ExactGpuServiceApiV1 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint64_t feature_bits;
+    void* service_context;
+    void (*retain_service)(void* service_context);
+    void (*release_service)(void* service_context);
+    int32_t (*open_realm)(void* service_context,
+                          const ExactGpuRealmOpenV1* open,
+                          const ExactGpuClientSinkV1* sink,
+                          void* client_context,
+                          ExactGpuRealmTokenV1* out_realm,
+                          ExactGpuAccountTokenV1* out_account);
+    int32_t (*submit)(void* service_context,
+                      ExactGpuRealmTokenV1 realm,
+                      const ExactGpuSemanticCallV1* call);
+    int32_t (*retire)(void* service_context,
+                      ExactGpuRealmTokenV1 realm,
+                      const ExactGpuRetireBatchV1* batch);
+    int32_t (*cancel)(void* service_context,
+                      ExactGpuRealmTokenV1 realm,
+                      uint64_t operation_id);
+    int32_t (*close_realm)(void* service_context,
+                           ExactGpuRealmTokenV1 realm,
+                           uint64_t close_ordinal);
+} ExactGpuServiceApiV1;
+
+typedef struct ExactHermesGpuProviderDescriptorV1 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint64_t flags;
+    const char* profile_id;
+    size_t profile_id_len;
+    uint8_t profile_digest[32];
+    uint8_t webgpu_c_vocabulary_digest[32];
+    uint8_t operation_set_digest[32];
+    uint8_t semantic_program_digest[32];
+    const uint32_t* sorted_operation_ids;
+    size_t operation_id_count;
+    uint32_t topology_id;
+    uint32_t reserved;
+    const ExactGpuServiceApiV1* api;
+} ExactHermesGpuProviderDescriptorV1;
+
 // =============================================================================
 // Runtime Lifecycle
 // =============================================================================
@@ -70,6 +214,33 @@ ExactHermesRuntime* ex_hermes_create_diagnostic(void);
 /// Create a runtime only when the installed host carries this exact immutable
 /// armed-snapshot identity. Returns NULL on absence or mismatch.
 ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
+
+/// Begin an additive owner-thread capability-install transaction. Until a
+/// successful finalize, ex_hermes_eval refuses user evaluation. This call is
+/// valid only before any legacy auto-finalized Exact ingress is installed.
+int32_t ex_hermes_begin_embedder_capabilities_v1(ExactHermesRuntime* runtime);
+
+/// Authenticate the exact installed capability set, refresh the package
+/// baseline once, and seal provisional properties. Failure is terminal for the
+/// runtime and rolls back/tears down provisional native capabilities.
+int32_t ex_hermes_finalize_embedder_capabilities_v1(ExactHermesRuntime* runtime);
+
+/// Return the optional GPU service ABI version and descriptor size implemented
+/// by this library. These query symbols remain present when the Cargo feature is
+/// disabled so embedders can fail deterministically without symbol probing.
+uint32_t ex_hermes_gpu_provider_abi_version(void);
+size_t ex_hermes_gpu_provider_descriptor_size_v1(void);
+
+/// Register one authenticated provider-independent Exact GPU service. The
+/// descriptor and function table are copied. The function returns
+/// EXACT_GPU_PROVIDER_UNSUPPORTED when Ibex was built without
+/// `webgpu-binding`. It never publishes navigator.gpu or another JS surface.
+/// Must run inside the additive capability transaction on the runtime owner
+/// thread. Service calls must return promptly and must not invoke the client
+/// sink reentrantly; a callback before open_realm returns is a protocol error.
+int32_t ex_hermes_set_gpu_provider_v1(
+    ExactHermesRuntime* runtime,
+    const ExactHermesGpuProviderDescriptorV1* descriptor);
 
 /// Copy the filesystem path of the loaded artifact that contains Hermes'
 /// runtime factory. Returns the byte length, or -1 on failure.

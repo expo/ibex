@@ -139918,6 +139918,16 @@
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
+            "id": "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_begin_embedder_capabilities_v1"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
             "classification": "closed",
             "surface": {
@@ -140248,6 +140258,16 @@
             "rationale": "Public ABI evaluation remains closed until authenticated entry binding is proved."
           },
           {
+            "id": "surface.host.abi.ex.hermes.finalize.embedder.capabilities.v1.0x08s3n",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_finalize_embedder_capabilities_v1"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.free.string.123yf3v",
             "classification": "non-capability",
             "surface": {
@@ -140286,6 +140306,26 @@
             },
             "cap": "runtime:inspect",
             "rationale": "Runtime heap and GC inspection is closed."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.gpu.provider.abi.version.0x7nnjz",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_gpu_provider_abi_version"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_gpu_provider_descriptor_size_v1"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
             "id": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6",
@@ -140598,6 +140638,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.hermes.set.gpu.provider.v1.15ll1cc",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_set_gpu_provider_v1"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.set.host.call.16xhko5",
             "classification": "closed",
             "surface": {
@@ -140688,11 +140738,31 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.host.authorize.embedder.capability.set.0c3to9p",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_authorize_embedder_capability_set"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
             "classification": "non-capability",
             "surface": {
               "kind": "host-abi",
               "name": "ex_host_authorize_exact_endowment"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.host.authorize.exact.gpu.provider.1lavehd",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_authorize_exact_gpu_provider"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -265383,6 +265453,53 @@
             },
             "additionalProperties": false
           },
+          "exactGpuProvider": {
+            "type": "object",
+            "required": [
+              "schema",
+              "abiVersion",
+              "profileId",
+              "profileDigest",
+              "webgpuCVocabularyDigest",
+              "operationSetDigest",
+              "semanticProgramDigest",
+              "operationIds",
+              "topology"
+            ],
+            "properties": {
+              "schema": {
+                "const": "exact/webgpu-provider/1"
+              },
+              "abiVersion": {
+                "const": 65536
+              },
+              "profileId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[a-z0-9][a-z0-9._/-]*$"
+              },
+              "profileDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "webgpuCVocabularyDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "operationSetDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "semanticProgramDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "operationIds": {
+                "$ref": "#/$defs/exactGpuOperationSet"
+              },
+              "topology": {
+                "const": "isolated-per-logical-device-v1"
+              }
+            },
+            "additionalProperties": false
+          },
           "runNonce": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/base64url"
           },
@@ -265486,6 +265603,7 @@
                     "armed-policy",
                     "engine-binary",
                     "exact-operation-manifest",
+                    "exact-webgpu-profile",
                     "package-graph",
                     "registry"
                   ]
@@ -265592,6 +265710,17 @@
         "$defs": {
           "exactOperationEndowment": {
             "type": "array",
+            "maxItems": 4096,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          },
+          "exactGpuOperationSet": {
+            "type": "array",
+            "minItems": 1,
             "maxItems": 4096,
             "uniqueItems": true,
             "items": {
