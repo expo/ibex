@@ -2174,6 +2174,27 @@ static FsAsyncResult fsStatfsArmedWork(
   return fsAsyncString(oss.str());
 }
 
+static FsAsyncResult fsTruncateArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& target,
+    double length) {
+  constexpr uint32_t kFsPathAsyncSurface = 13;
+  if (length < 0 || length > static_cast<double>(INT64_MAX)) {
+    return fsAsyncError(EINVAL, "truncate", path);
+  }
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 2, kFsPathAsyncSurface, *parent, *target,
+          0, 1, nullptr) != 1) {
+    return fsAsyncError(EACCES, "truncate", path);
+  }
+  if (::ftruncate(*target, static_cast<off_t>(length)) != 0) {
+    return fsAsyncError(errno, "truncate", path);
+  }
+  return fsAsyncOk();
+}
+
 static FsAsyncResult fsPathOpWork(
     const std::string& op,
     const std::string& a,
@@ -4964,6 +4985,19 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               [principal, path = a, parent = std::move(descriptors.parent),
                target = std::move(descriptors.target)]() {
                 return fsStatfsArmedWork(principal, path, parent, target);
+              });
+        }
+        if (ex_host_is_armed() == 1 && op == "truncate") {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Opening must not truncate; mutation follows commit and worker-side repeat authorization of the retained object.
+          constexpr uint32_t kFsPathAsyncSurface = 13;
+          auto descriptors = openArmedWriteTarget(
+              runtime, a, kFsPathAsyncSurface, O_WRONLY, 0, true, "");
+          return startFsAsync(
+              handle, runtime,
+              [principal, path = a, parent = std::move(descriptors.parent),
+               target = std::move(descriptors.target), length = x]() {
+                return fsTruncateArmedWork(
+                    principal, path, parent, target, length);
               });
         }
         if (ex_host_is_armed() == 1 && op == "mkdtemp") {

@@ -1666,6 +1666,100 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
           setup: [],
         }),
       ],
+      [
+        "truncate",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("truncate"),
+            literalArgument("target/ibex-capsec-fspathasync-truncate"),
+            literalArgument(null),
+            literalArgument(2),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          expectedCleanup: "removed-owned-file",
+          expectedDecisionCounts: {
+            allow: 5,
+            "branch-selection": 5,
+            deny: 1,
+            malformed: 5,
+            "missing-attribution": 5,
+            "wrong-principal": 5,
+          },
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            deny: ["requested"],
+            malformed: [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-truncate",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-truncate",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
     ]),
   ],
 ]);

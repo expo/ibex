@@ -1630,6 +1630,29 @@ async fn execute_native_public_recipe(
                 .expect("create owned mkdtemp fixture parent");
         }
     }
+    let fs_path_async_file_fixture = if invocation.global_name == "__exactFsPathAsync" {
+        match (
+            invocation.arguments.first(),
+            invocation.arguments.get(1),
+        ) {
+            (
+                Some(NativeProbeArgument::JsonLiteral { value: operation }),
+                Some(NativeProbeArgument::JsonLiteral { value: path }),
+            ) if operation.as_str() == Some("truncate") => Some(
+                path.as_str()
+                    .expect("filesystem file fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &fs_path_async_file_fixture {
+        assert_eq!(path, "target/ibex-capsec-fspathasync-truncate");
+        std::fs::write(path, b"ibex-capsec-truncate")
+            .expect("create owned truncate fixture file");
+    }
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
@@ -1687,6 +1710,20 @@ async fn execute_native_public_recipe(
         if operation == "mkdtemp" {
             std::fs::remove_dir(path).expect("remove owned mkdtemp fixture parent");
         }
+    }
+    if let Some(path) = &fs_path_async_file_fixture {
+        if invocation_result["kind"] == "return" {
+            assert_eq!(
+                std::fs::metadata(path)
+                    .expect("read truncated fixture metadata")
+                    .len(),
+                2,
+                "retained truncate fixture has the wrong final length"
+            );
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-owned-file".into());
+        }
+        std::fs::remove_file(path).expect("remove owned truncate fixture file");
     }
     let typed_decisions = observed_typed_values(&session_id, typed);
     let validation = validate_native_runtime_observation(
