@@ -5381,6 +5381,23 @@ cp \"$input\" \"$out\"\n";
         use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
         use capsec_semantics::model::Digest;
 
+        // Observer batches that do not exercise a caller-supplied filesystem
+        // still need one real, retained `/project` object now that armed
+        // startup binds the runtime VFS before bootstrap. Keep that shared
+        // fixture under ignored build output so conformance never mounts or
+        // mutates the source checkout.
+        // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+        let default_project_root = project_root.is_none().then(|| {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("target/capsec-conformance-observer-project-v1");
+            std::fs::create_dir_all(root.join("node_modules/image-lib"))
+                .expect("create default armed observer project fixture");
+            std::fs::canonicalize(root)
+                .expect("canonicalize default armed observer project fixture")
+        });
+        let project_root = project_root
+            .or(default_project_root.as_deref())
+            .expect("armed observer project fixture");
         let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/capsec/examples/armed-snapshot.canonical.json"
@@ -5391,7 +5408,7 @@ cp \"$input\" \"$out\"\n";
         if let Some(protected_objects) = protected_objects {
             value["protectedObjects"] = serde_json::Value::Array(protected_objects);
         }
-        if let Some(project_root) = project_root {
+        {
             let components = project_root
                 .components()
                 .filter_map(|component| match component {
