@@ -1378,12 +1378,46 @@ describe("exact-target CapSec executable recipes", () => {
             kind: "global-property-read",
             sourceDescriptor: {
               valueShape: "data",
-              memberKinds: expect.arrayContaining(["inherited", "static"]),
             },
           },
         },
       });
+      expect(
+        inherited.publicSurfaceProbe.invocation.sourceDescriptor.memberKinds.includes(
+          "inherited",
+        ),
+      ).toBe(true);
+      expect(
+        inherited.publicSurfaceProbe.invocation.sourceDescriptor.memberKinds.includes(
+          "static",
+        ),
+      ).toBe(true);
     }
+
+    const inheritedStaticReads = recipes.recipes.filter((candidate) => {
+      const memberKinds =
+        candidate.publicSurfaceProbe?.invocation?.sourceDescriptor?.memberKinds;
+      return Array.isArray(memberKinds) && memberKinds.includes("inherited");
+    });
+    expect(inheritedStaticReads).toHaveLength(57);
+    const allowedInheritedKinds = new Set([
+      '["inherited","static"]',
+      '["inherited","static","static-assignment"]',
+    ]);
+    expect(
+      inheritedStaticReads.every((candidate) => {
+        const descriptor =
+          candidate.publicSurfaceProbe.invocation.sourceDescriptor;
+        return (
+          candidate.classification === "non-capability" &&
+          candidate.scenario === "non-capability" &&
+          candidate.status === "fully-executable" &&
+          candidate.residualReasons.length === 0 &&
+          descriptor.valueShape === "data" &&
+          allowedInheritedKinds.has(JSON.stringify(descriptor.memberKinds))
+        );
+      }),
+    ).toBe(true);
 
     const prototypeAccessorRows = recipes.recipes.filter((candidate) =>
       candidate.route.surfaceObservedKeys.includes(

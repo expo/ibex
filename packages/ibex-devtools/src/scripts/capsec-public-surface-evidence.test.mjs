@@ -2006,6 +2006,16 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).not.toThrow();
+    inheritedObservation.invocation.result.valueType = "function";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inheritedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: inheritedObservation,
+        coverage,
+      }),
+    ).toThrow(/exact property owner chain/);
+    inheritedObservation.invocation.result.valueType = "string";
     inheritedObservation.invocation.result.ownerDepths = [0, 0];
     expect(() =>
       buildPublicFixtureEvidence({

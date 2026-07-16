@@ -1358,9 +1358,21 @@ function validateRuntimeInvocation(observation, recipe) {
       const descriptor = authored.sourceDescriptor;
       const inherited = descriptor?.memberKinds?.includes("inherited") === true;
       const ownerDepths = invocation.result.ownerDepths;
+      const valueType = invocation.result.valueType;
       if (
         invocation.result.globalName !== authored.globalName ||
-        typeof invocation.result.valueType !== "string" ||
+        !new Set([
+          "bigint",
+          "boolean",
+          "function",
+          "null",
+          "number",
+          "object",
+          "string",
+          "symbol",
+          "undefined",
+        ]).has(valueType) ||
+        (descriptor?.valueShape === "data" && valueType === "function") ||
         invocation.result.cleanup !== "none" ||
         !Array.isArray(descriptor?.access?.path) ||
         !Array.isArray(ownerDepths) ||
