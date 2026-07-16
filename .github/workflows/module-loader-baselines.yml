@@ -22,6 +22,7 @@ on:
       - "packages/ibex-devtools/src/scripts/check-module-runner-performance.mjs"
       - "packages/ibex-devtools/src/scripts/check-module-runner-performance.test.mjs"
       - "packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs"
+      - "packages/ibex-devtools/src/scripts/module-runner-shadow.test.mjs"
       - "packages/ibex-devtools/src/scripts/transforms.mjs"
       - "include/exact_runtime.h"
       - "src/engine/hermes_module_runner.cc"
@@ -113,6 +114,10 @@ jobs:
         run: |
           scripts/run-tests.sh --scope lib --features module-runner \
             engine::module_runner::tests -- --test-threads=1
+          scripts/run-tests.sh --scope lib \
+            --features module-runner,capsec-conformance-observer \
+            engine::module_runner::tests::source_prepared_and_hbc_factories_have_frame_principal_attribution \
+            -- --exact --test-threads=1
           scripts/run-tests.sh --scope lib --features module-runner \
             module_loader::graph::tests
           scripts/run-tests.sh --scope lib --features module-runner \
@@ -198,6 +203,9 @@ jobs:
       - name: Install JavaScript toolchain
         run: bun install --frozen-lockfile
 
+      - name: Shadow authenticated graph shape against the legacy scanner
+        run: node --test packages/ibex-devtools/src/scripts/module-runner-shadow.test.mjs
+
       - name: Collect fail-loud clean-build and loader baseline
         shell: bash
         run: |
@@ -223,6 +231,8 @@ jobs:
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({schema:"ibex/module-runner-unavailability/1",platform:{os:"windows",arch:"x86_64"},status:"unadvertised",reason:"The published Windows Hermes package lacks the patched native module evaluator and compartment binder; the bounded compatibility loader remains active."}, null, 2) + "\n")' \
               "$RUNNER_TEMP/native-${{ matrix.report }}.json"
+            cp "$RUNNER_TEMP/native-${{ matrix.report }}.json" \
+              "$RUNNER_TEMP/micro-${{ matrix.report }}.json"
           else
             IBEX_MODULE_RUNNER_PERF_OUTPUT="$RUNNER_TEMP/native-${{ matrix.report }}.json" \
             IBEX_MODULE_RUNNER_PERF_SAMPLES=5 \
@@ -230,12 +240,20 @@ jobs:
               cargo test --release --lib \
                 host::tests::module_runner_performance_baseline -- \
                 --ignored --exact --nocapture
+
+            IBEX_MODULE_RUNNER_MICRO_PERF_OUTPUT="$RUNNER_TEMP/micro-${{ matrix.report }}.json" \
+            IBEX_MODULE_RUNNER_PERF_SAMPLES=5 \
+            CARGO_TARGET_DIR="$RUNNER_TEMP/module-loader-default-target" \
+              cargo test --release --lib \
+                engine::module_runner::tests::module_runner_cell_and_require_performance_baseline -- \
+                --ignored --exact --nocapture
           fi
 
           node packages/ibex-devtools/src/scripts/check-module-runner-performance.mjs \
             --legacy "$RUNNER_TEMP/${{ matrix.report }}.json" \
             --current "$RUNNER_TEMP/default-${{ matrix.report }}.json" \
             --native "$RUNNER_TEMP/native-${{ matrix.report }}.json" \
+            --micro "$RUNNER_TEMP/micro-${{ matrix.report }}.json" \
             --write "$RUNNER_TEMP/gate-${{ matrix.report }}.json"
 
       - name: Upload baseline evidence
@@ -246,6 +264,7 @@ jobs:
             ${{ runner.temp }}/${{ matrix.report }}.json
             ${{ runner.temp }}/default-${{ matrix.report }}.json
             ${{ runner.temp }}/native-${{ matrix.report }}.json
+            ${{ runner.temp }}/micro-${{ matrix.report }}.json
             ${{ runner.temp }}/gate-${{ matrix.report }}.json
           if-no-files-found: error
           retention-days: 30

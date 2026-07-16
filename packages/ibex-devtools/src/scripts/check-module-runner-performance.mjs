@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 // same-host runtime, binary-size, and clean-build envelopes fail-loudly.
 export const MODULE_RUNNER_PERFORMANCE_BUDGET = Object.freeze({
   runtimeRatio: 1.25,
+  checkedCellRatio: 20,
   binarySizeRatio: 1.25,
   cleanBuildRatio: 1.5,
 });
@@ -35,7 +36,7 @@ function canonicalTarget(platform, label) {
   return target;
 }
 
-export function evaluateModuleRunnerPerformance({ legacy, current, native }) {
+export function evaluateModuleRunnerPerformance({ legacy, current, native, micro }) {
   if (native.schema === 'ibex/module-runner-unavailability/1') {
     if (
       native.status !== 'unadvertised'
@@ -57,6 +58,9 @@ export function evaluateModuleRunnerPerformance({ legacy, current, native }) {
   if (native.schema !== 'ibex/module-runner-performance-baseline/1') {
     throw new Error(`unsupported native performance schema ${native.schema}`);
   }
+  if (micro.schema !== 'ibex/module-runner-micro-performance-baseline/1') {
+    throw new Error(`unsupported native micro-performance schema ${micro.schema}`);
+  }
   if (legacy.schema !== 'ibex/module-loader-performance-baseline/2' ||
       current.schema !== 'ibex/module-loader-performance-baseline/2') {
     throw new Error('compatibility baselines must use module-loader baseline schema v2');
@@ -76,6 +80,18 @@ export function evaluateModuleRunnerPerformance({ legacy, current, native }) {
   if (legacy.graphModules !== 40 || current.graphModules !== 40 || native.dependencyModules !== 40) {
     throw new Error('performance reports must cover the same 40-module graph');
   }
+  if (
+    micro.measurementConditions?.iterations !== 20_000
+    || micro.measurementConditions?.requireDependencyModules !== 40
+    || micro.measurementConditions?.warmupSamplesExcluded !== 2
+  ) {
+    throw new Error('micro-performance evidence has unexpected workload conditions');
+  }
+  for (const profile of ['checkedCellSetterNamespace', 'plainProperty', 'coldRequireEsm']) {
+    if (!Number.isInteger(micro.profiles?.[profile]?.samples) || micro.profiles[profile].samples < 5) {
+      throw new Error(`micro-performance profile ${profile} requires at least five samples`);
+    }
+  }
   const nativeTarget = canonicalTarget(native.platform, 'native report');
   if (!['macos/aarch64', 'linux/x86_64'].includes(nativeTarget)) {
     throw new Error(`native performance evidence is not advertised for ${nativeTarget}`);
@@ -83,6 +99,7 @@ export function evaluateModuleRunnerPerformance({ legacy, current, native }) {
   if (
     canonicalTarget(legacy.platform, 'legacy report') !== nativeTarget
     || canonicalTarget(current.platform, 'current report') !== nativeTarget
+    || canonicalTarget(micro.platform, 'micro report') !== nativeTarget
   ) {
     throw new Error('performance reports must come from the same exact host target');
   }
@@ -108,6 +125,16 @@ export function evaluateModuleRunnerPerformance({ legacy, current, native }) {
       legacy.profiles?.preparedRolldownMjs?.warm?.medianMs,
       'preparedWarm',
     ),
+    checkedCellSetterNamespace: ratio(
+      micro.profiles?.checkedCellSetterNamespace?.medianMs,
+      micro.profiles?.plainProperty?.medianMs,
+      'checkedCellSetterNamespace',
+    ),
+    coldRequireEsm: ratio(
+      micro.profiles?.coldRequireEsm?.medianMs,
+      legacy.profiles?.directSourceMjs?.cold?.medianMs,
+      'coldRequireEsm',
+    ),
     binarySize: ratio(current.ibexBinaryBytes, legacy.ibexBinaryBytes, 'binarySize'),
     cleanBuild: ratio(
       current.compile?.cleanBuildSeconds,
@@ -118,6 +145,12 @@ export function evaluateModuleRunnerPerformance({ legacy, current, native }) {
   const failures = [];
   for (const name of ['sourceCold', 'sourceWarm', 'preparedCold', 'preparedWarm']) {
     if (ratios[name] > MODULE_RUNNER_PERFORMANCE_BUDGET.runtimeRatio) failures.push(name);
+  }
+  if (ratios.checkedCellSetterNamespace > MODULE_RUNNER_PERFORMANCE_BUDGET.checkedCellRatio) {
+    failures.push('checkedCellSetterNamespace');
+  }
+  if (ratios.coldRequireEsm > MODULE_RUNNER_PERFORMANCE_BUDGET.runtimeRatio) {
+    failures.push('coldRequireEsm');
   }
   if (ratios.binarySize > MODULE_RUNNER_PERFORMANCE_BUDGET.binarySizeRatio) {
     failures.push('binarySize');
@@ -147,11 +180,13 @@ if (import.meta.main) {
   const legacyPath = argument('--legacy');
   const currentPath = argument('--current');
   const nativePath = argument('--native');
+  const microPath = argument('--micro');
   const outputPath = argument('--write');
   const report = evaluateModuleRunnerPerformance({
     legacy: JSON.parse(readFileSync(legacyPath, 'utf8')),
     current: JSON.parse(readFileSync(currentPath, 'utf8')),
     native: JSON.parse(readFileSync(nativePath, 'utf8')),
+    micro: JSON.parse(readFileSync(microPath, 'utf8')),
   });
   writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);
   if (!report.passed) {

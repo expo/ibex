@@ -43,11 +43,29 @@ function nativeBaseline(scale = 1) {
   };
 }
 
+function microBaseline(scale = 1) {
+  return {
+    schema: 'ibex/module-runner-micro-performance-baseline/1',
+    platform: { os: 'linux', arch: 'x86_64' },
+    measurementConditions: {
+      iterations: 20_000,
+      requireDependencyModules: 40,
+      warmupSamplesExcluded: 2,
+    },
+    profiles: {
+      checkedCellSetterNamespace: { samples: 5, medianMs: 10 * scale },
+      plainProperty: { samples: 5, medianMs: 1 },
+      coldRequireEsm: { samples: 5, medianMs: 20 * scale },
+    },
+  };
+}
+
 test('accepts native and build ratios inside the explicit Phase-0 envelopes', () => {
   const report = evaluateModuleRunnerPerformance({
     legacy: loaderBaseline(1),
     current: loaderBaseline(1.2),
     native: nativeBaseline(1.2),
+    micro: microBaseline(1.2),
   });
   assert.equal(report.passed, true);
   assert.equal(report.advertised, true);
@@ -60,6 +78,7 @@ test('fails each ratio beyond its named envelope', () => {
     legacy: loaderBaseline(1),
     current: loaderBaseline(2),
     native: nativeBaseline(3),
+    micro: microBaseline(3),
   });
   assert.equal(report.passed, false);
   assert.deepEqual(report.failures, [
@@ -67,6 +86,8 @@ test('fails each ratio beyond its named envelope', () => {
     'sourceWarm',
     'preparedCold',
     'preparedWarm',
+    'checkedCellSetterNamespace',
+    'coldRequireEsm',
     'binarySize',
     'cleanBuild',
   ]);
@@ -115,7 +136,12 @@ test('rejects cross-host evidence and advertised-target drift', () => {
   const current = loaderBaseline(1.2);
   current.platform = { os: 'darwin', arch: 'arm64' };
   assert.throws(
-    () => evaluateModuleRunnerPerformance({ legacy, current, native: nativeBaseline(1) }),
+    () => evaluateModuleRunnerPerformance({
+      legacy,
+      current,
+      native: nativeBaseline(1),
+      micro: microBaseline(1),
+    }),
     /same exact host target/,
   );
   assert.throws(
@@ -126,6 +152,7 @@ test('rejects cross-host evidence and advertised-target drift', () => {
         ...nativeBaseline(1),
         platform: { os: 'windows', arch: 'x86_64' },
       },
+      micro: microBaseline(1),
     }),
     /not advertised/,
   );

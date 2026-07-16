@@ -2007,9 +2007,17 @@ mod tests {
     #[allow(clashing_extern_declarations)]
     unsafe extern "C" {
         fn ex_hermes_create_diagnostic() -> *mut c_void;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ex_hermes_create_armed(armed_snapshot_digest: *const c_char) -> *mut c_void;
         fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
         fn ex_hermes_poll(runtime: *mut c_void, now_ms: u64) -> i32;
         fn ex_hermes_destroy(runtime: *mut c_void);
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_install_capsec_context_observer(
+            runtime: *mut c_void,
+            global_name: *const c_char,
+            compartment_identity: *const c_char,
+        ) -> i32;
     }
 
     fn digest(label: &str) -> Digest {
@@ -2216,6 +2224,77 @@ mod tests {
     }
 
     #[test]
+    fn runtime_nonce_rejects_cross_runtime_and_destroy_recreate_handles() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw_a = ex_hermes_create_diagnostic();
+            let raw_b = ex_hermes_create_diagnostic();
+            assert!(!raw_a.is_null());
+            assert!(!raw_b.is_null());
+            let nonce_a = ex_hermes_runtime_nonce(raw_a);
+            let nonce_b = ex_hermes_runtime_nonce(raw_b);
+            assert_ne!(nonce_a, nonce_b);
+            let runtime_a =
+                NativeModuleRuntime::from_raw(NonNull::new(raw_a).unwrap(), nonce_a).unwrap();
+            let source_id = SourceId::synthetic("module-runner-runtime-a", "entry").unwrap();
+            let artifact = test_artifact(source_id);
+            let factory = runtime_a
+                .compile_verified_factory(
+                    verify_test_artifact(&artifact),
+                    0,
+                    None,
+                    1,
+                    "cross-runtime.mjs",
+                )
+                .unwrap();
+            let stale = factory.handle.expect("compiled factory handle");
+
+            assert_ne!(
+                ex_hermes_module_release_handle(raw_b, nonce_b, stale),
+                0,
+                "a live second runtime must reject the first runtime's handle"
+            );
+
+            std::mem::forget(factory);
+            drop(runtime_a);
+            ex_hermes_destroy(raw_a);
+
+            let raw_replacement = ex_hermes_create_diagnostic();
+            assert!(!raw_replacement.is_null());
+            let replacement_nonce = ex_hermes_runtime_nonce(raw_replacement);
+            assert_ne!(replacement_nonce, nonce_a);
+            assert_ne!(
+                ex_hermes_module_release_handle(raw_replacement, replacement_nonce, stale),
+                0,
+                "a replacement runtime must reject a destroyed generation's handle"
+            );
+
+            let replacement = NativeModuleRuntime::from_raw(
+                NonNull::new(raw_replacement).unwrap(),
+                replacement_nonce,
+            )
+            .unwrap();
+            let replacement_source =
+                SourceId::synthetic("module-runner-runtime-replacement", "entry").unwrap();
+            let replacement_artifact = test_artifact(replacement_source);
+            let replacement_factory = replacement
+                .compile_verified_factory(
+                    verify_test_artifact(&replacement_artifact),
+                    0,
+                    None,
+                    1,
+                    "replacement.mjs",
+                )
+                .unwrap();
+            drop(replacement_factory);
+            drop(replacement);
+            ex_hermes_destroy(raw_replacement);
+            ex_hermes_destroy(raw_b);
+        }
+    }
+
+    #[test]
     fn graph_context_canonicalizes_the_constrained_principal_set() {
         let source_id = SourceId::file(
             Principal::Root {
@@ -2343,6 +2422,187 @@ mod tests {
                 );
                 assert_eq!(record.namespace_json().unwrap(), r#"{"value":42}"#);
             }
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    /// The ordinary equivalence test above proves carrier identity and output;
+    /// this observer-enabled test separately proves the non-root frame stamp
+    /// for every source/cache carrier mode required by ENG-25060.
+    // @ref LLP 0026#4-native-graph-owner-and-hermes-runner — cold, warm, prepared, and HBC factories retain package attribution
+    #[cfg(all(feature = "capsec-conformance-observer", not(target_os = "windows")))]
+    #[test]
+    fn source_prepared_and_hbc_factories_have_frame_principal_attribution() {
+        const PRINCIPAL_ID: u32 = 7;
+        const OBSERVER: &str = "__ibexCapsecContextObserver_eng25060";
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::module_runner_attribution_test_host();
+        let armed_digest = CString::new(host.armed_snapshot().unwrap().digest().as_str()).unwrap();
+        crate::host::abi::install_host(host);
+        let owner = Principal::Root {
+            identity: NonEmptyString::new("attributed-project").unwrap(),
+        };
+        let source_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("entry.mjs").unwrap()],
+        )
+        .unwrap();
+        let artifact = test_artifact_with_factory(
+            source_id.clone(),
+            "function ($export) { return { declare: function () {}, execute: function () { var observe = globalThis.__ibexCapsecContextObserver_eng25060; delete globalThis.__ibexCapsecContextObserver_eng25060; $export('principal', observe().principalId); } }; }",
+            &["principal"],
+        );
+        let (source_manifest, source_bytes) = PreparedModuleCarrierV1::from_inline_artifacts(
+            owner.clone(),
+            NonEmptyString::new("prepared-test").unwrap(),
+            digest("prepared-producer"),
+            digest("prepared-graph"),
+            [(
+                NonEmptyString::new("entry").unwrap(),
+                verify_test_artifact(&artifact),
+            )],
+        )
+        .unwrap();
+
+        let hermesc = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tools/hermes")
+            .join(
+                if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+                    "hermesc-macos-arm64"
+                } else if cfg!(target_os = "macos") {
+                    "hermesc-macos-x64"
+                } else if cfg!(target_arch = "aarch64") {
+                    "hermesc-linux-arm64"
+                } else {
+                    "hermesc-linux-x64"
+                },
+            );
+        assert!(
+            hermesc.is_file(),
+            "advertised target is missing matching hermesc at {}",
+            hermesc.display()
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let source_path = temp.path().join("attributed-carrier.js");
+        let hbc_path = temp.path().join("attributed-carrier.hbc");
+        std::fs::write(&source_path, &source_bytes).unwrap();
+        assert!(
+            std::process::Command::new(&hermesc)
+                .args(["-O", "-emit-binary", "-out"])
+                .arg(&hbc_path)
+                .arg(&source_path)
+                .status()
+                .unwrap()
+                .success(),
+            "matching hermesc must compile the attributed carrier"
+        );
+        let hbc_bytes = std::fs::read(hbc_path).unwrap();
+        let engine_digest = digest("attributed-engine");
+        let hbc_manifest = source_manifest
+            .bind_hermes_bytecode(&hbc_bytes, engine_digest.clone(), 1)
+            .unwrap();
+
+        unsafe {
+            let raw = ex_hermes_create_armed(armed_digest.as_ptr());
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let observer = CString::new(OBSERVER).unwrap();
+            let compartment = CString::new("package:attributed-project").unwrap();
+            let run_factory = |factory: CompiledModuleFactory<'_>, generation: u64| {
+                let context = runtime
+                    .create_graph_context(
+                        GraphEvaluationContext::new(
+                            source_id.clone(),
+                            PRINCIPAL_ID,
+                            PRINCIPAL_ID,
+                            [PRINCIPAL_ID],
+                            generation,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap();
+                let mut record = factory.create_record(&context, &source_id).unwrap();
+                record.declare_export("principal").unwrap();
+                record
+                    .instantiate("file:attributed-project/entry.mjs", true)
+                    .unwrap();
+                record.run_declare().unwrap();
+                assert_eq!(
+                    record.run_execute().unwrap(),
+                    ModuleExecutionKind::Synchronous
+                );
+                assert_eq!(record.namespace_json().unwrap(), r#"{"principal":"u64:7"}"#);
+            };
+
+            for generation in [1, 2] {
+                assert_eq!(
+                    ibex_test_install_capsec_context_observer(
+                        raw,
+                        observer.as_ptr(),
+                        compartment.as_ptr(),
+                    ),
+                    1
+                );
+                let factory = runtime
+                    .compile_verified_factory(
+                        verify_test_artifact(&artifact),
+                        PRINCIPAL_ID,
+                        Some("package:attributed-project"),
+                        generation,
+                        if generation == 1 {
+                            "cold-source.mjs"
+                        } else {
+                            "warm-source.mjs"
+                        },
+                    )
+                    .unwrap();
+                run_factory(factory, generation);
+            }
+
+            for (generation, manifest, bytes, is_hbc) in [
+                (3, &source_manifest, source_bytes.as_slice(), false),
+                (4, &hbc_manifest, hbc_bytes.as_slice(), true),
+            ] {
+                let mut admission = prepared_admission(owner.clone(), manifest);
+                if is_hbc {
+                    admission.expected_engine_binary_digest = Some(engine_digest.clone());
+                    admission.expected_bytecode_version = Some(1);
+                }
+                let carrier = AdmittedPreparedCarrierV1::decode_and_admit(
+                    &manifest.encode_canonical().unwrap(),
+                    bytes,
+                    &admission,
+                )
+                .unwrap();
+                let prepared_artifact = manifest.prepared_artifact("entry").unwrap();
+                assert_eq!(
+                    ibex_test_install_capsec_context_observer(
+                        raw,
+                        observer.as_ptr(),
+                        compartment.as_ptr(),
+                    ),
+                    1
+                );
+                let factory = runtime
+                    .load_verified_prepared_factory(
+                        verify_prepared_artifact(&prepared_artifact, manifest),
+                        carrier.entry("entry").unwrap(),
+                        PRINCIPAL_ID,
+                        Some("package:attributed-project"),
+                        generation,
+                        if is_hbc {
+                            "attributed-carrier.hbc"
+                        } else {
+                            "attributed-carrier.js"
+                        },
+                    )
+                    .unwrap();
+                run_factory(factory, generation);
+            }
+
             drop(runtime);
             ex_hermes_destroy(raw);
         }
@@ -3628,6 +3888,298 @@ mod tests {
             drop(target_context);
             drop(runtime);
             ex_hermes_destroy(raw);
+        }
+    }
+
+    /// Hosted micro-evidence for the two performance questions that a whole
+    /// application startup profile cannot isolate: checked binding operations
+    /// after linking and the true cold CommonJS `require(ESM)` drive.
+    // @ref LLP 0026#performance-and-platform-gates — measure checked cells against plain properties and cold require(ESM)
+    #[test]
+    #[ignore = "hosted module-runner micro-performance evidence"]
+    fn module_runner_cell_and_require_performance_baseline() {
+        use std::time::Instant;
+
+        const ITERATIONS: usize = 20_000;
+        const REQUIRE_DEPENDENCY_MODULES: usize = 40;
+
+        let output = std::env::var_os("IBEX_MODULE_RUNNER_MICRO_PERF_OUTPUT")
+            .map(std::path::PathBuf::from)
+            .expect("IBEX_MODULE_RUNNER_MICRO_PERF_OUTPUT is required");
+        let samples = std::env::var("IBEX_MODULE_RUNNER_PERF_SAMPLES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value >= 3)
+            .unwrap_or(5);
+        let summarize = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            serde_json::json!({
+                "samples": values.len(),
+                "minMs": sorted[0],
+                "medianMs": sorted[sorted.len() / 2],
+                "meanMs": values.iter().sum::<f64>() / values.len() as f64,
+                "maxMs": sorted[sorted.len() - 1],
+            })
+        };
+        let config = |source_id: SourceId, generation: u64, label: &str| {
+            NativeModuleRecordConfig::new(
+                0,
+                None,
+                GraphEvaluationContext::new(source_id, 0, 0, [0], generation).unwrap(),
+                label,
+                format!("synthetic:module-runner-performance/{label}"),
+            )
+            .unwrap()
+        };
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+
+        let cell_target_id =
+            SourceId::synthetic("module-runner-performance", "cell-target").unwrap();
+        let cell_entry_id = SourceId::synthetic("module-runner-performance", "cell-entry").unwrap();
+        let plain_entry_id =
+            SourceId::synthetic("module-runner-performance", "plain-entry").unwrap();
+        let cell_target = test_artifact_with_factory(
+            cell_target_id.clone(),
+            "function ($export) { var count; function increment() { count += 1; $export('count', count); } return { declare: function () { $export('increment', increment); }, execute: function () { count = 0; $export('count', count); } }; }",
+            &["count", "increment"],
+        );
+        let cell_entry = test_graph_artifact(
+            cell_entry_id.clone(),
+            &format!(
+                "function ($export, context) {{ return {{ declare: function () {{}}, execute: function () {{ var ns = context.importValue('./target', '*'); var sum = 0; for (var i = 0; i < {ITERATIONS}; i += 1) {{ context.importValue('./target', 'increment')(); sum += context.importValue('./target', 'count') + ns.count; }} $export('result', sum); }} }}; }}"
+            ),
+            vec![
+                StaticEdgeV1::Namespace {
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                    local: NonEmptyString::new("ns").unwrap(),
+                    attributes: ImportAttributes::default(),
+                },
+                StaticEdgeV1::Named {
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                    imported: NonEmptyString::new("increment").unwrap(),
+                    local: NonEmptyString::new("increment").unwrap(),
+                    attributes: ImportAttributes::default(),
+                },
+                StaticEdgeV1::Named {
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                    imported: NonEmptyString::new("count").unwrap(),
+                    local: NonEmptyString::new("count").unwrap(),
+                    attributes: ImportAttributes::default(),
+                },
+            ],
+            vec![ExportDescriptorV1::Local {
+                exported: NonEmptyString::new("result").unwrap(),
+                local: NonEmptyString::new("result").unwrap(),
+            }],
+        );
+        let plain_entry = test_artifact_with_factory(
+            plain_entry_id.clone(),
+            &format!(
+                "function ($export) {{ return {{ declare: function () {{}}, execute: function () {{ var box = {{ count: 0 }}; function increment() {{ box.count += 1; }} var sum = 0; for (var i = 0; i < {ITERATIONS}; i += 1) {{ increment(); sum += box.count + box.count; }} $export('result', sum); }} }}; }}"
+            ),
+            &["result"],
+        );
+        let cell_plan = SynchronousGraphPlan::new([
+            (verify_test_artifact(&cell_target), BTreeMap::new()),
+            (
+                verify_test_artifact(&cell_entry),
+                BTreeMap::from([("./target".into(), cell_target_id.clone())]),
+            ),
+        ])
+        .unwrap();
+        let plain_plan =
+            SynchronousGraphPlan::new([(verify_test_artifact(&plain_entry), BTreeMap::new())])
+                .unwrap();
+        let expected_sum = ITERATIONS * (ITERATIONS + 1);
+
+        let mut require_artifacts = Vec::with_capacity(REQUIRE_DEPENDENCY_MODULES + 1);
+        let mut require_edges = Vec::with_capacity(REQUIRE_DEPENDENCY_MODULES + 1);
+        let require_ids = (0..REQUIRE_DEPENDENCY_MODULES)
+            .map(|index| {
+                SourceId::synthetic("module-runner-performance", format!("require-m{index}"))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        for index in 0..REQUIRE_DEPENDENCY_MODULES {
+            if index + 1 < REQUIRE_DEPENDENCY_MODULES {
+                let specifier = format!("./m{}", index + 1);
+                require_artifacts.push(test_graph_artifact(
+                    require_ids[index].clone(),
+                    &format!(
+                        "function ($export, context) {{ return {{ declare: function () {{}}, execute: function () {{ $export('value', context.importValue('{specifier}', 'value') + 1); }} }}; }}"
+                    ),
+                    vec![StaticEdgeV1::Named {
+                        specifier: NonEmptyString::new(specifier.clone()).unwrap(),
+                        imported: NonEmptyString::new("value").unwrap(),
+                        local: NonEmptyString::new("next").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    }],
+                    vec![ExportDescriptorV1::Local {
+                        exported: NonEmptyString::new("value").unwrap(),
+                        local: NonEmptyString::new("value").unwrap(),
+                    }],
+                ));
+                require_edges.push(BTreeMap::from([(
+                    specifier,
+                    require_ids[index + 1].clone(),
+                )]));
+            } else {
+                require_artifacts.push(test_artifact_with_factory(
+                    require_ids[index].clone(),
+                    "function ($export) { return { declare: function () {}, execute: function () { $export('value', 1); } }; }",
+                    &["value"],
+                ));
+                require_edges.push(BTreeMap::new());
+            }
+        }
+        let require_entry_id =
+            SourceId::synthetic("module-runner-performance", "require-entry").unwrap();
+        require_artifacts.push(test_artifact_for_goal(
+            require_entry_id.clone(),
+            "function (require, module, exports) { exports.result = require('./m0').value; }",
+            SourceGoalV1::CommonJs,
+            vec![StaticEdgeV1::CommonJsRequire {
+                specifier: NonEmptyString::new("./m0").unwrap(),
+            }],
+            Vec::new(),
+            Some(CommonJsExportsV1 {
+                detector: NonEmptyString::new("cjs-module-lexer").unwrap(),
+                detector_version: NonEmptyString::new("2.1.0").unwrap(),
+                names: vec![NonEmptyString::new("result").unwrap()],
+                reexports: Vec::new(),
+            }),
+        ));
+        require_edges.push(BTreeMap::from([("./m0".into(), require_ids[0].clone())]));
+
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let mut cell_ms = Vec::with_capacity(samples);
+            let mut plain_ms = Vec::with_capacity(samples);
+
+            for sample in 0..(samples + 2) {
+                let generation = sample as u64 + 1;
+                let mut cell_graph = NativeSynchronousGraph::link(
+                    &runtime,
+                    &cell_plan,
+                    &cell_entry_id,
+                    BTreeMap::from([
+                        (
+                            cell_target_id.clone(),
+                            config(cell_target_id.clone(), generation, "cell-target.mjs"),
+                        ),
+                        (
+                            cell_entry_id.clone(),
+                            config(cell_entry_id.clone(), generation, "cell-entry.mjs"),
+                        ),
+                    ]),
+                )
+                .unwrap();
+                let started = Instant::now();
+                cell_graph.evaluate().unwrap();
+                let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+                assert_eq!(
+                    cell_graph.namespace_json(&cell_entry_id).unwrap(),
+                    format!(r#"{{"result":{expected_sum}}}"#)
+                );
+                if sample >= 2 {
+                    cell_ms.push(elapsed);
+                }
+
+                let plain_generation = generation + (samples + 2) as u64;
+                let mut plain_graph = NativeSynchronousGraph::link(
+                    &runtime,
+                    &plain_plan,
+                    &plain_entry_id,
+                    BTreeMap::from([(
+                        plain_entry_id.clone(),
+                        config(plain_entry_id.clone(), plain_generation, "plain-entry.mjs"),
+                    )]),
+                )
+                .unwrap();
+                let started = Instant::now();
+                plain_graph.evaluate().unwrap();
+                let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+                assert_eq!(
+                    plain_graph.namespace_json(&plain_entry_id).unwrap(),
+                    format!(r#"{{"result":{expected_sum}}}"#)
+                );
+                if sample >= 2 {
+                    plain_ms.push(elapsed);
+                }
+            }
+            drop(runtime);
+            ex_hermes_destroy(raw);
+
+            let mut cold_require_ms = Vec::with_capacity(samples);
+            for sample in 0..samples {
+                let started = Instant::now();
+                let plan = SynchronousGraphPlan::new(
+                    require_artifacts
+                        .iter()
+                        .zip(require_edges.iter())
+                        .map(|(artifact, edges)| (verify_test_artifact(artifact), edges.clone())),
+                )
+                .unwrap();
+                plan.synchronous_evaluation_order(&require_entry_id)
+                    .unwrap();
+                let raw = ex_hermes_create_diagnostic();
+                assert!(!raw.is_null());
+                let nonce = ex_hermes_runtime_nonce(raw);
+                let runtime =
+                    NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+                let generation = sample as u64 + 1;
+                let mut configs = BTreeMap::new();
+                for (index, source_id) in require_ids.iter().enumerate() {
+                    configs.insert(
+                        source_id.clone(),
+                        config(source_id.clone(), generation, &format!("m{index}.mjs")),
+                    );
+                }
+                configs.insert(
+                    require_entry_id.clone(),
+                    config(require_entry_id.clone(), generation, "entry.cjs"),
+                );
+                let mut graph =
+                    NativeSynchronousGraph::link(&runtime, &plan, &require_entry_id, configs)
+                        .unwrap();
+                graph.evaluate().unwrap();
+                assert_eq!(
+                    graph.namespace_json(&require_entry_id).unwrap(),
+                    r#"{"default":{"result":40},"module.exports":{"result":40},"result":40}"#
+                );
+                cold_require_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+                drop(graph);
+                drop(runtime);
+                ex_hermes_destroy(raw);
+            }
+
+            let report = serde_json::json!({
+                "schema": "ibex/module-runner-micro-performance-baseline/1",
+                "platform": { "os": std::env::consts::OS, "arch": std::env::consts::ARCH },
+                "measurementConditions": {
+                    "iterations": ITERATIONS,
+                    "requireDependencyModules": REQUIRE_DEPENDENCY_MODULES,
+                    "warmupSamplesExcluded": 2,
+                    "cellWorkload": "one checked function import read, one export update observed through a checked value import and namespace getter, per iteration",
+                    "plainWorkload": "one ordinary function call and two ordinary object property reads per iteration"
+                },
+                "profiles": {
+                    "checkedCellSetterNamespace": summarize(&cell_ms),
+                    "plainProperty": summarize(&plain_ms),
+                    "coldRequireEsm": summarize(&cold_require_ms),
+                },
+            });
+            std::fs::write(
+                output,
+                format!("{}\n", serde_json::to_string_pretty(&report).unwrap()),
+            )
+            .unwrap();
         }
     }
 }

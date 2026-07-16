@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25066 made the native target advertisement exact and non-empty for macOS arm64 and Linux x64, with Windows explicitly compatibility-only pending a patched Hermes artifact); 2026-07-15 (ENG-25066 narrowed legacy admission to typed unsupported producer shapes and retained fatal behavior for authorization, syntax, integrity, and linkage failures); 2026-07-15 (ENG-25065 limited trusted bootstrap evaluation to the unpublished owner-thread construction window while retaining the generation drive gate after publication); 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
+**Revised:** 2026-07-15 (ENG-25060 added non-root frame-attribution fixtures for cold and repeated source factories plus prepared source and HBC carriers); 2026-07-15 (ENG-25066 set measured checked-cell and cold `require(ESM)` envelopes and added exact-host micro-performance evidence); 2026-07-15 (ENG-25061 added a fail-loud, no-execution graph/effect-trace shadow between checked authenticated producer artifacts and the exact legacy scanner, including all three historical scanner-repair families); 2026-07-15 (ENG-25066 made the native target advertisement exact and non-empty for macOS arm64 and Linux x64, with Windows explicitly compatibility-only pending a patched Hermes artifact); 2026-07-15 (ENG-25066 narrowed legacy admission to typed unsupported producer shapes and retained fatal behavior for authorization, syntax, integrity, and linkage failures); 2026-07-15 (ENG-25065 limited trusted bootstrap evaluation to the unpublished owner-thread construction window while retaining the generation drive gate after publication); 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
 handled internal record promises, fresh ESM/CommonJS dynamic-import promises,
 sticky rejection, event-loop keepalive, and mixed re-entry refusal); 2026-07-15
 (ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
@@ -1435,12 +1435,21 @@ the authenticated 40-module source and prepared profiles must keep both cold
 and warm median time at or below **1.25×** the same-host Phase 0 direct-source
 and prepared-Rolldown profiles. The default binary must remain at or below
 **1.25×** the no-default-feature binary, and clean build time at or below
-**1.5×** the no-default-feature build. These deliberately allow ordinary CI
-variance and the temporary coexistence of Oxc and SWC during the 0.1 fallback
-window while still rejecting an architectural regression. The fail-loud
-comparison report is `ibex/module-runner-performance-gate/1`; an unadvertised
-Windows row may pass only with the distinct typed unavailability schema and
-does not count as performance evidence.
+**1.5×** the no-default-feature build. The 20,000-iteration checked-cell
+workload — one checked function import, export update, checked value import,
+and namespace getter per iteration — must remain at or below **20×** its
+same-runtime plain-property control. This envelope comes from the initial
+macOS arm64 calibration median of **13.46×** (7.134 ms versus 0.530 ms) and retains roughly
+50% hosted-runner variance while accepting the sub-microsecond cost of the
+authenticated host-boundary checks. The median cold synchronous
+`require(ESM)` drive over a 40-module closure must remain at or below **1.25×**
+the same-host Phase 0 direct-source cold median; the initial macOS arm64 native
+median is **9.60 ms**. These envelopes deliberately allow ordinary CI variance
+and the temporary coexistence of Oxc and SWC during the 0.1 fallback window
+while still rejecting an architectural regression. The fail-loud comparison
+report is `ibex/module-runner-performance-gate/1`; an unadvertised Windows row
+may pass only with the distinct typed unavailability schema and does not count
+as performance evidence.
 
 ## Alternatives considered
 

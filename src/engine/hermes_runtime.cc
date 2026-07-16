@@ -4443,7 +4443,8 @@ bool decodeHostCallPayload(facebook::jsi::Runtime& rt,
 // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
 extern "C" int ibex_test_install_capsec_context_observer(
     ExactHermesRuntime* runtime,
-    const char* global_name) {
+    const char* global_name,
+    const char* compartment_identity) {
   constexpr const char* kPrefix = "__ibexCapsecContextObserver_";
   if (!runtime || !runtime->armed || runtime->restricted ||
       runtime->runtime_thread != std::this_thread::get_id() || !global_name ||
@@ -4455,8 +4456,17 @@ extern "C" int ibex_test_install_capsec_context_observer(
     auto& rt = *runtime->runtime;
     std::string name(global_name);
     auto property = facebook::jsi::PropNameID::forUtf8(rt, name);
-    if (rt.global().hasProperty(rt, property)) {
-      return 0;
+    facebook::jsi::Object compartment(rt);
+    if (compartment_identity == nullptr) {
+      if (rt.global().hasProperty(rt, property)) return 0;
+    } else {
+      auto registry = rt.global().getProperty(rt, "__compartments");
+      if (!registry.isObject()) return 0;
+      auto compartmentValue = registry.asObject(rt).getProperty(
+          rt, compartment_identity);
+      if (!compartmentValue.isObject()) return 0;
+      compartment = compartmentValue.asObject(rt);
+      if (compartment.hasProperty(rt, property)) return 0;
     }
     auto called = std::make_shared<std::atomic<bool>>(false);
     auto observer = facebook::jsi::Function::createFromHostFunction(
@@ -4486,7 +4496,11 @@ extern "C" int ibex_test_install_capsec_context_observer(
                   rt, "u64:" + std::to_string(runtime->runtime_nonce)));
           return context;
         });
-    rt.global().setProperty(rt, property, std::move(observer));
+    if (compartment_identity == nullptr) {
+      rt.global().setProperty(rt, property, std::move(observer));
+    } else {
+      compartment.setProperty(rt, property, std::move(observer));
+    }
     return 1;
   } catch (const facebook::jsi::JSIException&) {
     return 0;

@@ -241,6 +241,7 @@ extern "C" {
     fn ibex_test_install_capsec_context_observer(
         runtime: *mut HermesRuntimeOpaque,
         global_name: *const std::os::raw::c_char,
+        compartment_identity: *const std::os::raw::c_char,
     ) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_set_armed_startup_failure_stage(stage: *const std::os::raw::c_char);
@@ -1416,7 +1417,7 @@ impl HermesEngine {
         let name_c = CString::new(name.as_str()).expect("hex observer name has no interior NUL");
         let runtime = self.ensure_runtime().await?;
         let installed = runtime.with_runtime(|raw| unsafe {
-            ibex_test_install_capsec_context_observer(raw, name_c.as_ptr())
+            ibex_test_install_capsec_context_observer(raw, name_c.as_ptr(), std::ptr::null())
         })?;
         if installed != 1 {
             anyhow::bail!("armed Hermes refused the ephemeral CapSec context observer");

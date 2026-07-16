@@ -3834,6 +3834,11 @@ fn package_name_from_specifier(specifier: &str) -> &str {
     }
 }
 
+#[cfg(all(test, feature = "capsec-conformance-observer"))]
+pub(crate) fn module_runner_attribution_test_host() -> Host {
+    tests::example_armed_host()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3924,7 +3929,7 @@ mod tests {
         })
     }
 
-    fn example_armed_host() -> Host {
+    pub(super) fn example_armed_host() -> Host {
         example_armed_host_with(|_| {})
     }
 
