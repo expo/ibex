@@ -373,6 +373,10 @@ const EXACT_EMBEDDER_NON_CAPABILITY_SURFACES = new Map([
     ["authority-control-plane", "exact-endowment-authorize"],
   ],
   [
+    "host-abi:ex_host_build_exact_armed_embedder_artifacts",
+    ["authority-control-plane", "exact-artifact-prepare-round-trip"],
+  ],
+  [
     "host-abi:ex_host_prepare_armed_embedder_artifacts",
     ["authority-control-plane", "exact-artifact-prepare-round-trip"],
   ],

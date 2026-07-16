@@ -53,6 +53,10 @@ const EXACT_PILOT_SURFACES = new Map([
     ["non-capability", "exact-endowment-authorize"],
   ],
   [
+    "host-abi:ex_host_build_exact_armed_embedder_artifacts",
+    ["non-capability", "exact-artifact-prepare-round-trip"],
+  ],
+  [
     "host-abi:ex_host_prepare_armed_embedder_artifacts",
     ["non-capability", "exact-artifact-prepare-round-trip"],
   ],

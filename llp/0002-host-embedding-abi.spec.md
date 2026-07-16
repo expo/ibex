@@ -249,9 +249,22 @@ installation: filesystem object identities for the mapped engine and protected
 files cannot truthfully be minted on a different packaging machine. It still
 cannot advertise or install an unsupported target.
 
-These four new symbols (`ex_hermes_set_exact_host_call_async`, its resolver,
+`ex_host_build_exact_armed_embedder_artifacts` is the normal installed-app
+producer. It accepts only the installed project-root path and the same raw
+manifest bytes, loads the actual mapped engine identity and checked CapSec
+identities, authors Exact's canonical empty package policy/graph, binds the
+installed project and cache roots, materializes policy, graph, registry, and
+manifest as immutable content-addressed artifacts, includes the engine as the
+fifth protected object, and returns a construction-fresh authenticated pair.
+The producer deliberately does not accept caller-authored identity or package
+facts. Exact's current application is a single bundled root; a future
+package-bearing application must pass Ibex's canonical generated policy through
+a separately specified input rather than being flattened by this API.
+
+These five new symbols (`ex_hermes_set_exact_host_call_async`, its resolver,
 `ex_host_prepare_armed_embedder_artifacts`, and
-`ex_host_prepare_exact_armed_embedder_artifacts`) are a public, provisional
+`ex_host_prepare_exact_armed_embedder_artifacts`, plus
+`ex_host_build_exact_armed_embedder_artifacts`) are a public, provisional
 extension for the pinned Exact consumer, not an expansion of LLP 0000's five-
 function semver-major minimum. Until this Draft spec is accepted, a breaking
 change requires an atomic Ibex commit plus Exact submodule/consumer update; it

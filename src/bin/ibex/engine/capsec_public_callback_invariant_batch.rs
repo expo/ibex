@@ -279,7 +279,8 @@ fn expected_invariant(
                 Vec::new(),
                 Vec::new(),
             ),
-            "host-abi:ex_host_prepare_armed_embedder_artifacts"
+            "host-abi:ex_host_build_exact_armed_embedder_artifacts"
+            | "host-abi:ex_host_prepare_armed_embedder_artifacts"
             | "host-abi:ex_host_prepare_exact_armed_embedder_artifacts" => (
                 "authority-control-plane",
                 "exact-artifact-prepare-round-trip",
@@ -1915,10 +1916,27 @@ async fn execute_exact_artifact_prepare(recipe: &Recipe) -> ScenarioExecution {
     let _reset = HostResetGuard;
     let session = format!("exact-artifact-prepare:{}", recipe.plan_digest);
     begin_observation(&session);
+    let manifest = br#"{"schema":"exact.host-call-operations/v1","schemaVersion":1,"operations":[{"id":1000,"name":"app.render"},{"id":2200,"name":"agentIsolate.appRuntimeHealth"},{"id":2201,"name":"agentIsolate.bindFailed"},{"id":2202,"name":"agentIsolate.config"},{"id":2203,"name":"agentIsolate.ready"}],"endowments":{"app":[1000],"agentIsolate":[2200,2201,2202,2203],"uiWorklet":[]}}"#;
     let output = if recipe.terminal_observed_key
+        == "host-abi:ex_host_build_exact_armed_embedder_artifacts"
+    {
+        let root = fixture
+            ._directory
+            .path()
+            .to_str()
+            .expect("Exact builder fixture root must be UTF-8")
+            .as_bytes();
+        unsafe {
+            crate::host::abi::ex_host_build_exact_armed_embedder_artifacts(
+                root.as_ptr(),
+                root.len(),
+                manifest.as_ptr(),
+                manifest.len(),
+            )
+        }
+    } else if recipe.terminal_observed_key
         == "host-abi:ex_host_prepare_exact_armed_embedder_artifacts"
     {
-        let manifest = br#"{"schema":"exact.host-call-operations/v1","schemaVersion":1,"operations":[{"id":1000,"name":"app.render"},{"id":2200,"name":"agentIsolate.appRuntimeHealth"},{"id":2201,"name":"agentIsolate.bindFailed"},{"id":2202,"name":"agentIsolate.config"},{"id":2203,"name":"agentIsolate.ready"}],"endowments":{"app":[1000],"agentIsolate":[2200,2201,2202,2203],"uiWorklet":[]}}"#;
         unsafe {
             crate::host::abi::ex_host_prepare_exact_armed_embedder_artifacts(
                 fixture.snapshot.as_ptr(),
@@ -2232,6 +2250,10 @@ async fn capsec_callback_invariant_mechanisms_smoke() {
             "exact-endowment-authorize",
         ),
         (
+            "host-abi:ex_host_build_exact_armed_embedder_artifacts",
+            "exact-artifact-prepare-round-trip",
+        ),
+        (
             "host-abi:ex_host_prepare_armed_embedder_artifacts",
             "exact-artifact-prepare-round-trip",
         ),
@@ -2269,14 +2291,14 @@ async fn capsec_public_callback_invariant_batch() {
             .entry(recipe.scenario.as_str())
             .or_insert(0usize) += 1;
     }
-    assert_eq!(recipes.len(), 2_858);
+    assert_eq!(recipes.len(), 2_864);
     assert_eq!(by_scenario.get("attribution-missing-deny"), Some(&554));
     assert_eq!(by_scenario.get("generation-recheck"), Some(&554));
     assert_eq!(by_scenario.get("principal-restore"), Some(&554));
     assert_eq!(by_scenario.get("snapshot-mismatch-deny"), Some(&554));
-    assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&318));
-    assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&318));
-    assert_eq!(by_scenario.get("non-capability"), Some(&6));
+    assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&320));
+    assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&320));
+    assert_eq!(by_scenario.get("non-capability"), Some(&8));
     let (branches, edges) = checked_registry_rows();
     for recipe in &recipes {
         validate_recipe_source_binding(recipe, &branches, &edges);

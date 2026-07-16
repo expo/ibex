@@ -5154,6 +5154,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_authorize_typed_print_stack",
     "ex_host_authorize_typed_system_info_stack",
     "ex_host_authorize_typed_udp_datagram_stack",
+    "ex_host_build_exact_armed_embedder_artifacts",
     "ex_host_check_capability",
     "ex_host_check_capability_no_follow_final",
     "ex_host_check_capability_stack",
@@ -11795,6 +11796,7 @@ function hostAbiClassification(name) {
     new Set([
       "exhostarmedendowments",
       "exhostauthorizeexactendowment",
+      "exhostbuildexactarmedembedderartifacts",
       "exhostinstallarmed",
       "exhostmatchesarmedsnapshotdigest",
       "exhostpreparearmedembedderartifacts",

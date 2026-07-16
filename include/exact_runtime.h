@@ -450,6 +450,18 @@ char* ex_host_prepare_exact_armed_embedder_artifacts(
     const uint8_t* operation_manifest,
     size_t operation_manifest_len);
 
+/// Build a complete production Exact artifact pair directly against the
+/// installed target's engine, project root, checked CapSec identities, and
+/// strict Exact operation manifest. `project_root_utf8` is not NUL terminated.
+/// This removes any requirement to package filesystem identities produced on
+/// another machine or at another install path. It does not advertise a target;
+/// `ex_host_install_armed` retains that report-derived gate.
+char* ex_host_build_exact_armed_embedder_artifacts(
+    const uint8_t* project_root_utf8,
+    size_t project_root_utf8_len,
+    const uint8_t* operation_manifest,
+    size_t operation_manifest_len);
+
 /// Release a heap-owned string returned by the host ABI.
 void ex_host_free_string(char* value);
 

@@ -9,7 +9,7 @@
       "omitFields": [
         "armedSnapshotDigest"
       ],
-      "expectedDigest": "sha256-MDrFlfB2X5xeu88MlnlfR7r3GmOjXYHWEVfFXTj73oQ"
+      "expectedDigest": "sha256-AC5HaM-gXXEVeekrHiJ5rDf9oz2Osqgh5uNb-tego3k"
     },
     {
       "id": "conformance",
@@ -31,21 +31,21 @@
       "omitFields": [
         "policyDigest"
       ],
-      "expectedDigest": "sha256-l2fX3YQdS-z-twZ2gqICqkXfAz0VowyMcu9Hl3V9Ydk"
+      "expectedDigest": "sha256-yFgkET_XNpeNcEISiQUnim1pZC1Q4sYhxUTTt-6K4kU"
     },
     {
       "id": "registry",
       "domain": "ibex:capsec:registry:1",
       "payloadRef": "examples/registry-digest-bundle.canonical.json",
       "omitFields": [],
-      "expectedDigest": "sha256-b9U4lUuFg45aEeaSZpkvC1PUl2_PubpVdKw5ZXDLiNI"
+      "expectedDigest": "sha256-s0Jg4ygbDW9_CA_SbREUUds5U6dtyRhmZEkzypLzxPg"
     },
     {
       "id": "vocabulary",
       "domain": "ibex:capsec:vocab:1",
       "payloadRef": "examples/digest-bundle.canonical.json",
       "omitFields": [],
-      "expectedDigest": "sha256-GiIsJj0Xn0nndouAZvTBu-TpPRbhKfyTD_UP0loHb4w"
+      "expectedDigest": "sha256-fGiaV9J8UPgkFk9GqBis_hJhE6SKYLht0g-Qf6pyvtM"
     }
   ]
 }

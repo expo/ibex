@@ -472,6 +472,53 @@ pub unsafe extern "C" fn ex_host_prepare_exact_armed_embedder_artifacts(
         .unwrap_or(std::ptr::null_mut())
 }
 
+/// Build a complete target-local Exact artifact pair from the installed
+/// project root and the checked operation manifest. The project-root bytes are
+/// UTF-8 and need not be NUL terminated. The returned string is released with
+/// `ex_host_free_string`.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this call.
+/// Inputs are copied or consumed synchronously and are not retained.
+/// @ref LLP 0002#the-exact-embedder-ingress — the native embedder supplies its
+/// installed root and checked manifest, never an operation allowlist.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts(
+    project_root_utf8: *const u8,
+    project_root_utf8_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+) -> *mut c_char {
+    let result = if project_root_utf8.is_null()
+        || project_root_utf8_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "Exact project root and operation manifest are required"
+        ))
+    } else {
+        let root_bytes =
+            unsafe { std::slice::from_raw_parts(project_root_utf8, project_root_utf8_len) };
+        let root = std::str::from_utf8(root_bytes)
+            .map(std::path::Path::new)
+            .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        root.and_then(|root| {
+            super::embedder_artifacts::build_exact_embedder_artifacts(root, manifest)
+        })
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     let active = ACTIVE_HOST_CONTEXT.with(Cell::get);
     if active != 0 {
@@ -5402,5 +5449,14 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Exact operation manifest are required"));
+
+        let build_envelope = take_json(unsafe {
+            ex_host_build_exact_armed_embedder_artifacts(ptr::null(), 0, ptr::null(), 0)
+        });
+        assert_eq!(build_envelope["ok"], false);
+        assert!(build_envelope["error"]
+            .as_str()
+            .unwrap()
+            .contains("Exact project root and operation manifest are required"));
     }
 }

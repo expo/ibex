@@ -14,7 +14,9 @@ use capsec_semantics::arming::{
     ArmedSnapshot, ExactEmbedderBinding, ExactEmbedderEndowments, ExpectedArmingIdentity,
     ExpectedProtectedArtifact, ProtectedArtifactRole,
 };
-use capsec_semantics::digest::{compute_checked_contract_digest, DigestKind};
+use capsec_semantics::digest::{
+    compute_checked_contract_digest, compute_domain_digest, DigestKind,
+};
 use capsec_semantics::model::{Digest, LogicalPath, LogicalRoot};
 use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -59,7 +61,7 @@ struct ExactOperationEndowments {
     ui_worklet: Vec<u32>,
 }
 
-struct MaterializedManifest {
+struct MaterializedArtifact {
     host_path: LogicalPath,
     object: capsec_semantics::model::ObjectIdentity,
     content_digest: Digest,
@@ -204,7 +206,7 @@ fn parse_exact_operation_manifest(bytes: &[u8]) -> Result<ExactEmbedderBinding> 
     })
 }
 
-fn manifest_artifact_path(path: &Path) -> Result<LogicalPath> {
+fn absolute_artifact_path(path: &Path) -> Result<LogicalPath> {
     Ok(LogicalPath {
         root: LogicalRoot::Absolute,
         components: super::host_path_components(path)?,
@@ -212,22 +214,24 @@ fn manifest_artifact_path(path: &Path) -> Result<LogicalPath> {
     })
 }
 
-fn materialize_exact_operation_manifest(
+fn materialize_protected_artifact(
+    role: &str,
     bytes: &[u8],
     digest: &Digest,
-) -> Result<MaterializedManifest> {
+) -> Result<MaterializedArtifact> {
     let cache_root = crate::runtime_cache_dir()?;
     let directory = cache_root.join("capsec-artifacts");
     std::fs::create_dir_all(&directory)?;
     let directory_metadata = std::fs::symlink_metadata(&directory)?;
     anyhow::ensure!(
         directory_metadata.is_dir() && !directory_metadata.file_type().is_symlink(),
-        "Exact manifest artifact parent is not a stable directory"
+        "protected artifact parent is not a stable directory"
     );
     let directory = std::fs::canonicalize(directory)?;
     let filename = format!(
-        "{}.exact-operation-manifest.json",
-        digest.as_str().trim_start_matches("sha256-")
+        "{}.{}.json",
+        digest.as_str().trim_start_matches("sha256-"),
+        role,
     );
     let path = directory.join(filename);
 
@@ -241,13 +245,13 @@ fn materialize_exact_operation_manifest(
         }
         options
             .open(&path)
-            .with_context(|| format!("failed to pin Exact manifest artifact {}", path.display()))
+            .with_context(|| format!("failed to pin protected artifact {}", path.display()))
     };
     let validate = |file: &mut std::fs::File| -> Result<()> {
         let metadata = file.metadata()?;
         anyhow::ensure!(
             metadata.is_file(),
-            "Exact manifest artifact is not a regular file"
+            "protected artifact is not a regular file"
         );
         #[cfg(unix)]
         anyhow::ensure!(
@@ -255,20 +259,17 @@ fn materialize_exact_operation_manifest(
                 use std::os::unix::fs::PermissionsExt as _;
                 metadata.permissions().mode() & 0o222 == 0
             },
-            "Exact manifest artifact is mutable"
+            "protected artifact is mutable"
         );
         #[cfg(not(unix))]
         anyhow::ensure!(
             metadata.permissions().readonly(),
-            "Exact manifest artifact is mutable"
+            "protected artifact is mutable"
         );
         file.rewind()?;
         let mut observed = Vec::with_capacity(metadata.len() as usize);
         file.read_to_end(&mut observed)?;
-        anyhow::ensure!(
-            observed == bytes,
-            "Exact manifest artifact content mismatch"
-        );
+        anyhow::ensure!(observed == bytes, "protected artifact content mismatch");
         Ok(())
     };
 
@@ -277,10 +278,9 @@ fn materialize_exact_operation_manifest(
         validate(&mut existing)?;
     } else {
         let mut nonce = [0_u8; 16];
-        getrandom::getrandom(&mut nonce)
-            .context("failed to name Exact manifest staging artifact")?;
+        getrandom::getrandom(&mut nonce).context("failed to name protected staging artifact")?;
         let temporary = directory.join(format!(
-            ".exact-operation-manifest.{}.tmp",
+            ".{role}.{}.tmp",
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce)
         ));
         let mut staged = std::fs::OpenOptions::new()
@@ -318,10 +318,15 @@ fn materialize_exact_operation_manifest(
 
     let path = std::fs::canonicalize(path)?;
     let object = super::object_identity_for_host_path(&path)?;
-    Ok(MaterializedManifest {
-        host_path: manifest_artifact_path(&path)?,
+    let content_digest = Digest::new(format!(
+        "sha256-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+    ))
+    .map_err(anyhow::Error::msg)?;
+    Ok(MaterializedArtifact {
+        host_path: absolute_artifact_path(&path)?,
         object,
-        content_digest: digest.clone(),
+        content_digest,
     })
 }
 
@@ -465,6 +470,239 @@ pub fn prepare_embedder_artifacts(
     })
 }
 
+/// Build a complete Exact-bound artifact pair against the engine and project
+/// roots installed on this target.
+///
+/// Exact's packaged application code is a single authenticated root bundle, so
+/// this first public producer authors the canonical empty package policy and
+/// graph rather than accepting a second, embedder-defined package inventory.
+/// Package-bearing applications must use Ibex's canonical policy generator and
+/// are refused by this API until that generated policy is an explicit input.
+/// The resulting pair is still subject to report-derived target advertisement
+/// during `ex_host_install_armed`.
+/// @ref LLP 0021#default-and-target-claim — artifact production cannot promote
+/// an unsupported target or create a weaker Exact claim plane.
+pub fn build_exact_embedder_artifacts(
+    project_root: &Path,
+    operation_manifest_bytes: &[u8],
+) -> Result<PreparedEmbedderArtifacts> {
+    super::reject_closed_startup_environment()?;
+    let project_root = std::fs::canonicalize(project_root).with_context(|| {
+        format!(
+            "failed to authenticate Exact project root {}",
+            project_root.display()
+        )
+    })?;
+    anyhow::ensure!(
+        project_root.is_dir(),
+        "Exact project root is not a directory"
+    );
+
+    let (vocab_digest, registry_digest) = checked_identity_digests()?;
+    let expected_policy_identity = capsec_semantics::policy::ExpectedPolicyIdentity {
+        profile: crate::capsec_registry_generated::CAPSEC_PROFILE.into(),
+        semantic_core: crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE.into(),
+        vocab_digest: vocab_digest.clone(),
+        registry_digest: registry_digest.clone(),
+    };
+    let policy_profile = capsec_semantics::registry::ValidatedProfile::from_json(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/capability-definitions.json"
+        )),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/policy-rules.json"
+        )),
+    )?;
+    let mut policy = serde_json::json!({
+        "policySchema": "ibex/capsec-policy/1",
+        "capsVocab": crate::capsec_registry_generated::CAPSEC_PROFILE,
+        "semanticCore": crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE,
+        "vocabDigest": vocab_digest,
+        "registryDigest": registry_digest,
+        "policyDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "purpose": "production",
+        "mode": "enforce",
+        "principals": [],
+    });
+    let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
+    policy["policyDigest"] = serde_json::json!(policy_digest);
+    let canonical_policy = capsec_semantics::policy::CanonicalPolicy::load(
+        &serde_json::to_vec(&policy)?,
+        &expected_policy_identity,
+        &policy_profile.definitions,
+    )
+    .context("default Exact production policy failed typed validation")?;
+    anyhow::ensure!(
+        canonical_policy.principals.is_empty(),
+        "target-local Exact builder accepts only the canonical empty package policy"
+    );
+    policy = serde_json::to_value(&canonical_policy)?;
+
+    let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
+    let binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
+    let mut root_builtins = crate::module_loader::RUNTIME_GATED_NODE_BUILTINS
+        .iter()
+        .map(|name| format!("node:{name}"))
+        .collect::<Vec<_>>();
+    root_builtins.sort();
+
+    let mut document: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/examples/armed-snapshot.canonical.json"
+    )))?;
+    document["workflow"] = serde_json::json!("production");
+    document["effectiveMode"] = serde_json::json!("enforce");
+    document["policyDigest"] = serde_json::to_value(&canonical_policy.policy_digest)?;
+    document["engine"] = serde_json::json!({
+        "target": runtime_target_triple(),
+        "binaryDigest": engine.binary_digest,
+        "features": engine.structural_features,
+    });
+    document["principals"] = serde_json::json!([{
+        "principal": {"kind": "root", "identity": "project-root"},
+        "floor": [],
+        "denials": [],
+        "escalationCeiling": [],
+        "imports": {"builtins": root_builtins, "packages": []},
+        "endowments": [],
+    }]);
+    document["packageGraph"] = serde_json::json!({
+        "digest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "nodes": [],
+        "importEdges": [],
+    });
+    let graph_digest = compute_domain_digest(
+        "ibex:capsec:package-graph:1",
+        &document["packageGraph"],
+        &["digest".to_owned()],
+    )?;
+    document["packageGraph"]["digest"] = serde_json::json!(graph_digest);
+    let mut epoch = [0_u8; 8];
+    getrandom::getrandom(&mut epoch).context("failed to generate CapSec channel epoch")?;
+    document["channelEpoch"] = serde_json::json!(u64::from_le_bytes(epoch).max(1).to_string());
+
+    let cache_root = crate::runtime_cache_dir()?;
+    std::fs::create_dir_all(&cache_root)?;
+    let cache_root = std::fs::canonicalize(cache_root)?;
+    document["rootBindings"] = serde_json::json!([
+        {
+            "logicalRoot": "project",
+            "hostPath": absolute_artifact_path(&project_root)?,
+            "object": super::object_identity_for_host_path(&project_root)?,
+        },
+        {
+            "logicalRoot": "home",
+            "hostPath": absolute_artifact_path(&cache_root)?,
+            "object": super::object_identity_for_host_path(&cache_root)?,
+        },
+    ]);
+    document["exactEmbedder"] = serde_json::to_value(&binding)?;
+
+    let policy_bytes = capsec_semantics::canonical::to_jcs_bytes(&policy)?;
+    let graph_bytes = capsec_semantics::canonical::to_jcs_bytes(&document["packageGraph"])?;
+    let registry_record = serde_json::json!({
+        "registryDigest": document["registryDigest"],
+        "capabilityDefinitions": serde_json::from_str::<serde_json::Value>(
+            crate::capsec_registry_generated::CAPSEC_CAPABILITY_DEFINITIONS_JSON,
+        )?,
+        "coverageEdges": serde_json::from_str::<serde_json::Value>(
+            crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGES_JSON,
+        )?,
+        "targetCells": serde_json::from_str::<serde_json::Value>(
+            crate::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
+        )?,
+        "policyRules": serde_json::from_str::<serde_json::Value>(
+            crate::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
+        )?,
+    });
+    let registry_bytes = capsec_semantics::canonical::to_jcs_bytes(&registry_record)?;
+    let policy_artifact = materialize_protected_artifact(
+        "armed-policy",
+        &policy_bytes,
+        &canonical_policy.policy_digest,
+    )?;
+    let graph_artifact = materialize_protected_artifact(
+        "package-graph",
+        &graph_bytes,
+        &Digest::new(&graph_digest).map_err(anyhow::Error::msg)?,
+    )?;
+    let registry_artifact =
+        materialize_protected_artifact("registry", &registry_bytes, &registry_digest)?;
+    let manifest_artifact = materialize_protected_artifact(
+        "exact-operation-manifest",
+        operation_manifest_bytes,
+        &binding.operation_manifest_digest,
+    )?;
+    document["protectedObjects"] = serde_json::json!([
+        {"role": "armed-policy", "object": policy_artifact.object, "deniedActions": ["fs:write"]},
+        {"role": "engine-binary", "object": engine.object, "deniedActions": ["fs:write"]},
+        {"role": "package-graph", "object": graph_artifact.object, "deniedActions": ["fs:write"]},
+        {"role": "registry", "object": registry_artifact.object, "deniedActions": ["fs:write"]},
+        {"role": "exact-operation-manifest", "object": manifest_artifact.object, "deniedActions": ["fs:write"]},
+    ]);
+    let armed_digest = freshen_document(&mut document, fresh_production_nonce()?)?;
+
+    let expected = ExpectedArmingIdentity {
+        profile: crate::capsec_registry_generated::CAPSEC_PROFILE.into(),
+        semantic_core: crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE.into(),
+        vocab_digest,
+        registry_digest,
+        policy_digest: canonical_policy.policy_digest,
+        armed_snapshot_digest: armed_digest.clone(),
+        target: runtime_target_triple(),
+        engine_binary_digest: Digest::new(&engine.binary_digest).map_err(anyhow::Error::msg)?,
+        features: engine.structural_features,
+        package_graph_digest: Digest::new(graph_digest).map_err(anyhow::Error::msg)?,
+        protected_artifacts: vec![
+            ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::ArmedPolicy,
+                host_path: policy_artifact.host_path,
+                object: policy_artifact.object,
+                content_digest: policy_artifact.content_digest,
+            },
+            ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::EngineBinary,
+                host_path: absolute_artifact_path(&engine.engine_artifact_path)?,
+                object: engine.object,
+                content_digest: Digest::new(&engine.binary_digest).map_err(anyhow::Error::msg)?,
+            },
+            ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::PackageGraph,
+                host_path: graph_artifact.host_path,
+                object: graph_artifact.object,
+                content_digest: graph_artifact.content_digest,
+            },
+            ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::Registry,
+                host_path: registry_artifact.host_path,
+                object: registry_artifact.object,
+                content_digest: registry_artifact.content_digest,
+            },
+            ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::ExactOperationManifest,
+                host_path: manifest_artifact.host_path,
+                object: manifest_artifact.object,
+                content_digest: manifest_artifact.content_digest,
+            },
+        ],
+    };
+    let snapshot_bytes = serde_json::to_vec(&document)?;
+    let snapshot = ArmedSnapshot::load(&snapshot_bytes, &expected)
+        .context("built Exact snapshot authentication refused")?;
+    super::validate_loaded_engine_identity(&snapshot)?;
+    super::validate_snapshot_protected_artifacts(&snapshot)?;
+    super::validate_snapshot_root_bindings(&snapshot)?;
+
+    Ok(PreparedEmbedderArtifacts {
+        artifact_schema: "ibex/armed-embedder-artifacts/1",
+        armed_snapshot_digest: armed_digest.as_str().to_owned(),
+        snapshot: document,
+        expected_identity: expected,
+    })
+}
+
 /// Authenticate a generic Ibex artifact pair, bind Exact's checked operation
 /// manifest as the fifth protected artifact, and freshen the result.
 ///
@@ -507,7 +745,8 @@ pub fn prepare_exact_embedder_artifacts(
     );
 
     let binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
-    let manifest = materialize_exact_operation_manifest(
+    let manifest = materialize_protected_artifact(
+        "exact-operation-manifest",
         operation_manifest_bytes,
         &binding.operation_manifest_digest,
     )?;
@@ -794,6 +1033,25 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
+    fn build_exact_through_abi(project_root: &std::path::Path) -> serde_json::Value {
+        let root = project_root.to_str().unwrap().as_bytes();
+        let manifest = exact_manifest();
+        let output = unsafe {
+            crate::host::abi::ex_host_build_exact_armed_embedder_artifacts(
+                root.as_ptr(),
+                root.len(),
+                manifest.as_ptr(),
+                manifest.len(),
+            )
+        };
+        assert!(!output.is_null());
+        let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
+            .to_bytes()
+            .to_vec();
+        crate::host::abi::ex_host_free_string(output);
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
     fn with_exact_embedder_binding(mut fixture: RealEmbedderFixture) -> RealEmbedderFixture {
         let mut snapshot: serde_json::Value = serde_json::from_slice(&fixture.snapshot).unwrap();
         let mut expected: ExpectedArmingIdentity =
@@ -957,6 +1215,42 @@ mod tests {
             reingested.digest().as_str(),
             artifacts["armedSnapshotDigest"].as_str().unwrap()
         );
+    }
+
+    #[test]
+    fn target_local_exact_builder_authenticates_a_complete_pair() {
+        let project = tempfile::tempdir().unwrap();
+        let envelope = build_exact_through_abi(project.path());
+        assert_eq!(envelope["ok"], true, "{envelope}");
+        let artifacts = &envelope["artifacts"];
+        assert_eq!(
+            artifacts["artifactSchema"],
+            "ibex/armed-embedder-artifacts/1"
+        );
+        assert_eq!(artifacts["snapshot"]["workflow"], "production");
+        assert_eq!(artifacts["snapshot"]["effectiveMode"], "enforce");
+        assert_eq!(
+            artifacts["snapshot"]["packageGraph"]["nodes"],
+            serde_json::json!([])
+        );
+        assert_eq!(
+            artifacts["expectedIdentity"]["protectedArtifacts"]
+                .as_array()
+                .unwrap()
+                .len(),
+            5
+        );
+        assert_eq!(
+            artifacts["snapshot"]["exactEmbedder"]["endowments"]["agentIsolate"],
+            serde_json::json!([2200, 2201, 2202, 2203])
+        );
+        let expected: ExpectedArmingIdentity =
+            serde_json::from_value(artifacts["expectedIdentity"].clone()).unwrap();
+        ArmedSnapshot::load(
+            &serde_json::to_vec(&artifacts["snapshot"]).unwrap(),
+            &expected,
+        )
+        .unwrap();
     }
 
     #[test]

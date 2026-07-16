@@ -547,10 +547,14 @@ nonce and digest; it cannot advertise a target. A second target-local preparer
 now strictly validates Exact's raw operation manifest, derives the complete
 three-context projection without a caller allowlist, materializes those bytes
 as the fifth protected artifact, and re-authenticates the fresh pair. Exact's
-Apple and Windows consumers use this seam. The generic package-side snapshot
-producer, Apple/Windows conformance reports, and
-target advertisements remain incomplete. The refreshed catalog has 22,993
-required fixtures, 4,618 fully executable recipes, and 18,375 unresolved
+Apple and Windows consumers use this seam. The normal target-local producer now
+builds the complete pair directly from the installed app root, loaded engine,
+checked registry, canonical empty package policy/graph, and strict Exact
+manifest; it therefore does not package stale filesystem identities. Exact's
+bundled-root producer is complete, while package-bearing policy input remains a
+separate future contract. Apple/Windows conformance reports and target
+advertisements remain incomplete. The refreshed catalog has 22,996 required
+fixtures, 4,621 fully executable recipes, and 18,375 unresolved
 fixtures. The latest source-bound tranche adds five cached system-information
 authorization scenarios and twelve asynchronous path-operation scenarios for
 the `readdir` and `realpath` branches. Async evidence remains open through a
