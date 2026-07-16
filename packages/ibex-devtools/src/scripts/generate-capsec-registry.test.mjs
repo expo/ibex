@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  assertOutputDispositionEvidenceMatchesReport,
   buildTargetCells,
   generatedRegistryPaths,
   generatedRegistryOutputCatalog,
@@ -46,12 +47,166 @@ afterAll(() => {
 });
 
 describe("LLP 0021 WP1 capsec registry generator", () => {
+  test("keeps per-target publication artifacts outside the source-derived output identity", () => {
+    expect(
+      generatedRegistryOutputCatalog.some((row) =>
+        row.path.startsWith("capsec/conformance/"),
+      ),
+    ).toBe(false);
+    for (const publicationPath of [
+      "capsec/generated/target-advertisements.json",
+      "capsec/generated/target-matrix.md",
+      "capsec/registry/target-cells.json",
+    ]) {
+      expect(
+        generatedRegistryOutputCatalog.find(
+          (row) => row.path === publicationPath,
+        )?.digestBound,
+      ).toBe(false);
+    }
+  });
+
+  test("binds each promoted report to its own output evidence bytes and exact execution identity", () => {
+    const target = {
+      triple: "aarch64-apple-darwin",
+      features: ["native-lockdown"],
+    };
+    const engine = {
+      engineArtifactPath: "/exact/hermes",
+      kind: "hermes",
+      binaryDigest: `sha256-${"A".repeat(43)}`,
+      object: { platform: "apple", volume: "dev:1", file: "ino:2" },
+      targetArchitecture: "aarch64",
+      structuralFeatures: [...target.features],
+    };
+    const evidence = {
+      status: "verified",
+      sourceRevision: "a".repeat(40),
+      sourceTreeDigest: `sha256-${"B".repeat(43)}`,
+      target,
+      engine,
+    };
+    const rawContentDigest = `sha256-${"C".repeat(43)}`;
+    const report = {
+      bindings: {
+        sourceRevision: evidence.sourceRevision,
+        sourceTreeDigest: evidence.sourceTreeDigest,
+        target: structuredClone(target),
+        engine: structuredClone(engine),
+        outputDispositionEvidenceRawContentDigest: rawContentDigest,
+      },
+    };
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        evidence,
+        report,
+        rawContentDigest,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        { status: "unpromotable" },
+        report,
+        rawContentDigest,
+      ),
+    ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+
+    const substitutions = [
+      (value) => {
+        value.sourceRevision = "b".repeat(40);
+      },
+      (value) => {
+        value.sourceTreeDigest = `sha256-${"C".repeat(43)}`;
+      },
+      (value) => {
+        value.target.triple = "x86_64-apple-darwin";
+      },
+      (value) => {
+        value.target.features = ["native-compartments"];
+      },
+      (value) => {
+        value.engine.engineArtifactPath = "/other/hermes";
+      },
+      (value) => {
+        value.engine.binaryDigest = `sha256-${"D".repeat(43)}`;
+      },
+      (value) => {
+        value.engine.object.file = "ino:3";
+      },
+      (value) => {
+        value.engine.structuralFeatures = ["native-compartments"];
+      },
+    ];
+    for (const substitute of substitutions) {
+      const changed = structuredClone(evidence);
+      substitute(changed);
+      expect(() =>
+        assertOutputDispositionEvidenceMatchesReport(
+          changed,
+          report,
+          rawContentDigest,
+        ),
+      ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+    }
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        evidence,
+        report,
+        `sha256-${"D".repeat(43)}`,
+      ),
+    ).toThrow(/raw digest/);
+
+    const otherTarget = {
+      triple: "x86_64-pc-windows-msvc",
+      features: ["native-lockdown"],
+    };
+    const otherEvidence = structuredClone(evidence);
+    otherEvidence.target = otherTarget;
+    otherEvidence.engine.targetArchitecture = "x86_64";
+    otherEvidence.engine.structuralFeatures = [...otherTarget.features];
+    const otherDigest = `sha256-${"E".repeat(43)}`;
+    const otherReport = {
+      bindings: {
+        sourceRevision: otherEvidence.sourceRevision,
+        sourceTreeDigest: otherEvidence.sourceTreeDigest,
+        target: structuredClone(otherTarget),
+        engine: structuredClone(otherEvidence.engine),
+        outputDispositionEvidenceRawContentDigest: otherDigest,
+      },
+    };
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        otherEvidence,
+        otherReport,
+        otherDigest,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        evidence,
+        otherReport,
+        rawContentDigest,
+      ),
+    ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+    expect(() =>
+      assertOutputDispositionEvidenceMatchesReport(
+        otherEvidence,
+        report,
+        rawContentDigest,
+      ),
+    ).toThrow(/raw digest or exact source, target, and loaded-engine binding/);
+  });
+
   test("reopens promotion evidence only as digest-addressed regular files", () => {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "ibex-capsec-promotion-"),
     );
     try {
-      const directory = path.join(root, "conformance", "recipe-catalogs");
+      const directory = path.join(
+        root,
+        "conformance",
+        "output-disposition-evidence",
+      );
       fs.mkdirSync(directory, { recursive: true });
       const text = '{"profile":"ibex/capsec/1"}\n';
       const digest = `sha256-${crypto
@@ -62,9 +217,9 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       fs.writeFileSync(artifactPath, text);
       expect(
         readImmutablePromotionArtifact(
-          "recipe-catalogs",
+          "output-disposition-evidence",
           digest,
-          "test recipe catalog",
+          "test output-disposition evidence",
           root,
         ),
       ).toEqual({ profile: "ibex/capsec/1" });
@@ -72,9 +227,9 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       fs.writeFileSync(artifactPath, '{"profile":"tampered"}\n');
       expect(() =>
         readImmutablePromotionArtifact(
-          "recipe-catalogs",
+          "output-disposition-evidence",
           digest,
-          "test recipe catalog",
+          "test output-disposition evidence",
           root,
         ),
       ).toThrow(/raw content digest differs/);
@@ -85,9 +240,20 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       fs.symlinkSync(targetPath, artifactPath);
       expect(() =>
         readImmutablePromotionArtifact(
-          "recipe-catalogs",
+          "output-disposition-evidence",
           digest,
-          "test recipe catalog",
+          "test output-disposition evidence",
+          root,
+        ),
+      ).toThrow(/not an immutable regular file/);
+
+      fs.unlinkSync(artifactPath);
+      fs.linkSync(targetPath, artifactPath);
+      expect(() =>
+        readImmutablePromotionArtifact(
+          "output-disposition-evidence",
+          digest,
+          "test output-disposition evidence",
           root,
         ),
       ).toThrow(/not an immutable regular file/);
@@ -293,6 +459,19 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
           (row) => row.path === "capsec/generated/implementation-manifest.json",
         ),
       ).toBe(false);
+      expect(
+        result.implementationManifest.outputs.some((row) =>
+          row.path.startsWith("capsec/conformance/"),
+        ),
+      ).toBe(false);
+      expect(
+        result.implementationManifest.sourceDatasets.some((source) =>
+          source.startsWith("conformance/"),
+        ),
+      ).toBe(false);
+      expect(result.implementationManifest.sourceDatasets).toContain(
+        "registry/output-disposition-evidence.json",
+      );
       for (const outputPath of [
         generatedRegistryPaths.surfaceDocs,
         generatedRegistryPaths.targetDocs,
@@ -312,13 +491,14 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       const catalog = result.outputShapeCatalog;
       const dataset = result.outputDispositionDataset;
       expect(catalog.counts).toEqual({
-        coverageSurfaces: 7_177,
-        outputBearingSurfaces: 4_916,
-        structuralOnlySurfaces: 1_352,
-        unresolvedSurfaces: 909,
-        catalogRows: 5_231,
-        sourceInventoryRows: 4_888,
-        structuredRows: 343,
+        coverageSurfaces: 7_272,
+        outputBearingSurfaces: 5_740,
+        structuralOnlySurfaces: 1_529,
+        unresolvedSurfaces: 3,
+        catalogRows: 6_362,
+        parameterizedBindings: 1,
+        sourceInventoryRows: 5_955,
+        structuredRows: 407,
       });
       expect(catalog.surfaceAccounts).toHaveLength(
         result.coverage.edges.length,

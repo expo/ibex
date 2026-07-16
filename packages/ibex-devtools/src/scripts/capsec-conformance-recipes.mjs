@@ -15,7 +15,10 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
-import { fixtureExecutionPlans } from "./capsec-conformance.mjs";
+import {
+  fixtureCatalogForTarget,
+  fixtureExecutionPlans,
+} from "./capsec-conformance.mjs";
 import {
   authoredNonCapabilityBuiltinProbe,
   nonCapabilityBuiltinProbeResidualReason,
@@ -1992,6 +1995,50 @@ export function validateRecipeCatalog(
     canonicalJson(summarize(recipeCatalog.recipes))
   ) {
     throw new Error("recipe catalog summary disagrees with its recipe rows");
+  }
+  return recipeCatalog;
+}
+
+/**
+ * Validate an externally supplied recipe catalog against an independently
+ * rebuilt plan from the current repository inputs. Incomplete catalogs remain
+ * valid here; this proves provenance and exact content, not promotability.
+ */
+export function validateCurrentSourceRecipeCatalog(
+  recipeCatalog,
+  {
+    coverage,
+    implementation,
+    inventory,
+    occurrenceExamples,
+    selectorExamples,
+    capabilityDefinitions,
+    target,
+  },
+) {
+  const catalog = fixtureCatalogForTarget({
+    coverage,
+    implementation,
+    target,
+  });
+  const expectedFixtureIds = fixtureExecutionPlans(catalog).map(
+    (plan) => plan.fixtureId,
+  );
+  validateRecipeCatalog(recipeCatalog, { expectedFixtureIds, target });
+  const derivedRecipeCatalog = buildConformanceRecipeCatalog({
+    catalog,
+    coverage,
+    implementation,
+    inventory,
+    occurrenceExamples,
+    selectorExamples,
+    capabilityDefinitions,
+    target,
+  });
+  if (canonicalJson(recipeCatalog) !== canonicalJson(derivedRecipeCatalog)) {
+    throw new Error(
+      "executable recipe catalog differs from the current source-derived public recipe plan",
+    );
   }
   return recipeCatalog;
 }

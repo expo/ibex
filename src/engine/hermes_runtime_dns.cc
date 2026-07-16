@@ -1060,6 +1060,11 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        if (!checkCapability("network:resolve:*")) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: __exactDnsGetServers requires network:resolve:*");
+        }
 #if defined(EXACT_PLATFORM_ANDROID)
         // Android's resolver is network-scoped and intentionally does not
         // expose nameserver addresses through the NDK resolver API. Return an

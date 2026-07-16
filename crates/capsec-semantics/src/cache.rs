@@ -43,6 +43,14 @@ pub struct GenerationSet {
     pub handle: Generation,
 }
 
+struct CacheBindingIdentity {
+    vocab_digest: Digest,
+    registry_digest: Digest,
+    policy_digest: Digest,
+    armed_snapshot_digest: Digest,
+    generations: GenerationSet,
+}
+
 /// The complete minimum cache identity frozen by LLP 0021, plus exact
 /// positive-source identity to close handle-possession collisions.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -81,11 +89,13 @@ impl DecisionCacheKey {
         Self::from_canonical_occurrence(
             &occurrence,
             principal,
-            identity.vocab_digest.clone(),
-            identity.registry_digest.clone(),
-            identity.policy_digest.clone(),
-            identity.armed_snapshot_digest.clone(),
-            context.authority().generations,
+            CacheBindingIdentity {
+                vocab_digest: identity.vocab_digest.clone(),
+                registry_digest: identity.registry_digest.clone(),
+                policy_digest: identity.policy_digest.clone(),
+                armed_snapshot_digest: identity.armed_snapshot_digest.clone(),
+                generations: context.authority().generations,
+            },
             positive_authority,
         )
     }
@@ -93,11 +103,7 @@ impl DecisionCacheKey {
     fn from_canonical_occurrence(
         occurrence: &EffectOccurrence,
         projected_principal: &Principal,
-        vocab_digest: Digest,
-        registry_digest: Digest,
-        policy_digest: Digest,
-        armed_snapshot_digest: Digest,
-        generations: GenerationSet,
+        identity: CacheBindingIdentity,
         positive_authority: PositiveAuthorityContext,
     ) -> Result<Self> {
         if !occurrence.principal_context_is_valid() {
@@ -111,6 +117,13 @@ impl DecisionCacheKey {
         }
         validate_occurrence_stage_facts(occurrence)?;
         positive_authority.validate()?;
+        let CacheBindingIdentity {
+            vocab_digest,
+            registry_digest,
+            policy_digest,
+            armed_snapshot_digest,
+            generations,
+        } = identity;
         Ok(Self {
             action: occurrence.action.clone(),
             resource_canonical_bytes: to_jcs_bytes(&to_value(&occurrence.resource).map_err(
@@ -164,11 +177,13 @@ impl DecisionCacheKey {
         Self::from_canonical_occurrence(
             occurrence,
             &occurrence.actor,
-            vocab_digest,
-            registry_digest,
-            policy_digest,
-            armed_snapshot_digest,
-            generations,
+            CacheBindingIdentity {
+                vocab_digest,
+                registry_digest,
+                policy_digest,
+                armed_snapshot_digest,
+                generations,
+            },
             positive_authority,
         )
     }
@@ -442,14 +457,16 @@ mod tests {
             DecisionCacheKey::from_canonical_occurrence(
                 &occurrence,
                 principal,
-                digest(1),
-                digest(2),
-                digest(3),
-                digest(4),
-                GenerationSet {
-                    negative: SafeUint::ZERO,
-                    dynamic: SafeUint::ZERO,
-                    handle: SafeUint::ZERO,
+                CacheBindingIdentity {
+                    vocab_digest: digest(1),
+                    registry_digest: digest(2),
+                    policy_digest: digest(3),
+                    armed_snapshot_digest: digest(4),
+                    generations: GenerationSet {
+                        negative: SafeUint::ZERO,
+                        dynamic: SafeUint::ZERO,
+                        handle: SafeUint::ZERO,
+                    },
                 },
                 positive(),
             )

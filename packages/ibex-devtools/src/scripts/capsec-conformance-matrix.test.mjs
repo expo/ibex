@@ -12,6 +12,7 @@ test("conformance prerequisite matrix covers every product test layer", () => {
     "generated-policy-drift",
     "hermes-transform-loader-corpora",
     "linked-literate-references",
+    "runtime-environment-inventory-drift",
     "runtime-js-full",
     "rust-default-full",
     "rust-workspace-all-features-all-targets-compile",

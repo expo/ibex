@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../../include/exact_runtime.h"
+
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -50,6 +52,7 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
 
 struct TimerEntry {
   uint64_t id;
@@ -119,8 +122,17 @@ struct StructuredPendingPromiseRejection {
   std::unique_ptr<facebook::jsi::Object> promise;
   std::unique_ptr<facebook::jsi::Value> reason;
   StructuredAsyncFailureContext failureContext{};
+  uint32_t safeMetadataFields{0};
+  uint32_t safeErrorClass{0};
   std::string safeMessage;
   std::string safeStack;
+};
+
+struct StructuredSafeThrowMetadata {
+  uint32_t fields{0};
+  uint32_t errorClass{0};
+  std::string message;
+  std::string stack;
 };
 
 // Native work-unit events cross to the authenticated session controller
@@ -218,7 +230,7 @@ struct ExactHermesRuntime {
   uint64_t next_structured_value_handle_id{1};
   std::unordered_map<uint64_t, std::unique_ptr<facebook::jsi::Value>>
       structured_value_handles;
-  std::unordered_map<uint64_t, std::pair<std::string, std::string>>
+  std::unordered_map<uint64_t, StructuredSafeThrowMetadata>
       structured_value_safe_throw_metadata;
   uint64_t next_structured_async_event_id{1};
   std::deque<StructuredAsyncFailureEvent> structured_async_failure_events;
@@ -293,6 +305,12 @@ struct ExactHermesRuntime {
   std::unordered_set<uint64_t> structured_published_due_timers;
   uint64_t structured_evaluation_scheduling_id{0};
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  // Test-only record of the four fixed native-freeze calls performed while
+  // their patched Hermes globals are still reachable, immediately before the
+  // production bootstrap deletes those globals. Four bits represent the
+  // identity/semantics checks and one proves the fixed observer completed; no
+  // callable authority is retained.
+  uint32_t capsec_native_freeze_observation{0};
   // Deterministic conformance seam for the normal-return cancellation race.
   // The queued native task never enters JS, so a delivered Hermes break must
   // be drained by the consistency probe and resolve Defeated.
@@ -336,6 +354,14 @@ struct ExactHermesRuntime {
   std::unique_ptr<facebook::jsi::Function> structured_promise_then;
   std::unique_ptr<facebook::jsi::Function> structured_number;
   std::unique_ptr<facebook::jsi::Object> structured_process;
+  // `process.env` is one shared facade, but its armed mutable state is not.
+  // Native frame attribution selects the exact principal bucket for every
+  // read, write, delete, and enumeration after the corresponding typed gate.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  std::unordered_map<
+      uint64_t,
+      std::unordered_map<std::string, std::string>>
+      environment_principal_overlays;
   // Captured from pristine Hermes before any Ibex bootstrap script can replace
   // Object's reflection intrinsics. The armed finalizer uses only these roots
   // for its getter-free disposition sweep. Baseline keys distinguish engine
@@ -373,6 +399,28 @@ struct ExactHermesRuntime {
   // Immutable constructor-selected posture. Bootstrap must never consult
   // process-global environment toggles that other threads can observe/race.
   bool armed{false};
+  bool bootstrap_bun_compat{false};
+  bool bootstrap_fixture_compat{false};
+  bool bootstrap_bun_fixture{false};
+  // The legacy lazy-bootstrap callbacks can execute after diagnostic package
+  // code begins. Their source/HBC choices are therefore captured during the
+  // native bootstrap and never re-read from the process environment.
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  bool legacy_stream_enhance_source{false};
+  bool legacy_stream_enhance_hbc{true};
+  bool legacy_web_crypto_source{false};
+  bool legacy_web_crypto_hbc{true};
+  bool legacy_web_storage_source{false};
+  bool legacy_web_storage_hbc{true};
+  bool legacy_form_data_source{false};
+  bool legacy_form_data_hbc{true};
+  // One-shot, context-bound child-process bootstrap state captured by the Rust
+  // Host handoff before this engine exists.  It is projected only through the
+  // temporary trusted-bootstrap carrier, never through `process.env`.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  int process_ipc_fd{-1};
+  bool process_ipc_advanced_serialization{false};
   bool structural_lockdown{false};
   bool shared_runtime_bundle_installed{false};
   // Strict JSON [{locator,endowments}] projection copied from the immutable
@@ -531,6 +579,11 @@ struct NativeWebSocketCallbackContext {
 
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_is_armed(void);
+extern "C" uint32_t ex_host_armed_bootstrap_compatibility_flags(void);
+extern "C" int32_t ibex_private_take_process_ipc_bootstrap(
+    uint64_t host_context_id,
+    int32_t* out_fd,
+    uint32_t* out_serialization);
 extern "C" uint64_t ex_hermes_current_runtime_nonce(void);
 extern "C" int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
                                                    uint64_t* out_inode);
@@ -690,7 +743,8 @@ extern "C" int32_t ex_host_authorize_typed_listen_stack(
     uint16_t accepted_port);
 extern "C" int32_t ex_host_has_deputy_classes(void);
 extern "C" int32_t ex_host_check_import(uint64_t module_id,
-                                        const char* specifier);
+                                        const char* specifier,
+                                        const char* target_source_id);
 // @ref LLP 0013#delegation-and-authority-flow — authority-bearing capability handles.
 extern "C" uint64_t ex_host_handle_create(const char* capability);
 extern "C" uint64_t ex_host_handle_scoped(uint64_t parent, const char* narrower);
@@ -701,6 +755,14 @@ extern "C" int32_t ex_host_permission_request(const char* capability);
 extern "C" void ex_host_permission_revoke(const char* capability);
 extern "C" int32_t ex_host_permission_status(const char* capability);
 extern "C" int32_t ex_host_authorize_typed_environment_read_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t stage,
+    uint32_t read_surface,
+    const uint8_t* name,
+    size_t name_len);
+extern "C" int32_t ex_host_authorize_typed_environment_write_stack(
     uint64_t module_id,
     const uint64_t* module_ids,
     size_t module_ids_len,
@@ -965,7 +1027,8 @@ inline bool checkCapabilityNoFollowFinal(const std::string& capability) {
 // transfer helpers remain POSIX-only except for the Windows IPC-registration
 // no-op.
 void exactRegisterTransferableFd(int fd, uint64_t owner);
-void exactRegisterProcessIpcFd(int fd);
+bool exactRegisterProcessIpcFd(int fd);
+bool exactCloseProcessIpcFd(uint64_t runtimeNonce, int fd);
 bool exactRegisterReceivedFdForCurrentPrincipal(int fd);
 bool exactConsumeTransferableFdForCurrentPrincipal(int fd);
 std::vector<uint64_t> exactCollectTypedPrincipalStack();
@@ -1034,25 +1097,62 @@ inline void exactRequireTypedSystemInfo(
     }
   }
 }
-// @ref LLP 0021#typed-resources-and-initial-vocabulary — a broker-base
-// environment read authorizes its exact canonical name before disclosure.
-inline void authorizeTypedEnvironmentRead(
-    facebook::jsi::Runtime& runtime,
-    const std::string& name) {
-  if (ex_host_is_armed() != 1) return;
+enum class ExactEnvironmentOverlayAccess : uint32_t {
+  ScalarRead = 0,
+  EnumerationRead = 1,
+  Write = 2,
+};
+
+inline bool typedEnvironmentOverlayAccessAllowed(
+    const std::string& name,
+    ExactEnvironmentOverlayAccess access) {
+  if (ex_host_is_armed() != 1) return true;
   auto principal = currentPrincipalId();
   auto principals = exactCollectTypedPrincipalStack();
   for (uint32_t stage = 0; stage <= 1; ++stage) {
-    if (ex_host_authorize_typed_environment_read_stack(
-            principal,
-            principals.data(),
-            principals.size(),
-            stage,
-            reinterpret_cast<const uint8_t*>(name.data()),
-            name.size()) != 1) {
-      throw facebook::jsi::JSError(
-          runtime, "Permission denied: env:read authority required");
-    }
+    auto result = access == ExactEnvironmentOverlayAccess::Write
+        ? ex_host_authorize_typed_environment_write_stack(
+              principal,
+              principals.data(),
+              principals.size(),
+              stage,
+              reinterpret_cast<const uint8_t*>(name.data()),
+              name.size())
+        : ex_host_authorize_typed_environment_read_stack(
+              principal,
+              principals.data(),
+              principals.size(),
+              stage,
+              access == ExactEnvironmentOverlayAccess::EnumerationRead ? 1u : 0u,
+              reinterpret_cast<const uint8_t*>(name.data()),
+              name.size());
+    if (result != 1) return false;
+  }
+  return true;
+}
+
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity — an armed
+// environment read authorizes the current principal's exact overlay name and
+// never falls through to the host process environment.
+inline void authorizeTypedEnvironmentRead(
+    facebook::jsi::Runtime& runtime,
+    const std::string& name) {
+  if (!typedEnvironmentOverlayAccessAllowed(
+          name, ExactEnvironmentOverlayAccess::ScalarRead)) {
+    throw facebook::jsi::JSError(
+        runtime, "Permission denied: env:read authority required");
+  }
+}
+
+// @ref LLP 0021#typed-resources-and-initial-vocabulary — overlay mutation is
+// independently authorized by env:write at requested and commit.
+inline void authorizeTypedEnvironmentWrite(
+    facebook::jsi::Runtime& runtime,
+    const std::string& name) {
+  if (!typedEnvironmentOverlayAccessAllowed(
+          name, ExactEnvironmentOverlayAccess::Write)) {
+    throw facebook::jsi::JSError(
+        runtime, "Permission denied: env:write authority required");
   }
 }
 // @ref LLP 0021#decision-staging-and-principal-semantics — direct print
@@ -1082,6 +1182,29 @@ uint64_t exactCurrentAsyncEvaluationAssociation(ExactHermesRuntime* runtime);
 uint64_t exactAllocateRuntimeNonce();
 bool exactPinRuntimeNativeWorker(RuntimeCallbackTarget target);
 void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target);
+// Remove only filesystem work that is still queued for this exact runtime
+// generation. A worker atomically commits its operation while holding the
+// pool mutex before it can run an effect, so teardown never reports a
+// committed effect as canceled.
+// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+void exactCancelQueuedFsOperations(RuntimeCallbackTarget target);
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+// Private test controls for executable no-oracle and queue-cancellation
+// evidence. They are deliberately absent from exact_runtime.h and production
+// artifacts.
+extern "C" void ibex_private_test_reset_fs_conformance_observer();
+extern "C" void ibex_private_test_set_requested_fs_authorization_result(
+    int32_t result);
+extern "C" void
+ibex_private_test_set_requested_fs_authorization_result_for_path(
+    int32_t result,
+    const char* path);
+extern "C" uint64_t ibex_private_test_armed_path_lookup_count();
+extern "C" uint64_t
+ibex_private_test_armed_path_lookup_after_refusal_count();
+extern "C" uint64_t ibex_private_test_cancel_queued_fs_operations(
+    ExactHermesRuntime* runtime);
+#endif
 
 class ScopedTypedPrincipalStack {
  public:
@@ -1382,6 +1505,7 @@ inline std::vector<uint8_t> extractBytes(
 bool startup_trace_enabled();
 bool env_flag_enabled(const char* env_name);
 void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage);
+void requireDiagnosticStartupStage(ExactHermesRuntime* handle, const char* stage);
 void reportStartupFailure(ExactHermesRuntime* handle,
                           const char* stage,
                           const std::string& detail);
@@ -1403,6 +1527,7 @@ bool eval_bootstrap_script(ExactHermesRuntime* handle,
                            bool allowHbc);
 
 bool installModuleLoader(ExactHermesRuntime* handle);
+void captureLegacyBootstrapEnvironment(ExactHermesRuntime* handle);
 void ensureStreamEnhance(ExactHermesRuntime* handle);
 void ensureWebCrypto(ExactHermesRuntime* handle);
 void ensureWebStorage(ExactHermesRuntime* handle);

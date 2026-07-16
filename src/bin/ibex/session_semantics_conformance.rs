@@ -17,7 +17,8 @@ use tempfile::TempDir;
 
 use crate::cli::Cli;
 use crate::engine::{
-    AuthenticatedDisplayKind, AuthenticatedEvaluation, DisplayDisposition, Engine,
+    AuthenticatedDisplayKind, AuthenticatedErrorClass, AuthenticatedEvaluation, DisplayDisposition,
+    Engine,
 };
 use crate::runtime::{ReplSessionIngress, Runtime};
 
@@ -125,12 +126,6 @@ fn setup_source(id: &str) -> Option<&'static str> {
   ]) Object.defineProperty(globalThis, name, {
     value, writable: true, enumerable: true, configurable: true
   });
-  for (const [name, value] of [
-    ["inheritedVar", "inherited-var"],
-    ["inheritedFunction", "inherited-function"]
-  ]) Object.defineProperty(Object.getPrototypeOf(globalThis), name, {
-    value, writable: true, enumerable: true, configurable: true
-  });
 })();"#,
         ),
         _ => None,
@@ -210,8 +205,10 @@ fn input_source(id: &str, index: usize) -> &'static str {
         ("all-cross-kind-matrix-rows-are-executable", 9) => "function deletedFunction() {}",
         ("all-cross-kind-matrix-rows-are-executable", 10) => "var adoptedVar;",
         ("all-cross-kind-matrix-rows-are-executable", 11) => "function adoptedFunction() {}",
-        ("all-cross-kind-matrix-rows-are-executable", 12) => "var inheritedVar;",
-        ("all-cross-kind-matrix-rows-are-executable", 13) => "function inheritedFunction() {}",
+        // The armed realm freezes intrinsic prototypes. Exercise these two
+        // matrix rows through distinct pre-existing inherited names instead.
+        ("all-cross-kind-matrix-rows-are-executable", 12) => "var valueOf;",
+        ("all-cross-kind-matrix-rows-are-executable", 13) => "function toString() {}",
         ("all-cross-kind-matrix-rows-are-executable", 14) => "let objectToLexical = 'lexical';",
         ("all-cross-kind-matrix-rows-are-executable", 15) => "let lexicalToVar = 1;",
         ("all-cross-kind-matrix-rows-are-executable", 16) => "var lexicalToVar;",
@@ -256,10 +253,44 @@ fn throw_message_matches(expected: &str, actual: &str) -> bool {
         // `const` or an `import`. Preserve the semantic/name check without
         // making the conformance gate depend on either spelling.
         let lower = actual.to_ascii_lowercase();
-        return actual.contains(binding_name)
+        let mentions_exact_binding = actual
+            .split(|character: char| {
+                !(character.is_ascii_alphanumeric() || character == '_' || character == '$')
+            })
+            .any(|token| token == binding_name);
+        return mentions_exact_binding
             && (lower.contains("constant binding") || lower.contains("read-only"));
     }
     actual.contains(expected)
+}
+
+fn throw_type_matches(expected: &str, actual: &crate::engine::AuthenticatedThrow) -> bool {
+    actual
+        .metadata
+        .error_class()
+        .and_then(AuthenticatedErrorClass::name)
+        == Some(expected)
+}
+
+#[test]
+fn throw_type_comparator_uses_native_class_not_stack_text() {
+    let thrown = crate::engine::AuthenticatedThrow {
+        value: crate::engine::AuthenticatedDisplay {
+            kind: AuthenticatedDisplayKind::Object,
+            text: "[Object]".to_owned(),
+            truncated: false,
+        },
+        metadata: crate::engine::AuthenticatedThrowMetadata::Captured {
+            error_class: AuthenticatedErrorClass::TypeError,
+            message: Some("fixture".to_owned()),
+            message_truncated: false,
+            stack: Some("SyntaxError: forged\n    at hostile".to_owned()),
+            stack_truncated: false,
+            positions: Vec::new(),
+        },
+    };
+    assert!(throw_type_matches("TypeError", &thrown));
+    assert!(!throw_type_matches("SyntaxError", &thrown));
 }
 
 #[test]
@@ -275,6 +306,10 @@ fn read_only_binding_diagnostics_compare_semantics_not_engine_prose() {
     assert!(!throw_message_matches(
         "assignment to read-only import imported",
         "Assignment to constant binding 'other'",
+    ));
+    assert!(!throw_message_matches(
+        "assignment to read-only const c",
+        "Assignment to constant binding 'x'",
     ));
     assert!(!throw_message_matches(
         "initializer failed",
@@ -332,15 +367,29 @@ async fn assert_evaluation(
             );
         }
         ("throw", AuthenticatedEvaluation::Throw(actual)) => {
-            if expected["error"]["predicate"] == "ModifiedHasRestrictedGlobalProperty" {
+            if let Some(expected_type) = expected["error"]["type"].as_str() {
+                assert!(
+                    throw_type_matches(expected_type, actual),
+                    "{label}: expected {expected_type}, got {actual:?}"
+                );
+            }
+            if let Some(predicate) = expected["error"]["predicate"].as_str() {
                 let name = expected["error"]["name"]
                     .as_str()
-                    .context("restricted-global refusal has no name")?;
-                let expected_message = format!("session declaration '{name}' is not permitted");
+                    .context("predicate refusal has no name")?;
+                let expected_message = match predicate {
+                    "ModifiedHasRestrictedGlobalProperty" => {
+                        format!("session declaration '{name}' is not permitted")
+                    }
+                    "CanDeclareGlobalVar" => format!(
+                        "session declaration '{name}' became infeasible during static import materialization"
+                    ),
+                    other => anyhow::bail!("{label}: unsupported model predicate {other}"),
+                };
                 assert_eq!(
                     actual.metadata.message(),
                     Some(expected_message.as_str()),
-                    "{label}: restricted-global refusal must remain a JavaScript throw"
+                    "{label}: predicate refusal must name the exact failed declaration"
                 );
             }
             if let Some(message) = expected["error"]["message"].as_str() {
@@ -409,6 +458,16 @@ fn requested_names(fixture: &Value) -> Vec<String> {
 }
 
 fn expected_metadata(fixture: &Value, requested: &[String]) -> Value {
+    let sorted_names = |value: &Value| {
+        let mut names = value
+            .as_array()
+            .expect("model name set")
+            .iter()
+            .map(|name| name.as_str().expect("model name").to_owned())
+            .collect::<Vec<_>>();
+        names.sort();
+        Value::Array(names.into_iter().map(Value::String).collect())
+    };
     let mut declarative = Map::new();
     for (name, cell) in fixture["final"]["declarativeRecord"]
         .as_object()
@@ -448,8 +507,9 @@ fn expected_metadata(fixture: &Value, requested: &[String]) -> Value {
     }
     json!({
         "declarativeRecord": declarative,
-        "varDeclaredNames": fixture["final"]["varDeclaredNames"],
-        "sessionCreatedVars": fixture["final"]["sessionCreatedVars"],
+        "varDeclaredNames": sorted_names(&fixture["final"]["varDeclaredNames"]),
+        "sessionCreatedVars": sorted_names(&fixture["final"]["sessionCreatedVars"]),
+        "globalExtensible": fixture["final"]["objectRecord"]["extensible"],
         "own": own,
     })
 }
@@ -540,8 +600,16 @@ async fn assert_final_values(session: &mut HarnessSession, fixture: &Value) -> R
 
 async fn run_gate_1_fixture(fixture: &Value) -> Result<()> {
     let id = fixture["id"].as_str().context("fixture id")?;
-    let concrete_fixture = (id == "inherited-var-creates-own-property")
-        .then(|| rename_model_name(fixture, "inheritedName", "toString"));
+    let concrete_fixture = match id {
+        "inherited-var-creates-own-property" => {
+            Some(rename_model_name(fixture, "inheritedName", "toString"))
+        }
+        "all-cross-kind-matrix-rows-are-executable" => {
+            let fixture = rename_model_name(fixture, "inheritedVar", "valueOf");
+            Some(rename_model_name(&fixture, "inheritedFunction", "toString"))
+        }
+        _ => None,
+    };
     let fixture = concrete_fixture.as_ref().unwrap_or(fixture);
     let mut session = HarnessSession::new(id).await?;
     if let Some(setup) = setup_source(id) {
@@ -712,7 +780,14 @@ async fn run_gate_2() -> Result<()> {
     Ok(())
 }
 
-async fn direct_hermes_completion(source: &str) -> Result<String> {
+#[derive(Debug, Eq, PartialEq)]
+enum DirectHermesOutcome {
+    Value(String),
+    EmptyLegacyResult,
+    Error(String),
+}
+
+async fn direct_hermes_outcome(source: &str) -> Result<DirectHermesOutcome> {
     let project = tempfile::tempdir()?;
     let file = project.path().join("audit.js");
     std::fs::write(&file, "void 0;\n")?;
@@ -724,43 +799,239 @@ async fn direct_hermes_completion(source: &str) -> Result<String> {
     ])?;
     let runtime = Runtime::from_audit_cli(&cli)?;
     runtime.load_runtime().await?;
-    runtime
-        .engine()
-        .eval_immediate(source)
-        .await?
-        .context("direct Hermes evaluation returned no completion")
+    Ok(match runtime.engine().eval_immediate(source).await {
+        Ok(Some(display)) => DirectHermesOutcome::Value(display),
+        Ok(None) => DirectHermesOutcome::EmptyLegacyResult,
+        Err(error) => DirectHermesOutcome::Error(format!("{error:#}")),
+    })
+}
+
+fn assert_direct_gate_3_observation(
+    id: &str,
+    observed: &DirectHermesOutcome,
+    expected: &Value,
+) -> Result<()> {
+    match expected["outcome"].as_str() {
+        Some("value") => assert_eq!(
+            observed,
+            &DirectHermesOutcome::Value(
+                expected["display"]
+                    .as_str()
+                    .context("direct expected display")?
+                    .to_owned()
+            ),
+            "{id}: owner-authored direct-Hermes observation"
+        ),
+        Some("compile-error") => assert!(
+            matches!(observed, DirectHermesOutcome::Error(_)),
+            "{id}: direct Hermes must reject this known engine gap, got {observed:?}"
+        ),
+        Some("legacy-empty-or-undefined") => assert!(
+            matches!(observed, DirectHermesOutcome::EmptyLegacyResult),
+            "{id}: the legacy direct seam must collapse empty/undefined, got {observed:?}"
+        ),
+        Some("runtime-error") => {
+            let DirectHermesOutcome::Error(message) = observed else {
+                anyhow::bail!("{id}: direct Hermes must throw, got {observed:?}");
+            };
+            let expected_message = expected["messageIncludes"]
+                .as_str()
+                .context("direct runtime-error messageIncludes")?;
+            assert!(
+                message.contains(expected_message),
+                "{id}: direct throw did not contain {expected_message:?}: {message}"
+            );
+        }
+        other => anyhow::bail!("{id}: unsupported direct Gate 3 outcome {other:?}"),
+    }
+    Ok(())
+}
+
+fn gate_3_error_class_name(error_class: AuthenticatedErrorClass) -> &'static str {
+    match error_class {
+        AuthenticatedErrorClass::Unclassified => "unclassified",
+        AuthenticatedErrorClass::Error => "error",
+        AuthenticatedErrorClass::AggregateError => "aggregate-error",
+        AuthenticatedErrorClass::EvalError => "eval-error",
+        AuthenticatedErrorClass::RangeError => "range-error",
+        AuthenticatedErrorClass::ReferenceError => "reference-error",
+        AuthenticatedErrorClass::SyntaxError => "syntax-error",
+        AuthenticatedErrorClass::TypeError => "type-error",
+        AuthenticatedErrorClass::UriError => "uri-error",
+        AuthenticatedErrorClass::TimeoutError => "timeout-error",
+        AuthenticatedErrorClass::QuitError => "quit-error",
+    }
+}
+
+fn assert_lowered_gate_3_observation(
+    id: &str,
+    observed: &AuthenticatedEvaluation,
+    expected: &Value,
+) -> Result<()> {
+    match expected["outcome"].as_str() {
+        Some("empty") => assert!(
+            matches!(observed, AuthenticatedEvaluation::Empty),
+            "{id}: expected structured empty completion, got {observed:?}"
+        ),
+        Some("value") => assert!(
+            matches!(
+                observed,
+                AuthenticatedEvaluation::Value { display, .. }
+                    if display.text
+                        == expected["display"].as_str().unwrap_or("<missing-display>")
+            ),
+            "{id}: expected lowered display {:?}, got {observed:?}",
+            expected["display"]
+        ),
+        Some("throw") => {
+            let AuthenticatedEvaluation::Throw(thrown) = observed else {
+                anyhow::bail!("{id}: expected lowered throw, got {observed:?}");
+            };
+            assert!(
+                thrown
+                    .metadata
+                    .error_class()
+                    .is_some_and(|error_class| gate_3_error_class_name(error_class)
+                        == expected["errorClass"].as_str().unwrap_or("<missing-class>")),
+                "{id}: expected lowered throw class {:?}, got {observed:?}",
+                expected["errorClass"]
+            );
+            if let Some(expected_message) = expected["messageIncludes"].as_str() {
+                assert!(
+                    thrown
+                        .metadata
+                        .message()
+                        .is_some_and(|message| message.contains(expected_message)),
+                    "{id}: lowered throw did not contain {expected_message:?}: {observed:?}"
+                );
+            }
+        }
+        other => anyhow::bail!("{id}: unsupported lowered Gate 3 outcome {other:?}"),
+    }
+    Ok(())
 }
 
 async fn run_gate_3() -> Result<()> {
-    const CASES: &[(&str, &str)] = &[
-        ("compound-assignment", "let g3x = 1; g3x += 2; g3x;"),
-        (
-            "destructuring-order",
-            "let g3order = 0; let [g3a, g3b] = [++g3order, ++g3order]; g3a * 100 + g3b * 10 + g3order;",
-        ),
-        (
-            "for-of-completion",
-            "let g3sum = 0; for (const g3value of [1, 2, 3]) { g3sum += g3value; } g3sum;",
-        ),
-        (
-            "class-mutable-cell",
-            "class Gate3Class {}; Gate3Class = 'replacement'; Gate3Class === 'replacement';",
-        ),
-        (
-            "update-expression",
-            "let g3counter = 4; let g3before = g3counter++; g3before * 10 + g3counter;",
-        ),
-    ];
-    for (id, source) in CASES {
-        let direct = direct_hermes_completion(source).await?;
+    let document: Value = serde_json::from_str(GENERATED_FIXTURES)?;
+    let fidelity = &document["loweringFidelity"];
+    let obligations = fidelity["obligations"]
+        .as_array()
+        .context("Gate 3 lowering obligations")?
+        .iter()
+        .map(|value| value.as_str().context("Gate 3 obligation id"))
+        .collect::<Result<BTreeSet<_>>>()?;
+    let cases = fidelity["cases"]
+        .as_array()
+        .context("Gate 3 lowering cases")?;
+    let covered = cases
+        .iter()
+        .flat_map(|test_case| {
+            test_case["covers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        covered, obligations,
+        "Gate 3 must execute every declared lowering obligation"
+    );
+
+    let gate = document["gates"]
+        .as_array()
+        .context("generated gate catalog")?
+        .iter()
+        .find(|gate| gate["id"] == "gate-3-lowering-fidelity")
+        .context("Gate 3 catalog row")?;
+    assert_eq!(gate["status"], "external-harness-implemented");
+    let exclusions = fidelity["directOracleExclusions"]
+        .as_array()
+        .context("Gate 3 direct-oracle exclusions")?
+        .iter()
+        .map(|row| row["id"].as_str().context("Gate 3 exclusion id"))
+        .collect::<Result<BTreeSet<_>>>()?;
+    assert_eq!(
+        exclusions,
+        BTreeSet::from([
+            "dynamic-import-expression",
+            "script-plus-extensions-parser-goal",
+            "script-static-import",
+            "script-top-level-await",
+        ]),
+        "source-goal gaps must stay explicit rather than passing through Gate 3"
+    );
+
+    for test_case in cases {
+        let id = test_case["id"].as_str().context("Gate 3 case id")?;
+        let source = test_case["source"].as_str().context("Gate 3 case source")?;
+        let oracle = &test_case["oracle"];
+        let direct = direct_hermes_outcome(source).await?;
         let mut lowered = HarnessSession::new(id).await?;
-        let evaluation = lowered.evaluate(source).await?;
-        let display = match &evaluation {
-            AuthenticatedEvaluation::Value { display, .. } => display,
-            other => panic!("{id}: one-input lowering returned {other:?}"),
-        };
-        assert_eq!(display.text, direct, "{id}: lowered vs direct completion");
-        lowered.release(evaluation).await?;
+        match oracle["kind"].as_str() {
+            Some("equal-completion") => {
+                let evaluation = lowered.evaluate(source).await?;
+                let DirectHermesOutcome::Value(direct_display) = &direct else {
+                    anyhow::bail!(
+                        "{id}: direct Hermes did not produce a comparable completion: {direct:?}"
+                    );
+                };
+                let AuthenticatedEvaluation::Value { display, .. } = &evaluation else {
+                    anyhow::bail!("{id}: one-input lowering returned {evaluation:?}");
+                };
+                assert_eq!(
+                    &display.text, direct_display,
+                    "{id}: lowered vs direct completion"
+                );
+                lowered.release(evaluation).await?;
+            }
+            Some("expected-difference") => {
+                let evaluation = lowered.evaluate(source).await?;
+                assert!(
+                    oracle["rationale"]
+                        .as_str()
+                        .is_some_and(|value| !value.is_empty()),
+                    "{id}: an expected difference needs an owner-authored rationale"
+                );
+                assert_direct_gate_3_observation(id, &direct, &oracle["direct"])?;
+                assert_lowered_gate_3_observation(id, &evaluation, &oracle["lowered"])?;
+                lowered.release(evaluation).await?;
+            }
+            Some("matching-refusal") => {
+                assert!(
+                    oracle["rationale"]
+                        .as_str()
+                        .is_some_and(|value| !value.is_empty()),
+                    "{id}: a matching refusal needs an owner-authored rationale"
+                );
+                assert_direct_gate_3_observation(id, &direct, &oracle["direct"])?;
+                assert_eq!(oracle["lowered"]["outcome"], "checked-parser-error");
+                let error = lowered
+                    .evaluate(source)
+                    .await
+                    .expect_err("Gate 3 expected the checked lowering to refuse source");
+                let expected = oracle["lowered"]["messageIncludes"]
+                    .as_str()
+                    .context("Gate 3 checked-parser-error messageIncludes")?;
+                assert!(
+                    format!("{error:#}").contains(expected),
+                    "{id}: lowering refusal did not contain {expected:?}: {error:#}"
+                );
+            }
+            Some("matching-throw") => {
+                assert!(
+                    oracle["rationale"]
+                        .as_str()
+                        .is_some_and(|value| !value.is_empty()),
+                    "{id}: a matching throw needs an owner-authored rationale"
+                );
+                assert_direct_gate_3_observation(id, &direct, &oracle["direct"])?;
+                let evaluation = lowered.evaluate(source).await?;
+                assert_lowered_gate_3_observation(id, &evaluation, &oracle["lowered"])?;
+                lowered.release(evaluation).await?;
+            }
+            other => anyhow::bail!("{id}: unsupported Gate 3 oracle {other:?}"),
+        }
     }
     Ok(())
 }
@@ -768,6 +1039,47 @@ async fn run_gate_3() -> Result<()> {
 #[tokio::test(flavor = "current_thread")]
 async fn implementation_matches_reference_model_gate() -> Result<()> {
     run_gate_1().await
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn same_input_declaration_collisions_are_javascript_throws_and_atomic() -> Result<()> {
+    let mut session = HarnessSession::new("same-input-collisions").await?;
+    let cases = [
+        ("let collisionA; let collisionA;", "collisionA"),
+        ("let [collisionB, collisionB] = [];", "collisionB"),
+        ("let collisionC; var collisionC;", "collisionC"),
+        (
+            "import { imported as collisionD } from './value.mjs'; let collisionD;",
+            "collisionD",
+        ),
+        (
+            "import { imported as collisionE } from './value.mjs'; var collisionE;",
+            "collisionE",
+        ),
+    ];
+    for (source, name) in cases {
+        let outcome = session.evaluate(source).await?;
+        assert!(
+            matches!(
+                &outcome,
+                AuthenticatedEvaluation::Throw(thrown)
+                    if thrown.metadata.message().is_some_and(|message|
+                        message.contains(name)
+                            && (message.contains("duplicate lexical declaration")
+                                || message.contains("collides with a var-scoped declaration")))
+            ),
+            "{source:?} must produce the named JavaScript SyntaxError, got {outcome:?}"
+        );
+        session.release(outcome).await?;
+        assert_value_evaluation(
+            &mut session,
+            &format!("typeof {name}"),
+            &json!("undefined"),
+            &format!("{name} collision left no binding"),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "current_thread")]

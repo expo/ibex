@@ -1,7 +1,8 @@
 // Exact loaded-engine executor for inherited intrinsic alias membership.
 // The JavaScript plan is authored and content-addressed by the devtools
 // source-review module. This executor binds it to the compiled target and the
-// mapped Hermes object before and after evaluating it.
+// mapped Hermes factory object's current file snapshot before and after
+// evaluating it. This is not a hash of already-mapped executable pages.
 //
 // @ref LLP 0013#mechanism-1-lockdown
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
@@ -192,11 +193,16 @@ async fn capsec_inherited_intrinsic_alias_loaded_engine_preflight() {
     };
     let _lock = hermes_engine_test_lock().lock().await;
     let identity = HermesEngine::loaded_engine_identity()
-        .expect("authenticate mapped Hermes for inherited intrinsic preflight");
+        .expect("identify mapped Hermes factory object for intrinsic preflight");
     let verified = ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity)
-        .expect("re-verify mapped Hermes for inherited intrinsic preflight");
+        .expect("recheck Hermes factory-object file snapshot for intrinsic preflight");
     assert_eq!(verified, identity);
     let (profile_id, target_variant) = runtime_profile();
+    let provenance = ibex_runtime::engine::loaded_engine_profile_provenance()
+        .expect("compare Hermes factory-object file snapshot with its embedded receipt")
+        .expect("loaded intrinsic conformance requires a profile provenance receipt");
+    assert_eq!(provenance["profileId"], profile_id);
+    assert_eq!(provenance["targetVariant"], target_variant);
     write_new_json(
         output_path,
         &json!({
@@ -208,6 +214,7 @@ async fn capsec_inherited_intrinsic_alias_loaded_engine_preflight() {
                 "features": identity.structural_features.clone(),
             },
             "loadedEngineIdentity": identity,
+            "loadedEngineProfileProvenance": provenance,
         }),
         "inherited intrinsic preflight",
     );
@@ -224,7 +231,16 @@ async fn capsec_inherited_intrinsic_alias_loaded_execution() {
 
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
-        .expect("authenticate mapped Hermes before inherited intrinsic probe");
+        .expect("identify Hermes factory-object file snapshot before intrinsic probe");
+    let provenance_before = ibex_runtime::engine::loaded_engine_profile_provenance()
+        .expect("check Hermes file snapshot/profile receipt before intrinsic probe")
+        .expect("loaded intrinsic conformance requires a profile provenance receipt");
+    assert_eq!(provenance_before["profileId"], plan.profile_id);
+    assert_eq!(provenance_before["targetVariant"], plan.target_variant);
+    assert_eq!(
+        provenance_before["origin"]["reviewedProfileIdentity"], plan.reviewed_profile_identity,
+        "embedded Hermes receipt does not bind the reviewed execution profile"
+    );
     assert_eq!(
         plan.target.features, identity_before.structural_features,
         "plan structural features do not describe the loaded engine"
@@ -253,13 +269,20 @@ async fn capsec_inherited_intrinsic_alias_loaded_execution() {
     );
 
     let identity_after = HermesEngine::loaded_engine_identity()
-        .expect("authenticate mapped Hermes after inherited intrinsic probe");
+        .expect("identify Hermes factory-object file snapshot after intrinsic probe");
     assert_eq!(
         identity_after, identity_before,
         "mapped Hermes identity changed during inherited intrinsic probe"
     );
     ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
-        .expect("re-verify mapped Hermes after inherited intrinsic probe");
+        .expect("recheck Hermes factory-object file snapshot after intrinsic probe");
+    let provenance_after = ibex_runtime::engine::loaded_engine_profile_provenance()
+        .expect("recheck Hermes file snapshot/profile receipt after intrinsic probe")
+        .expect("loaded intrinsic conformance requires a profile provenance receipt");
+    assert_eq!(
+        provenance_after, provenance_before,
+        "mapped Hermes provenance changed during inherited intrinsic probe"
+    );
 
     write_new_json(
         output_path,
@@ -276,6 +299,7 @@ async fn capsec_inherited_intrinsic_alias_loaded_execution() {
             "probeSourceDigest": plan.probe.source_digest,
             "observation": observation,
             "loadedEngineIdentity": identity_before,
+            "loadedEngineProfileProvenance": provenance_before,
         }),
         "inherited intrinsic loaded execution evidence",
     );

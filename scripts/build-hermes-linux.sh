@@ -58,6 +58,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+ibex_acquire_hermes_source_build_lock "$(basename "$0")"
+trap 'ibex_release_hermes_source_build_lock' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 if [[ "$CLEAN_CACHE" == "true" ]]; then
     rm -rf "$CACHE_DIR"
     echo "Cleaned Hermes Linux cache: $CACHE_DIR"
@@ -82,15 +88,18 @@ INSTALL_DIR="$CACHE_DIR/install"
 mkdir -p "$CACHE_DIR"
 
 if [[ ! -d "$SRC_DIR/.git" ]]; then
+    rm -rf "$SRC_DIR"
     git clone https://github.com/facebook/hermes.git "$SRC_DIR"
 fi
 
 cd "$SRC_DIR"
+git reset --hard HEAD
+git clean -ffdx
 git fetch --all --tags
 if [[ "$HERMES_VERSION" == "static_h" || "$HERMES_VERSION" == "main" ]]; then
-    git checkout origin/static_h
+    git checkout --detach origin/static_h
 elif git rev-parse --verify --quiet "origin/$HERMES_VERSION" >/dev/null; then
-    git checkout "origin/$HERMES_VERSION"
+    git checkout --detach "origin/$HERMES_VERSION"
 else
     # A pinned commit may not be reachable from any currently advertised
     # branch/tag (upstream rebases/deletes release branches); GitHub serves
@@ -99,21 +108,30 @@ else
         && ! git rev-parse --verify --quiet "${HERMES_VERSION}^{commit}" >/dev/null; then
         git fetch origin "$HERMES_VERSION"
     fi
-    git checkout "$HERMES_VERSION"
+    git checkout --detach "$HERMES_VERSION"
 fi
 
-# @ref LLP 0013#upstream-tracking — restore pristine tree (persistent cache),
-# then apply the carried Hermes patch stack.
-git checkout -- . 2>/dev/null || true
-git clean -fdq -- include lib 2>/dev/null || true
+CHECKED_OUT_COMMIT="$(git rev-parse HEAD^{commit})"
+git reset --hard "$CHECKED_OUT_COMMIT"
+git clean -ffdx
+if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+    echo "Hermes source checkout is not pristine after reset/clean" >&2
+    exit 1
+fi
+
+# Build/install directories live beside the source checkout on Linux, so erase
+# them before patch verification as part of the same locked pristine boundary.
+rm -rf "$BUILD_DIR" "$INSTALL_DIR"
+
+# @ref LLP 0013#upstream-tracking — the real index and complete persistent
+# checkout are pristine before the carried Hermes patch stack is replayed.
 "$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"
 
-ACTUAL_COMMIT="$(git rev-parse HEAD | cut -c1-12)"
+ACTUAL_COMMIT="$(printf '%s' "$CHECKED_OUT_COMMIT" | cut -c1-12)"
 echo "Building Hermes for Linux from commit: $ACTUAL_COMMIT"
 echo "Debugger enabled: $HERMES_DEBUGGER"
 echo "Intl enabled: $HERMES_INTL"
 
-rm -rf "$BUILD_DIR" "$INSTALL_DIR"
 mkdir -p "$BUILD_DIR" "$INSTALL_DIR"
 
 GENERATOR=(-G "Unix Makefiles")
@@ -163,7 +181,24 @@ mkdir -p "$LINUX_LIB_DIR" "$LINUX_HEADERS_DIR" "$TOOLS_DIR"
 rm -rf "$LINUX_HEADERS_DIR"
 mkdir -p "$LINUX_HEADERS_DIR"
 cp -R "$INSTALL_DIR/include/"* "$LINUX_HEADERS_DIR/"
+rm -f "$LINUX_LIB_DIR/libhermesvm.so" "$LINUX_LIB_DIR/libhermesvm.a"
 cp -f "$INSTALL_DIR/lib/"libhermesvm.* "$LINUX_LIB_DIR/" 2>/dev/null || true
+rm -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
+    "$LINUX_LIB_DIR/hermes-profile-provenance.json"
+if [[ -f "$INSTALL_DIR/lib/libhermesvm.so" ]]; then
+    LINUX_CACHE_KEY="$(ibex_hermes_linux_source_cache_key "${IBEX_HERMES_SOURCE_COMMIT:0:12}")"
+    echo "Source cache key: $LINUX_CACHE_KEY"
+    ibex_write_source_patched_profile_receipt \
+        "$INSTALL_DIR/lib/libhermesvm.so" \
+        "$INSTALL_DIR/lib/hermes-profile-provenance.json" \
+        "$HERMES_VERSION" \
+        "$LINUX_CACHE_KEY"
+    if [[ -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" ]]; then
+        cp -f "$INSTALL_DIR/lib/hermes-profile-provenance.json" "$LINUX_LIB_DIR/"
+    fi
+else
+    echo "[provenance] static libhermesvm.a has no standalone mapped-object receipt; authenticated loaded-profile execution remains unavailable." >&2
+fi
 ARCH="$(uname -m)"
 case "$ARCH" in
     x86_64|amd64) HERMESC_ARCH="x64" ;;

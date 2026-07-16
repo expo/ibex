@@ -1,7 +1,7 @@
 {
   "outputDispositionPolicySchema": "ibex/capsec-output-disposition-policy/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-ycYwUGDv598Zq4FEHapGAe1DeT-kq-bSezmbkMBcAdY",
+  "catalogKeyDigest": "sha256-3yTAxhBaEqa8jy6zXp8lbh5JPOHasmex6NulYM0VWuA",
   "defaultDisposition": "non-path",
   "defaultRationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them.",
   "overrides": [
@@ -3509,23 +3509,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.storagepaths.1e7zbqo",
-        "output": "[[return]]",
-        "alias": "java:dev.ibex.runtime.IbexNetworking.storagePaths",
-        "mode": "all",
-        "sourceKind": "host-abi",
-        "returnVariant": "default",
-        "contextId": "host.private-native-call-initialized"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 target-absence recipe proves the Android-only Java storage-path bridge is absent from the loaded target. Armed Android separately keeps its private Context paths out of every JavaScript projection."
-    },
-    {
-      "key": {
         "surfaceId": "surface.native.op.exactmoduleresolve.14a0zlj",
         "output": "field:path.virtualPath",
         "alias": "resolver.path.virtualPath",
@@ -3832,193 +3815,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.native.op.exactandroidcamerahostcall.167r459",
-        "output": "[[return]]",
-        "alias": "__exactAndroidCameraHostCall",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 native-global target-absence recipe reads the exact named global and observes it absent from the loaded target."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactandroiddrainplatformevents.1kn5wsg",
-        "output": "[[return]]",
-        "alias": "__exactAndroidDrainPlatformEvents",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 native-global target-absence recipe reads the exact named global and observes it absent from the loaded target."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactandroidgetplatformstate.1be9u40",
-        "output": "[[return]]",
-        "alias": "__exactAndroidGetPlatformState",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 native-global target-absence recipe reads the exact named global and observes it absent from the loaded target."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactandroidstoragepaths.1mdbn1n",
-        "output": "[[value]]",
-        "alias": "__exactAndroidStoragePaths",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes the Android-only storage projection absent. Armed Android installs an immutable empty-string sentinel instead of private Context paths."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactandroidstoragepaths.cachedir.0isn50y",
-        "output": "[[value]]",
-        "alias": "__exactAndroidStoragePaths.cacheDir",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactandroidstoragepaths.codecachedir.0mrvtb7",
-        "output": "[[value]]",
-        "alias": "__exactAndroidStoragePaths.codeCacheDir",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactandroidstoragepaths.externalfilesdir.1mvpsmq",
-        "output": "[[value]]",
-        "alias": "__exactAndroidStoragePaths.externalFilesDir",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactandroidstoragepaths.filesdir.0v863tp",
-        "output": "[[value]]",
-        "alias": "__exactAndroidStoragePaths.filesDir",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactandroidstoragepaths.nobackupfilesdir.1tcc2lo",
-        "output": "[[value]]",
-        "alias": "__exactAndroidStoragePaths.noBackupFilesDir",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactosrelease.0ot9o6g",
-        "output": "[[value]]",
-        "alias": "process.__exactOSRelease",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 target-absence recipe reads the exact Android-only process.__exactOSRelease property and observes it absent from the loaded target."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactosversion.0b1yqs5",
-        "output": "[[value]]",
-        "alias": "process.__exactOSVersion",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 target-absence recipe reads the exact Android-only process.__exactOSVersion property and observes it absent from the loaded target."
-    },
-    {
-      "key": {
         "surfaceId": "surface.native.op.exactdeepfreeze.1vcvmfo",
         "output": "[[return]]",
         "alias": "__exactDeepFreeze",
@@ -4084,91 +3880,6 @@
         "normalizedValue": "same-as-argument-0"
       },
       "rationale": "The loaded-Hermes identity probe supplies a deterministic object graph and proves both strict return identity and shallow freezing."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactclipboardread.1jw3spp",
-        "output": "[[return]]",
-        "alias": "__exactClipboardRead",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 native-global target-absence recipe reads the exact named global and observes it absent from the loaded target."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactclipboardwrite.1lua9jo",
-        "output": "[[return]]",
-        "alias": "__exactClipboardWrite",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 native-global target-absence recipe reads the exact named global and observes it absent from the loaded target."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactgetscreeninfo.11fmsez",
-        "output": "[[return]]",
-        "alias": "__exactGetScreenInfo",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 native-global target-absence recipe reads the exact named global and observes it absent from the loaded target."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactnativedialog.0qc9nk6",
-        "output": "[[return]]",
-        "alias": "__exactNativeDialog",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 native-global target-absence recipe reads the exact named global and observes it absent from the loaded target."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactrequestanimationframe.1ehmd4h",
-        "output": "[[return]]",
-        "alias": "__exactRequestAnimationFrame",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "The source-bound macOS/aarch64 native-global target-absence recipe reads the exact named global and observes it absent from the loaded target."
     },
     {
       "key": {
@@ -4509,6 +4220,2046 @@
         "normalizedValue": "absent"
       },
       "rationale": "Without structural lockdown, the async-function constructor is not replaced with a marked tamed evaluator."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.android.initialize.1c4cnq6",
+        "output": "[[return]]",
+        "alias": "ex_android_initialize",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.android.initialize.1c4cnq6.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-YIuln-wsiNr8HbPH43SAs8XpsvAZ0OTM3Kyfj5P2HZY, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
+        "output": "[[return]]",
+        "alias": "ex_hermes_dispatch_event",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.dispatch.event.0lbx6vi.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-fndYb18b7BQBs60YzodAFDMda0vQNNQqZMhzl7e6f8E, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.emit.module.event.00w52n6",
+        "output": "[[return]]",
+        "alias": "ex_hermes_emit_module_event",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.emit.module.event.00w52n6.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-7kjFzNDpJ3e2o1trt_dOk-uQu4szOoDsmwH-u7szLvM, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.emit.module.view.event.1oibky8",
+        "output": "[[return]]",
+        "alias": "ex_hermes_emit_module_view_event",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.emit.module.view.event.1oibky8.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-XFRAVHSNmGEeGOf0YJ0X0pnBwo_wwfWaWS4OAuN6-x4, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m",
+        "output": "callback:callback/0",
+        "alias": "ex_hermes_set_dispatch_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-T7U8MocWq6h5sw89MSNj2cXFo3RyTZTm2l6950gAvZo, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m",
+        "output": "callback:callback/2",
+        "alias": "ex_hermes_set_dispatch_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-T7U8MocWq6h5sw89MSNj2cXFo3RyTZTm2l6950gAvZo, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.dispatch.with.debug.context.callback.0na3ytl",
+        "output": "callback:callback/0",
+        "alias": "ex_hermes_set_dispatch_with_debug_context_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.dispatch.with.debug.context.callback.0na3ytl.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1M09dpp0Ye4CmA95O0eJwMUMO0yunjX9NxVF34ERy0k, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.dispatch.with.debug.context.callback.0na3ytl",
+        "output": "callback:callback/2",
+        "alias": "ex_hermes_set_dispatch_with_debug_context_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.dispatch.with.debug.context.callback.0na3ytl.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1M09dpp0Ye4CmA95O0eJwMUMO0yunjX9NxVF34ERy0k, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.dispatch.with.debug.context.callback.0na3ytl",
+        "output": "callback:callback/3",
+        "alias": "ex_hermes_set_dispatch_with_debug_context_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.dispatch.with.debug.context.callback.0na3ytl.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1M09dpp0Ye4CmA95O0eJwMUMO0yunjX9NxVF34ERy0k, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.module.dispatch.callback.0w8zr7x",
+        "output": "callback:callback/0",
+        "alias": "ex_hermes_set_module_dispatch_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.module.dispatch.callback.0w8zr7x.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-_kAt17023r7siIb0v4aZeBuDNXIoRRcrm-MTehGLHK0, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.module.dispatch.callback.0w8zr7x",
+        "output": "callback:callback/2",
+        "alias": "ex_hermes_set_module_dispatch_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.module.dispatch.callback.0w8zr7x.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-_kAt17023r7siIb0v4aZeBuDNXIoRRcrm-MTehGLHK0, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2",
+        "output": "callback:callback/0",
+        "alias": "ex_hermes_set_module_sync_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-KowjGOHArws_Jat_1nd4CiucC_Pp05sjwv2Tv0xaY_w, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2",
+        "output": "callback:callback/4",
+        "alias": "ex_hermes_set_module_sync_callback",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.ex.hermes.set.module.sync.callback.0c126e2.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-KowjGOHArws_Jat_1nd4CiucC_Pp05sjwv2Tv0xaY_w, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.accessibilityflags.1m7g2yw",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.accessibilityFlags",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.accessibilityflags.1m7g2yw.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-oo-prH678OU45EqU_B6DsHHR10jkgbMLSKqAKEUkZKQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.appstate.0773q3j",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.appState",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.appstate.0773q3j.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-ljsfOL-MRRC4QgQJmrdtArVhyJFHTWcuPRMzMw_IZko, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.cameraHostCall",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-UbEj0L8AJ-Y00JClg6NgJKkQyfpqlbL9i3gxzJz8uDk, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.CameraHostProvider.cameraHostCall",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-P__nUrkENx5-Zb5IsbuKJ7nSXN8D3t20P1E_bYsepac, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2",
+        "output": "callback:0",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.CameraHostProvider.cameraHostCall",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-P__nUrkENx5-Zb5IsbuKJ7nSXN8D3t20P1E_bYsepac, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2",
+        "output": "callback:1",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.CameraHostProvider.cameraHostCall",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-P__nUrkENx5-Zb5IsbuKJ7nSXN8D3t20P1E_bYsepac, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.clipboardreadtext.0f0ydy4",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.clipboardReadText",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.clipboardreadtext.0f0ydy4.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-aDiIJ1-bi01qvKYIgSQyfDrC9uY5XQKXFw2xxFA4_7Q, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialog.0rq4c5n",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.dialog",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialog.0rq4c5n.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-dfO1bOMy69IjPvv8yX_Z-a4gRoINVXiKsacswPhPmKg, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialoghostprovider.dialog.0bup6iu",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.DialogHostProvider.dialog",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialoghostprovider.dialog.0bup6iu.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-y3ovu3OvZycxH0TeBWJ8L3-4F1oWTZiWGopozx-Mk68, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialoghostprovider.dialog.0bup6iu",
+        "output": "callback:0",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.DialogHostProvider.dialog",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialoghostprovider.dialog.0bup6iu.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-y3ovu3OvZycxH0TeBWJ8L3-4F1oWTZiWGopozx-Mk68, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialoghostprovider.dialog.0bup6iu",
+        "output": "callback:1",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.DialogHostProvider.dialog",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialoghostprovider.dialog.0bup6iu.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-y3ovu3OvZycxH0TeBWJ8L3-4F1oWTZiWGopozx-Mk68, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialoghostprovider.dialog.0bup6iu",
+        "output": "callback:2",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.DialogHostProvider.dialog",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dialoghostprovider.dialog.0bup6iu.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-y3ovu3OvZycxH0TeBWJ8L3-4F1oWTZiWGopozx-Mk68, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dnsquery.1o56s9i",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.dnsQuery",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.dnsquery.1o56s9i.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-HsoVEVINiAe7aSXmdG_0NZx1_-5Y6utS95LbovHBvmo, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.drainplatformevents.1twpgc9",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.drainPlatformEvents",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.drainplatformevents.1twpgc9.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-q4Xl17s18Eiex92Exh-atTLZVXdbqneFuByy5_musHc, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.getapplicationcontext.1v1pzyg",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.getApplicationContext",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.getapplicationcontext.1v1pzyg.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-TRCH8v3WtG7x33qxJVcxA0uAe_FY8nCLiUw6r8vbRm4, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.getcurrentlocation.02aumd9",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.getCurrentLocation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.getcurrentlocation.02aumd9.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-Ix2bs6miP6D0Co1Mzm4X_qlulgauAfWak5kZg-LIoMk, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.initialurl.164nj9y",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.initialURL",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.initialurl.164nj9y.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-D3xKV_IDWLVSvXORKS9svVccPtPQNNf5uCun9Zi5HCQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.islocationservicesenabled.06zui5p",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.isLocationServicesEnabled",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.islocationservicesenabled.06zui5p.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-158uYkcbdvCnt-mSuKwPUdWcyFnjNbY4QRMQ19t1iKo, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.localetags.1osu1d8",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.localeTags",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.localetags.1osu1d8.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-XUyADoXTWcqA8cL7aIm0Oz18leWSXepG6FtlD2_4yDU, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.locationpermissionstatus.0zh1ojd",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.locationPermissionStatus",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.locationpermissionstatus.0zh1ojd.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-t7aLxAxYkR3Oro9j9KpeaOk4V155GVUhZVu7xFlPaHs, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.platformversion.0nlv51o",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.platformVersion",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.platformversion.0nlv51o.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-RyjsnGuT59fNmgCJ1xnnt9CYkKQH1MQy404Sg0QcdQg, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.postanimationframe.1b7e6kq",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.postAnimationFrame",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.postanimationframe.1b7e6kq.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-i3jt5QzcXqF_WqGVrMzO_ACOT29pO8x4C4XJ6yxAAPM, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.screeninfo.0jg0udj",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.screenInfo",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.screeninfo.0jg0udj.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-4uTbFMcbE4FYV9SvCDKR3-8SqKAvLvfbDBQf5FN-P0E, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.storagepaths.1e7zbqo",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.storagePaths",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.storagepaths.1e7zbqo.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256--CPMJGHz3vC6OQtp8OeeFI-n119HaZ48cbhsIEXeFjM, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.uses24hourclock.1n6o6jr",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.uses24HourClock",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.java.dev.ibex.runtime.ibexnetworking.uses24hourclock.1n6o6jr.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-30RL6hOSJ5LajcEDzcQCTELi3Zmx97KjcGildhQJpCE, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativeanimationframe.07qd15e",
+        "output": "callback:0",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeAnimationFrame",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativeanimationframe.07qd15e.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-pgTyeH8p6woazJRzDt_-ODPN1qU5NUcWOwGpzDjSi0k, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativeanimationframe.07qd15e",
+        "output": "callback:1",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeAnimationFrame",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativeanimationframe.07qd15e.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-pgTyeH8p6woazJRzDt_-ODPN1qU5NUcWOwGpzDjSi0k, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn",
+        "output": "callback:0",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeFetchDidComplete",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1Zn-hz-W92YUR2kCf2l1rckBcauC2oRWvbv2JPx1704, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn",
+        "output": "callback:1",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeFetchDidComplete",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1Zn-hz-W92YUR2kCf2l1rckBcauC2oRWvbv2JPx1704, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn",
+        "output": "callback:2",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeFetchDidComplete",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1Zn-hz-W92YUR2kCf2l1rckBcauC2oRWvbv2JPx1704, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn",
+        "output": "callback:3",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeFetchDidComplete",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1Zn-hz-W92YUR2kCf2l1rckBcauC2oRWvbv2JPx1704, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn",
+        "output": "callback:4",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeFetchDidComplete",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativefetchdidcomplete.1pj8trn.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1Zn-hz-W92YUR2kCf2l1rckBcauC2oRWvbv2JPx1704, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidbytessent.16ip776",
+        "output": "callback:0",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidBytesSent",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidbytessent.16ip776.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-cm46SouZoUv_Df5XMFPRTM48zOLzhy6C75JedvmxH1M, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidbytessent.16ip776",
+        "output": "callback:1",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidBytesSent",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidbytessent.16ip776.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-cm46SouZoUv_Df5XMFPRTM48zOLzhy6C75JedvmxH1M, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidclose.1imi9yj",
+        "output": "callback:0",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidClose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidclose.1imi9yj.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-PLFIpjQJay4v8mpAKkUavahmghVxms6VjGRIcRyDceg, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidclose.1imi9yj",
+        "output": "callback:1",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidClose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidclose.1imi9yj.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-PLFIpjQJay4v8mpAKkUavahmghVxms6VjGRIcRyDceg, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidclose.1imi9yj",
+        "output": "callback:2",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidClose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidclose.1imi9yj.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-PLFIpjQJay4v8mpAKkUavahmghVxms6VjGRIcRyDceg, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidclose.1imi9yj",
+        "output": "callback:3",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidClose",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidclose.1imi9yj.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-PLFIpjQJay4v8mpAKkUavahmghVxms6VjGRIcRyDceg, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdiderror.1peplrd",
+        "output": "callback:0",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidError",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdiderror.1peplrd.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-96ZICDadI93fNd9dkiU155x1wSEOJ5yG4sGLqamtTec, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdiderror.1peplrd",
+        "output": "callback:1",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidError",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdiderror.1peplrd.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-96ZICDadI93fNd9dkiU155x1wSEOJ5yG4sGLqamtTec, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidmessage.0qwd3ng",
+        "output": "callback:0",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidMessage",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidmessage.0qwd3ng.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-X3HFQgPnLjIwULwp_19t3_Q_iNVna3QE2aAu9_2oLdE, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidmessage.0qwd3ng",
+        "output": "callback:1",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidMessage",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidmessage.0qwd3ng.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-X3HFQgPnLjIwULwp_19t3_Q_iNVna3QE2aAu9_2oLdE, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidmessage.0qwd3ng",
+        "output": "callback:2",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidMessage",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidmessage.0qwd3ng.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-X3HFQgPnLjIwULwp_19t3_Q_iNVna3QE2aAu9_2oLdE, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidopen.02woupt",
+        "output": "callback:0",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidOpen",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidopen.02woupt.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-tdNuqy9z6mcpaU2baFfhCu_J7g2_S9_BLvHFMwG-eUQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidopen.02woupt",
+        "output": "callback:1",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidOpen",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidopen.02woupt.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-tdNuqy9z6mcpaU2baFfhCu_J7g2_S9_BLvHFMwG-eUQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidopen.02woupt",
+        "output": "callback:2",
+        "alias": "jni:dev.ibex.runtime.IbexNetworking.nativeWebSocketDidOpen",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.host.abi.jni.dev.ibex.runtime.ibexnetworking.nativewebsocketdidopen.02woupt.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-tdNuqy9z6mcpaU2baFfhCu_J7g2_S9_BLvHFMwG-eUQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.colorscheme.08wrj05",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.colorScheme",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.colorscheme.08wrj05.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-h7dK8MZyPlfpVuizKkRWV83Z_6ih_Bh79vgSAiz10qU, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.dynamictypesize.1s9wxzp",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.dynamicTypeSize",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.dynamictypesize.1s9wxzp.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-nauXZS_hiuklcw-UB_qOZwZEiCAj9g8HopI3oPxx44c, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.fontscale.15wrp1g",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.fontScale",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.fontscale.15wrp1g.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-h4E_ktZ_neUWqqwLvNjwFLehFNaBESgYsPXmlni95Kw, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.isboldtextenabled.0lq9fc8",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.isBoldTextEnabled",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.isboldtextenabled.0lq9fc8.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-ztfJUY1BSfIUjeVBUgQ72ik4pYRzlQsO9eGpoRgjhug, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.isgrayscaleenabled.0gxmxxj",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.isGrayscaleEnabled",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.isgrayscaleenabled.0gxmxxj.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-7z5UflKjJfRviUJdCOaWa51jy_dmdENVHFjmijwfMkA, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.isinvertcolorsenabled.1kv9vx4",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.isInvertColorsEnabled",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.isinvertcolorsenabled.1kv9vx4.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-TSLSYzA6RwfNCmS7DkzvJcYNn00hpiPIRhwSp6gz_yY, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.isscreenreaderenabled.0i2v34x",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.isScreenReaderEnabled",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.isscreenreaderenabled.0i2v34x.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-Xpv1j20Chq_FZf3Nvg1YK9Ps7_5IRt7riOd9y5ZpkiM, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.prefershighcontrast.17igcxc",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.prefersHighContrast",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.prefershighcontrast.17igcxc.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-brpCHFQkq9aIKsb67QvoR-P4vw7C60AtniqPPoLPCkw, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.prefersreducedmotion.0712nue",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.prefersReducedMotion",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.prefersreducedmotion.0712nue.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-IaxWaw9-W-B51cjoL-XPkAiausn-Opwy3DItevUvZso, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactaccessibilitysnapshot.prefersreducedtransparency.1pvdb7u",
+        "output": "[[value]]",
+        "alias": "__exactAccessibilitySnapshot.prefersReducedTransparency",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactaccessibilitysnapshot.prefersreducedtransparency.1pvdb7u.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-Kbc42E_gbHMGbswGa1YgYi2WhWE95MN2zqyD6CVATeY, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidcamerahostcall.167r459",
+        "output": "[[return]]",
+        "alias": "__exactAndroidCameraHostCall",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactandroidcamerahostcall.167r459.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-DT8YKzevRYtQ_Gh_sVXiOM7yHN1xSTJckTnFpprsOS4, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidcamerametadata.0692zrm",
+        "output": "[[value]]",
+        "alias": "__exactAndroidCameraMetadata",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidcamerametadata.0692zrm.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-1dmOzLnhDpQ_bVH5CHqSPsIZdxYqfdxOjj5ao0kw29s, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidcamerametadata.backend.0z85tfw",
+        "output": "[[value]]",
+        "alias": "__exactAndroidCameraMetadata.backend",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidcamerametadata.backend.0z85tfw.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-8q3p_wmItCyvQRMLNWKsxhxz9fubDRbNBOb8N712qx8, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidcamerametadata.moduleid.1fk6u41",
+        "output": "[[value]]",
+        "alias": "__exactAndroidCameraMetadata.moduleId",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidcamerametadata.moduleid.1fk6u41.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-DmfyY2LAJdCdS0j6ZWrseiwZCWIb_neCghLGeB09qLY, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidcamerametadata.stateoffset.0hcmzkm",
+        "output": "[[value]]",
+        "alias": "__exactAndroidCameraMetadata.stateOffset",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidcamerametadata.stateoffset.0hcmzkm.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-F8HisoIBdyP4e8eOhoAUqvtQwirxcNIEoMk_ogdWX80, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidcamerametadata.statesize.04nytlk",
+        "output": "[[value]]",
+        "alias": "__exactAndroidCameraMetadata.stateSize",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidcamerametadata.statesize.04nytlk.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-cSQMo78HAEysIMI1W7Rcr7C4NUEozScZ26oX7nnY7cI, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidcamerametadata.version.04xp46g",
+        "output": "[[value]]",
+        "alias": "__exactAndroidCameraMetadata.version",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidcamerametadata.version.04xp46g.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-QNcXc2l6xel9pczJBaSrR1bVWixGGxHBpENGOMc4A5I, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroiddrainplatformevents.1kn5wsg",
+        "output": "[[return]]",
+        "alias": "__exactAndroidDrainPlatformEvents",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactandroiddrainplatformevents.1kn5wsg.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-wcyzgqmV5AUm9RSP-CrcHbRLx928HJlXm9Qx79z1omk, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidgetplatformstate.1be9u40",
+        "output": "[[return]]",
+        "alias": "__exactAndroidGetPlatformState",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactandroidgetplatformstate.1be9u40.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-47U6rCFFMQkb7xjcJ5Fmpdosc_45FTe89bEaIS7DlY8, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidlocation.092wrxj",
+        "output": "[[value]]",
+        "alias": "__exactAndroidLocation",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidlocation.092wrxj.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-uhWJGqp8HIOXcozp3j0rtx4xlrtuk0q-pKu2PUGK4dU, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidlocation.getcurrentlocation.1uamkq1",
+        "output": "[[return]]",
+        "alias": "__exactAndroidLocation.getCurrentLocation",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactandroidlocation.getcurrentlocation.1uamkq1.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-cSGlN5Gsf-jQ_JJJX2JmrNqWnj8qkLBNRsY6M_fx4RU, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidlocation.getpermissionstatus.0afu26k",
+        "output": "[[return]]",
+        "alias": "__exactAndroidLocation.getPermissionStatus",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactandroidlocation.getpermissionstatus.0afu26k.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-UUl07PSumOXlc9YNMRay1OEI2Spo436ihnAocsYNheE, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidlocation.islocationservicesenabled.0ueq0ax",
+        "output": "[[return]]",
+        "alias": "__exactAndroidLocation.isLocationServicesEnabled",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactandroidlocation.islocationservicesenabled.0ueq0ax.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-DCXuAJzvGXoCbe7mMEZjYUJ2l54BAltWdrcIbFpsoBg, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.1mdbn1n",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidstoragepaths.1mdbn1n.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-Rc-HO1TBgdk6OXac8NVSpwZkB5xvZNIanDlWNNy-QSE, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.cachedir.0isn50y",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.cacheDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidstoragepaths.cachedir.0isn50y.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-zKzuIJgsUCMTGAHKo96AQJlla2O5gQV4SYGoFBX7bC0, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.codecachedir.0mrvtb7",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.codeCacheDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidstoragepaths.codecachedir.0mrvtb7.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-9FkQj7CyIaTFx3aB6WJ-N-aSDyZBMYNiEzFcooKNJdU, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.externalfilesdir.1mvpsmq",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.externalFilesDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidstoragepaths.externalfilesdir.1mvpsmq.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-RMtsotgTx8D7etihu-QFxlXxi1vdGeYr4SxNs-8pDU4, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.filesdir.0v863tp",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.filesDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidstoragepaths.filesdir.0v863tp.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-wQYPsdxQtHrVjusLP46QC-nIUYOYMX3XEgVX8U_e0bo, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.nobackupfilesdir.1tcc2lo",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.noBackupFilesDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactandroidstoragepaths.nobackupfilesdir.1tcc2lo.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-JgBQb7bm1wI-FtZxA0RfqfeHHDwPEpfOCW1XRw3_NS8, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactclipboardread.1jw3spp",
+        "output": "[[return]]",
+        "alias": "__exactClipboardRead",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactclipboardread.1jw3spp.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-XSbsr0PKu2xBXx8SYbWnh9Sa-UHnKSOQ5OHEJmKay4g, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactclipboardwrite.1lua9jo",
+        "output": "[[return]]",
+        "alias": "__exactClipboardWrite",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactclipboardwrite.1lua9jo.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-OUpCIsp_dZIs6GWiWN3Ju4brLJSQrHMvU7wE2wFTrsg, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactcompatmodes.0hzhmrx",
+        "output": "[[value]]",
+        "alias": "__exactCompatModes",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The generated sealed-root manifest row root-global.exactcompatmodes.d1e1fe28017b1402 binds native-op:__exactCompatModes to src/engine/hermes_runtime.cc#jsi-global:__exactCompatModes with disposition sealed and liveExpectation absent; the loaded package-property read must observe this exact value key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactprocessipcbootstrap.1f8twb6",
+        "output": "[[value]]",
+        "alias": "__exactProcessIpcBootstrap",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The generated sealed-root manifest row root-global.exactprocessipcbootstrap.f5ef7efbc7e86864 binds native-op:__exactProcessIpcBootstrap to src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap with disposition sealed and liveExpectation absent; the loaded package-property read must observe this exact value key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactprocessipcbootstrap.close.1ap2eh4",
+        "output": "[[return]]",
+        "alias": "__exactProcessIpcBootstrap.close",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The generated sealed-root manifest row root-global.exactprocessipcbootstrap.close.8979e0d4ab05815a binds native-op:__exactProcessIpcBootstrap.close to src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.close with disposition sealed and liveExpectation absent; the loaded bootstrap lookup must observe this exact callable absent before any invocation."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactprocessipcbootstrap.fd.1yvjieu",
+        "output": "[[value]]",
+        "alias": "__exactProcessIpcBootstrap.fd",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The generated sealed-root manifest row root-global.exactprocessipcbootstrap.fd.f0572c00634b3d42 binds native-op:__exactProcessIpcBootstrap.fd to src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.fd with disposition sealed and liveExpectation absent; the loaded package-property read must observe this exact value key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactprocessipcbootstrap.serialization.1vtmt9s",
+        "output": "[[value]]",
+        "alias": "__exactProcessIpcBootstrap.serialization",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The generated sealed-root manifest row root-global.exactprocessipcbootstrap.serialization.efa6a07e051d0374 binds native-op:__exactProcessIpcBootstrap.serialization to src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.serialization with disposition sealed and liveExpectation absent; the loaded package-property read must observe this exact value key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactgetscreeninfo.11fmsez",
+        "output": "[[return]]",
+        "alias": "__exactGetScreenInfo",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactgetscreeninfo.11fmsez.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-FMVaI6FdptXvskS2FRa4ZamixhpEDHqFdffDXZZH_lM, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactlanguage.0xcyrrr",
+        "output": "[[value]]",
+        "alias": "__exactLanguage",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactlanguage.0xcyrrr.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-dDwaATqL_77FIZNhCe1NmjXbfYf2sgUSW1-iBqZXwZQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactlocale.073vb5v",
+        "output": "[[value]]",
+        "alias": "__exactLocale",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactlocale.073vb5v.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-y8YxMmLKUkim0Ox5s5rywDBc0_LRiDYQZuPcznMXpt0, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactlocalesnapshot.tag.0zrcjz1",
+        "output": "[[value]]",
+        "alias": "__exactLocaleSnapshot.tag",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactlocalesnapshot.tag.0zrcjz1.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-tbpHCkCsi4W0LcmQ8SPERasdepdGr4KaTJFdYvAsyEQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactlocalesnapshot.tags.0meghey",
+        "output": "[[value]]",
+        "alias": "__exactLocaleSnapshot.tags",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactlocalesnapshot.tags.0meghey.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-d-FSS8vwh-3EaY9PD10hkT0NV4UL4KqKjwIrhI4WXCM, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactlocalesnapshot.uses24hour.0y3k6mz",
+        "output": "[[value]]",
+        "alias": "__exactLocaleSnapshot.uses24Hour",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactlocalesnapshot.uses24hour.0y3k6mz.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-8L-_K-OguBSGQmNtKvk9aiH3FXFTR3iaNLJmf_9d5Ts, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactnativedialog.0qc9nk6",
+        "output": "[[return]]",
+        "alias": "__exactNativeDialog",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactnativedialog.0qc9nk6.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-XV6LBc688TuPxt0r9ftpSO8kPO_Jra7m54awIVHOtGQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactosrelease.0ot9o6g",
+        "output": "[[value]]",
+        "alias": "process.__exactOSRelease",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactosrelease.0ot9o6g.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-2eUirIr-k524OFRTV2qehPwkVJkRCUVxSjMg4shFQ3s, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactosversion.0b1yqs5",
+        "output": "[[value]]",
+        "alias": "process.__exactOSVersion",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactosversion.0b1yqs5.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-bND5RB-c4kgusCGn91vpmj2YTNydbAhUlJC8fTZuBIA, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactplatformversion.0xnxnuy",
+        "output": "[[value]]",
+        "alias": "__exactPlatformVersion",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.exactplatformversion.0xnxnuy.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-mZq7s9pi3o9A3pLG6Vcd4WdeC9SS54Jr5xMuEYdmgPY, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactrequestanimationframe.1ehmd4h",
+        "output": "[[return]]",
+        "alias": "__exactRequestAnimationFrame",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.exactrequestanimationframe.1ehmd4h.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-zTXEHRditrhB-lRjAtmi0mM5c5xwkUYJT4wMayGw5Cs, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.callmodulesync.0sjw0zv",
+        "output": "[[value]]",
+        "alias": "global:exact.callModuleSync",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.global.exact.callmodulesync.0sjw0zv.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-Ewc5MRiTF6HdhLjsAJBAre_aF8V5I0eK7AjsYqtpg2o, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.dispatch.10m37ay",
+        "output": "[[return]]",
+        "alias": "global:exact.dispatch",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.dispatch.10m37ay.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-EPYDW84PDWN_QFVdUL0YGoIjFIiSRQW4PKd_AwnwuPk, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.dispatchmodule.09v35ye",
+        "output": "[[value]]",
+        "alias": "global:exact.dispatchModule",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.global.exact.dispatchmodule.09v35ye.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-J7uGAjqqCj8pJkQIdM3eHhk3m_hujqpMghz8a5qh0Sg, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.dispatchwithdebugcontext.107xbzc",
+        "output": "[[return]]",
+        "alias": "global:exact.dispatchWithDebugContext",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.dispatchwithdebugcontext.107xbzc.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-dmIdJ7XmIGJg8xTsMMDeyhLIuB_gubWZrCR-aPno8nk, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.getabsolutelayout.1su4n8b",
+        "output": "[[return]]",
+        "alias": "global:exact.getAbsoluteLayout",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.getabsolutelayout.1su4n8b.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-qg6hwo7EgKgeYr0PqbcnMep9uWauVIZB8fSiYcr4pGs, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.getlayout.1egshbe",
+        "output": "[[return]]",
+        "alias": "global:exact.getLayout",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.getlayout.1egshbe.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-UlioXDcOr05dzxjQGSDXSsr_pbPZ-AOOMEfJRbSir9U, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.getlayoutgeneration.0um8zd0",
+        "output": "[[return]]",
+        "alias": "global:exact.getLayoutGeneration",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.getlayoutgeneration.0um8zd0.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-od5tLLXdbnIKJa8pyl0i-f9jMSOFdA_oYKTiEK6tjNw, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.getlayouttree.1kmyr1i",
+        "output": "[[return]]",
+        "alias": "global:exact.getLayoutTree",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.getlayouttree.1kmyr1i.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256--Pdkjn_re943qEJUy1SrNLIEMo_lUVLZIRJorz8jb0A, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.getmodulestateoffset.0s3igpa",
+        "output": "[[return]]",
+        "alias": "global:exact.getModuleStateOffset",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.getmodulestateoffset.0s3igpa.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-h2KSnUnu4_qwSka6PN0ZkLAzVmREtQ-aF469Jt4GDbY, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.getrootviewid.0gcfi7s",
+        "output": "[[return]]",
+        "alias": "global:exact.getRootViewId",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.getrootviewid.0gcfi7s.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-yKcSabAqjwvQjBrsVb29nkxqJ74gOE_ro6KmYgCUogQ, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.getstatemirror.1r65bcm",
+        "output": "[[return]]",
+        "alias": "global:exact.getStateMirror",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.getstatemirror.1r65bcm.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-iIDnqHTsTELoC6DwpAk5jS-6mNJy5-ibofRZ43bFJ5s, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.haskernelinspector.0otez5q",
+        "output": "[[value]]",
+        "alias": "global:exact.hasKernelInspector",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-symbol lookup recipe surface.native.op.global.exact.haskernelinspector.0otez5q.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-WtIGoms56wLq93ZOqRdcr68CNu__Vpvx7bSxTlHTSug, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.hittest.0g8tl31",
+        "output": "[[return]]",
+        "alias": "global:exact.hitTest",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.hittest.0g8tl31.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-wJKX8BfvPUldgqlnyvhi_nKcyOwLHEsa6zVq0xorZcY, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.global.exact.nodeexists.1qt4kt0",
+        "output": "[[return]]",
+        "alias": "global:exact.nodeExists",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.nodeexists.1qt4kt0.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-oMj5h_0R0hCliHx_FH7Yqp4vthU3uh6QVFVXqR_kJuU, requires the loaded target to observe this exact output key absent."
     }
   ]
 }

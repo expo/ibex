@@ -56,10 +56,12 @@ pub(crate) enum ReplStep {
     Idle,
     Continuation,
     Evaluation {
+        #[allow(dead_code)]
         source: String,
         result: std::result::Result<ReplEvaluation, ReplEvaluationFailure>,
     },
     TimedEvaluation {
+        #[allow(dead_code)]
         source: String,
         result: std::result::Result<ReplEvaluation, ReplEvaluationFailure>,
         elapsed: Duration,
@@ -81,6 +83,19 @@ pub(crate) struct ReplDriver {
     bindings: BTreeSet<String>,
 }
 
+/// Immutable, authority-free facts consumed by the asynchronous editor
+/// completer. This excludes the evaluator and mutable submission state.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct StaticCompletionSnapshot {
+    bindings: BTreeSet<String>,
+}
+
+impl StaticCompletionSnapshot {
+    pub(crate) fn candidates(&self, line: &str, cursor: usize) -> Vec<String> {
+        static_completion_candidates(&self.bindings, line, cursor)
+    }
+}
+
 impl ReplDriver {
     pub(crate) fn new(mode: ArmedExecutionMode) -> Result<Self> {
         let mode = match mode {
@@ -99,6 +114,7 @@ impl ReplDriver {
         !self.continuation.is_empty()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn pending_source(&self) -> &str {
         &self.continuation
     }
@@ -216,45 +232,17 @@ impl ReplDriver {
 
     /// Advisory candidates from generated/static facts only. This never calls
     /// the engine and deliberately returns no member candidates in v1.
+    #[cfg(test)]
     pub(crate) fn completion_candidates(&self, line: &str, cursor: usize) -> Vec<String> {
-        let cursor = cursor.min(line.len());
-        if !line.is_char_boundary(cursor) {
-            return Vec::new();
-        }
-        let prefix_start = line[..cursor]
-            .char_indices()
-            .rev()
-            .find(|(_, ch)| !is_identifier_character(*ch) && *ch != '.' && *ch != ':')
-            .map_or(0, |(offset, ch)| offset + ch.len_utf8());
-        let prefix = &line[prefix_start..cursor];
-        if prefix.contains('.') && !prefix.starts_with('.') && !prefix.starts_with("node:") {
-            return Vec::new();
-        }
+        static_completion_candidates(&self.bindings, line, cursor)
+    }
 
-        let mut candidates = BTreeSet::new();
-        if prefix.starts_with('.') {
-            candidates.extend(
-                crate::repl_surface::COMMAND_COMPLETIONS
-                    .iter()
-                    .filter(|candidate| candidate.starts_with(prefix))
-                    .map(|candidate| (*candidate).to_owned()),
-            );
-        } else {
-            candidates.extend(
-                self.bindings
-                    .iter()
-                    .filter(|candidate| candidate.starts_with(prefix))
-                    .cloned(),
-            );
-            candidates.extend(
-                ibex_runtime::module_loader::builtin_module_debug_entries()
-                    .iter()
-                    .map(|entry| entry.specifier)
-                    .filter(|candidate| candidate.starts_with(prefix))
-                    .map(str::to_owned),
-            );
+    /// Own only the inert completion inputs so a bounded producer can run
+    /// independently while the terminal thread continues consuming bytes.
+    pub(crate) fn completion_snapshot(&self) -> StaticCompletionSnapshot {
+        StaticCompletionSnapshot {
+            bindings: self.bindings.clone(),
         }
-        candidates.into_iter().collect()
     }
 
     async fn execute_command(
@@ -291,6 +279,51 @@ impl ReplDriver {
             },
         }
     }
+}
+
+fn static_completion_candidates(
+    bindings: &BTreeSet<String>,
+    line: &str,
+    cursor: usize,
+) -> Vec<String> {
+    let cursor = cursor.min(line.len());
+    if !line.is_char_boundary(cursor) {
+        return Vec::new();
+    }
+    let prefix_start = line[..cursor]
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !is_identifier_character(*ch) && *ch != '.' && *ch != ':')
+        .map_or(0, |(offset, ch)| offset + ch.len_utf8());
+    let prefix = &line[prefix_start..cursor];
+    if prefix.contains('.') && !prefix.starts_with('.') && !prefix.starts_with("node:") {
+        return Vec::new();
+    }
+
+    let mut candidates = BTreeSet::new();
+    if prefix.starts_with('.') {
+        candidates.extend(
+            crate::repl_surface::COMMAND_COMPLETIONS
+                .iter()
+                .filter(|candidate| candidate.starts_with(prefix))
+                .map(|candidate| (*candidate).to_owned()),
+        );
+    } else {
+        candidates.extend(
+            bindings
+                .iter()
+                .filter(|candidate| candidate.starts_with(prefix))
+                .cloned(),
+        );
+        candidates.extend(
+            ibex_runtime::module_loader::builtin_module_debug_entries()
+                .iter()
+                .map(|entry| entry.specifier)
+                .filter(|candidate| candidate.starts_with(prefix))
+                .map(str::to_owned),
+        );
+    }
+    candidates.into_iter().collect()
 }
 
 fn is_exact_break_command(line: &str) -> bool {

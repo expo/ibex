@@ -266,6 +266,7 @@ pub struct ArmedSnapshot {
     root_bindings: Arc<[ArmedRootBinding]>,
     path_canonicalizers: PathAliasCanonicalizers,
     protected_artifacts: Arc<[ExpectedProtectedArtifact]>,
+    bootstrap_compatibility_modes: Arc<[String]>,
     armed_snapshot_digest: Digest,
     generations: SnapshotGenerations,
 }
@@ -325,6 +326,46 @@ impl ArmedSnapshot {
                 return refused("required structural posture is not active");
             }
         }
+        let environment_base = value_at(&document, &["environmentBase"])?
+            .as_array()
+            .ok_or_else(|| invalid("environmentBase must be an array"))?;
+        if !environment_base.is_empty() {
+            return refused(
+                "armed session environmentBase must be explicitly empty; values belong in principal overlays",
+            );
+        }
+        let bootstrap_compatibility_modes = value_at(&document, &["bootstrapCompatibilityModes"])?
+            .as_array()
+            .ok_or_else(|| invalid("bootstrapCompatibilityModes must be an array"))?
+            .iter()
+            .map(|value| {
+                let mode = value
+                    .as_str()
+                    .ok_or_else(|| invalid("bootstrap compatibility mode must be a string"))?;
+                if !matches!(mode, "bun" | "fixture" | "fixture:bun") {
+                    return Err(invalid(format!(
+                        "unsupported bootstrap compatibility mode {mode}"
+                    )));
+                }
+                Ok(mode.to_owned())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if bootstrap_compatibility_modes.len() > 3
+            || bootstrap_compatibility_modes
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+        {
+            return refused("bootstrapCompatibilityModes must be a sorted unique set");
+        }
+        if bootstrap_compatibility_modes
+            .iter()
+            .any(|mode| mode == "fixture:bun")
+            && !bootstrap_compatibility_modes
+                .iter()
+                .any(|mode| mode == "fixture")
+        {
+            return refused("fixture:bun requires fixture compatibility mode");
+        }
         let claimed = Digest::new(required_str(&document, "armedSnapshotDigest")?)
             .map_err(Error::InvalidModel)?;
         if claimed != expected.armed_snapshot_digest {
@@ -375,6 +416,7 @@ impl ArmedSnapshot {
             root_bindings: root_bindings.into(),
             path_canonicalizers,
             protected_artifacts: expected.protected_artifacts.clone().into(),
+            bootstrap_compatibility_modes: bootstrap_compatibility_modes.into(),
             armed_snapshot_digest: claimed,
             generations,
         })
@@ -390,6 +432,12 @@ impl ArmedSnapshot {
 
     pub fn document(&self) -> &Value {
         &self.document
+    }
+
+    /// Digest-bound, authority-neutral controls consumed only during trusted
+    /// bootstrap. They are never projected into the principal environment.
+    pub fn bootstrap_compatibility_modes(&self) -> &[String] {
+        &self.bootstrap_compatibility_modes
     }
 
     pub fn entry(&self) -> &ArmedEntry {
@@ -1021,6 +1069,8 @@ fn validate_root_bindings(
     let mut objects = BTreeSet::new();
     let mut package_binding_counts = BTreeMap::<Principal, usize>::new();
     let mut project_bindings = 0usize;
+    let mut project_components = None;
+    let mut private_home_components = None;
     for binding in bindings {
         if binding.host_path.root != LogicalRoot::Absolute
             || binding.host_path.host_bound != Some(true)
@@ -1068,6 +1118,13 @@ fn validate_root_bindings(
                     return refused("project root binding has invalid owner or logical path");
                 }
                 project_bindings += 1;
+                project_components = Some(&binding.host_path.components);
+            }
+            LogicalRoot::Home => {
+                if binding.owner.is_some() || binding.logical_path.is_some() {
+                    return refused("private home binding has invalid owner or logical path");
+                }
+                private_home_components = Some(&binding.host_path.components);
             }
             _ => {
                 if binding.owner.is_some() || binding.logical_path.is_some() {
@@ -1078,6 +1135,16 @@ fn validate_root_bindings(
     }
     if project_bindings != 1 {
         return refused("armed snapshot must contain exactly one project root binding");
+    }
+    // `home` is a private coordinate, not a VFS mount, and external snapshots
+    // may omit it. When declared, reject the obvious canonical-component
+    // overlap as defense in depth; launch-time checks against the actual cache
+    // object ancestry remain authoritative across aliases and mount points.
+    // @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
+    if let (Some(project), Some(home)) = (project_components, private_home_components) {
+        if project.starts_with(home) || home.starts_with(project) {
+            return refused("private home binding overlaps the project root binding");
+        }
     }
     if graph_nodes
         .iter()
@@ -1741,6 +1808,80 @@ mod tests {
         assert_eq!(
             armed.project_root_discovery(),
             &expected.project_root_discovery
+        );
+    }
+
+    #[test]
+    fn requires_an_explicitly_empty_digest_bound_environment_base() {
+        let (bytes, expected) = fixture();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["environmentBase"], serde_json::json!([]));
+
+        let mut missing = value.clone();
+        missing.as_object_mut().unwrap().remove("environmentBase");
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&missing).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("missing environmentBase")
+        );
+
+        let mut nonempty = value.clone();
+        nonempty["environmentBase"] = serde_json::json!([{
+            "name": "HOST_SECRET",
+            "value": "must-not-enter-the-snapshot"
+        }]);
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&nonempty).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("must be explicitly empty")
+        );
+
+        let mut wrong_type = value;
+        wrong_type["environmentBase"] = serde_json::json!({});
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&wrong_type).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("environmentBase must be an array")
+        );
+    }
+
+    #[test]
+    fn validates_digest_bound_bootstrap_compatibility_modes() {
+        let (bytes, expected) = fixture();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["bootstrapCompatibilityModes"], serde_json::json!([]));
+
+        let mut missing = value.clone();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("bootstrapCompatibilityModes");
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&missing).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("missing bootstrapCompatibilityModes")
+        );
+
+        let mut unsupported = value.clone();
+        unsupported["bootstrapCompatibilityModes"] = serde_json::json!(["node"]);
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&unsupported).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported bootstrap compatibility mode")
+        );
+
+        let mut incomplete = value;
+        incomplete["bootstrapCompatibilityModes"] = serde_json::json!(["fixture:bun"]);
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&incomplete).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("fixture:bun requires fixture")
         );
     }
 
@@ -2448,6 +2589,46 @@ mod tests {
         wrong_package_owner["rootBindings"][0]["owner"] =
             wrong_package_owner["rootIdentity"].clone();
         assert!(ArmedSnapshot::load(&redigest(&mut wrong_package_owner), &expected).is_err());
+    }
+
+    #[test]
+    fn optional_private_home_binding_must_be_disjoint_from_project() {
+        let assert_overlap_refused = |home_components: Value| {
+            let (bytes, mut expected) = fixture();
+            let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+            let mut home = value["rootBindings"][1].clone();
+            home["logicalRoot"] = Value::String("home".into());
+            home["hostPath"]["components"] = home_components;
+            home["object"]["file"] = Value::String("file-private-home".into());
+            value["rootBindings"].as_array_mut().unwrap().push(home);
+            let digest =
+                compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+            value["armedSnapshotDigest"] = Value::String(digest.clone());
+            expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+            let error =
+                ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("private home binding overlaps the project root binding"),
+                "unexpected refusal: {error}"
+            );
+        };
+
+        let (bytes, expected) = fixture();
+        ArmedSnapshot::load(&bytes, &expected)
+            .expect("external canonical snapshot may omit a private home binding");
+
+        assert_overlap_refused(serde_json::json!([
+            {"encoding": "utf8", "value": "Users"},
+            {"encoding": "utf8", "value": "example"},
+            {"encoding": "utf8", "value": "project"},
+            {"encoding": "utf8", "value": "cache"}
+        ]));
+        assert_overlap_refused(serde_json::json!([
+            {"encoding": "utf8", "value": "Users"},
+            {"encoding": "utf8", "value": "example"}
+        ]));
     }
 
     #[test]

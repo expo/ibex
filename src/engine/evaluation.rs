@@ -1559,14 +1559,55 @@ impl ValueHandle {
     }
 }
 
+/// Trap-free classification of a thrown Hermes `JSError`. The native bridge
+/// derives this only from the object's internal direct-prototype identity;
+/// `Unclassified` covers arbitrary thrown values and Error subclasses whose
+/// direct prototype is not one of Hermes' pinned intrinsic prototypes.
+/// @ref LLP 0024#8-safe-inspection
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeErrorClass {
+    Unclassified,
+    Error,
+    AggregateError,
+    EvalError,
+    RangeError,
+    ReferenceError,
+    SyntaxError,
+    TypeError,
+    UriError,
+    TimeoutError,
+    QuitError,
+}
+
+impl NativeErrorClass {
+    pub const fn name(self) -> Option<&'static str> {
+        match self {
+            Self::Unclassified => None,
+            Self::Error => Some("Error"),
+            Self::AggregateError => Some("AggregateError"),
+            Self::EvalError => Some("EvalError"),
+            Self::RangeError => Some("RangeError"),
+            Self::ReferenceError => Some("ReferenceError"),
+            Self::SyntaxError => Some("SyntaxError"),
+            Self::TypeError => Some("TypeError"),
+            Self::UriError => Some("URIError"),
+            Self::TimeoutError => Some("TimeoutError"),
+            Self::QuitError => Some("QuitError"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ThrowMetadata {
     Unavailable {
         required_stratum: CapabilityStratum,
     },
     Captured {
+        error_class: NativeErrorClass,
         message: Option<Arc<str>>,
+        message_truncated: bool,
         stack: Option<Arc<str>>,
+        stack_truncated: bool,
         positions: Vec<SourcePosition>,
     },
 }

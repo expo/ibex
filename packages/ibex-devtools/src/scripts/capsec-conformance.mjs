@@ -15,6 +15,7 @@ import { applicableImplementationBranchIds } from "./capsec-target-branches.mjs"
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
+const DIGEST_PATTERN = /^sha256-[A-Za-z0-9_-]{43}$/u;
 const digest = (value) =>
   `sha256-${crypto
     .createHash("sha256")
@@ -240,6 +241,12 @@ export function executionBindingDigest({
     fixtureCatalogDigest,
     recipeCatalogDigest: bindings.recipeCatalogDigest,
     publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
+    ...(bindings.outputDispositionEvidenceRawContentDigest === undefined
+      ? {}
+      : {
+          outputDispositionEvidenceRawContentDigest:
+            bindings.outputDispositionEvidenceRawContentDigest,
+        }),
   });
 }
 
@@ -397,12 +404,31 @@ export function buildConformanceReport({
       failedFixtures,
     };
   });
+  const status = cells.every((cell) => cell.status === "conformant")
+    ? "conformant"
+    : "incomplete";
+  const outputDispositionEvidenceRawContentDigest =
+    bindings.outputDispositionEvidenceRawContentDigest;
+  if (
+    outputDispositionEvidenceRawContentDigest !== undefined &&
+    !DIGEST_PATTERN.test(outputDispositionEvidenceRawContentDigest)
+  ) {
+    throw new Error(
+      "conformance report has a malformed output-disposition evidence raw-content digest",
+    );
+  }
+  if (
+    status === "conformant" &&
+    outputDispositionEvidenceRawContentDigest === undefined
+  ) {
+    throw new Error(
+      "conformant report requires verified output-disposition evidence",
+    );
+  }
   const report = {
     conformanceSchema: "ibex/capsec-conformance/1",
     profile: "ibex/capsec/1",
-    status: cells.every((cell) => cell.status === "conformant")
-      ? "conformant"
-      : "incomplete",
+    status,
     bindings: {
       ...bindings,
       target,
@@ -448,10 +474,13 @@ export function assertReportMayAdvertise(report) {
     ) ||
     !/^sha256-[A-Za-z0-9_-]{43}$/u.test(
       report.bindings?.publicSurfaceExecutionDigest ?? "",
+    ) ||
+    !DIGEST_PATTERN.test(
+      report.bindings?.outputDispositionEvidenceRawContentDigest ?? "",
     )
   ) {
     throw new Error(
-      "conformance report cannot advertise without recipe and public-surface evidence bindings",
+      "conformance report cannot advertise without recipe, public-surface, and output-disposition evidence bindings",
     );
   }
   if (report.status !== "conformant")
@@ -493,6 +522,13 @@ export function validateConformanceReportSemantics(
       recipeCatalogDigest: report.bindings.recipeCatalogDigest,
       publicSurfaceExecutionDigest:
         report.bindings.publicSurfaceExecutionDigest,
+      ...(report.bindings.outputDispositionEvidenceRawContentDigest ===
+      undefined
+        ? {}
+        : {
+            outputDispositionEvidenceRawContentDigest:
+              report.bindings.outputDispositionEvidenceRawContentDigest,
+          }),
     },
     digestContract,
   });

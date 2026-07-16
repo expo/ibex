@@ -61,14 +61,17 @@ impl TransformEngine {
     }
 }
 
-pub(crate) fn selected_transform_engine() -> Result<TransformEngine> {
-    if let Ok(value) = std::env::var(RUNTIME_TRANSFORM_ENV) {
-        return TransformEngine::from_value(&value).ok_or_else(|| {
+pub(crate) fn selected_transform_engine(
+    runtime_transform: Option<&str>,
+    legacy_runtime_transform: Option<&str>,
+) -> Result<TransformEngine> {
+    if let Some(value) = runtime_transform {
+        return TransformEngine::from_value(value).ok_or_else(|| {
             anyhow!("Unsupported {RUNTIME_TRANSFORM_ENV} value {value:?}; expected swc or oxc")
         });
     }
-    if let Ok(value) = std::env::var(LEGACY_RUNTIME_TRANSFORM_ENV) {
-        return TransformEngine::from_value(&value).ok_or_else(|| {
+    if let Some(value) = legacy_runtime_transform {
+        return TransformEngine::from_value(value).ok_or_else(|| {
             anyhow!(
                 "Unsupported {LEGACY_RUNTIME_TRANSFORM_ENV} value {value:?}; expected swc or oxc"
             )
@@ -77,16 +80,25 @@ pub(crate) fn selected_transform_engine() -> Result<TransformEngine> {
     Ok(TransformEngine::Swc)
 }
 
-pub(crate) fn selected_engine_cache_tag() -> Result<&'static str> {
-    Ok(selected_transform_engine()?.cache_tag())
+pub(crate) fn selected_engine_cache_tag(
+    runtime_transform: Option<&str>,
+    legacy_runtime_transform: Option<&str>,
+) -> Result<&'static str> {
+    Ok(selected_transform_engine(runtime_transform, legacy_runtime_transform)?.cache_tag())
 }
 
 /// Lower a module the loader has ALREADY read to CommonJS. Taking the source
 /// in (rather than re-reading `path` here) avoids a second disk read of the
 /// same module on a transpile-cache miss; `path` is still needed for the engine
 /// to derive syntax/JSX from the extension and for diagnostics.
-pub(crate) fn transpile_source_to_cjs(source: &str, path: &Path, target: &str) -> Result<String> {
-    match selected_transform_engine()? {
+pub(crate) fn transpile_source_to_cjs(
+    source: &str,
+    path: &Path,
+    target: &str,
+    runtime_transform: Option<&str>,
+    legacy_runtime_transform: Option<&str>,
+) -> Result<String> {
+    match selected_transform_engine(runtime_transform, legacy_runtime_transform)? {
         TransformEngine::Swc => transpile_to_cjs(source, path),
         // @ref LLP 0007#proposal — Oxc is opt-in until the runtime has a
         // proven replacement for SWC's general ESM-to-CJS lowering.

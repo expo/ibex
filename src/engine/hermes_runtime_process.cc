@@ -650,6 +650,22 @@ static void s_removeEnvEntry(
       entries.end());
 }
 
+static void s_projectProcessIpcEnvironment(
+    std::vector<std::string>& entries,
+    int ipcFd) {
+  // The inherited marker is a construction-only native handoff. A child gets
+  // it only when this exact spawn also maps an IPC socket; every other process
+  // launch must lose both the descriptor spelling and its codec companion.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  s_removeEnvEntry(entries, "EXACT_IPC_FD");
+  if (ipcFd < 0) {
+    s_removeEnvEntry(entries, "EXACT_IPC_SERIALIZATION");
+  } else {
+    s_setEnvEntry(entries, "EXACT_IPC_FD", std::to_string(ipcFd));
+  }
+}
+
 static std::optional<std::string> s_envValue(
     const std::vector<std::string>& entries,
     const std::string& key) {
@@ -743,6 +759,28 @@ struct SpawnExecPlan {
   std::string executable;
 };
 
+static void s_finishSpawnExecPlan(SpawnExecPlan& plan) {
+  plan.envp.reserve(plan.envEntries.size() + 1);
+  for (auto& entry : plan.envEntries) plan.envp.push_back(entry.data());
+  plan.envp.push_back(nullptr);
+  plan.argv.reserve(plan.argvEntries.size() + 1);
+  for (auto& arg : plan.argvEntries) plan.argv.push_back(arg.data());
+  plan.argv.push_back(nullptr);
+}
+
+static SpawnExecPlan s_buildExecSyncPlan(const std::string& command) {
+  SpawnExecPlan plan;
+  for (char** current = s_processEnvironment(); current && *current; ++current) {
+    plan.envEntries.emplace_back(*current);
+  }
+  s_projectProcessIpcEnvironment(plan.envEntries, -1);
+  plan.executable = "/bin/sh";
+  // Preserve the historical execl("/bin/sh", "sh", "-c", ...) argv shape.
+  plan.argvEntries = {"sh", "-c", command};
+  s_finishSpawnExecPlan(plan);
+  return plan;
+}
+
 static SpawnExecPlan s_buildSpawnExecPlan(
     const std::string& file,
     const std::vector<std::string>& args,
@@ -766,10 +804,7 @@ static SpawnExecPlan s_buildSpawnExecPlan(
   s_setEnvEntry(plan.envEntries, "EXACT_QUIET", "1");
   // Never let a caller-supplied/stale IPC marker reach a child without a
   // corresponding native IPC socket. The actual mapped slot is authoritative.
-  s_removeEnvEntry(plan.envEntries, "EXACT_IPC_FD");
-  if (ipcFd >= 0) {
-    s_setEnvEntry(plan.envEntries, "EXACT_IPC_FD", std::to_string(ipcFd));
-  }
+  s_projectProcessIpcEnvironment(plan.envEntries, ipcFd);
 
   if (useShell) {
     std::string shell = shellPath.empty() ? "/bin/sh" : shellPath;
@@ -783,12 +818,7 @@ static SpawnExecPlan s_buildSpawnExecPlan(
     plan.argvEntries.push_back(argv0.empty() ? file : argv0);
     plan.argvEntries.insert(plan.argvEntries.end(), args.begin(), args.end());
   }
-  plan.envp.reserve(plan.envEntries.size() + 1);
-  for (auto& entry : plan.envEntries) plan.envp.push_back(entry.data());
-  plan.envp.push_back(nullptr);
-  plan.argv.reserve(plan.argvEntries.size() + 1);
-  for (auto& arg : plan.argvEntries) plan.argv.push_back(arg.data());
-  plan.argv.push_back(nullptr);
+  s_finishSpawnExecPlan(plan);
   return plan;
 }
 
@@ -859,35 +889,45 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       "\"message\":\"child_process is not available in Android app sandboxes\","
       "\"platform\":\"android\"}";
 
-  auto installUnsupportedJsonFn = [&rt](const char* name, const char* json) {
-    auto fn = facebook::jsi::Function::createFromHostFunction(
-        rt,
-        facebook::jsi::PropNameID::forAscii(rt, name),
-        3,
-        [json](facebook::jsi::Runtime& runtime,
-               const facebook::jsi::Value&,
-               const facebook::jsi::Value*,
-               size_t) -> facebook::jsi::Value {
-          // @ref LLP 0013#phase-0 — the canonical capability is `process:spawn`
-          // (capability_bits.rs bit 9). The old `child_process` string was not
-          // in the manifest, so this check could never match a policy grant.
-          if (!checkCapability("process:spawn")) {
-            throw facebook::jsi::JSError(
-                runtime,
-                "Permission denied: process:spawn capability required");
-          }
-          return facebook::jsi::Value(
-              facebook::jsi::String::createFromUtf8(runtime, json));
-        });
-    rt.global().setProperty(rt, name, std::move(fn));
-  };
+  auto makeUnsupportedJsonFn =
+      [&rt](const char* name, const char* json) {
+        return facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(rt, name),
+            3,
+            [json](facebook::jsi::Runtime& runtime,
+                   const facebook::jsi::Value&,
+                   const facebook::jsi::Value*,
+                   size_t) -> facebook::jsi::Value {
+              // @ref LLP 0013#phase-0 — the canonical capability is
+              // `process:spawn` (capability_bits.rs bit 9). The old
+              // `child_process` string was not in the manifest, so this check
+              // could never match a policy grant.
+              if (!checkCapability("process:spawn")) {
+                throw facebook::jsi::JSError(
+                    runtime,
+                    "Permission denied: process:spawn capability required");
+              }
+              return facebook::jsi::Value(
+                  facebook::jsi::String::createFromUtf8(runtime, json));
+            });
+      };
 
   // @ref LLP 0008#android-backend-matrix — Android app sandboxes do not offer
   // desktop Node child_process semantics, so fail explicitly instead of
   // attempting POSIX fork/exec/popen in app code.
-  installUnsupportedJsonFn("__exactExecSync", spawnSyncUnavailableJson);
-  installUnsupportedJsonFn("__exactSpawnSync", spawnSyncUnavailableJson);
-  installUnsupportedJsonFn("__exactSpawn", spawnUnavailableJson);
+  rt.global().setProperty(
+      rt,
+      "__exactExecSync",
+      makeUnsupportedJsonFn("__exactExecSync", spawnSyncUnavailableJson));
+  rt.global().setProperty(
+      rt,
+      "__exactSpawnSync",
+      makeUnsupportedJsonFn("__exactSpawnSync", spawnSyncUnavailableJson));
+  rt.global().setProperty(
+      rt,
+      "__exactSpawn",
+      makeUnsupportedJsonFn("__exactSpawn", spawnUnavailableJson));
 
   auto emptyReadFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1052,6 +1092,12 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           }
         }
 
+        // Construct argv and a private-bootstrap-free environment before fork.
+        // `execl` inherited the raw Host-to-engine IPC markers even though the
+        // JavaScript process.env facade hid them; execve consumes this stable
+        // plan without allocating or locking in the multithreaded child.
+        auto execPlan = s_buildExecSyncPlan(command);
+
         // Redirect stderr to a temp file so we can capture it separately
         char stderrTmpPath[] = "/tmp/ex_stderr_XXXXXX";
         int stderrFd = mkstemp(stderrTmpPath);
@@ -1094,7 +1140,10 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (!cwd.empty() && chdir(cwd.c_str()) != 0) {
             _exit(127);
           }
-          execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
+          execve(
+              execPlan.executable.c_str(),
+              execPlan.argv.data(),
+              execPlan.envp.data());
           _exit(127);
         }
 

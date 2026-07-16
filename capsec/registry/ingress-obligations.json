@@ -130,7 +130,7 @@
             "extern \"C\" int ex_hermes_eval_lowered_session(",
             "clearStructuredAdmittedSubmission(runtime);",
             "auto prepared = runtime->runtime->prepareJavaScript(sourceBuffer, label);",
-            "structuredDeclarationPlanFeasible(runtime, plan)",
+            "structuredDeclarationPlanFeasibility(runtime, plan)",
             "beginStructuredSessionTransaction(runtime, plan);"
           ]
         }
@@ -196,7 +196,7 @@
     },
     {
       "id": "file-program-adapter-bound",
-      "assertion": "Direct-file execution selects only the authenticated File/Program route; its native file adapter retains descriptor capture and a readiness lease across Runtime construction and settlement, while Runtime claims the closed AuthenticatedFileIngress before evaluation.",
+      "assertion": "Direct-file execution selects only the authenticated File/Program route; its native file adapter retains descriptor capture, a readiness lease, and exact evaluator cancellation across Runtime construction and settlement, while Runtime claims the closed AuthenticatedFileIngress before evaluation.",
       "sourceEvidence": [
         {
           "path": "src/bin/ibex/main.rs",
@@ -206,7 +206,8 @@
             "async fn run_file_with_execution_adapter(",
             "authenticated_product_ingress(session_io.route)",
             "FileProgramExecutionAdapter::new(session_io)",
-            ".run(run_file(cli, file, args, options, session_io))"
+            ".run_with_diagnostics_and_interrupt(|diagnostics, interrupt_cancellation| {",
+            "interrupt_cancellation,"
           ]
         },
         {
@@ -215,15 +216,17 @@
             "pub struct FileProgramExecutionAdapter",
             "pub fn new(plan: SessionIoPlan)",
             "let mut active = ActiveFileProgramCapture::start(self.plan)?;",
+            "DirectExecutionInterruptCoordinator::install(",
+            "let diagnostics = active.diagnostic_port();",
             "let readiness = mint_execution_adapter_ready(&mut active.lease, active.plan.route);",
-            "let output = execution.await;",
-            "let report = active.finish()?;"
+            "let mut execution = Box::pin(build(diagnostics, cancellation));",
+            "let report = active.finish();"
           ]
         },
         {
           "path": "src/bin/ibex/runtime.rs",
           "tokens": [
-            "async fn run_authenticated_file_with_args(&self, args: &[String])",
+            "pub(crate) async fn run_authenticated_file_program(",
             "let mut ingress = self.authenticated_file_ingress()?;",
             "pub(crate) fn authenticated_file_ingress(&self) -> Result<AuthenticatedFileIngress>",
             ".evaluate(self.engine.as_ref(), args)"
@@ -255,10 +258,12 @@
             "AuthenticatedVfsSourceRoute::FileModule",
             "if !submission.authenticates_for(&host_session) {",
             ".is_canonical_file_for(namespace.virtual_path(), requested_source_label.as_str())",
-            "let read = vfs.read_authenticated(namespace, source_use, |stage| {",
+            "fn read_authenticated_vfs(",
+            "vfs.read_authenticated(namespace, source_use, |stage| {",
+            "let read = self.read_authenticated_vfs(vfs, namespace, source_use, \"0\", None)?;",
             ".with_authenticated_file_source(",
             ".with_authenticated_referrer(logical_referrer.clone())",
-            ".authorize_typed_read(evidence.digest().clone());",
+            ".authorize_typed_read(typed_read_evidence);",
             "authorized.bind_module_bytes(bytes, source_id.clone())"
           ]
         }
@@ -369,9 +374,11 @@
             "if !submission.authenticates_for(&host_session) {",
             "if namespace.caller() != vfs.root_principal() {",
             "submission.is_canonical_load_for(namespace.virtual_path())",
-            "let read = vfs.read_authenticated(namespace, source_use, |stage| {",
+            "fn read_authenticated_vfs(",
+            "vfs.read_authenticated(namespace, source_use, |stage| {",
+            "let read = self.read_authenticated_vfs(vfs, namespace, source_use, \"0\", None)?;",
             ".with_authenticated_referrer(logical_referrer.clone())",
-            ".authorize_typed_read(evidence.digest().clone())"
+            ".authorize_typed_read(typed_read_evidence);"
           ]
         },
         {
@@ -429,7 +436,7 @@
             "let mut active = ActiveReplCapture::start(plan, worker_relays)",
             "let readiness = mint_execution_adapter_ready(&mut active.lease, plan.route);",
             "run_interactive_repl(",
-            "run_plain_repl(&mut session, &mut driver, broker).await"
+            "run_plain_repl(&mut session, &mut driver, broker, &mut settlement_damage).await"
           ]
         }
       ]

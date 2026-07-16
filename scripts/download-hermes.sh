@@ -8,10 +8,12 @@
 #   IBEX_HERMES_FORCE_BUILD=1 ./scripts/download-hermes.sh   # skip the download path
 #
 # Install order (ENG-23147):
-#   1. Prebuilt patched bundle for the exact artifact identity
-#      <hermes-commit-12>-<patch-digest-12> (scripts/hermes-version.sh), fetched
-#      from the GitHub Release `hermes-<identity>` on $IBEX_HERMES_ARTIFACT_REPO
-#      and checksum-verified. Bundles are published by
+#   1. Prebuilt patched bundle from the GitHub Release for artifact identity
+#      <hermes-commit-12>-<patch-digest-12> (scripts/hermes-version.sh). Within
+#      that release, the platform asset name uses the stronger source-cache key
+#      that also binds both builders plus the patch-application and shared
+#      receipt/identity authorities.
+#      The bundle is attestation- and checksum-verified. Bundles are published by
 #      .github/workflows/hermes-artifacts.yml. On macOS the bundle is unpacked
 #      into build-hermes.sh's local cache and installed through its cache-hit
 #      path, so a downloaded install is byte-identical in shape to a built one.
@@ -43,8 +45,38 @@ case "$ARCH_RAW" in
     *) HOST_ARCH="$ARCH_RAW" ;;
 esac
 
+# A mirror may supply the release bytes, but it is never an attestation trust
+# anchor. The reviewed builder identity is deliberately not environment
+# configurable: otherwise an attacker-controlled repository could attest an
+# arbitrary binary plus a self-consistent public receipt and have build.rs
+# mistake that installer assertion for the reviewed source build.
 ARTIFACT_REPO="${IBEX_HERMES_ARTIFACT_REPO:-ccheever/ibex}"
+readonly REVIEWED_ATTESTATION_REPO="ccheever/ibex"
+readonly REVIEWED_ATTESTATION_WORKFLOW="ccheever/ibex/.github/workflows/hermes-artifacts.yml"
+readonly REVIEWED_ATTESTATION_SOURCE_REF="refs/heads/main"
 HERMES_DEBUGGER="${HERMES_ENABLE_DEBUGGER:-true}"
+
+# Prebuilt installation writes the same caches as the source builders. Join
+# their lock protocol for the mutation, then release it before invoking a
+# builder (which acquires the lock for its own complete run).
+trap 'ibex_release_hermes_source_build_lock' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+try_download_under_source_lock() {
+    local status
+    ibex_acquire_hermes_source_build_lock "$(basename "$0"):prebuilt-install" || return 1
+    if "$@"; then
+        status=0
+    else
+        status=$?
+    fi
+    if ! ibex_release_hermes_source_build_lock; then
+        return 1
+    fi
+    return "$status"
+}
 
 is_truthy() {
     case "$1" in
@@ -80,23 +112,29 @@ download_eligible() {
     return 0
 }
 
-# Fetch $2 and $2.sha256 from release $1 into directory $3.
-# Prefers `gh` (the artifact repo may be private; gh carries auth); falls back
-# to unauthenticated curl against the public release URL.
+# Fetch $2 and $2.sha256 from release $1 into directory $3, then verify the
+# bundle's GitHub build-provenance attestation. A checksum sidecar from the same
+# release catches transport/copy errors but is not an independent authority;
+# authenticated prebuilt installation therefore requires `gh attestation`.
 fetch_release_asset() {
     local tag="$1" asset="$2" dest="$3"
     if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
         gh release download "$tag" --repo "$ARTIFACT_REPO" --dir "$dest" \
             --pattern "$asset" --pattern "$asset.sha256" || return 1
-    elif command -v curl >/dev/null 2>&1; then
-        local base="https://github.com/$ARTIFACT_REPO/releases/download/$tag"
-        curl -fsSL --retry 3 -o "$dest/$asset" "$base/$asset" || return 1
-        curl -fsSL --retry 3 -o "$dest/$asset.sha256" "$base/$asset.sha256" || return 1
     else
-        echo "[download] neither gh nor curl available" >&2
+        echo "[download] authenticated gh is required to verify bundle build provenance; using a local source build." >&2
         return 1
     fi
-    [[ -s "$dest/$asset" && -s "$dest/$asset.sha256" ]]
+    [[ -s "$dest/$asset" && -s "$dest/$asset.sha256" ]] || return 1
+    if ! gh attestation verify "$dest/$asset" \
+        --repo "$REVIEWED_ATTESTATION_REPO" \
+        --signer-workflow "$REVIEWED_ATTESTATION_WORKFLOW" \
+        --source-ref "$REVIEWED_ATTESTATION_SOURCE_REF" \
+        --deny-self-hosted-runners >/dev/null; then
+        echo "[download] GitHub build-provenance verification failed for $asset" >&2
+        return 1
+    fi
+    echo "[download] verified GitHub build provenance for $asset"
 }
 
 verify_checksum() {
@@ -141,8 +179,14 @@ verify_frame_attribution_export() {
 try_download_darwin() (
     identity="$1"; cache_key="$2"
     tag="hermes-$identity"
-    asset="hermes-macos-$HOST_ARCH-$identity.tar.gz"
+    asset="hermes-macos-$HOST_ARCH-$cache_key.tar.gz"
     cache_dir="$HOME/.cache/exact/hermes/$cache_key"
+    if [[ -d "$cache_dir/hermesvm.xcframework" ]] \
+        && ibex_hermes_profile_receipt_has_cache_key \
+            "$cache_dir/hermes-profile-provenance.json" "$cache_key"; then
+        echo "[download] local build cache already has verified $cache_key; skipping download."
+        return 0
+    fi
     tmp="$(mktemp -d)" || return 1
     trap 'rm -rf "$tmp"' EXIT
 
@@ -157,6 +201,10 @@ try_download_darwin() (
     # letting it near the cache.
     [[ -d "$tmp/unpack/hermesvm.xcframework" ]] || { echo "[download] bundle missing hermesvm.xcframework" >&2; return 1; }
     [[ -d "$tmp/unpack/hermesvm.framework" ]] || { echo "[download] bundle missing hermesvm.framework" >&2; return 1; }
+    [[ -f "$tmp/unpack/hermes-profile-provenance.json" ]] || { echo "[download] bundle missing Hermes source-profile receipt" >&2; return 1; }
+    ibex_hermes_profile_receipt_has_cache_key \
+        "$tmp/unpack/hermes-profile-provenance.json" "$cache_key" \
+        || { echo "[download] bundle receipt does not bind source cache key $cache_key" >&2; return 1; }
     [[ -f "$tmp/unpack/include/jsi/jsi.h" ]] || { echo "[download] bundle missing include/jsi/jsi.h (empty headers?)" >&2; return 1; }
     [[ -x "$tmp/unpack/bin/hermesc" ]] || { echo "[download] bundle missing bin/hermesc" >&2; return 1; }
     verify_frame_attribution_export "$tmp/unpack/hermesvm.framework/Versions/1/hermesvm" "-gU" || return 1
@@ -171,9 +219,9 @@ try_download_darwin() (
 # Download + validate the Linux bundle, then install it into the repo layout
 # build-hermes-linux.sh uses (linux/hermes-headers, linux/lib, tools/hermes).
 try_download_linux() (
-    identity="$1"
+    identity="$1"; cache_key="$2"
     tag="hermes-$identity"
-    asset="hermes-linux-$HOST_ARCH-$identity.tar.gz"
+    asset="hermes-linux-$HOST_ARCH-$cache_key.tar.gz"
     tmp="$(mktemp -d)" || return 1
     trap 'rm -rf "$tmp"' EXIT
 
@@ -190,8 +238,15 @@ try_download_linux() (
     [[ -n "$lib_file" ]] || { echo "[download] bundle missing lib/libhermesvm.*" >&2; return 1; }
     if [[ "$lib_file" == *.so ]]; then
         verify_frame_attribution_export "$lib_file" "-D" || return 1
+        [[ -f "$tmp/unpack/lib/hermes-profile-provenance.json" ]] \
+            || { echo "[download] dynamic Linux bundle is missing its source-profile receipt" >&2; return 1; }
+        ibex_hermes_profile_receipt_has_cache_key \
+            "$tmp/unpack/lib/hermes-profile-provenance.json" "$cache_key" \
+            || { echo "[download] Linux bundle receipt does not bind source cache key $cache_key" >&2; return 1; }
     else
         verify_frame_attribution_export "$lib_file" "" || return 1
+        [[ ! -e "$tmp/unpack/lib/hermes-profile-provenance.json" ]] \
+            || { echo "[download] static Linux bundle unexpectedly carries a mapped-object receipt" >&2; return 1; }
     fi
     "$tmp/unpack/bin/hermesc" --help >/dev/null 2>&1 || { echo "[download] bundled hermesc does not run on this host" >&2; return 1; }
 
@@ -202,7 +257,12 @@ try_download_linux() (
     rm -rf "$headers_dir" || return 1
     mkdir -p "$headers_dir" "$lib_dir" "$tools_dir" || return 1
     cp -R "$tmp/unpack/include/"* "$headers_dir/" || return 1
+    rm -f "$lib_dir/libhermesvm.so" "$lib_dir/libhermesvm.a" || return 1
     cp -f "$lib_file" "$lib_dir/" || return 1
+    rm -f "$lib_dir/hermes-profile-provenance.json" || return 1
+    if [[ -f "$tmp/unpack/lib/hermes-profile-provenance.json" ]]; then
+        cp -f "$tmp/unpack/lib/hermes-profile-provenance.json" "$lib_dir/" || return 1
+    fi
     cp -f "$tmp/unpack/bin/hermesc" "$tools_dir/hermesc-linux-$HOST_ARCH" || return 1
     chmod +x "$tools_dir/hermesc-linux-$HOST_ARCH" || return 1
 
@@ -238,7 +298,8 @@ case "$PLATFORM" in
         if download_eligible; then
             DOWNLOAD_ATTEMPTED=1
             IDENTITY="${HERMES_VERSION:0:12}-$(ibex_hermes_patch_digest)"
-            if try_download_linux "$IDENTITY"; then
+            CACHE_KEY="$(ibex_hermes_linux_source_cache_key "${HERMES_VERSION:0:12}")"
+            if try_download_under_source_lock try_download_linux "$IDENTITY" "$CACHE_KEY"; then
                 exit 0
             fi
             echo "[download] prebuilt bundle unavailable; falling back to source build." >&2
@@ -250,14 +311,10 @@ case "$PLATFORM" in
         if download_eligible; then
             IDENTITY="${HERMES_VERSION:0:12}-$(ibex_hermes_patch_digest)"
             # build-hermes.sh's cache key for the default (debugger-on) config.
-            CACHE_KEY="${HERMES_VERSION:0:12}-debug-p$(ibex_hermes_patch_digest)"
-            if [[ -d "$HOME/.cache/exact/hermes/$CACHE_KEY/hermesvm.xcframework" ]]; then
-                echo "[download] local build cache already has $CACHE_KEY; skipping download."
-            else
-                DOWNLOAD_ATTEMPTED=1
-                if ! try_download_darwin "$IDENTITY" "$CACHE_KEY"; then
-                    echo "[download] prebuilt bundle unavailable; falling back to source build." >&2
-                fi
+            CACHE_KEY="$(ibex_hermes_apple_source_cache_key "${HERMES_VERSION:0:12}" "-debug")"
+            DOWNLOAD_ATTEMPTED=1
+            if ! try_download_under_source_lock try_download_darwin "$IDENTITY" "$CACHE_KEY"; then
+                echo "[download] prebuilt bundle unavailable; falling back to source build." >&2
             fi
         fi
         # Installs from the cache populated above when the download succeeded

@@ -7,12 +7,23 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$PackageId = "ReactNative.Hermes.Windows"
+$ReviewedVersion = "0.71.1"
+$ReviewedPackageSha512 = "c6d2ba6bba442b44ce4f1d5c0e7eb2c9d3fcafe24765464e3a01607c0ccafadb4b028a4cb502e6779c7d0bf3c11d8e591d8a6150cbf9137aee70a2fe62371f74"
+$NuGetServiceIndex = "https://api.nuget.org/v3/index.json"
+$NuGetFlatContainerBase = "https://api.nuget.org/v3-flatcontainer"
+
+if ($Version -ne $ReviewedVersion) {
+  throw "No reviewed NuGet checksum is pinned for $PackageId $Version. Update the coordinate, checksum, and evaluator review together."
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $scriptDir "..")
 $targetRoot = Join-Path $repoRoot "tools\hermes\windows-$Arch"
 $includeDir = Join-Path $targetRoot "include"
 $libDir = Join-Path $targetRoot "lib"
 $binDir = Join-Path $targetRoot "bin"
+$profileReceiptPath = Join-Path $binDir "hermes-profile-provenance.json"
 
 $runtimeDlls = @(
   "hermes.dll",
@@ -27,10 +38,47 @@ function Test-HermesInstallComplete {
   if (-not (Test-Path $includeDir)) { return $false }
   if (-not (Test-Path (Join-Path $libDir "hermes.lib"))) { return $false }
   if (-not (Test-Path (Join-Path $binDir "hermesc.exe"))) { return $false }
+  if (-not (Test-Path $profileReceiptPath)) { return $false }
   foreach ($dll in $runtimeDlls) {
     if (-not (Test-Path (Join-Path $binDir $dll))) { return $false }
   }
+  try {
+    $receipt = Get-Content -LiteralPath $profileReceiptPath -Raw | ConvertFrom-Json
+    $expectedArchitecture = if ($Arch -eq "x64") { "x86_64" } elseif ($Arch -eq "arm64") { "aarch64" } else { "x86" }
+    $binaryDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $binDir "hermes.dll")).Hash.ToLowerInvariant()
+    $linkDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $libDir "hermes.lib")).Hash.ToLowerInvariant()
+    if ($receipt.schema -ne "ibex/hermes-profile-provenance-receipt/2") { return $false }
+    if ($receipt.profileId -ne "windows-nuget") { return $false }
+    if ($receipt.targetVariant -ne "windows") { return $false }
+    if ($receipt.origin.reviewedProfileIdentity.packageDigest -ne "sha512-$ReviewedPackageSha512") { return $false }
+    if ($receipt.origin.packageSignature.serviceIndex -ne $NuGetServiceIndex) { return $false }
+    if ($receipt.artifact.binaryDigest -ne "sha256-$binaryDigest") { return $false }
+    if ($receipt.artifact.fileName -ne "hermes.dll") { return $false }
+    if ($receipt.artifact.targetArchitecture -ne $expectedArchitecture) { return $false }
+    if ($receipt.linkArtifact.binaryDigest -ne "sha256-$linkDigest") { return $false }
+    if ($receipt.linkArtifact.fileName -ne "hermes.lib") { return $false }
+    if ($receipt.linkArtifact.targetArchitecture -ne $expectedArchitecture) { return $false }
+  }
+  catch {
+    return $false
+  }
   return $true
+}
+
+function Assert-ReviewedNuGetPackage {
+  param([string]$PackagePath)
+
+  $observed = (Get-FileHash -Algorithm SHA512 -LiteralPath $PackagePath).Hash.ToLowerInvariant()
+  if ($observed -ne $ReviewedPackageSha512) {
+    throw "NuGet package checksum mismatch for $PackageId $Version. Reviewed sha512-$ReviewedPackageSha512, observed sha512-$observed."
+  }
+  if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    throw "dotnet is required to verify the NuGet repository signature for $PackageId $Version."
+  }
+  & dotnet nuget verify $PackagePath --all --verbosity minimal
+  if ($LASTEXITCODE -ne 0) {
+    throw "NuGet repository signature verification failed for $PackageId $Version."
+  }
 }
 
 function Find-FirstExistingFile {
@@ -124,6 +172,70 @@ function Copy-HermesCompiler {
   Copy-Item -LiteralPath $compiler -Destination (Join-Path $binDir "hermes.exe") -Force
 }
 
+function Write-HermesProfileReceipt {
+  param(
+    [string]$PackagePath,
+    [string]$PackageSource
+  )
+
+  $binaryPath = Join-Path $binDir "hermes.dll"
+  $linkPath = Join-Path $libDir "hermes.lib"
+  if (-not (Test-Path -LiteralPath $binaryPath)) {
+    throw "Cannot bind Windows Hermes provenance: $binaryPath is absent"
+  }
+  if (-not (Test-Path -LiteralPath $linkPath)) {
+    throw "Cannot bind Windows Hermes provenance: $linkPath is absent"
+  }
+  $targetArchitecture = if ($Arch -eq "x64") { "x86_64" } elseif ($Arch -eq "arm64") { "aarch64" } else { "x86" }
+  $binaryDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $binaryPath).Hash.ToLowerInvariant()
+  $linkDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $linkPath).Hash.ToLowerInvariant()
+  $packageDigest = (Get-FileHash -Algorithm SHA512 -LiteralPath $PackagePath).Hash.ToLowerInvariant()
+  $receipt = [ordered]@{
+    schema = "ibex/hermes-profile-provenance-receipt/2"
+    profileId = "windows-nuget"
+    targetVariant = "windows"
+    artifact = [ordered]@{
+      binaryDigest = "sha256-$binaryDigest"
+      fileName = "hermes.dll"
+      targetArchitecture = $targetArchitecture
+    }
+    linkArtifact = [ordered]@{
+      binaryDigest = "sha256-$linkDigest"
+      fileName = "hermes.lib"
+      targetArchitecture = $targetArchitecture
+    }
+    origin = [ordered]@{
+      kind = "nuget-package"
+      packageCoordinate = "$PackageId`:$Version"
+      packageDigest = "sha512-$packageDigest"
+      packageRepository = $PackageSource
+      packageSignature = [ordered]@{
+        kind = "nuget-repository-signature"
+        serviceIndex = $NuGetServiceIndex
+        verification = "dotnet-nuget-verify-all"
+      }
+      reviewedProfileIdentity = [ordered]@{
+        artifact = $PackageId
+        packageDigest = "sha512-$ReviewedPackageSha512"
+        repositorySignature = [ordered]@{
+          serviceIndex = $NuGetServiceIndex
+          type = "repository"
+        }
+        version = $Version
+      }
+    }
+  }
+  $json = $receipt | ConvertTo-Json -Depth 8
+  $temporary = "$profileReceiptPath.tmp-$([System.Guid]::NewGuid().ToString('N'))"
+  [System.IO.File]::WriteAllText(
+    $temporary,
+    $json + [Environment]::NewLine,
+    (New-Object System.Text.UTF8Encoding($false))
+  )
+  Move-Item -LiteralPath $temporary -Destination $profileReceiptPath -Force
+  Write-Host "Wrote Windows Hermes NuGet coordinate + byte provenance receipt at $profileReceiptPath"
+}
+
 if ((Test-HermesInstallComplete) -and -not $Force) {
   Write-Host "Windows Hermes already installed at $targetRoot"
   exit 0
@@ -138,11 +250,15 @@ $extractDir = Join-Path $tempRoot "pkg"
 New-Item -ItemType Directory -Force -Path $tempRoot, $extractDir | Out-Null
 
 try {
-  $uri = "https://www.nuget.org/api/v2/package/ReactNative.Hermes.Windows/$Version"
+  $uri = "$NuGetFlatContainerBase/$($PackageId.ToLowerInvariant())/$Version/$($PackageId.ToLowerInvariant()).$Version.nupkg"
   Write-Host "Downloading $uri"
   Invoke-WebRequest -Uri $uri -OutFile $packagePath
+  Assert-ReviewedNuGetPackage $packagePath
   Copy-Item -Path $packagePath -Destination $zipPath -Force
   Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+  if (-not (Test-Path (Join-Path $extractDir ".signature.p7s"))) {
+    throw "The reviewed NuGet package is missing its repository signature."
+  }
 
   $headers = Join-Path $extractDir "build\native\include"
   if (-not (Test-Path $headers)) {
@@ -168,6 +284,7 @@ try {
     Copy-Item -Path (Join-Path $nativeDir "hermes.pdb") -Destination $binDir -Force
   }
   Copy-HermesCompiler $extractDir
+  Write-HermesProfileReceipt $packagePath $NuGetServiceIndex
 
   Copy-AppRuntimeDll "icuuc.dll"
   Copy-AppRuntimeDll "icuin.dll"

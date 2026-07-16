@@ -54,25 +54,6 @@ const residual = ({
   });
 
 const FAMILY_CONTRACTS = Object.freeze({
-  "__exactHostNavigator.[[dynamic-table:host-navigator-properties]]": residual({
-    familyKind: "host-object-overlay",
-    globalName: "__exactHostNavigator",
-    memberName: "[[dynamic-table:host-navigator-properties]]",
-    name: "__exactHostNavigator.[[dynamic-table:host-navigator-properties]]",
-    reasonCode: "ambient-host-overlay-membership-unclosed",
-    reason:
-      "The family row does not bind a finite navigator member universe; enumerating the ambient host object cannot prove exhaustive output membership.",
-    requiredIntegration: [
-      "split each supported navigator member into an exact source-derived row",
-      "account for every output-bearing member with a targeted loaded operation",
-      "prove the supported member set has no unaccounted remainder without ambient ownKeys enumeration",
-    ],
-    requiredMemberKinds: ["dynamic-table"],
-    sourceKey: "shared_runtime",
-    sourceRefs: [
-      "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactHostNavigator",
-    ],
-  }),
   "global:Buffer.[[dynamic-table:inherited-uint8-array-6128693053-properties]]":
     residual({
       familyKind: "inherited-constructor-shape",
@@ -96,50 +77,6 @@ const FAMILY_CONTRACTS = Object.freeze({
         "packages/ibex-runtime-js/src/node/Buffer.ts#Buffer:extends:Uint8Array",
       ],
     }),
-  "global:Bun.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]":
-    residual({
-      dynamicNamespaceEvidence:
-        "sha256-3eca66b4549187abbc77e2e4738d8b15a607efaa95c594fe7f987d36cc525136",
-      dynamicNamespaceRoot: "Bun.CryptoHasher",
-      familyKind: "iife-constructor-properties",
-      globalName: "Bun",
-      memberName:
-        "CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-      name: "global:Bun.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-      reasonCode: "iife-result-membership-unclosed",
-      reason:
-        "The IIFE digest binds the returned CH constructor source, but one successful static hash call neither enumerates nor accounts for its complete constructor, static, and prototype output shape.",
-      requiredIntegration: [
-        "derive the complete CH constructor-own, source-static, and CH.prototype member sets from the digested IIFE",
-        "expand every output-bearing member into a concrete output account, including ordinary-function members that remain observable on the loaded engine",
-        "execute a loaded exhaustive membership comparison and prove no unaccounted constructor or prototype key remains",
-      ],
-      requiredMemberKinds: ["dynamic-table", "namespace-alias"],
-      sourceKey: "global_exact_global",
-      sourceRefs: [
-        "src/engine/bootstrap/exact-global.js#Bun.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-      ],
-    }),
-  "global:Bun.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]":
-    residual({
-      familyKind: "environment-proxy",
-      globalName: "Bun",
-      memberName: "env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
-      name: "global:Bun.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
-      reasonCode: "ambient-environment-proxy-open-domain",
-      reason:
-        "Bun.env is an open environment proxy; no finite family membership proof may enumerate or select unauthored ambient environment names.",
-      requiredIntegration: [
-        "split each authorized environment name into an exact typed occurrence",
-        "execute only its targeted Get with matching env:read authority",
-        "treat the remaining open proxy domain as structural rather than output-complete",
-      ],
-      requiredMemberKinds: ["dynamic-table", "namespace-alias"],
-      sourceKey: "global_exact_global",
-      sourceRefs: [
-        "src/engine/bootstrap/exact-global.js#Bun.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
-      ],
-    }),
   "global:[[dynamic-table:native-global-name]]": residual({
     familyKind: "native-global-writer-marker",
     globalName: "[[dynamic-table:native-global-name]]",
@@ -157,55 +94,8 @@ const FAMILY_CONTRACTS = Object.freeze({
     sourceKey: "native_jsi_global",
     sourceRefs: [
       "src/engine/hermes_runtime.cc#jsi-global:[[dynamic-table:native-global-name]]",
-      "src/engine/hermes_runtime_fs_windows.cc#jsi-global:[[dynamic-table:native-global-name]]",
-      "src/engine/hermes_runtime_platform_windows.cc#jsi-global:[[dynamic-table:native-global-name]]",
-      "src/engine/hermes_runtime_process.cc#jsi-global:[[dynamic-table:native-global-name]]",
     ],
   }),
-  "global:Exact.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]":
-    residual({
-      dynamicNamespaceEvidence:
-        "sha256-3eca66b4549187abbc77e2e4738d8b15a607efaa95c594fe7f987d36cc525136",
-      dynamicNamespaceRoot: "Exact.CryptoHasher",
-      familyKind: "iife-constructor-properties",
-      globalName: "Exact",
-      memberName:
-        "CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-      name: "global:Exact.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-      reasonCode: "iife-result-membership-unclosed",
-      reason:
-        "The IIFE digest binds the returned CH constructor source, but one successful static hash call neither enumerates nor accounts for its complete constructor, static, and prototype output shape.",
-      requiredIntegration: [
-        "derive the complete CH constructor-own, source-static, and CH.prototype member sets from the digested IIFE",
-        "expand every output-bearing member into a concrete output account, including ordinary-function members that remain observable on the loaded engine",
-        "execute a loaded exhaustive membership comparison and prove no unaccounted constructor or prototype key remains",
-      ],
-      requiredMemberKinds: ["dynamic-table", "namespace-alias"],
-      sourceKey: "global_exact_global",
-      sourceRefs: [
-        "src/engine/bootstrap/exact-global.js#Exact.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-      ],
-    }),
-  "global:Exact.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]":
-    residual({
-      familyKind: "environment-proxy",
-      globalName: "Exact",
-      memberName: "env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
-      name: "global:Exact.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
-      reasonCode: "ambient-environment-proxy-open-domain",
-      reason:
-        "Exact.env is an open environment proxy; no finite family membership proof may enumerate or select unauthored ambient environment names.",
-      requiredIntegration: [
-        "split each authorized environment name into an exact typed occurrence",
-        "execute only its targeted Get with matching env:read authority",
-        "treat the remaining open proxy domain as structural rather than output-complete",
-      ],
-      requiredMemberKinds: ["dynamic-table", "namespace-alias"],
-      sourceKey: "global_exact_global",
-      sourceRefs: [
-        "src/engine/bootstrap/exact-global.js#Exact.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
-      ],
-    }),
   "global:Float16Array.[[dynamic-table:inherited-uint16-array-90265aa4ff-properties]]":
     residual({
       familyKind: "inherited-constructor-shape",
@@ -229,121 +119,6 @@ const FAMILY_CONTRACTS = Object.freeze({
         "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:Float16Array",
       ],
     }),
-  "global:Intl.[[dynamic-table:host-intl-properties]]": residual({
-    familyKind: "intl-proxy",
-    globalName: "Intl",
-    memberName: "[[dynamic-table:host-intl-properties]]",
-    name: "global:Intl.[[dynamic-table:host-intl-properties]]",
-    reasonCode: "ambient-intl-proxy-open-domain",
-    reason:
-      "The lazy Intl proxy exposes a host-dependent open domain; enumerating it cannot establish a stable exhaustive member universe.",
-    requiredIntegration: [
-      "split every supported Intl member into a concrete source-derived row",
-      "account for each concrete member with a member-specific construction or property-read recipe",
-      "leave the remaining host proxy domain structural rather than output-complete",
-    ],
-    requiredMemberKinds: ["dynamic-table", "proxy-overlay"],
-    sourceKey: "shared_runtime",
-    sourceRefs: [
-      "packages/ibex-runtime-js/src/polyfills/index.ts#installPolyfills:globals:Intl",
-    ],
-  }),
-  "global:process.[[dynamic-table:channel-handle-key]]": residual({
-    familyKind: "ipc-owner-key-marker",
-    globalName: "process",
-    memberName: "[[dynamic-table:channel-handle-key]]",
-    name: "global:process.[[dynamic-table:channel-handle-key]]",
-    reasonCode: "dynamic-owner-key-marker-not-value",
-    reason:
-      "The sentinel denotes a mutable process owner key; only resolved concrete descendants can have output accounts, never the marker spelling itself.",
-    requiredIntegration: [
-      "retain the owner-key sentinel as structural inventory evidence",
-      "resolve and account for every concrete descendant under each activation branch",
-      "never read or serialize the sentinel spelling as a process property value",
-    ],
-    requiredMemberKinds: ["member-assignment"],
-    sourceKey: "global_ipc_listener",
-    sourceRefs: [
-      "src/engine/bootstrap/ipc-listener.js#process.[[dynamic-table:channel-handle-key]]",
-    ],
-  }),
-  "global:process.[[dynamic-table:exact-channel-handle-key]]": residual({
-    familyKind: "ipc-owner-key-marker",
-    globalName: "process",
-    memberName: "[[dynamic-table:exact-channel-handle-key]]",
-    name: "global:process.[[dynamic-table:exact-channel-handle-key]]",
-    reasonCode: "dynamic-owner-key-marker-not-value",
-    reason:
-      "The conditional sentinel denotes a mutable process owner key whose installed value can be null; it is not an exact output-value contract.",
-    requiredIntegration: [
-      "retain the owner-key sentinel as structural evidence with its EXACT_IPC_FD activation",
-      "resolve and account for every concrete descendant in each activation branch",
-      "never read or serialize the sentinel spelling as a process property value",
-    ],
-    requiredMemberKinds: ["member-assignment"],
-    sourceKey: "global_compat_polyfills",
-    sourceRefs: [
-      "src/engine/bootstrap/compat-polyfills.js#process.[[dynamic-table:exact-channel-handle-key]]",
-    ],
-  }),
-  "global:process.[[dynamic-table:host-process-own-properties]]": residual({
-    familyKind: "process-host-own-overlay",
-    globalName: "process",
-    memberName: "[[dynamic-table:host-process-own-properties]]",
-    name: "global:process.[[dynamic-table:host-process-own-properties]]",
-    reasonCode: "ambient-process-proxy-open-domain",
-    reason:
-      "Host process own properties are an open ambient domain; enumeration cannot prove a stable exhaustive output-member universe.",
-    requiredIntegration: [
-      "split every supported process own member into a concrete source-derived row",
-      "account for each concrete member with a member-specific read or bounded call",
-      "leave the remaining host overlay structural rather than output-complete",
-    ],
-    requiredMemberKinds: ["assignment", "dynamic-table"],
-    sourceKey: "shared_runtime",
-    sourceRefs: [
-      "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process.[[dynamic-table:host-process-own-properties]]",
-    ],
-  }),
-  "global:process.[[dynamic-table:host-process-prototype-properties]]":
-    residual({
-      familyKind: "process-host-prototype-overlay",
-      globalName: "process",
-      memberName: "[[dynamic-table:host-process-prototype-properties]]",
-      name: "global:process.[[dynamic-table:host-process-prototype-properties]]",
-      reasonCode: "ambient-process-proxy-open-domain",
-      reason:
-        "Host process prototype properties are an open ambient domain; enumeration cannot prove a stable exhaustive output-member universe.",
-      requiredIntegration: [
-        "split every supported process prototype member into a concrete source-derived row",
-        "account for each concrete member with a member-specific read or bounded call",
-        "leave the remaining host overlay structural rather than output-complete",
-      ],
-      requiredMemberKinds: ["assignment", "dynamic-table"],
-      sourceKey: "shared_runtime",
-      sourceRefs: [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process.[[dynamic-table:host-process-prototype-properties]]",
-      ],
-    }),
-  "global:process.[[dynamic-table:k-channel-handle]]": residual({
-    familyKind: "ipc-owner-key-marker",
-    globalName: "process",
-    memberName: "[[dynamic-table:k-channel-handle]]",
-    name: "global:process.[[dynamic-table:k-channel-handle]]",
-    reasonCode: "dynamic-owner-key-marker-not-value",
-    reason:
-      "The conditional sentinel denotes a mutable process owner key; only resolved concrete descendants can have output accounts, never the marker spelling itself.",
-    requiredIntegration: [
-      "retain the owner-key sentinel as structural evidence with its EXACT_IPC_FD activation",
-      "resolve and account for every concrete descendant in each activation branch",
-      "never read or serialize the sentinel spelling as a process property value",
-    ],
-    requiredMemberKinds: ["member-assignment"],
-    sourceKey: "global_compat_polyfills",
-    sourceRefs: [
-      "src/engine/bootstrap/compat-polyfills.js#process.[[dynamic-table:k-channel-handle]]",
-    ],
-  }),
   "global:process.env.[[dynamic-table:env-obj-properties]]": residual({
     expectedClassification: "effects",
     familyKind: "process-environment-object",
@@ -364,53 +139,6 @@ const FAMILY_CONTRACTS = Object.freeze({
       "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.env.[[dynamic-table:env-obj-properties]]",
     ],
   }),
-  "global:process.once.[[dynamic-table:call-result-621e9ebb69c5-properties]]":
-    residual({
-      dynamicNamespaceEvidence:
-        "sha256-621e9ebb69c57ef4f2f25f6f1f639a6d4fb7faee4b9721f73582905622449f97",
-      dynamicNamespaceRoot: "process.once",
-      familyKind: "returned-wrapper-properties",
-      globalName: "process",
-      memberName: "once.[[dynamic-table:call-result-621e9ebb69c5-properties]]",
-      name: "global:process.once.[[dynamic-table:call-result-621e9ebb69c5-properties]]",
-      reasonCode: "returned-wrapper-membership-unclosed",
-      reason:
-        "The call-result digest binds wrapSingleUseListener's returned function, but reading only length does not close or account for the wrapper's complete own and inherited function shape.",
-      requiredIntegration: [
-        "derive a finite returned-wrapper own and prototype membership contract from the digested function expression and loaded Function intrinsics",
-        "expand every output-bearing wrapper member into a concrete output account",
-        "execute a loaded exhaustive membership comparison and prove no unaccounted wrapper key remains",
-      ],
-      requiredMemberKinds: ["dynamic-table"],
-      sourceKey: "global_ipc_listener",
-      sourceRefs: [
-        "src/engine/bootstrap/ipc-listener.js#process.once.[[dynamic-table:call-result-621e9ebb69c5-properties]]",
-      ],
-    }),
-  "global:process.prependOnceListener.[[dynamic-table:call-result-f0b2d7f38e0a-properties]]":
-    residual({
-      dynamicNamespaceEvidence:
-        "sha256-f0b2d7f38e0a9e69373c435410db1eac4fbc5e2ea5a903ab8367aca9a0fbec98",
-      dynamicNamespaceRoot: "process.prependOnceListener",
-      familyKind: "returned-wrapper-properties",
-      globalName: "process",
-      memberName:
-        "prependOnceListener.[[dynamic-table:call-result-f0b2d7f38e0a-properties]]",
-      name: "global:process.prependOnceListener.[[dynamic-table:call-result-f0b2d7f38e0a-properties]]",
-      reasonCode: "returned-wrapper-membership-unclosed",
-      reason:
-        "The call-result digest binds wrapSingleUseListener's returned function, but reading only length does not close or account for the wrapper's complete own and inherited function shape.",
-      requiredIntegration: [
-        "derive a finite returned-wrapper own and prototype membership contract from the digested function expression and loaded Function intrinsics",
-        "expand every output-bearing wrapper member into a concrete output account",
-        "execute a loaded exhaustive membership comparison and prove no unaccounted wrapper key remains",
-      ],
-      requiredMemberKinds: ["dynamic-table"],
-      sourceKey: "global_ipc_listener",
-      sourceRefs: [
-        "src/engine/bootstrap/ipc-listener.js#process.prependOnceListener.[[dynamic-table:call-result-f0b2d7f38e0a-properties]]",
-      ],
-    }),
   "global:SharedArrayBuffer.prototype.[[dynamic-table:call-result-6409897f6685-properties]]":
     residual({
       dynamicNamespaceEvidence:

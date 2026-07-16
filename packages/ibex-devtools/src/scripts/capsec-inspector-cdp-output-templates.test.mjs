@@ -203,6 +203,21 @@ describe("inspector CDP structural output accounts", () => {
       }),
     ).toBe(true);
 
+    const policyMutatedCoverage = structuredClone(coverage);
+    for (const edge of policyMutatedCoverage.edges) {
+      edge.classification = "test-policy-mutation";
+      edge.cap = "test:mutated";
+      edge.rationale = "test-only policy mutation";
+      delete edge.effects;
+    }
+    expect(
+      validateInspectorCdpStructuralCatalog({
+        catalog,
+        coverage: policyMutatedCoverage,
+        sourceAudit: audit,
+      }),
+    ).toBe(true);
+
     const drifted = structuredClone(catalog);
     drifted.surfaceAccounts[0].status = "unresolved";
     expect(() =>
@@ -341,7 +356,7 @@ describe("inspector CDP structural output accounts", () => {
     const wrongEdge = structuredClone(
       edgesByObservedKey.get(surface.observedKey),
     );
-    wrongEdge.classification = "non-capability";
+    wrongEdge.surface.name = "inspector.cdp-http:/json-drifted";
     expect(() =>
       authoredInspectorCdpStructuralAccount({
         surface,

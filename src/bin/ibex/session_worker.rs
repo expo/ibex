@@ -6,6 +6,8 @@
 
 #![allow(dead_code)]
 
+pub(crate) mod bounded_lane;
+
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::VecDeque;
@@ -34,8 +36,12 @@ const MAX_BOOTSTRAP_CONFIG_BYTES: usize = 64 * 1024;
 const MAX_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_DISPLAY_BYTES: usize = 16 * 1024 * 1024;
-const DEFAULT_OUTBOX_BYTES: usize = 8 * 1024 * 1024;
 const LIFECYCLE_ACK_TIMEOUT: Duration = Duration::from_secs(2);
+const WORKER_EVENT_WRITE_TIMEOUT: Duration = Duration::from_millis(50);
+#[cfg(unix)]
+const CONTROL_FRAME_READ_TIMEOUT: Duration = Duration::from_millis(250);
+#[cfg(unix)]
+const SUPERVISOR_FRAME_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[cfg(unix)]
 const CONTROL_FD: i32 = 3;
@@ -160,9 +166,8 @@ struct ChannelKey([u8; 32]);
 impl ChannelKey {
     fn generate() -> Result<Self, WorkerProtocolError> {
         let mut bytes = [0u8; 32];
-        getrandom::getrandom(&mut bytes).map_err(|error| {
-            WorkerProtocolError::Io(io::Error::new(io::ErrorKind::Other, error))
-        })?;
+        getrandom::getrandom(&mut bytes)
+            .map_err(|error| WorkerProtocolError::Io(io::Error::other(error)))?;
         Ok(Self(bytes))
     }
 
@@ -595,6 +600,13 @@ impl MessageKind {
 }
 
 impl ControlMessage {
+    /// Exact authenticated-frame charge used by the bounded worker and
+    /// supervisor event lanes. The charge includes framing and MAC bytes, so
+    /// dynamically sized fields cannot escape queue accounting.
+    pub(crate) fn encoded_frame_size(&self) -> Result<usize, WorkerProtocolError> {
+        authenticated_frame_charge(self.encode_payload()?.len())
+    }
+
     fn kind(&self) -> MessageKind {
         match self {
             Self::SupervisorHello { .. } => MessageKind::SupervisorHello,
@@ -893,8 +905,22 @@ impl ControlMessage {
             },
         };
         reader.finish()?;
+        if matches!(&message, Self::PreReceiptLoss { count: 0 }) {
+            return Err(WorkerProtocolError::Malformed(
+                "pre-receipt loss count must be nonzero",
+            ));
+        }
         Ok(message)
     }
+}
+
+pub(crate) fn authenticated_frame_charge(
+    payload_bytes: usize,
+) -> Result<usize, WorkerProtocolError> {
+    WIRE_HEADER_BYTES
+        .checked_add(payload_bytes)
+        .and_then(|size| size.checked_add(WIRE_MAC_BYTES))
+        .ok_or(WorkerProtocolError::Oversize)
 }
 
 #[derive(Default)]
@@ -1102,6 +1128,238 @@ impl<T: Read + Write> AuthenticatedChannel<T> {
     }
 }
 
+#[cfg(unix)]
+impl AuthenticatedChannel<std::os::unix::net::UnixStream> {
+    /// Write one complete authenticated frame against one wall-clock
+    /// deadline. Progress does not renew the deadline, and a partial frame
+    /// never advances the channel sequence.
+    fn send_until(
+        &mut self,
+        message: &ControlMessage,
+        deadline: Instant,
+    ) -> Result<(), WorkerProtocolError> {
+        let kind = message.kind();
+        if kind.direction() != self.role.send_direction() {
+            return Err(WorkerProtocolError::WrongDirection);
+        }
+        let payload = message.encode_payload()?;
+        let frame = encode_authenticated_frame(
+            &self.key,
+            self.session_nonce,
+            self.epoch,
+            self.next_send_sequence,
+            kind,
+            &payload,
+        )?;
+        let next_sequence = self
+            .next_send_sequence
+            .checked_add(1)
+            .ok_or(WorkerProtocolError::Malformed("send sequence exhausted"))?;
+        let was_nonblocking = unix_stream_is_nonblocking(&self.io)?;
+        if !was_nonblocking {
+            self.io.set_nonblocking(true)?;
+        }
+        let operation = unix_write_all_until(&mut self.io, &frame, deadline);
+        if operation.is_ok() {
+            self.next_send_sequence = next_sequence;
+        }
+        let restore = if was_nonblocking {
+            Ok(())
+        } else {
+            self.io.set_nonblocking(false)
+        };
+        operation
+            .map_err(WorkerProtocolError::Io)
+            .and_then(|()| restore.map_err(WorkerProtocolError::Io))
+    }
+
+    /// Read, authenticate, and decode exactly one frame against one absolute
+    /// deadline. Socket mode is restored on every path and the receive
+    /// sequence changes only after a complete valid frame.
+    fn receive_until(&mut self, deadline: Instant) -> Result<ControlMessage, WorkerProtocolError> {
+        let was_nonblocking = unix_stream_is_nonblocking(&self.io)?;
+        if !was_nonblocking {
+            self.io.set_nonblocking(true)?;
+        }
+        let operation = (|| {
+            let mut header = [0u8; WIRE_HEADER_BYTES];
+            unix_read_exact_until(&mut self.io, &mut header, deadline, true)?;
+            let parsed = ParsedHeader::parse(&header)?;
+            if parsed.direction != self.role.receive_direction() {
+                return Err(WorkerProtocolError::WrongDirection);
+            }
+            if parsed.kind.direction() != parsed.direction {
+                return Err(WorkerProtocolError::WrongDirection);
+            }
+            if parsed.session_nonce != self.session_nonce {
+                return Err(WorkerProtocolError::WrongSession);
+            }
+            if parsed.epoch != self.epoch {
+                return Err(WorkerProtocolError::WrongEpoch);
+            }
+            if parsed.sequence != self.next_receive_sequence {
+                return Err(WorkerProtocolError::BadSequence {
+                    expected: self.next_receive_sequence,
+                    actual: parsed.sequence,
+                });
+            }
+            if parsed.payload_length > parsed.kind.maximum_payload() {
+                return Err(WorkerProtocolError::Oversize);
+            }
+            let next_sequence = self
+                .next_receive_sequence
+                .checked_add(1)
+                .ok_or(WorkerProtocolError::Malformed("receive sequence exhausted"))?;
+            let mut payload = vec![0u8; parsed.payload_length];
+            unix_read_exact_until(&mut self.io, &mut payload, deadline, false)?;
+            let mut supplied_mac = [0u8; WIRE_MAC_BYTES];
+            unix_read_exact_until(&mut self.io, &mut supplied_mac, deadline, false)?;
+            verify_frame_mac(&self.key, &header, &payload, &supplied_mac)?;
+            let message = ControlMessage::decode_payload(parsed.kind, &payload)?;
+            Ok((message, next_sequence))
+        })();
+        if let Ok((_, next_sequence)) = &operation {
+            self.next_receive_sequence = *next_sequence;
+        }
+        let restore = if was_nonblocking {
+            Ok(())
+        } else {
+            self.io.set_nonblocking(false)
+        };
+        operation
+            .map(|(message, _)| message)
+            .and_then(|message| restore.map(|()| message).map_err(WorkerProtocolError::Io))
+    }
+}
+
+#[cfg(unix)]
+fn unix_stream_is_nonblocking(
+    stream: &std::os::unix::net::UnixStream,
+) -> Result<bool, WorkerProtocolError> {
+    use std::os::fd::AsRawFd;
+
+    let flags = unsafe { libc::fcntl(stream.as_raw_fd(), libc::F_GETFL) };
+    if flags < 0 {
+        return Err(WorkerProtocolError::Io(io::Error::last_os_error()));
+    }
+    Ok(flags & libc::O_NONBLOCK != 0)
+}
+
+#[cfg(unix)]
+fn unix_write_all_until(
+    stream: &mut std::os::unix::net::UnixStream,
+    mut bytes: &[u8],
+    deadline: Instant,
+) -> io::Result<()> {
+    while !bytes.is_empty() {
+        if Instant::now() >= deadline {
+            return Err(frame_deadline_error("authenticated frame write timed out"));
+        }
+        match stream.write(bytes) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "authenticated frame write made no progress",
+                ))
+            }
+            Ok(count) => bytes = &bytes[count..],
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                unix_poll_until(stream, libc::POLLOUT, deadline)?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn unix_read_exact_until(
+    stream: &mut std::os::unix::net::UnixStream,
+    bytes: &mut [u8],
+    deadline: Instant,
+    clean_eof_if_empty: bool,
+) -> Result<(), WorkerProtocolError> {
+    let mut offset = 0usize;
+    while offset < bytes.len() {
+        if Instant::now() >= deadline {
+            return Err(WorkerProtocolError::Io(frame_deadline_error(
+                "authenticated frame read timed out",
+            )));
+        }
+        match stream.read(&mut bytes[offset..]) {
+            Ok(0) if offset == 0 && clean_eof_if_empty => {
+                return Err(WorkerProtocolError::CleanEof)
+            }
+            Ok(0) => return Err(WorkerProtocolError::Truncated),
+            Ok(count) => offset += count,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                unix_poll_until(stream, libc::POLLIN, deadline)?;
+            }
+            Err(error) => return Err(WorkerProtocolError::Io(error)),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn unix_poll_until(
+    stream: &std::os::unix::net::UnixStream,
+    events: libc::c_short,
+    deadline: Instant,
+) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(frame_deadline_error("authenticated frame I/O timed out"));
+        }
+        let remaining = deadline.duration_since(now);
+        let millis = remaining
+            .as_millis()
+            .saturating_add(u128::from(
+                !remaining.subsec_nanos().is_multiple_of(1_000_000),
+            ))
+            .min(i32::MAX as u128) as i32;
+        let mut descriptor = libc::pollfd {
+            fd: stream.as_raw_fd(),
+            events,
+            revents: 0,
+        };
+        let result = unsafe { libc::poll(&mut descriptor, 1, millis) };
+        if result > 0 {
+            if descriptor.revents & libc::POLLNVAL != 0 {
+                return Err(io::Error::from_raw_os_error(libc::EBADF));
+            }
+            if descriptor.revents & (events | libc::POLLHUP | libc::POLLERR) != 0 {
+                return Ok(());
+            }
+            continue;
+        }
+        if result == 0 {
+            return Err(frame_deadline_error("authenticated frame I/O timed out"));
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn frame_deadline_error(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, message)
+}
+
+#[cfg(unix)]
+fn deadline_after(timeout: Duration) -> Instant {
+    Instant::now()
+        .checked_add(timeout)
+        .unwrap_or_else(Instant::now)
+}
+
 #[derive(Clone, Copy)]
 struct ParsedHeader {
     kind: MessageKind,
@@ -1236,7 +1494,7 @@ fn read_exact_or_truncated<R: Read>(
 fn fresh_bytes<const N: usize>() -> Result<[u8; N], WorkerProtocolError> {
     let mut bytes = [0u8; N];
     getrandom::getrandom(&mut bytes)
-        .map_err(|error| WorkerProtocolError::Io(io::Error::new(io::ErrorKind::Other, error)))?;
+        .map_err(|error| WorkerProtocolError::Io(io::Error::other(error)))?;
     Ok(bytes)
 }
 
@@ -1300,18 +1558,18 @@ fn object_identity_for_directory(
         } else {
             ObjectPlatform::Unix
         };
-        return Ok(ObjectIdentity {
+        Ok(ObjectIdentity {
             platform,
             volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
                 .map_err(|_| WorkerProtocolError::Malformed("invalid root volume identity"))?,
             file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
                 .map_err(|_| WorkerProtocolError::Malformed("invalid root file identity"))?,
-        });
+        })
     }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        return Ok(ObjectIdentity {
+        Ok(ObjectIdentity {
             platform: ObjectPlatform::Windows,
             volume: NonEmptyString::new(format!(
                 "volume:{}",
@@ -1320,7 +1578,7 @@ fn object_identity_for_directory(
             .map_err(|_| WorkerProtocolError::Malformed("invalid root volume identity"))?,
             file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))
                 .map_err(|_| WorkerProtocolError::Malformed("invalid root file identity"))?,
-        });
+        })
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -1577,89 +1835,6 @@ impl SupervisorLifecycleState {
         } else {
             status
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OutboxDisposition {
-    Queued,
-    DroppedAndAccounted,
-}
-
-/// Non-blocking worker-side queue for asynchronous reports. Required outcomes
-/// apply backpressure; explicitly lossy async reports coalesce into a visible
-/// pre-receipt loss marker rather than disappearing.
-pub(crate) struct BoundedWorkerOutbox {
-    queue: VecDeque<(usize, ControlMessage)>,
-    queued_bytes: usize,
-    byte_bound: usize,
-}
-
-impl Default for BoundedWorkerOutbox {
-    fn default() -> Self {
-        Self::new(DEFAULT_OUTBOX_BYTES)
-    }
-}
-
-impl BoundedWorkerOutbox {
-    pub(crate) fn new(byte_bound: usize) -> Self {
-        Self {
-            queue: VecDeque::new(),
-            queued_bytes: 0,
-            byte_bound,
-        }
-    }
-
-    fn encoded_size(message: &ControlMessage) -> Result<usize, WorkerProtocolError> {
-        Ok(WIRE_HEADER_BYTES + message.encode_payload()?.len() + WIRE_MAC_BYTES)
-    }
-
-    pub(crate) fn push_required(
-        &mut self,
-        message: ControlMessage,
-    ) -> Result<(), WorkerProtocolError> {
-        let size = Self::encoded_size(&message)?;
-        if size > self.byte_bound.saturating_sub(self.queued_bytes) {
-            return Err(WorkerProtocolError::Backpressure);
-        }
-        self.queued_bytes += size;
-        self.queue.push_back((size, message));
-        Ok(())
-    }
-
-    pub(crate) fn try_push_async(
-        &mut self,
-        message: ControlMessage,
-    ) -> Result<OutboxDisposition, WorkerProtocolError> {
-        if !matches!(message, ControlMessage::AsyncFailure { .. }) {
-            return Err(WorkerProtocolError::Malformed(
-                "only asynchronous failures may use the lossy outbox route",
-            ));
-        }
-        let size = Self::encoded_size(&message)?;
-        if size > self.byte_bound.saturating_sub(self.queued_bytes) {
-            // Keep the loss record at the exact point in emission order where
-            // the first dropped event occurred. It uses the accounting lane,
-            // rather than the bounded data lane, so loss cannot hide itself.
-            match self.queue.back_mut() {
-                Some((_, ControlMessage::PreReceiptLoss { count })) => {
-                    *count = count.saturating_add(1);
-                }
-                _ => self
-                    .queue
-                    .push_back((0, ControlMessage::PreReceiptLoss { count: 1 })),
-            }
-            return Ok(OutboxDisposition::DroppedAndAccounted);
-        }
-        self.queued_bytes += size;
-        self.queue.push_back((size, message));
-        Ok(OutboxDisposition::Queued)
-    }
-
-    pub(crate) fn pop(&mut self) -> Option<ControlMessage> {
-        let (size, message) = self.queue.pop_front()?;
-        self.queued_bytes = self.queued_bytes.saturating_sub(size);
-        Some(message)
     }
 }
 
@@ -2052,6 +2227,18 @@ pub(crate) struct WorkerDeath {
 pub(crate) enum SupervisorEventPayload {
     Worker(ControlMessage),
     WorkerDied(WorkerDeath),
+    /// The supervisor authenticated and sequenced ordinary async events but
+    /// could not retain their closed payloads in its bounded delivery lane.
+    /// This is not worker-side `PreReceiptLoss` and never crosses the wire.
+    // @ref LLP 0024#9-asynchronous-failures
+    PostReceiptLoss {
+        count: u64,
+        highest_dropped_sequence: u64,
+    },
+    /// Fixed-size supervisor-local record occupying the lane's terminal
+    /// reserve. Required records and loss-accounting faults cannot disappear
+    /// merely because the consumer is stalled.
+    ControllerFault(bounded_lane::ControllerFaultReason),
 }
 
 #[cfg(unix)]
@@ -2135,6 +2322,48 @@ pub(crate) struct SupervisorWorker {
     lifecycle: Arc<Mutex<SupervisorLifecycleState>>,
 }
 
+/// Own a spawned worker until every authenticated bootstrap step and every
+/// fallible supervisor field has been constructed. `std::process::Child` does
+/// not terminate or reap on drop, so an ordinary `?` before handoff would
+/// otherwise leave a pre-handshake worker and its process group behind.
+/// @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
+#[cfg(unix)]
+struct PendingSupervisorChild {
+    child: Option<std::process::Child>,
+}
+
+#[cfg(unix)]
+impl PendingSupervisorChild {
+    fn new(child: std::process::Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn child(&self) -> &std::process::Child {
+        self.child
+            .as_ref()
+            .expect("pending supervisor child is owned until handoff")
+    }
+
+    fn into_child(mut self) -> std::process::Child {
+        self.child
+            .take()
+            .expect("pending supervisor child is handed off exactly once")
+    }
+}
+
+#[cfg(unix)]
+impl Drop for PendingSupervisorChild {
+    fn drop(&mut self) {
+        let Some(child) = self.child.as_mut() else {
+            return;
+        };
+        if child.try_wait().ok().flatten().is_none() {
+            terminate_process_group(child.id());
+            let _ = child.wait();
+        }
+    }
+}
+
 #[cfg(unix)]
 fn normalize_supervisor_diagnostic_cutoffs(
     message: &mut ControlMessage,
@@ -2216,7 +2445,7 @@ impl SupervisorWorker {
             });
         }
 
-        let mut child = command.spawn()?;
+        let pending_child = PendingSupervisorChild::new(command.spawn()?);
         drop((control_child, bootstrap_child, watchdog_child));
         drop((
             control_source,
@@ -2240,8 +2469,6 @@ impl SupervisorWorker {
         bootstrap_parent.shutdown(std::net::Shutdown::Both)?;
         drop(bootstrap_parent);
 
-        control_parent.set_read_timeout(Some(hello_timeout))?;
-        control_parent.set_write_timeout(Some(hello_timeout))?;
         let mut channel = AuthenticatedChannel::new(
             control_parent,
             EndpointRole::Supervisor,
@@ -2249,32 +2476,27 @@ impl SupervisorWorker {
             spec.binding.run_nonce,
             channel_epoch,
         );
-        channel.send(&ControlMessage::SupervisorHello {
-            challenge,
-            bootstrap_config: spec.bootstrap_config,
-        })?;
-        let hello = channel.receive();
+        channel.send_until(
+            &ControlMessage::SupervisorHello {
+                challenge,
+                bootstrap_config: spec.bootstrap_config,
+            },
+            deadline_after(hello_timeout),
+        )?;
+        let hello = channel.receive_until(deadline_after(hello_timeout));
         let (pid, supplied_root_proof) = match hello {
             Ok(ControlMessage::WorkerHello { pid, root_proof }) => (pid, root_proof),
             Ok(_) => {
-                terminate_process_group(child.id());
-                let _ = child.wait();
                 return Err(WorkerProtocolError::Malformed(
                     "worker did not send its hello first",
                 ));
             }
-            Err(error) => {
-                terminate_process_group(child.id());
-                let _ = child.wait();
-                return Err(error);
-            }
+            Err(error) => return Err(error),
         };
-        if pid != child.id()
+        if pid != pending_child.child().id()
             || supplied_root_proof
                 != root_proof(&record_key(&record), &challenge, spec.root.object())?
         {
-            terminate_process_group(child.id());
-            let _ = child.wait();
             return Err(WorkerProtocolError::WrongRoot);
         }
         let expected_ready_proof = session_proof(
@@ -2283,8 +2505,8 @@ impl SupervisorWorker {
             &spec.binding,
             spec.root.object(),
         )?;
-        channel.io.set_read_timeout(None)?;
-        channel.io.set_write_timeout(None)?;
+        let sequencer = SupervisorSequenceAllocator::new(spec.sequence_epoch)?;
+        let child = pending_child.into_child();
         Ok(Self {
             child,
             channel,
@@ -2292,7 +2514,7 @@ impl SupervisorWorker {
             relays: Some(relays),
             expected_ready_proof,
             ready: false,
-            sequencer: SupervisorSequenceAllocator::new(spec.sequence_epoch)?,
+            sequencer,
             relay_acceptance: SupervisorRelayAcceptance::default(),
             lifecycle: Arc::new(Mutex::new(SupervisorLifecycleState::default())),
         })
@@ -2302,8 +2524,7 @@ impl SupervisorWorker {
         if self.ready {
             return Ok(());
         }
-        self.channel.io.set_read_timeout(Some(timeout))?;
-        let result = match self.channel.receive()? {
+        match self.channel.receive_until(deadline_after(timeout))? {
             ControlMessage::WorkerReady { session_proof }
                 if session_proof == self.expected_ready_proof =>
             {
@@ -2314,16 +2535,15 @@ impl SupervisorWorker {
             _ => Err(WorkerProtocolError::Malformed(
                 "worker sent application traffic before ready",
             )),
-        };
-        let clear = self.channel.io.set_read_timeout(None);
-        result.and_then(|()| clear.map_err(WorkerProtocolError::Io))
+        }
     }
 
     pub(crate) fn send(&mut self, message: &ControlMessage) -> Result<(), WorkerProtocolError> {
         if !self.ready {
             return Err(WorkerProtocolError::WrongSession);
         }
-        self.channel.send(message)
+        self.channel
+            .send_until(message, deadline_after(SUPERVISOR_FRAME_WRITE_TIMEOUT))
     }
 
     /// Bound one supervisor control write without imposing a lifetime on the
@@ -2339,19 +2559,36 @@ impl SupervisorWorker {
         if !self.ready {
             return Err(WorkerProtocolError::WrongSession);
         }
-        self.channel.io.set_write_timeout(Some(timeout))?;
-        let result = self.channel.send(message);
-        let clear = self.channel.io.set_write_timeout(None);
-        result.and_then(|()| clear.map_err(WorkerProtocolError::Io))
+        self.channel.send_until(message, deadline_after(timeout))
     }
 
     pub(crate) fn receive_event(
         &mut self,
     ) -> Result<Sequenced<SupervisorEventPayload>, WorkerProtocolError> {
+        let payload = self.receive_event_payload()?;
+        self.sequencer.assign(payload)
+    }
+
+    /// Receive, authenticate, normalize, and durably apply a worker event
+    /// without assigning its supervisor receipt sequence. The bounded
+    /// controller lane owns assignment so a post-receipt loss marker can be
+    /// sequenced after every dropped receipt and before the next retained
+    /// event.
+    pub(crate) fn receive_event_payload(
+        &mut self,
+    ) -> Result<SupervisorEventPayload, WorkerProtocolError> {
         if !self.ready {
             return Err(WorkerProtocolError::WrongSession);
         }
-        let mut message = match self.channel.receive() {
+        unix_stream_wait_readable(&self.channel.io)?;
+        self.receive_event_payload_until(deadline_after(CONTROL_FRAME_READ_TIMEOUT))
+    }
+
+    fn receive_event_payload_until(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<SupervisorEventPayload, WorkerProtocolError> {
+        let mut message = match self.channel.receive_until(deadline) {
             Ok(message) => message,
             Err(WorkerProtocolError::CleanEof) | Err(WorkerProtocolError::Truncated) => {
                 terminate_process_group(self.child.id());
@@ -2360,9 +2597,7 @@ impl SupervisorWorker {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .latch_engine_fault();
-                return self
-                    .sequencer
-                    .assign(SupervisorEventPayload::WorkerDied(worker_death(status)));
+                return Ok(SupervisorEventPayload::WorkerDied(worker_death(status)));
             }
             Err(error) => return Err(error),
         };
@@ -2376,9 +2611,12 @@ impl SupervisorWorker {
                 // Acceptance is durable before ACK. A failed ACK does not
                 // erase the record: the worker takes reserved disposition 69
                 // while the supervisor still completes cooperative exit n.
-                let _ = self.channel.send(&ControlMessage::LifecycleAck {
-                    request_id: record.request_id,
-                });
+                let _ = self.channel.send_until(
+                    &ControlMessage::LifecycleAck {
+                        request_id: record.request_id,
+                    },
+                    deadline_after(SUPERVISOR_FRAME_WRITE_TIMEOUT),
+                );
             }
             ControlMessage::ExitCodeMirror {
                 mutation_id,
@@ -2390,14 +2628,16 @@ impl SupervisorWorker {
                     .mirror_exit_code(*mutation_id, *status)?;
                 // The mirrored value is authoritative once accepted even if
                 // the acknowledgement cannot make the reverse trip.
-                let _ = self.channel.send(&ControlMessage::ExitCodeAck {
-                    mutation_id: *mutation_id,
-                });
+                let _ = self.channel.send_until(
+                    &ControlMessage::ExitCodeAck {
+                        mutation_id: *mutation_id,
+                    },
+                    deadline_after(SUPERVISOR_FRAME_WRITE_TIMEOUT),
+                );
             }
             _ => {}
         }
-        self.sequencer
-            .assign(SupervisorEventPayload::Worker(message))
+        Ok(SupervisorEventPayload::Worker(message))
     }
 
     /// Do not begin consuming a framed record until the stream is readable.
@@ -2407,10 +2647,28 @@ impl SupervisorWorker {
         &mut self,
         timeout: Duration,
     ) -> Result<Option<Sequenced<SupervisorEventPayload>>, WorkerProtocolError> {
+        let payload = self.receive_event_payload_timeout(timeout)?;
+        payload
+            .map(|payload| self.sequencer.assign(payload))
+            .transpose()
+    }
+
+    pub(crate) fn receive_event_payload_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<SupervisorEventPayload>, WorkerProtocolError> {
+        if !self.ready {
+            return Err(WorkerProtocolError::WrongSession);
+        }
         if !unix_stream_readable(&self.channel.io, timeout)? {
             return Ok(None);
         }
-        self.receive_event().map(Some)
+        self.receive_event_payload_until(deadline_after(CONTROL_FRAME_READ_TIMEOUT))
+            .map(Some)
+    }
+
+    pub(crate) fn sequence_allocator(&self) -> SupervisorSequenceAllocator {
+        self.sequencer.clone()
     }
 
     pub(crate) fn take_relays(&mut self) -> Result<WorkerRelays, WorkerProtocolError> {
@@ -2463,12 +2721,24 @@ impl SupervisorWorker {
     /// latched lifecycle/fault disposition. Cooperative `process.exit` parks
     /// the engine thread by design, so shutdown on that path must not depend on
     /// the worker returning to its command loop.
+    pub(crate) fn quiesce_preserving_lifecycle(&mut self) -> Result<(), WorkerProtocolError> {
+        terminate_process_group(self.child.id());
+        self.watchdog.take();
+        Ok(())
+    }
+
+    /// Reap a worker whose process group has already been quiesced. Keeping
+    /// this separate from the kill edge lets the terminal owner drain every
+    /// byte accepted by the relay before it releases the worker lifetime.
+    pub(crate) fn reap_preserving_lifecycle(&mut self) -> Result<WorkerDeath, WorkerProtocolError> {
+        Ok(worker_death(self.child.wait()?))
+    }
+
     pub(crate) fn terminate_preserving_lifecycle(
         &mut self,
     ) -> Result<WorkerDeath, WorkerProtocolError> {
-        terminate_process_group(self.child.id());
-        self.watchdog.take();
-        Ok(worker_death(self.child.wait()?))
+        self.quiesce_preserving_lifecycle()?;
+        self.reap_preserving_lifecycle()
     }
 
     pub(crate) fn wait(&mut self) -> Result<WorkerDeath, WorkerProtocolError> {
@@ -2595,16 +2865,24 @@ fn unix_stream_readable(
 ) -> Result<bool, WorkerProtocolError> {
     use std::os::fd::AsRawFd;
 
-    let millis = timeout
-        .as_millis()
-        .saturating_add(u128::from(timeout.subsec_nanos() % 1_000_000 != 0))
-        .min(i32::MAX as u128) as i32;
+    let deadline = deadline_after(timeout);
     let mut descriptor = libc::pollfd {
         fd: stream.as_raw_fd(),
         events: libc::POLLIN,
         revents: 0,
     };
     loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(false);
+        }
+        let millis = remaining
+            .as_millis()
+            .saturating_add(u128::from(
+                !remaining.subsec_nanos().is_multiple_of(1_000_000),
+            ))
+            .min(i32::MAX as u128) as i32;
+        descriptor.revents = 0;
         let result = unsafe { libc::poll(&mut descriptor, 1, millis) };
         if result > 0 {
             return Ok(descriptor.revents
@@ -2613,6 +2891,36 @@ fn unix_stream_readable(
         }
         if result == 0 {
             return Ok(false);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(WorkerProtocolError::Io(error));
+        }
+    }
+}
+
+#[cfg(unix)]
+fn unix_stream_wait_readable(
+    stream: &std::os::unix::net::UnixStream,
+) -> Result<(), WorkerProtocolError> {
+    use std::os::fd::AsRawFd;
+
+    let mut descriptor = libc::pollfd {
+        fd: stream.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        descriptor.revents = 0;
+        let result = unsafe { libc::poll(&mut descriptor, 1, -1) };
+        if result > 0
+            && descriptor.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR | libc::POLLNVAL)
+                != 0
+        {
+            return Ok(());
+        }
+        if result >= 0 {
+            continue;
         }
         let error = io::Error::last_os_error();
         if error.kind() != io::ErrorKind::Interrupted {
@@ -2759,9 +3067,12 @@ impl WorkerBootstrapContext {
             actual_binding,
             actual_root,
         )?;
-        self.channel.send(&ControlMessage::WorkerReady {
-            session_proof: proof,
-        })?;
+        self.channel.send_until(
+            &ControlMessage::WorkerReady {
+                session_proof: proof,
+            },
+            deadline_after(LIFECYCLE_ACK_TIMEOUT),
+        )?;
         Ok(VerifiedWorkerEndpoint {
             channel: self.channel,
             deferred_inbound: VecDeque::new(),
@@ -2874,14 +3185,17 @@ impl VerifiedWorkerEndpoint {
     }
 
     pub(crate) fn send(&mut self, message: &ControlMessage) -> Result<(), WorkerProtocolError> {
-        self.channel.send(message)
+        self.channel
+            .send_until(message, deadline_after(WORKER_EVENT_WRITE_TIMEOUT))
     }
 
     pub(crate) fn receive(&mut self) -> Result<ControlMessage, WorkerProtocolError> {
-        self.deferred_inbound
-            .pop_front()
-            .map(Ok)
-            .unwrap_or_else(|| self.channel.receive())
+        if let Some(message) = self.deferred_inbound.pop_front() {
+            return Ok(message);
+        }
+        unix_stream_wait_readable(&self.channel.io)?;
+        self.channel
+            .receive_until(deadline_after(CONTROL_FRAME_READ_TIMEOUT))
     }
 
     pub(crate) fn receive_timeout(
@@ -2894,7 +3208,9 @@ impl VerifiedWorkerEndpoint {
         if !unix_stream_readable(&self.channel.io, timeout)? {
             return Ok(None);
         }
-        self.channel.receive().map(Some)
+        self.channel
+            .receive_until(deadline_after(CONTROL_FRAME_READ_TIMEOUT))
+            .map(Some)
     }
 
     fn receive_matching_ack(
@@ -2907,15 +3223,13 @@ impl VerifiedWorkerEndpoint {
             .checked_add(timeout)
             .unwrap_or_else(Instant::now);
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
+            if Instant::now() >= deadline {
                 return Err(WorkerProtocolError::Io(io::Error::new(
                     io::ErrorKind::TimedOut,
                     mismatch,
                 )));
             }
-            self.channel.io.set_read_timeout(Some(remaining))?;
-            let message = self.channel.receive()?;
+            let message = self.channel.receive_until(deadline)?;
             if matches_ack(&message) {
                 return Ok(());
             }
@@ -2963,32 +3277,21 @@ impl VerifiedWorkerEndpoint {
         &mut self,
         record: LifecycleRecord,
     ) -> Result<(), WorkerProtocolError> {
-        self.channel
-            .io
-            .set_read_timeout(Some(LIFECYCLE_ACK_TIMEOUT))?;
-        self.channel
-            .io
-            .set_write_timeout(Some(LIFECYCLE_ACK_TIMEOUT))?;
-        let operation = (|| {
-            self.channel
-                .send(&ControlMessage::LifecycleCommit(record.clone()))?;
-            self.receive_matching_ack(
-                LIFECYCLE_ACK_TIMEOUT,
-                |message| {
-                    matches!(
-                        message,
-                        ControlMessage::LifecycleAck { request_id }
-                            if *request_id == record.request_id
-                    )
-                },
-                "lifecycle acknowledgement did not match the request",
-            )
-        })();
-        let read_clear = self.channel.io.set_read_timeout(None);
-        let write_clear = self.channel.io.set_write_timeout(None);
-        operation
-            .and_then(|()| read_clear.map_err(WorkerProtocolError::Io))
-            .and_then(|()| write_clear.map_err(WorkerProtocolError::Io))
+        self.channel.send_until(
+            &ControlMessage::LifecycleCommit(record.clone()),
+            deadline_after(LIFECYCLE_ACK_TIMEOUT),
+        )?;
+        self.receive_matching_ack(
+            LIFECYCLE_ACK_TIMEOUT,
+            |message| {
+                matches!(
+                    message,
+                    ControlMessage::LifecycleAck { request_id }
+                        if *request_id == record.request_id
+                )
+            },
+            "lifecycle acknowledgement did not match the request",
+        )
     }
 
     /// The worker realization of root-authorized `process.exit`: publish the
@@ -3013,33 +3316,23 @@ impl VerifiedWorkerEndpoint {
         mutation_id: u64,
         status: i32,
     ) -> Result<(), WorkerProtocolError> {
-        self.channel
-            .io
-            .set_read_timeout(Some(LIFECYCLE_ACK_TIMEOUT))?;
-        self.channel
-            .io
-            .set_write_timeout(Some(LIFECYCLE_ACK_TIMEOUT))?;
-        let operation = (|| {
-            self.channel.send(&ControlMessage::ExitCodeMirror {
+        self.channel.send_until(
+            &ControlMessage::ExitCodeMirror {
                 mutation_id,
                 status,
-            })?;
-            self.receive_matching_ack(
-                LIFECYCLE_ACK_TIMEOUT,
-                |message| {
-                    matches!(
-                        message,
-                        ControlMessage::ExitCodeAck { mutation_id: ack } if *ack == mutation_id
-                    )
-                },
-                "exit-code mirror acknowledgement did not match",
-            )
-        })();
-        let read_clear = self.channel.io.set_read_timeout(None);
-        let write_clear = self.channel.io.set_write_timeout(None);
-        operation
-            .and_then(|()| read_clear.map_err(WorkerProtocolError::Io))
-            .and_then(|()| write_clear.map_err(WorkerProtocolError::Io))
+            },
+            deadline_after(LIFECYCLE_ACK_TIMEOUT),
+        )?;
+        self.receive_matching_ack(
+            LIFECYCLE_ACK_TIMEOUT,
+            |message| {
+                matches!(
+                    message,
+                    ControlMessage::ExitCodeAck { mutation_id: ack } if *ack == mutation_id
+                )
+            },
+            "exit-code mirror acknowledgement did not match",
+        )
     }
 
     /// Display trees are never fire-and-forget: the worker cannot resolve the
@@ -3258,10 +3551,10 @@ pub(crate) fn inherited_worker_bootstrap() -> Result<WorkerBootstrapContext, Wor
         return Err(WorkerProtocolError::Io(io::Error::last_os_error()));
     }
 
-    // SAFETY: WATCHDOG_FD was validated and ownership moves to the watchdog
-    // thread. IntoRawFd below prevents this scope from closing it first.
+    // SAFETY: WATCHDOG_FD was validated, and from_raw_fd transfers its sole
+    // ownership into the stream that must then move to the watchdog thread.
     let watchdog = unsafe { std::os::unix::net::UnixStream::from_raw_fd(WATCHDOG_FD) };
-    start_parent_watchdog(watchdog);
+    start_parent_watchdog(watchdog)?;
 
     // SAFETY: CONTROL_FD was validated and this endpoint owns it now.
     let control = unsafe { std::os::unix::net::UnixStream::from_raw_fd(CONTROL_FD) };
@@ -3272,18 +3565,22 @@ pub(crate) fn inherited_worker_bootstrap() -> Result<WorkerBootstrapContext, Wor
         record.binding.run_nonce,
         record.channel_epoch,
     );
-    let (challenge, bootstrap_config) = match channel.receive()? {
-        ControlMessage::SupervisorHello {
-            challenge,
-            bootstrap_config,
-        } if challenge == record.challenge => (challenge, bootstrap_config),
-        _ => return Err(WorkerProtocolError::UnauthorizedBootstrap),
-    };
+    let (challenge, bootstrap_config) =
+        match channel.receive_until(deadline_after(LIFECYCLE_ACK_TIMEOUT))? {
+            ControlMessage::SupervisorHello {
+                challenge,
+                bootstrap_config,
+            } if challenge == record.challenge => (challenge, bootstrap_config),
+            _ => return Err(WorkerProtocolError::UnauthorizedBootstrap),
+        };
     let proof = root_proof(&channel.key, &challenge, &root_object)?;
-    channel.send(&ControlMessage::WorkerHello {
-        pid: std::process::id(),
-        root_proof: proof,
-    })?;
+    channel.send_until(
+        &ControlMessage::WorkerHello {
+            pid: std::process::id(),
+            root_proof: proof,
+        },
+        deadline_after(LIFECYCLE_ACK_TIMEOUT),
+    )?;
 
     Ok(WorkerBootstrapContext {
         channel,
@@ -3344,25 +3641,42 @@ fn set_close_on_exec(fd: i32) -> Result<(), WorkerProtocolError> {
 }
 
 #[cfg(unix)]
-fn start_parent_watchdog(mut watchdog: std::os::unix::net::UnixStream) {
-    let _ = std::thread::Builder::new()
-        .name("ibex-session-parent-watchdog".to_string())
-        .spawn(move || {
-            let mut byte = [0u8; 1];
-            loop {
-                match watchdog.read(&mut byte) {
-                    Ok(0) | Ok(_) => break,
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                    Err(_) => break,
-                }
+type ParentWatchdogTask = Box<dyn FnOnce() + Send + 'static>;
+
+#[cfg(unix)]
+fn start_parent_watchdog_with(
+    mut watchdog: std::os::unix::net::UnixStream,
+    spawn: impl FnOnce(ParentWatchdogTask) -> io::Result<()>,
+) -> Result<(), WorkerProtocolError> {
+    let task: ParentWatchdogTask = Box::new(move || {
+        let mut byte = [0u8; 1];
+        loop {
+            match watchdog.read(&mut byte) {
+                Ok(0) | Ok(_) => break,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => break,
             }
-            // The worker is its own process group. This path takes no Runtime,
-            // broker, allocator, or application lock.
-            unsafe {
-                libc::kill(0, libc::SIGKILL);
-                libc::_exit(70);
-            }
-        });
+        }
+        // The worker is its own process group. This path takes no Runtime,
+        // broker, allocator, or application lock.
+        unsafe {
+            libc::kill(0, libc::SIGKILL);
+            libc::_exit(70);
+        }
+    });
+    spawn(task).map_err(WorkerProtocolError::Io)
+}
+
+#[cfg(unix)]
+fn start_parent_watchdog(
+    watchdog: std::os::unix::net::UnixStream,
+) -> Result<(), WorkerProtocolError> {
+    start_parent_watchdog_with(watchdog, |task| {
+        std::thread::Builder::new()
+            .name("ibex-session-parent-watchdog".to_string())
+            .spawn(task)
+            .map(|_| ())
+    })
 }
 
 #[cfg(test)]
@@ -3589,6 +3903,94 @@ mod tests {
         };
         worker.send(&outcome).unwrap();
         assert_eq!(supervisor.receive().unwrap(), outcome);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn absolute_receive_deadline_rejects_a_trickled_partial_frame_and_restores_mode() {
+        let (mut writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        let frame = encoded(
+            &ControlMessage::Submit {
+                submission_id: 1,
+                kind: SubmissionKind::Inline,
+                source: b"trickle".to_vec(),
+            },
+            TEST_EPOCH,
+            1,
+        );
+        let trickle = std::thread::spawn(move || {
+            for byte in frame.into_iter().take(12) {
+                if writer.write_all(&[byte]).is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let mut channel =
+            AuthenticatedChannel::new(reader, EndpointRole::Worker, key(), TEST_NONCE, TEST_EPOCH);
+        let started = Instant::now();
+        let error = channel
+            .receive_until(deadline_after(Duration::from_millis(25)))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            WorkerProtocolError::Io(ref error) if error.kind() == io::ErrorKind::TimedOut
+        ));
+        assert!(started.elapsed() < Duration::from_millis(200));
+        assert_eq!(channel.next_receive_sequence, 1);
+        assert!(!unix_stream_is_nonblocking(&channel.io).unwrap());
+        trickle.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn absolute_send_deadline_rejects_a_slow_reader_without_consuming_sequence() {
+        use std::os::fd::AsRawFd;
+
+        let (writer, mut reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        let send_buffer: libc::c_int = 4 * 1024;
+        assert_eq!(
+            unsafe {
+                libc::setsockopt(
+                    writer.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    libc::SO_SNDBUF,
+                    (&send_buffer as *const libc::c_int).cast(),
+                    std::mem::size_of_val(&send_buffer) as libc::socklen_t,
+                )
+            },
+            0
+        );
+        let slow_reader = std::thread::spawn(move || {
+            let mut bytes = [0u8; 512];
+            for _ in 0..12 {
+                if reader.read(&mut bytes).unwrap_or(0) == 0 {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let mut channel =
+            AuthenticatedChannel::new(writer, EndpointRole::Worker, key(), TEST_NONCE, TEST_EPOCH);
+        let message = ControlMessage::Display {
+            submission_id: 1,
+            tree: vec![0x61; 2 * 1024 * 1024],
+            stdout_cutoff: 0,
+            stderr_cutoff: 0,
+        };
+        let started = Instant::now();
+        let error = channel
+            .send_until(&message, deadline_after(Duration::from_millis(30)))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            WorkerProtocolError::Io(ref error) if error.kind() == io::ErrorKind::TimedOut
+        ));
+        assert!(started.elapsed() < Duration::from_millis(250));
+        assert_eq!(channel.next_send_sequence, 1);
+        assert!(!unix_stream_is_nonblocking(&channel.io).unwrap());
+        drop(channel);
+        slow_reader.join().unwrap();
     }
 
     #[test]
@@ -3831,12 +4233,59 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn parent_watchdog_spawn_failure_refuses_worker_startup() {
+        let (_supervisor, worker) = std::os::unix::net::UnixStream::pair().unwrap();
+        let result = start_parent_watchdog_with(worker, |_task| {
+            Err(io::Error::from(io::ErrorKind::WouldBlock))
+        });
+
+        match result {
+            Err(WorkerProtocolError::Io(error)) => {
+                assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+            }
+            other => panic!("watchdog spawn failure did not fail closed: {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pending_supervisor_child_drop_kills_and_reaps_the_process_group() {
+        use std::os::unix::process::CommandExt as _;
+
+        let mut command = std::process::Command::new("/bin/sh");
+        command.args(["-c", "exec sleep 30"]);
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(())
+                }
+            });
+        }
+        let pending = PendingSupervisorChild::new(command.spawn().unwrap());
+        let pid = pending.child().id() as libc::pid_t;
+        drop(pending);
+
+        let mut status = 0;
+        assert_eq!(
+            unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+    }
+
     #[test]
     fn hidden_bootstrap_spelling_is_exact_and_never_falls_through() {
         let program = OsString::from("ibex");
         let hidden = OsString::from(WORKER_BOOTSTRAP_ARG);
         assert_eq!(
-            classify_bootstrap_invocation(&[program.clone()]),
+            classify_bootstrap_invocation(std::slice::from_ref(&program)),
             BootstrapInvocation::Ordinary
         );
         assert_eq!(
@@ -3954,53 +4403,6 @@ mod tests {
         assert_eq!((first.epoch, first.sequence), (5, 1));
         assert_eq!((second.epoch, second.sequence), (5, 2));
         assert_eq!((after_restart.epoch, after_restart.sequence), (6, 3));
-    }
-
-    #[test]
-    fn outbox_preserves_emission_order_and_makes_loss_visible() {
-        let first = ControlMessage::AsyncFailure {
-            stdout_cutoff: 0,
-            stderr_cutoff: 0,
-            detail: b"first".to_vec(),
-        };
-        let bound = BoundedWorkerOutbox::encoded_size(&first).unwrap();
-        let mut outbox = BoundedWorkerOutbox::new(bound);
-        assert_eq!(
-            outbox.try_push_async(first.clone()).unwrap(),
-            OutboxDisposition::Queued
-        );
-        assert_eq!(
-            outbox
-                .try_push_async(ControlMessage::AsyncFailure {
-                    stdout_cutoff: 0,
-                    stderr_cutoff: 0,
-                    detail: b"second".to_vec(),
-                })
-                .unwrap(),
-            OutboxDisposition::DroppedAndAccounted
-        );
-        assert_eq!(
-            outbox
-                .try_push_async(ControlMessage::AsyncFailure {
-                    stdout_cutoff: 0,
-                    stderr_cutoff: 0,
-                    detail: b"third".to_vec(),
-                })
-                .unwrap(),
-            OutboxDisposition::DroppedAndAccounted
-        );
-        assert_eq!(outbox.pop(), Some(first));
-        assert_eq!(
-            outbox.pop(),
-            Some(ControlMessage::PreReceiptLoss { count: 2 })
-        );
-        assert_eq!(outbox.pop(), None);
-
-        let mut no_capacity = BoundedWorkerOutbox::new(0);
-        assert!(matches!(
-            no_capacity.push_required(ControlMessage::Quiescent),
-            Err(WorkerProtocolError::Backpressure)
-        ));
     }
 
     #[cfg(unix)]

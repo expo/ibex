@@ -22,17 +22,17 @@ export const BUILTIN_EFFECTS_OUTPUT_SOURCE_DESCRIPTOR_KIND =
   "authored-builtin-effects-output";
 
 export const BUILTIN_EFFECTS_REGISTRAR_FAMILY_COUNTS = Object.freeze({
-  node_http: 175,
+  node_http: 152,
   node_fs: 109,
-  node_net: 86,
-  node_tls: 56,
+  node_net: 68,
+  node_tls: 50,
   node_readline: 48,
   exact_sqlite: 35,
   node_dns: 30,
   ws: 28,
   node_http2: 18,
   node_fs_promises: 16,
-  node_tty: 15,
+  node_tty: 14,
   node_child_process: 8,
   exact_process: 7,
   node_dgram: 6,
@@ -45,12 +45,7 @@ export const BUILTIN_EFFECTS_REGISTRAR_FAMILY_COUNTS = Object.freeze({
   exact_http: 1,
 });
 
-export const BUILTIN_EFFECTS_DESCRIPTOR_RESIDUAL_FAMILY_COUNTS = Object.freeze({
-  node_fs: 2,
-  node_fs_promises: 25,
-  node_http: 1,
-  node_os: 12,
-});
+export const BUILTIN_EFFECTS_DESCRIPTOR_RESIDUAL_FAMILY_COUNTS = Object.freeze({});
 
 const COMPLETION = Object.freeze({
   kind: "event-loop-quiescence",

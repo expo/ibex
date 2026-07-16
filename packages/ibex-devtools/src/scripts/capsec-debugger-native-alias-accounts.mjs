@@ -41,6 +41,8 @@ const WINDOWS_PATH = "src/engine/hermes_runtime_platform_windows.cc";
 const HERMES_RUST_PATH = "src/bin/ibex/engine/hermes.rs";
 const CDP_RUST_PATH = "src/bin/ibex/cdp/mod.rs";
 const RUNTIME_RUST_PATH = "src/bin/ibex/runtime.rs";
+const HOST_ABI_OUTPUT_TEST_PATH =
+  "src/bin/ibex/engine/capsec_host_abi_output_batch.test.rs";
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -88,7 +90,6 @@ const DEBUGGER_ALIAS_SPECS = deepFreeze(
       nativeName: "inspector.debugger-enable",
       hostName: "ex_hermes_debugger_enable",
       symbol: "ex_hermes_debugger_enable",
-      cap: "inspector:activate",
       returnType: "int",
       returnKind: "scalar",
       parameters: [["runtime", "ExactHermesRuntime *"]],
@@ -105,7 +106,6 @@ const DEBUGGER_ALIAS_SPECS = deepFreeze(
       nativeName: "inspector.debugger-eval",
       hostName: "ex_hermes_debugger_eval",
       symbol: "ex_hermes_debugger_eval",
-      cap: "runtime:inspect",
       returnType: "char *",
       returnKind: "pointer",
       parameters: [
@@ -135,7 +135,6 @@ const DEBUGGER_ALIAS_SPECS = deepFreeze(
       nativeName: "inspector.debugger-get-script-source",
       hostName: "ex_hermes_debugger_get_script_source",
       symbol: "ex_hermes_debugger_get_script_source",
-      cap: "runtime:inspect",
       returnType: "char *",
       returnKind: "pointer",
       parameters: [
@@ -157,7 +156,6 @@ const DEBUGGER_ALIAS_SPECS = deepFreeze(
       nativeName: "inspector.debugger-get-scripts",
       hostName: "ex_hermes_debugger_get_scripts",
       symbol: "ex_hermes_debugger_get_scripts",
-      cap: "runtime:inspect",
       returnType: "char *",
       returnKind: "pointer",
       parameters: [["runtime", "ExactHermesRuntime *"]],
@@ -176,7 +174,6 @@ const DEBUGGER_ALIAS_SPECS = deepFreeze(
       nativeName: "inspector.debugger-next-event",
       hostName: "ex_hermes_debugger_next_event",
       symbol: "ex_hermes_debugger_next_event",
-      cap: "runtime:inspect",
       returnType: "char *",
       returnKind: "pointer",
       parameters: [["runtime", "ExactHermesRuntime *"]],
@@ -195,7 +192,6 @@ const DEBUGGER_ALIAS_SPECS = deepFreeze(
       nativeName: "inspector.debugger-set-breakpoint",
       hostName: "ex_hermes_debugger_set_breakpoint",
       symbol: "ex_hermes_debugger_set_breakpoint",
-      cap: "inspector:activate",
       returnType: "char *",
       returnKind: "pointer",
       parameters: [
@@ -253,12 +249,15 @@ const REVIEWED_BINARY_RUST_PATHS = Object.freeze([
   "src/bin/ibex/compat/reporter.rs",
   "src/bin/ibex/compat/runner.rs",
   "src/bin/ibex/compat/types.rs",
+  "src/bin/ibex/direct_execution_interrupt.rs",
   "src/bin/ibex/engine/capsec_builtin_effects_output_batch.test.rs",
   "src/bin/ibex/engine/capsec_builtin_noncap_closed_output_batch.test.rs",
   "src/bin/ibex/engine/capsec_closed_control_output_batch.test.rs",
   "src/bin/ibex/engine/capsec_conformance_batch.rs",
+  "src/bin/ibex/engine/capsec_cwd_facade_batch.test.rs",
   "src/bin/ibex/engine/capsec_global_callable_batch.test.rs",
   "src/bin/ibex/engine/capsec_host_abi_output_batch.test.rs",
+  "src/bin/ibex/engine/capsec_inherited_intrinsic_alias_batch.test.rs",
   "src/bin/ibex/engine/capsec_native_freeze_output_batch.test.rs",
   "src/bin/ibex/engine/capsec_output_shape_sweep_batch.test.rs",
   "src/bin/ibex/engine/capsec_public_builtin_batch.rs",
@@ -280,6 +279,7 @@ const REVIEWED_BINARY_RUST_PATHS = Object.freeze([
   "src/bin/ibex/runtime_tests.rs",
   "src/bin/ibex/session_semantics_conformance.rs",
   "src/bin/ibex/session_worker.rs",
+  "src/bin/ibex/session_worker/bounded_lane.rs",
   "src/bin/ibex/session_worker_runtime.rs",
   "src/bin/ibex/subprocess.rs",
   "src/bin/ibex/terminal_session.rs",
@@ -709,14 +709,12 @@ function validateCompanionSurface(surface, spec) {
   return derived;
 }
 
-function validateCoverageEdge(edge, kind, name, cap) {
+function validateCoverageEdge(edge, kind, name) {
   requireCondition(
     typeof edge?.id === "string" &&
       edge.id.length > 0 &&
-      edge.classification === "closed" &&
       edge.surface?.kind === kind &&
-      edge.surface.name === name &&
-      edge.cap === cap,
+      edge.surface.name === name,
     `${kind}:${name}: coverage edge drifted`,
   );
   return edge;
@@ -842,6 +840,56 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
   const hermes = compactByPath.get(HERMES_RUST_PATH);
   const cdp = compactByPath.get(CDP_RUST_PATH);
   const runtime = compactByPath.get(RUNTIME_RUST_PATH);
+  const hostAbiOutputTest = compactByPath.get(HOST_ABI_OUTPUT_TEST_PATH);
+  requireCondition(
+    typeof hostAbiOutputTest === "string",
+    `debugger native alias Rust audit lacks ${HOST_ABI_OUTPUT_TEST_PATH}`,
+  );
+
+  // The conformance-only Host-ABI executor is compiled solely as a Rust test
+  // child module. It may call the exported debugger ABI to observe its real
+  // return values, but it must construct the explicitly diagnostic runtime and
+  // keep every debugger symbol reference inside that one bounded executor.
+  const diagnosticRuntimeConstructor = extractRegion(
+    hostAbiOutputTest,
+    compactRust(
+      "impl OwnedDiagnosticRuntime {\n    fn new() -> Result<Self, String>",
+      "Host ABI diagnostic runtime constructor token",
+    ),
+    "Host ABI diagnostic runtime constructor",
+  );
+  const diagnosticRuntimeMatched = orderedTokens(
+    diagnosticRuntimeConstructor,
+    [
+      "fresh_legacy_host();",
+      "let raw = unsafe { ex_hermes_create_diagnostic() };",
+      "if raw.is_null()",
+    ],
+    compactRust,
+    "Host ABI diagnostic runtime constructor",
+  );
+  const diagnosticOutputExecutor = extractRegion(
+    hostAbiOutputTest,
+    compactRust(
+      "fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Value, String>",
+      "Host ABI diagnostic output executor token",
+    ),
+    "Host ABI diagnostic output executor",
+  );
+  const diagnosticOutputMatched = orderedTokens(
+    diagnosticOutputExecutor,
+    [
+      "let runtime = OwnedDiagnosticRuntime::new()?;",
+      '"ex_hermes_debugger_enable" =>',
+      '"ex_hermes_debugger_eval" =>',
+      '"ex_hermes_debugger_get_script_source" =>',
+      '"ex_hermes_debugger_get_scripts" =>',
+      '"ex_hermes_debugger_next_event" =>',
+      '"ex_hermes_debugger_set_breakpoint" =>',
+    ],
+    compactRust,
+    "Host ABI diagnostic output executor",
+  );
 
   const runtimeSink = extractRegion(
     runtime,
@@ -1046,12 +1094,25 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
       total += count;
       if (count > 0) sites.push({ path: sourcePath, count });
     }
+    const diagnosticTestCount =
+      spec.symbol === "ex_hermes_debugger_enable" ? 7 : 2;
     requireCondition(
-      total === 2 &&
-        sites.length === 1 &&
-        sites[0].path === HERMES_RUST_PATH &&
-        sites[0].count === 2,
-      `${spec.nativeName}: expected exactly one Rust declaration and one guarded call of ${spec.symbol}`,
+      identifierOccurrences(diagnosticOutputExecutor, spec.symbol) ===
+        diagnosticTestCount &&
+        identifierOccurrences(hostAbiOutputTest, spec.symbol) ===
+          diagnosticTestCount &&
+        total === 2 + diagnosticTestCount &&
+        sites.length === 2 &&
+        sites.some(
+          (site) =>
+            site.path === HERMES_RUST_PATH && site.count === 2,
+        ) &&
+        sites.some(
+          (site) =>
+            site.path === HOST_ABI_OUTPUT_TEST_PATH &&
+            site.count === diagnosticTestCount,
+        ),
+      `${spec.nativeName}: expected one Rust declaration, one guarded production call, and only the bounded diagnostic test calls of ${spec.symbol}`,
     );
     const backendCount = identifierOccurrences(backend, spec.symbol);
     const enableCount = identifierOccurrences(maybeEnable, spec.symbol);
@@ -1078,6 +1139,8 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
       engineGuardMatched,
       engineStartMatched,
       cdpMatched,
+      diagnosticRuntimeMatched,
+      diagnosticOutputMatched,
     }),
     assertions: [
       {
@@ -1094,6 +1157,14 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
         id: "listener-requires-unarmed-authorization",
         path: CDP_RUST_PATH,
         digest: taggedDigest(cdpMatched),
+      },
+      {
+        id: "test-only-diagnostic-output-executor",
+        path: HOST_ABI_OUTPUT_TEST_PATH,
+        digest: taggedDigest({
+          diagnosticRuntimeMatched,
+          diagnosticOutputMatched,
+        }),
       },
     ],
     symbolEvidence,
@@ -1210,13 +1281,11 @@ export function auditDebuggerNativeAliasClosure({
         edgeByObservedKey.get(nativeObservedKey),
         "native-op",
         spec.nativeName,
-        spec.cap,
       );
       const hostEdge = validateCoverageEdge(
         edgeByObservedKey.get(hostObservedKey),
         "host-abi",
         spec.hostName,
-        spec.cap,
       );
       const derived = validateCompanionSurface(hostSurface, spec);
       const sourceRefs = structuralSourceRefs(spec);
@@ -1250,7 +1319,6 @@ export function auditDebuggerNativeAliasClosure({
           nativeSurfaceId: nativeEdge.id,
           hostObservedKey,
           hostSurfaceId: hostEdge.id,
-          cap: spec.cap,
           symbol: spec.symbol,
           sourceRefs,
           implementationBranches,
@@ -1328,8 +1396,6 @@ export function validateDebuggerNativeAliasStructuralAccount(
       surface.kind === "native-op" &&
       surface.observedKey === proof.nativeObservedKey &&
       coverageEdge?.id === proof.nativeSurfaceId &&
-      coverageEdge.classification === "closed" &&
-      coverageEdge.cap === proof.cap &&
       canonicalJson(account) === canonicalJson(expected),
     `${surface?.name}: invalid debugger native alias structural account`,
   );
@@ -1418,12 +1484,8 @@ export function validateDebuggerNativeAliasStructuralCatalog({
     requireCondition(
       nativeEdge.surface?.kind === "native-op" &&
         nativeEdge.surface.name === surfaceName &&
-        nativeEdge.classification === "closed" &&
-        nativeEdge.cap === proof.cap &&
         hostEdge.surface?.kind === "host-abi" &&
-        `host-abi:${hostEdge.surface.name}` === proof.hostObservedKey &&
-        hostEdge.classification === "closed" &&
-        hostEdge.cap === proof.cap,
+        `host-abi:${hostEdge.surface.name}` === proof.hostObservedKey,
       `${surfaceName}: catalog coverage pair drifted`,
     );
     const expectedNativeAccount = {

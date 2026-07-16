@@ -1,4 +1,30 @@
 (function() {
+  // The authenticated compatibility carrier is authoritative whenever the
+  // armed environment bridge exists. A false or malformed carrier is fixed
+  // false; it must never fall through to the mutable principal environment.
+  // Unarmed diagnostic/fixture runtimes retain the legacy environment path.
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  function __exactBootstrapCompatModeEnabled(mode) {
+    try {
+      var modes = globalThis.__exactCompatModes;
+      if (Array.isArray(modes) && modes.indexOf(mode) !== -1) {
+        return true;
+      }
+      if (typeof globalThis.__exactSetEnv === 'function') {
+        return false;
+      }
+      var env = globalThis.process && globalThis.process.env;
+      if (!env) return false;
+      if (mode === 'fixture') {
+        return env.EXACT_COMPAT_TEST === '1';
+      }
+      if (mode === 'fixture:bun') {
+        return env.EXACT_COMPAT_TEST === '1' && env.EXACT_TEST_SECTION === 'bun';
+      }
+    } catch (_) {}
+    return false;
+  }
+
   // Trusted bootstrap captures the raw stdin bridge before armed startup
   // removes its global spelling. Compatibility shims retain only this lexical
   // reference, preventing user replacement of the native operation.
@@ -979,9 +1005,15 @@
         }
         return { handled: true, value: undefined };
       case 'HaveSameMap':
-        return { handled: true, value: args.length >= 2 && Object.getPrototypeOf(args[0]) === Object.getPrototypeOf(args[1]) };
+        return {
+          handled: true,
+          value: args.length >= 2 && Object.getPrototypeOf(args[0]) === Object.getPrototypeOf(args[1]),
+        };
       case 'IsSmi':
-        return { handled: true, value: typeof args[0] === 'number' && args[0] === (args[0] | 0) };
+        return {
+          handled: true,
+          value: typeof args[0] === 'number' && args[0] === (args[0] | 0),
+        };
       case 'GetUndetectable':
         return { handled: true, value: undefined };
       default:
@@ -1208,7 +1240,9 @@
           if (!stream._decoder) {
             stream._decoder = new TextDecoder(stream._encoding === 'utf8' ? 'utf-8' : stream._encoding);
           }
-          return stream._decoder.decode(bytes || new Uint8Array(0), { stream: !flush });
+          return stream._decoder.decode(bytes || new Uint8Array(0), {
+            stream: !flush,
+          });
         } catch (_) {
           stream._decoder = null;
         }
@@ -2681,9 +2715,7 @@
       }
       var __exactInstallFixtureGlobals = !!(
         __global &&
-        globalThis.process &&
-        globalThis.process.env &&
-        globalThis.process.env.EXACT_COMPAT_TEST === '1'
+        __exactBootstrapCompatModeEnabled('fixture')
       );
       if (__exactInstallFixtureGlobals) {
         if (typeof globalThis.__exactRequire === 'function') {
@@ -2721,20 +2753,39 @@
     } catch (err) {}
   }
 
-  // Child-process IPC bootstrap for exact child runtimes.
+  // Child-process IPC bootstrap for exact child runtimes. Native startup puts
+  // the context-bound descriptor on a dedicated frozen temporary root. Keep
+  // only this validated lexical copy; armed process.env remains the principal
+  // overlay and never contains the descriptor or serialization control.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  var __exactProcessIpcBootstrap = null;
+  try {
+    var __exactIpcCandidate = globalThis.__exactProcessIpcBootstrap;
+    var __exactIpcCandidateFd = __exactIpcCandidate && Number(__exactIpcCandidate.fd);
+    if (isFinite(__exactIpcCandidateFd) && __exactIpcCandidateFd >= 0 &&
+        Math.floor(__exactIpcCandidateFd) === __exactIpcCandidateFd) {
+      __exactProcessIpcBootstrap = {
+        fd: __exactIpcCandidateFd,
+        serialization: __exactIpcCandidate.serialization === 'advanced'
+          ? 'advanced'
+          : 'json'
+      };
+    }
+  } catch (_) {}
+
   function __exactInstallProcessIpcBootstrap() {
     if (
       typeof globalThis.process !== 'object' ||
       globalThis.process === null ||
-      !globalThis.process.env ||
-      !globalThis.process.env.EXACT_IPC_FD
+      __exactProcessIpcBootstrap === null
     ) {
       return false;
     }
     if (globalThis.process.__exactProcessIpcBootstrapInstalled) {
       return true;
     }
-    var exactIpcFd = Number(globalThis.process.env.EXACT_IPC_FD);
+    var exactIpcFd = __exactProcessIpcBootstrap.fd;
     if (isFinite(exactIpcFd) && exactIpcFd >= 0) {
       // Ensure FS host functions are loaded (they are lazily initialized)
       if (typeof globalThis.__exactEnsureFs === 'function') {
@@ -2748,8 +2799,7 @@
       var exactIpcPollActive = true;
       var exactIpcReadPaused = false;
       var exactIpcPollInterval = 10;
-      var exactIpcSerialization =
-        globalThis.process.env.EXACT_IPC_SERIALIZATION === 'advanced' ? 'advanced' : 'json';
+      var exactIpcSerialization = __exactProcessIpcBootstrap.serialization;
 
       var exactIpcStreamDecoder = null;
       function exactToString(bytes) {
@@ -3465,11 +3515,7 @@
         }
         globalThis.process.connected = false;
         exactSetProcessChannel(null);
-        var exactChannelHandleKey = globalThis.__exactKChannelHandleKey;
-        if (exactChannelHandleKey === undefined) {
-          exactChannelHandleKey = '__exactKChannelHandle';
-          globalThis.__exactKChannelHandleKey = exactChannelHandleKey;
-        }
+        var exactChannelHandleKey = '__exactKChannelHandle';
         globalThis.process[exactChannelHandleKey] = null;
         // The fd is about to close: give queued packets one last flush
         // attempt, then fail whatever could not be delivered.
@@ -3586,7 +3632,11 @@
               var nativeHandle = globalThis.__exactTcpFromFd(fd);
               recvSocket = new net.Socket({ _handle: nativeHandle });
             } else {
-              recvSocket = new net.Socket({ fd: fd, readable: true, writable: true });
+              recvSocket = new net.Socket({
+                fd: fd,
+                readable: true,
+                writable: true,
+              });
             }
             // SocketList protocol: notify parent when this socket closes
             // so server._connections is decremented correctly.
@@ -3809,11 +3859,7 @@
       });
       exactEnsureStdioRefUnref();
       // Expose kChannelHandle for internal/child_process compatibility
-      var kChannelHandle = globalThis.__exactKChannelHandleKey;
-      if (kChannelHandle === undefined) {
-        kChannelHandle = '__exactKChannelHandle';
-        globalThis.__exactKChannelHandleKey = kChannelHandle;
-      }
+      var kChannelHandle = '__exactKChannelHandle';
       globalThis.process[kChannelHandle] = {
         readStop: function() {
           exactEnsureStdioRefUnref();
@@ -4160,11 +4206,7 @@
   // globals are available even if the test file doesn't explicitly import them.
   // This matches Bun's behavior where these globals are always present.
   if (
-    typeof globalThis.process === 'object' &&
-    globalThis.process !== null &&
-    globalThis.process.env &&
-    globalThis.process.env.EXACT_COMPAT_TEST === '1' &&
-    globalThis.process.env.EXACT_TEST_SECTION === 'bun' &&
+    __exactBootstrapCompatModeEnabled('fixture:bun') &&
     Array.isArray(globalThis.process.argv) &&
     globalThis.process.argv.length > 1 &&
     typeof globalThis.__exactRequire === 'function' &&

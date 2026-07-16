@@ -3,6 +3,21 @@
   var p = globalThis.process;
   var setTimeout = globalThis.setTimeout;
   var clearTimeout = globalThis.clearTimeout;
+  // Private, construction-bound child-process IPC input. Its frozen temporary
+  // root is deleted before project code; process.env remains an empty
+  // authenticated base plus principal overlays and is not a bootstrap control
+  // channel.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  var processIpcBootstrap = null;
+  try {
+    var ipcCandidate = globalThis.__exactProcessIpcBootstrap;
+    var ipcCandidateFd = ipcCandidate && Number(ipcCandidate.fd);
+    if (isFinite(ipcCandidateFd) && ipcCandidateFd >= 0 &&
+        Math.floor(ipcCandidateFd) === ipcCandidateFd) {
+      processIpcBootstrap = { fd: ipcCandidateFd };
+    }
+  } catch (_) {}
   // Trusted-bootstrap-only captures. Armed startup deletes the raw global
   // spellings after this script runs; all later process/stream use stays on
   // these lexical references.
@@ -1410,11 +1425,11 @@
   // loads lazily, so it can run after compat-polyfills), leave it alone —
   // re-installing the early shim would clobber handle passing, advanced
   // serialization, and the listener-tracked channel ref accounting.
-  var hasIpcBootstrap = !!(p.env && p.env.EXACT_IPC_FD);
+  var hasIpcBootstrap = processIpcBootstrap !== null;
   if (p.__exactProcessIpcBootstrapInstalled) {
     // Fuller IPC implementation already owns process.send/channel.
   } else if (hasIpcBootstrap) {
-    var exactBootstrapIpcFd = Number(p.env.EXACT_IPC_FD);
+    var exactBootstrapIpcFd = processIpcBootstrap.fd;
     var exactBootstrapIpcBuffer = '';
     var exactBootstrapIpcPollTimer = 0;
     var exactBootstrapIpcReadPending = false;

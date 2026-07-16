@@ -2,7 +2,7 @@
 # LLP 0024 session-semantics model tables
 
 Model version: 1
-Model source digest: `sha256-Et9jiQq0zJtpSDH_ZpkPfKvkYA1XhyS4PMky9M9FN64`
+Model source digest: `sha256-U02UpYG32hnYcshxZNle3VH9Y99P8nNpcRlE9oCTbrE`
 
 ## Cross-kind declaration matrix
 
@@ -36,11 +36,11 @@ A name is restricted exactly when it has a non-configurable own property that is
 
 ## Four gates
 
-| Gate | Comparison | Domain | Checked here | Status |
-| --- | --- | --- | --- | --- |
-| `gate-1-model-conformance` | implementation vs reference model | every session | generated model fixtures and an observation comparator | `implementation-adapter-pending` |
-| `gate-2-model-validation` | reference model vs one growing script on the same engine and lowering | restricted class | executable restricted-class classifier and exclusion fixtures | `engine-and-lowering-adapters-pending` |
-| `gate-2b-model-correctness` | reference rows vs fresh-process standards Script semantics | descriptor and created/adopted rows | fresh Node subprocess probes with owner-authored expected observations | `self-contained-probes-runnable` |
-| `gate-3-lowering-fidelity` | one input through lowering vs direct execution | single inputs | generic exact-observation comparator | `session-lowering-adapter-pending` |
+| Gate | Comparison | Domain | Checked here | External harness | Status |
+| --- | --- | --- | --- | --- | --- |
+| `gate-1-model-conformance` | implementation vs reference model | every session | generated model fixtures and an observation comparator | bin:ibex session_semantics_conformance::implementation_matches_reference_model_gate | `external-harness-implemented` |
+| `gate-2-model-validation` | reference model vs one growing script on the same engine and lowering | restricted class | executable restricted-class classifier and exclusion fixtures | bin:ibex session_semantics_conformance::reference_model_matches_same_engine_growing_script_gate | `external-harness-implemented` |
+| `gate-2b-model-correctness` | reference rows vs fresh-process standards Script semantics | descriptor and created/adopted rows | fresh Node subprocess probes with owner-authored expected observations | self-contained | `self-contained-probes-runnable` |
+| `gate-3-lowering-fidelity` | production-lowered outcomes vs direct Hermes outcomes for the complete named single-input branch corpus | ReferenceLowering and StatementLowering branches reachable after checked Script parsing, with owner-authored expected differences and explicit direct-oracle exclusions | 63 lowering obligations across 37 owner-authored cases; 4 named source-goal exclusions remain independently gated | bin:ibex session_semantics_conformance::single_input_lowering_fidelity_gate | `external-harness-implemented` |
 
-Pending means pending: generated fixtures do not attest that an engine or lowering which is not connected to the harness conforms.
+An `external-harness-*` status names an adapter and its declared coverage, not a runtime result. Conformance is established only by executing the exact Rust test against the selected Hermes build. Gate 3's declared coverage is the complete named ReferenceLowering/StatementLowering branch corpus after checked Script parsing; its direct-oracle exclusions remain separate acceptance work and are not encoded as passes.

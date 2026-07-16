@@ -146,6 +146,10 @@ pub fn prepare_embedder_artifacts(
     super::validate_snapshot_root_bindings(&template)?;
 
     let mut document = template.document().clone();
+    // @ref LLP 0022#11-delegated-obligations — the public embedder output keeps
+    // OBL-ENV-BASE explicit. ArmedSnapshot::load already refused any supplied
+    // non-empty base; values are admitted only through principal overlays.
+    document["environmentBase"] = serde_json::json!([]);
     let digest = freshen_document(&mut document, fresh_production_nonce()?)?;
     expected.armed_snapshot_digest = digest.clone();
 
@@ -236,6 +240,7 @@ mod tests {
         .unwrap();
         snapshot["workflow"] = serde_json::json!("production");
         snapshot["effectiveMode"] = serde_json::json!("enforce");
+        snapshot["environmentBase"] = serde_json::json!([]);
         snapshot["engine"] = serde_json::json!({
             "target": runtime_target_triple(),
             "binaryDigest": engine.binary_digest,
@@ -265,6 +270,25 @@ mod tests {
             "hostPath": absolute_host_path(&project_root),
             "object": super::super::object_identity_for_host_path(&project_root).unwrap(),
         }]);
+        let project_path = absolute_host_path(&project_root);
+        snapshot["projectRootDiscovery"] = serde_json::json!({
+            "origin": project_path,
+            "selectedRoot": absolute_host_path(&project_root),
+            "markerKind": "explicit-project",
+            "markerPath": absolute_host_path(&project_root),
+            "markerSetVersion": capsec_semantics::arming::PROJECT_ROOT_MARKER_SET_VERSION,
+        });
+        let fixture_bindings: Vec<capsec_semantics::arming::ArmedRootBinding> =
+            serde_json::from_value(snapshot["rootBindings"].clone()).unwrap();
+        snapshot["pathCanonicalizers"] = serde_json::to_value(
+            capsec_semantics::path_alias::contract_fixture_canonicalizer_rows(
+                fixture_bindings
+                    .iter()
+                    .map(|binding| (binding.object.platform, binding.object.volume.clone())),
+            )
+            .unwrap(),
+        )
+        .unwrap();
 
         let (policy_path, policy_object, policy_content) = materialize_test_artifact(
             &artifacts,
@@ -319,6 +343,13 @@ mod tests {
                 .map(|feature| feature.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            entry: serde_json::from_value(snapshot["entry"].clone()).unwrap(),
+            project_root_discovery: serde_json::from_value(
+                snapshot["projectRootDiscovery"].clone(),
+            )
+            .unwrap(),
+            path_canonicalizers: serde_json::from_value(snapshot["pathCanonicalizers"].clone())
+                .unwrap(),
             protected_artifacts: vec![
                 ExpectedProtectedArtifact {
                     role: ProtectedArtifactRole::ArmedPolicy,
@@ -439,6 +470,11 @@ mod tests {
             engine_binary_digest: Digest::new(engine.binary_digest).unwrap(),
             features: engine.structural_features,
             package_graph_digest: digest(&["packageGraph", "digest"]),
+            entry: serde_json::from_value(checked["entry"].clone()).unwrap(),
+            project_root_discovery: serde_json::from_value(checked["projectRootDiscovery"].clone())
+                .unwrap(),
+            path_canonicalizers: serde_json::from_value(checked["pathCanonicalizers"].clone())
+                .unwrap(),
             protected_artifacts: Vec::new(),
         }
     }

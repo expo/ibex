@@ -7,12 +7,13 @@
  * absent output is evidence only when an executable recipe inspects the exact
  * target and the exact source-discovered public surface.
  * @ref LLP 0023#8-registry-obligations — output policy and execution evidence
- * join through the one canonical six-part output key.
+ * join through the one canonical seven-part output key.
  */
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
+import { validateRecipeCatalog } from "./capsec-conformance-recipes.mjs";
 
 const TARGET_ABSENCE_INVOCATION = "ibex/capsec-target-absence-invocation/1";
 const NATIVE_GLOBAL_INVOCATION = "ibex/capsec-native-global-invocation/1";
@@ -45,6 +46,10 @@ function validateCommonRecipe(recipe, edge, target, label) {
   requireCondition(
     recipe.status === "fully-executable",
     `${label}: not executable`,
+  );
+  requireCondition(
+    /^sha256-[A-Za-z0-9_-]{43}$/u.test(recipe.planDigest ?? ""),
+    `${label}: plan digest is malformed`,
   );
   requireCondition(
     recipe.scenario === "absent",
@@ -137,12 +142,15 @@ function validateDedicatedTargetAbsence(invocation, edge, target, label) {
 }
 
 function validateNativeGlobalAbsence(invocation, edge, label) {
+  const expectedGlobalName = edge.surface.name.startsWith("global:")
+    ? edge.surface.name.slice("global:".length)
+    : edge.surface.name;
   requireCondition(
     edge.surface.kind === "native-op" &&
       invocation.kind === "native-global-function" &&
-      invocation.globalName === edge.surface.name &&
+      invocation.globalName === expectedGlobalName &&
       invocation.sourceDescriptor?.kind === "native-global-function" &&
-      invocation.sourceDescriptor.globalName === edge.surface.name &&
+      invocation.sourceDescriptor.globalName === expectedGlobalName &&
       typeof invocation.sourceDescriptor.sourceRef === "string" &&
       invocation.sourceDescriptor.sourceRef.length > 0,
     `${label}: native-global absence invocation selected another surface`,
@@ -174,6 +182,7 @@ export function authoredTargetAbsenceOutputBindings({
     Array.isArray(coverage?.edges),
     "coverage registry has no edges",
   );
+  validateRecipeCatalog(recipeCatalog, { target });
 
   const edges = new Map(coverage.edges.map((edge) => [edge.id, edge]));
   const catalogRows = new Map();
@@ -182,6 +191,12 @@ export function authoredTargetAbsenceOutputBindings({
     rows.push(row);
     catalogRows.set(row.key.surfaceId, rows);
   }
+  const catalogAccounts = new Map(
+    (catalog.surfaceAccounts ?? []).map((account) => [
+      account.surfaceId,
+      account,
+    ]),
+  );
 
   const bindings = [];
   const seenEdges = new Set();
@@ -210,11 +225,16 @@ export function authoredTargetAbsenceOutputBindings({
     }
 
     const matchingRows = catalogRows.get(edge.id) ?? [];
-    requireCondition(
-      matchingRows.length === 1,
-      `${label}: expected exactly one output-catalog row, got ${matchingRows.length}`,
-    );
-    const row = matchingRows[0];
+    if (matchingRows.length === 0) {
+      const account = catalogAccounts.get(edge.id);
+      requireCondition(
+        account?.status === "structural-only" &&
+          Array.isArray(account.outputKinds) &&
+          account.outputKinds.length === 0,
+        `${label}: missing rows are permitted only for an exact structural-only catalog account`,
+      );
+      continue;
+    }
     const propertyProbe =
       invocation.invocationSchema === TARGET_ABSENCE_INVOCATION &&
       edge.surface.kind === "native-op" &&
@@ -222,37 +242,42 @@ export function authoredTargetAbsenceOutputBindings({
         "property-read"
         ? invocation.sourceDescriptor.probeMode
         : null;
-    const expectedOutput = propertyProbe ? "[[value]]" : "[[return]]";
     const expectedAlias = propertyProbe
       ? [propertyProbe.globalName, propertyProbe.memberName]
           .filter((part) => part !== null && part !== undefined)
           .join(".")
       : edge.surface.name;
     requireCondition(
-      row.key.output === expectedOutput &&
-        row.key.alias === expectedAlias &&
-        row.key.mode === "all" &&
-        row.key.sourceKind === edge.surface.kind &&
-        row.key.returnVariant === "default",
-      `${label}: output key does not name the exact probed surface value`,
+      !propertyProbe || matchingRows.length === 1,
+      `${label}: property-read absence must bind exactly one value row`,
     );
-    requireCondition(
-      row.discovery?.kind === "source-inventory-surface" &&
-        Array.isArray(row.discovery.observedKeys) &&
-        row.discovery.observedKeys.includes(recipe.terminalObservedKey) &&
-        Array.isArray(row.discovery.sourceRefs) &&
-        row.discovery.sourceRefs.length > 0,
-      `${label}: catalog discovery does not bind the named surface`,
-    );
+    for (const row of matchingRows) {
+      requireCondition(
+        (!propertyProbe || row.key.output === "[[value]]") &&
+          row.key.alias === expectedAlias &&
+          row.key.mode === "all" &&
+          row.key.sourceKind === edge.surface.kind &&
+          row.key.returnVariant === "default",
+        `${label}: output key does not name the exact probed surface value`,
+      );
+      requireCondition(
+        row.discovery?.kind === "source-inventory-surface" &&
+          Array.isArray(row.discovery.observedKeys) &&
+          row.discovery.observedKeys.includes(recipe.terminalObservedKey) &&
+          Array.isArray(row.discovery.sourceRefs) &&
+          row.discovery.sourceRefs.length > 0,
+        `${label}: catalog discovery does not bind the named surface`,
+      );
 
-    bindings.push({
-      key: structuredClone(row.key),
-      fixtureId: recipe.fixtureId,
-      planDigest: recipe.planDigest,
-      terminalObservedKey: recipe.terminalObservedKey,
-      invocationSchema: invocation.invocationSchema,
-      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
-    });
+      bindings.push({
+        key: structuredClone(row.key),
+        fixtureId: recipe.fixtureId,
+        planDigest: recipe.planDigest,
+        terminalObservedKey: recipe.terminalObservedKey,
+        invocationSchema: invocation.invocationSchema,
+        sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      });
+    }
   }
 
   return bindings.sort((left, right) =>
@@ -261,4 +286,24 @@ export function authoredTargetAbsenceOutputBindings({
       canonicalOutputDispositionKey(right.key),
     ),
   );
+}
+
+/** Reviewed policy rationale bound to the exact authored absence recipe. */
+export function targetAbsenceDispositionRationale(binding) {
+  requireCondition(
+    typeof binding?.fixtureId === "string" &&
+      binding.fixtureId.length > 0 &&
+      new Set([TARGET_ABSENCE_INVOCATION, NATIVE_GLOBAL_INVOCATION]).has(
+        binding.invocationSchema,
+      ) &&
+      /^sha256-[A-Za-z0-9_-]{43}$/u.test(
+        binding.sourceDescriptorDigest ?? "",
+      ),
+    "target-absence policy binding is incomplete",
+  );
+  const lookup =
+    binding.invocationSchema === NATIVE_GLOBAL_INVOCATION
+      ? "native-global lookup"
+      : "target-symbol lookup";
+  return `The source-bound macOS/aarch64 ${lookup} recipe ${binding.fixtureId}, bound to source descriptor ${binding.sourceDescriptorDigest}, requires the loaded target to observe this exact output key absent.`;
 }

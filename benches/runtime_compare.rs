@@ -5,6 +5,9 @@
 //! question users ask first: "what do I pay when I run this JS through Ibex
 //! instead of a Hermes shell, and what extra startup/runtime cost does the
 //! explicitly diagnostic foreground audit add over production enforcement?"
+//! The production arm is included only when the exact engine target has a
+//! verified advertisement. Its expected fail-closed refusal is reported as
+//! `N/A (unadvertised)`; the audit arm is never relabelled as production.
 //!
 //! The Hermes arm uses the local `tools/hermes/hermes` by default. In this repo
 //! that binary is normally produced by Ibex's Hermes install scripts, so it is a
@@ -86,20 +89,24 @@ const WORKLOADS: &[Workload] = &[
     },
 ];
 
-const VARIANTS: &[Variant] = &[
-    Variant {
-        name: "hermes-shell",
-        runner: Runner::Hermes,
-    },
-    Variant {
-        name: "ibex-default",
-        runner: Runner::IbexDefault,
-    },
-    Variant {
-        name: "ibex-audit",
-        runner: Runner::IbexAudit,
-    },
-];
+const HERMES_VARIANT: Variant = Variant {
+    name: "hermes-shell",
+    runner: Runner::Hermes,
+};
+const IBEX_DEFAULT_VARIANT: Variant = Variant {
+    name: "ibex-default",
+    runner: Runner::IbexDefault,
+};
+const IBEX_AUDIT_VARIANT: Variant = Variant {
+    name: "ibex-audit",
+    runner: Runner::IbexAudit,
+};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProductionAvailability {
+    Available,
+    Unadvertised,
+}
 
 fn manifest_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -191,6 +198,7 @@ fn clean_env(cmd: &mut Command) {
         "IBEX_POLICY",
         "IBEX_NO_BYTECODE",
         "IBEX_NATIVE_LOCKDOWN",
+        "EXACT_COMPAT_TEST",
         "EXACT_POLICY",
         "EXACT_NO_BYTECODE",
         "EXACT_NATIVE_LOCKDOWN",
@@ -199,17 +207,16 @@ fn clean_env(cmd: &mut Command) {
     }
 }
 
-fn require_release_ibex(path: &Path) {
-    let is_debug = path.components().any(|part| part.as_os_str() == "debug");
-    let allow_debug =
-        std::env::var_os("BENCH_ALLOW_DEBUG").as_deref() == Some(std::ffi::OsStr::new("1"));
-    if is_debug && !allow_debug {
-        eprintln!(
-            "runtime_compare refuses a debug Ibex binary at {}\nBuild with `cargo build --release --bin ibex`, or set BENCH_ALLOW_DEBUG=1 for an explicitly non-comparable smoke run.",
-            path.display()
-        );
-        std::process::exit(2);
-    }
+fn debug_binary(path: &Path) -> bool {
+    path.components().any(|part| part.as_os_str() == "debug")
+}
+
+fn debug_benchmark_allowed() -> bool {
+    std::env::var_os("BENCH_ALLOW_DEBUG").as_deref() == Some(std::ffi::OsStr::new("1"))
+}
+
+fn cargo_test_invocation() -> bool {
+    std::env::args_os().any(|arg| arg == "--test")
 }
 
 fn run_variant(
@@ -242,6 +249,7 @@ fn run_variant(
         // bytecode cache so the two subprocess arms have symmetric warm-cache
         // behavior instead of measuring a cache only one runner owns.
         cmd.env("IBEX_NO_BYTECODE", "1");
+        cmd.env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1");
     }
 
     let t0 = Instant::now();
@@ -272,16 +280,44 @@ fn run_variant(
     RunResult { wall_ms }
 }
 
+fn probe_production(ibex: &Path, script: &Path) -> ProductionAvailability {
+    let mut cmd = Command::new(ibex);
+    cmd.arg("run").arg(script);
+    clean_env(&mut cmd);
+    cmd.env("IBEX_NO_BYTECODE", "1");
+    cmd.env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1");
+    let out = cmd.output().unwrap_or_else(|err| {
+        panic!(
+            "failed to probe production route with {}: {err}",
+            script.display()
+        )
+    });
+    if out.status.success() {
+        return ProductionAvailability::Available;
+    }
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    const EXPECTED_REFUSAL: &str = "has no unique verified advertisement";
+    if stdout.contains(EXPECTED_REFUSAL) || stderr.contains(EXPECTED_REFUSAL) {
+        return ProductionAvailability::Unadvertised;
+    }
+
+    eprintln!(
+        "runtime_compare production availability probe failed unexpectedly: status={:?}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        out.status.code(),
+        stdout,
+        stderr
+    );
+    std::process::exit(1);
+}
+
 fn pct_delta(value: f64, base: f64) -> f64 {
     (value - base) / base * 100.0
 }
 
 fn main() {
     let ibex = ibex_bin();
-    let hermes = hermes_bin();
-    let samples = env_usize("BENCH_SAMPLES", 9).max(1);
-    let warmup = env_usize("BENCH_WARMUP", 2);
-    let scale = env_f64("BENCH_SCALE", 1.0);
 
     if !ibex.exists() {
         eprintln!(
@@ -290,7 +326,34 @@ fn main() {
         );
         std::process::exit(1);
     }
-    require_release_ibex(&ibex);
+
+    let startup = WORKLOADS[0];
+    let startup_script = wrapper_for(startup, startup.default_iters);
+    let production = probe_production(&ibex, &startup_script);
+    let smoke = cargo_test_invocation() || (debug_binary(&ibex) && !debug_benchmark_allowed());
+    if smoke {
+        eprintln!(
+            "runtime_compare: correctness smoke (production probe + one diagnostic audit invocation; no performance comparison)"
+        );
+        eprintln!("  ibex: {}", ibex.display());
+        if production == ProductionAvailability::Unadvertised {
+            eprintln!("  ibex-default: N/A (exact engine target is unadvertised; expected fail-closed refusal)");
+        }
+        let _ = run_variant(
+            IBEX_AUDIT_VARIANT,
+            &ibex,
+            Path::new("unused-in-smoke"),
+            &startup_script,
+            startup,
+        );
+        println!("PASS: diagnostic audit route executed; production availability was classified explicitly.");
+        return;
+    }
+
+    let hermes = hermes_bin();
+    let samples = env_usize("BENCH_SAMPLES", 9).max(1);
+    let warmup = env_usize("BENCH_WARMUP", 2);
+    let scale = env_f64("BENCH_SCALE", 1.0);
     if !hermes.exists() {
         eprintln!(
             "Hermes shell not found at {}\nRun scripts/download-hermes.sh, or set HERMES_BENCH_BIN to an explicit Hermes shell.",
@@ -298,6 +361,22 @@ fn main() {
         );
         std::process::exit(1);
     }
+
+    let mut variants = vec![HERMES_VARIANT];
+    if production == ProductionAvailability::Available {
+        variants.push(IBEX_DEFAULT_VARIANT);
+    }
+    variants.push(IBEX_AUDIT_VARIANT);
+    let reference_name = if production == ProductionAvailability::Available {
+        IBEX_DEFAULT_VARIANT.name
+    } else {
+        IBEX_AUDIT_VARIANT.name
+    };
+    let reference_header = if production == ProductionAvailability::Available {
+        "vs ibex default"
+    } else {
+        "vs ibex audit"
+    };
 
     eprintln!("runtime_compare: local Hermes shell vs Ibex subprocess wall-clock");
     eprintln!("  ibex   : {}", ibex.display());
@@ -308,22 +387,27 @@ fn main() {
     println!("=== Runtime Compare — Hermes shell vs Ibex ===");
     println!("medians are subprocess wall-clock; lower is better");
     println!("HERMES_BENCH_BIN can point at a true upstream-unpatched Hermes shell.");
+    if production == ProductionAvailability::Unadvertised {
+        println!(
+            "ibex-default: N/A (exact engine target is unadvertised; production correctly refused)"
+        );
+    }
 
     for workload in WORKLOADS {
         let iters = scaled_iters(workload.default_iters, scale);
         let script = wrapper_for(*workload, iters);
 
         for round in 0..warmup {
-            for offset in 0..VARIANTS.len() {
-                let variant = VARIANTS[(round + offset) % VARIANTS.len()];
+            for offset in 0..variants.len() {
+                let variant = variants[(round + offset) % variants.len()];
                 let _ = run_variant(variant, &ibex, &hermes, &script, *workload);
             }
         }
 
         let mut by_variant: BTreeMap<&'static str, Vec<f64>> = BTreeMap::new();
         for round in 0..samples {
-            for offset in 0..VARIANTS.len() {
-                let variant = VARIANTS[(warmup + round + offset) % VARIANTS.len()];
+            for offset in 0..variants.len() {
+                let variant = variants[(warmup + round + offset) % variants.len()];
                 let result = run_variant(variant, &ibex, &hermes, &script, *workload);
                 by_variant
                     .entry(variant.name)
@@ -343,26 +427,26 @@ fn main() {
             .get("hermes-shell")
             .expect("hermes-shell variant should be present")
             .median_ms;
-        let ibex_base = summaries
-            .get("ibex-default")
-            .expect("ibex-default variant should be present")
+        let reference_base = summaries
+            .get(reference_name)
+            .expect("reference variant should be present")
             .median_ms;
 
         println!();
         println!("workload: {}  iters={}", workload.name, iters);
         println!(
             "{:<16} {:>10} {:>10} {:>14} {:>18}",
-            "variant", "median ms", "MAD ms", "vs hermes", "vs ibex default"
+            "variant", "median ms", "MAD ms", "vs hermes", reference_header
         );
-        for variant in VARIANTS {
+        for variant in &variants {
             let summary = summaries
                 .get(variant.name)
                 .expect("variant should have a summary");
             let vs_hermes = pct_delta(summary.median_ms, hermes_base);
-            let vs_ibex = pct_delta(summary.median_ms, ibex_base);
+            let vs_reference = pct_delta(summary.median_ms, reference_base);
             println!(
                 "{:<16} {:>10.2} {:>10.2} {:>+13.1}% {:>+17.1}%",
-                variant.name, summary.median_ms, summary.mad_ms, vs_hermes, vs_ibex
+                variant.name, summary.median_ms, summary.mad_ms, vs_hermes, vs_reference
             );
         }
     }

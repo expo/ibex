@@ -22,7 +22,8 @@
           "recipeCatalogDigest",
           "recipeCatalogRawContentDigest",
           "publicSurfaceExecutionDigest",
-          "publicSurfaceExecutionRawContentDigest"
+          "publicSurfaceExecutionRawContentDigest",
+          "outputDispositionEvidenceRawContentDigest"
         ],
         "properties": {
           "target": { "$ref": "#/$defs/target" },
@@ -49,6 +50,9 @@
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
           },
           "publicSurfaceExecutionRawContentDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "outputDispositionEvidenceRawContentDigest": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
           }
         },

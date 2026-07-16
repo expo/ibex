@@ -5,6 +5,7 @@ import {
   parseLocaleTag,
   type LocaleDirection,
 } from './i18n-helpers.js';
+import { getHostNavigatorInput } from './host-inputs.js';
 
 export interface ExactLocaleSnapshot {
   readonly language: string;
@@ -60,16 +61,11 @@ export function readNativeLocaleSnapshot(): NativeLocaleSnapshot | null {
   const g = globalThis as typeof globalThis & {
     __exactLocale?: unknown;
     __exactLanguage?: unknown;
-    __exactHostNavigator?: {
-      language?: unknown;
-      languages?: unknown;
-    };
   };
 
-  const hostNavigator =
-    g.__exactHostNavigator && typeof g.__exactHostNavigator === 'object'
-      ? g.__exactHostNavigator
-      : undefined;
+  const hostNavigator = getHostNavigatorInput() as
+    | { language?: unknown; languages?: unknown }
+    | undefined;
   const hostLanguages = Array.isArray(hostNavigator?.languages)
     ? hostNavigator.languages.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
     : [];

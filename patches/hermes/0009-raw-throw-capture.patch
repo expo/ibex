@@ -16,7 +16,7 @@
 # exits.
 #
 diff --git a/API/hermes/hermes.cpp b/API/hermes/hermes.cpp
-index 270bb4a3b..460434d10 100644
+index 270bb4a3b5e1ef761bcf786b147d85dd5704ef3a..460434d10c35790247a10250d46a275623ea2795 100644
 --- a/API/hermes/hermes.cpp
 +++ b/API/hermes/hermes.cpp
 @@ -1261,6 +1261,7 @@ class HermesRuntimeImpl final : public HermesRuntime,
@@ -60,7 +60,7 @@ index 270bb4a3b..460434d10 100644
    std::string stack = "No stack";
    if (auto str = vm::Handle<vm::StringPrimitive>::dyn_vmcast(hnd)) {
 diff --git a/API/hermes/hermes.h b/API/hermes/hermes.h
-index 1a66be931..8f54456cb 100644
+index 1a66be931c50da1e83e283617575b2c3bdcdb0d1..8f54456cb7ca1482774ec991dcc42f9cfa0a8918 100644
 --- a/API/hermes/hermes.h
 +++ b/API/hermes/hermes.h
 @@ -194,6 +194,8 @@ class IHermesTracingHelpers : public jsi::ICast {

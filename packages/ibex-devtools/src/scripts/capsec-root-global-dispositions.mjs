@@ -58,6 +58,10 @@ const PRIVATE_CONSUMERS = new Map([
 const SEALED_ROOTS = new Set([
   "__ex_p",
   "__dirname",
+  // Native installs this digest-bound compatibility tuple only long enough
+  // for the shared runtime to capture it in module-private state. It is not a
+  // project-visible compatibility or environment surface.
+  "__exactCompatModes",
   "__exactEnsureChildProcess",
   "__exactEnsureDns",
   "__exactEnsureFormData",
@@ -68,6 +72,9 @@ const SEALED_ROOTS = new Set([
   "__exactEnsureStreamEnhance",
   "__exactEnsureWebCrypto",
   "__exactEnsureWebStorage",
+  // Diagnostic POSIX child IPC is captured from this frozen, one-shot root
+  // during trusted bootstrap. It is never an armed or project-visible channel.
+  "__exactProcessIpcBootstrap",
   "__hostCall",
   "__hostCallAsync",
   "__filename",
@@ -261,8 +268,17 @@ const POST_BOOTSTRAP_LAZY_ROOTS = new Set([
   "__exactUvEOFValue",
 ]);
 
+const POST_BOOTSTRAP_EMBEDDER_ENDOWMENT_PATHS = new Set([
+  // The native registrar predeclares the stable `exact` facade, but this
+  // method is added only after ex_hermes_set_exact_host_call_async validates
+  // one immutable app/agent operation endowment and refreshes the compartment
+  // baseline. It is deliberately absent at the armed bootstrap seal.
+  "exact.invokeHostAsync",
+]);
+
 const IPC_BOOTSTRAP_ROOTS = new Set([
   "__exactInstallAsyncIpcListenerPatch",
+  "__exactProcessIpcBootstrap",
   "__exactSyncTrackedIpcListenersAfterDispatch",
 ]);
 
@@ -295,6 +311,9 @@ function branchActivation(surface, routes, sourceRefs, targetVariant) {
   // module. They are covered by the install/registry join, but must not exist
   // at the armed bootstrap seal.
   if (POST_BOOTSTRAP_LAZY_ROOTS.has(root)) return "post-bootstrap-lazy";
+  if (POST_BOOTSTRAP_EMBEDDER_ENDOWMENT_PATHS.has(logicalPath)) {
+    return "post-bootstrap-embedder-endowment";
+  }
 
   if (IPC_BOOTSTRAP_ROOTS.has(root)) return "ipc-channel-bootstrap";
   if (

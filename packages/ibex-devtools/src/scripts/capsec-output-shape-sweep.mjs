@@ -18,12 +18,16 @@
 import crypto from "node:crypto";
 import {
   canonicalOutputDispositionKey,
+  OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR,
   outputExecutionContextsForRows,
+  outputParameterizedBindingDigest,
   outputShapeCatalogKeyDigest,
   validateOutputDispositionEvidence,
+  validateOutputDispositionJoin,
   validateOutputShapeCatalogAccounts,
   validateOutputValueProofKind,
 } from "./capsec-output-dispositions.mjs";
+import { ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD } from "./capsec-environment-output-templates.mjs";
 import { CALLBACK_OUTPUT_CONTRACT_SCHEMA } from "./capsec-surface-inventory.mjs";
 import { authoredNonCapabilityBuiltinOutputInvocation } from "./capsec-builtin-public-probe-templates.mjs";
 import {
@@ -55,19 +59,38 @@ import {
   NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
   validateNativeFreezeOutputInvocation,
 } from "./capsec-native-freeze-output-templates.mjs";
+import { buildHostAbiOutputProbePartition } from "./capsec-host-abi-output-templates.mjs";
 
 export const OUTPUT_SHAPE_SWEEP_EXECUTOR =
-  "ibex-public-surface-harness/output-shape-sweep-v2";
+  OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR;
 
 const PROFILE = "ibex/capsec/1";
 const CATALOG_SCHEMA = "ibex/capsec-output-shape-catalog/2";
-const PLAN_SCHEMA = "ibex/capsec-output-shape-sweep-plan/2";
-const ARTIFACT_SCHEMA = "ibex/capsec-output-shape-sweep-artifact/2";
-const EXECUTOR_BATCH_SCHEMA = "ibex/capsec-output-shape-executor-batch/2";
-const PLAN_DIGEST_DOMAIN = "ibex:capsec:output-shape-sweep-plan:2";
-const ARTIFACT_DIGEST_DOMAIN = "ibex:capsec:output-shape-sweep-artifact:2";
+const PLAN_SCHEMA = "ibex/capsec-output-shape-sweep-plan/3";
+const ARTIFACT_SCHEMA = "ibex/capsec-output-shape-sweep-artifact/3";
+const EXECUTOR_BATCH_SCHEMA = "ibex/capsec-output-shape-executor-batch/3";
+const PLAN_DIGEST_DOMAIN = "ibex:capsec:output-shape-sweep-plan:3";
+const ARTIFACT_DIGEST_DOMAIN = "ibex:capsec:output-shape-sweep-artifact:3";
+const EXECUTION_PARTITION_SCHEMA =
+  "ibex/capsec-output-shape-execution-partition/1";
 const DIGEST_PATTERN = /^sha256-[A-Za-z0-9_-]{43}$/u;
 const REVISION_PATTERN = /^[0-9a-f]{40}$/u;
+const TARGET_FIELDS = Object.freeze(["triple", "features"]);
+const ENGINE_FIELDS = Object.freeze([
+  "binaryDigest",
+  "engineArtifactPath",
+  "kind",
+  "object",
+  "structuralFeatures",
+  "targetArchitecture",
+]);
+const ENGINE_OBJECT_FIELDS = Object.freeze(["file", "platform", "volume"]);
+const ENGINE_OBJECT_PLATFORMS = new Set([
+  "android",
+  "apple",
+  "unix",
+  "windows",
+]);
 const OUTCOMES = new Set(["absent", "return", "throw", "typed-return"]);
 const VALUE_TYPES = new Set([
   "bigint",
@@ -181,16 +204,69 @@ function revision(value, label) {
   return value;
 }
 
+function canonicalStableIdSet(value, label) {
+  if (
+    !Array.isArray(value) ||
+    value.some(
+      (item) =>
+        typeof item !== "string" || !/^[a-z][a-z0-9.-]*$/u.test(item),
+    ) ||
+    canonicalJson(value) !==
+      canonicalJson([...new Set(value)].sort(compareText))
+  ) {
+    throw new Error(`${label}: expected a canonical stable-id set`);
+  }
+  return value;
+}
+
+function exactTarget(target, label) {
+  exactKeys(target, TARGET_FIELDS, label);
+  if (!/^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$/u.test(target.triple ?? "")) {
+    throw new Error(`${label}.triple: expected an exact target triple`);
+  }
+  canonicalStableIdSet(target.features, `${label}.features`);
+  return target;
+}
+
+function exactEngine(engine, target, label) {
+  exactKeys(engine, ENGINE_FIELDS, label);
+  exactKeys(engine.object, ENGINE_OBJECT_FIELDS, `${label}.object`);
+  canonicalStableIdSet(engine.structuralFeatures, `${label}.structuralFeatures`);
+  const expectedObjectPlatform = target.triple.includes("-windows-")
+    ? "windows"
+    : target.triple.includes("-android")
+      ? "android"
+      : target.triple.includes("-apple-")
+        ? "apple"
+        : "unix";
+  if (
+    engine.kind !== "hermes" ||
+    typeof engine.engineArtifactPath !== "string" ||
+    engine.engineArtifactPath.length === 0 ||
+    !DIGEST_PATTERN.test(engine.binaryDigest ?? "") ||
+    !ENGINE_OBJECT_PLATFORMS.has(engine.object.platform) ||
+    engine.object.platform !== expectedObjectPlatform ||
+    typeof engine.object.volume !== "string" ||
+    engine.object.volume.length === 0 ||
+    typeof engine.object.file !== "string" ||
+    engine.object.file.length === 0 ||
+    !/^[a-z0-9_]+$/u.test(engine.targetArchitecture ?? "") ||
+    engine.targetArchitecture !== target.triple.split("-")[0] ||
+    canonicalJson(engine.structuralFeatures) !== canonicalJson(target.features)
+  ) {
+    throw new Error(`${label}: expected the exact target-bound Hermes image`);
+  }
+  return engine;
+}
+
 function assertBindingInputs(
-  { sourceRevision, sourceTreeDigest, engine },
+  { sourceRevision, sourceTreeDigest, target, engine },
   label,
 ) {
   revision(sourceRevision, `${label}.sourceRevision`);
   digest(sourceTreeDigest, `${label}.sourceTreeDigest`);
-  if (!engine || typeof engine !== "object" || Array.isArray(engine)) {
-    throw new Error(`${label}.engine: expected exact loaded-engine identity`);
-  }
-  digest(engine.binaryDigest, `${label}.engine.binaryDigest`);
+  exactTarget(target, `${label}.target`);
+  exactEngine(engine, target, `${label}.engine`);
 }
 
 function assertNoExpectedValueEcho(value, label) {
@@ -226,6 +302,8 @@ function validateSweepCatalog(catalog, label = "output-shape catalog") {
       "discovery",
       "contexts",
       "surfaceAccounts",
+      "parameterizedOutputBindings",
+      "parameterizedBindingDigest",
       "catalogKeyDigest",
       "counts",
       "rows",
@@ -238,6 +316,9 @@ function validateSweepCatalog(catalog, label = "output-shape catalog") {
     !Array.isArray(catalog.rows) ||
     !Array.isArray(catalog.contexts) ||
     !Array.isArray(catalog.surfaceAccounts) ||
+    !Array.isArray(catalog.parameterizedOutputBindings) ||
+    catalog.parameterizedBindingDigest !==
+      outputParameterizedBindingDigest(catalog.parameterizedOutputBindings) ||
     catalog.catalogKeyDigest !== outputShapeCatalogKeyDigest(catalog.rows)
   ) {
     throw new Error(`${label}: expected an intact v2 catalog`);
@@ -252,7 +333,9 @@ function validateSweepCatalog(catalog, label = "output-shape catalog") {
           "method",
           "requiredExecutor",
           "sourceRevision",
-          "engineBinaryDigest",
+          "sourceTreeDigest",
+          "target",
+          "engine",
         ]
       : ["status", "method", "requiredExecutor", "reason"],
     `${label}.discovery`,
@@ -267,9 +350,17 @@ function validateSweepCatalog(catalog, label = "output-shape catalog") {
         discovery.reason.length === 0)) ||
     (verified &&
       (!REVISION_PATTERN.test(discovery.sourceRevision ?? "") ||
-        !DIGEST_PATTERN.test(discovery.engineBinaryDigest ?? "")))
+        !DIGEST_PATTERN.test(discovery.sourceTreeDigest ?? "")))
   ) {
     throw new Error(`${label}.discovery: malformed live-evidence binding`);
+  }
+  if (verified) {
+    exactTarget(discovery.target, `${label}.discovery.target`);
+    exactEngine(
+      discovery.engine,
+      discovery.target,
+      `${label}.discovery.engine`,
+    );
   }
   const expectedContexts = outputExecutionContextsForRows(catalog.rows);
   if (canonicalJson(catalog.contexts) !== canonicalJson(expectedContexts)) {
@@ -280,6 +371,7 @@ function validateSweepCatalog(catalog, label = "output-shape catalog") {
   const accountCounts = validateOutputShapeCatalogAccounts({
     surfaceAccounts: catalog.surfaceAccounts,
     rows: catalog.rows,
+    parameterizedOutputBindings: catalog.parameterizedOutputBindings,
     promotionStatus: discovery.status,
   });
   const expectedCounts = {
@@ -288,6 +380,7 @@ function validateSweepCatalog(catalog, label = "output-shape catalog") {
     structuralOnlySurfaces: accountCounts["structural-only"],
     unresolvedSurfaces: accountCounts.unresolved,
     catalogRows: catalog.rows.length,
+    parameterizedBindings: catalog.parameterizedOutputBindings.length,
     sourceInventoryRows: catalog.rows.filter(
       (row) => row.discovery?.kind === "source-inventory-surface",
     ).length,
@@ -2596,6 +2689,140 @@ export function buildOutputShapeSweepProbes({
   );
 }
 
+function projectGenericOutputShapeCatalog(catalog, coverage) {
+  validateSweepCatalog(catalog, "complete output-shape execution catalog");
+  const coverageById = coverageEdgeMap(coverage);
+  const hostAbiSurfaceIds = new Set();
+  for (const edge of coverageById.values()) {
+    if (edge.surface?.kind === "host-abi") hostAbiSurfaceIds.add(edge.id);
+  }
+
+  for (const row of catalog.rows) {
+    const edge = coverageById.get(row.key.surfaceId);
+    if (!edge) {
+      throw new Error(
+        `${row.key.surfaceId}: output row has no coverage surface during execution partitioning`,
+      );
+    }
+    if (
+      (row.key.sourceKind === "host-abi") !==
+      (edge.surface?.kind === "host-abi")
+    ) {
+      throw new Error(
+        `${row.key.surfaceId}: Host ABI source kind and coverage kind disagree`,
+      );
+    }
+  }
+
+  const rows = catalog.rows.filter(
+    (row) => row.key.sourceKind !== "host-abi",
+  );
+  const surfaceAccounts = catalog.surfaceAccounts.filter((account) => {
+    if (!coverageById.has(account.surfaceId)) {
+      throw new Error(
+        `${account.surfaceId}: output account has no coverage surface during execution partitioning`,
+      );
+    }
+    return !hostAbiSurfaceIds.has(account.surfaceId);
+  });
+  const parameterizedOutputBindings = catalog.parameterizedOutputBindings.filter(
+    (binding) => !hostAbiSurfaceIds.has(binding.surfaceId),
+  );
+  const accountCounts = validateOutputShapeCatalogAccounts({
+    surfaceAccounts,
+    rows,
+    parameterizedOutputBindings,
+    promotionStatus: catalog.discovery.status,
+  });
+  const projected = {
+    outputShapeCatalogSchema: catalog.outputShapeCatalogSchema,
+    profile: catalog.profile,
+    discovery: structuredClone(catalog.discovery),
+    contexts: outputExecutionContextsForRows(rows),
+    surfaceAccounts: structuredClone(surfaceAccounts),
+    parameterizedOutputBindings: structuredClone(parameterizedOutputBindings),
+    parameterizedBindingDigest: outputParameterizedBindingDigest(
+      parameterizedOutputBindings,
+    ),
+    catalogKeyDigest: outputShapeCatalogKeyDigest(rows),
+    counts: {
+      coverageSurfaces: surfaceAccounts.length,
+      outputBearingSurfaces: accountCounts["output-bearing"],
+      structuralOnlySurfaces: accountCounts["structural-only"],
+      unresolvedSurfaces: accountCounts.unresolved,
+      catalogRows: rows.length,
+      parameterizedBindings: parameterizedOutputBindings.length,
+      sourceInventoryRows: rows.filter(
+        (row) => row.discovery?.kind === "source-inventory-surface",
+      ).length,
+      structuredRows: rows.filter(
+        (row) => row.discovery?.kind === STRUCTURED_DISCOVERY_KIND,
+      ).length,
+    },
+    rows: structuredClone(rows),
+  };
+  return validateSweepCatalog(
+    projected,
+    "generic output-shape execution catalog",
+  );
+}
+
+/**
+ * Split the complete output catalog at the production executor boundary.
+ * Host-ABI rows retain their dedicated native author (including exact
+ * target-absence preemption); only the remaining rows enter the loaded-JS
+ * sweep. The returned key sets are checked bidirectionally against the full
+ * catalog so delegation cannot silently drop or duplicate a value row.
+ */
+export function buildOutputShapeSweepExecutionPartition({
+  catalog,
+  coverage,
+  surfaces,
+  target,
+  targetAbsenceBindings = [],
+}) {
+  if (
+    !Array.isArray(targetAbsenceBindings) ||
+    targetAbsenceBindings.some(
+      (binding) => binding?.key?.sourceKind !== "host-abi",
+    )
+  ) {
+    throw new Error(
+      "output-shape execution partition requires only exact Host ABI target-absence bindings",
+    );
+  }
+  const hostAbi = buildHostAbiOutputProbePartition({
+    catalog,
+    coverage,
+    surfaces,
+    targetAbsenceBindings,
+  });
+  const genericCatalog = projectGenericOutputShapeCatalog(catalog, coverage);
+  const genericProbes = buildOutputShapeSweepProbes({
+    catalog: genericCatalog,
+    coverage,
+    surfaces,
+    target,
+  });
+  assertBidirectionalKeys(
+    catalog.rows,
+    [
+      ...genericCatalog.rows,
+      ...hostAbi.targetAbsenceBindings,
+      ...hostAbi.rows,
+      ...hostAbi.residuals,
+    ],
+    "output-shape production execution partition",
+  );
+  return {
+    outputShapeExecutionPartitionSchema: EXECUTION_PARTITION_SCHEMA,
+    completeCatalogKeyDigest: catalog.catalogKeyDigest,
+    genericCatalog,
+    genericProbes,
+    hostAbi,
+  };
+}
+
 function sortedRows(rows) {
   return [...rows].sort((left, right) =>
     compareText(
@@ -2679,6 +2906,7 @@ function validatePlanSelf(plan) {
       "executor",
       "sourceRevision",
       "sourceTreeDigest",
+      "target",
       "engine",
       "catalogKeyDigest",
       "surfaceAccountIds",
@@ -2719,11 +2947,12 @@ export function buildOutputShapeSweepPlan({
   catalog,
   sourceRevision,
   sourceTreeDigest,
+  target,
   engine,
   probes,
 }) {
   assertBindingInputs(
-    { sourceRevision, sourceTreeDigest, engine },
+    { sourceRevision, sourceTreeDigest, target, engine },
     "sweep plan",
   );
   validateSweepCatalog(catalog, "output-shape sweep plan catalog");
@@ -2755,6 +2984,7 @@ export function buildOutputShapeSweepPlan({
     executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
     sourceRevision,
     sourceTreeDigest,
+    target: structuredClone(target),
     engine: structuredClone(engine),
     catalogKeyDigest: catalog.catalogKeyDigest,
     surfaceAccountIds: catalogSurfaceAccountIds(catalog),
@@ -2766,13 +2996,14 @@ export function buildOutputShapeSweepPlan({
 
 export function validateOutputShapeSweepPlan(
   plan,
-  { catalog, sourceRevision, sourceTreeDigest, engine },
+  { catalog, sourceRevision, sourceTreeDigest, target, engine },
 ) {
   validatePlanSelf(plan);
   validateSweepCatalog(catalog, "output-shape sweep validation catalog");
   if (
     plan.sourceRevision !== sourceRevision ||
     plan.sourceTreeDigest !== sourceTreeDigest ||
+    canonicalJson(plan.target) !== canonicalJson(target) ||
     canonicalJson(plan.engine) !== canonicalJson(engine) ||
     plan.catalogKeyDigest !== catalog.catalogKeyDigest ||
     plan.catalogKeyDigest !== outputShapeCatalogKeyDigest(catalog.rows) ||
@@ -3492,6 +3723,7 @@ export function buildOutputShapeSweepArtifactFromExecutorBatch({
       "executor",
       "sourceRevision",
       "sourceTreeDigest",
+      "target",
       "catalogKeyDigest",
       "sweepPlanDigest",
       "loadedEngineIdentity",
@@ -3507,6 +3739,7 @@ export function buildOutputShapeSweepArtifactFromExecutorBatch({
     batch.executor !== OUTPUT_SHAPE_SWEEP_EXECUTOR ||
     batch.sourceRevision !== plan.sourceRevision ||
     batch.sourceTreeDigest !== plan.sourceTreeDigest ||
+    canonicalJson(batch.target) !== canonicalJson(plan.target) ||
     batch.catalogKeyDigest !== plan.catalogKeyDigest ||
     batch.sweepPlanDigest !== plan.sweepPlanDigest ||
     canonicalJson(batch.loadedEngineIdentity) !== canonicalJson(plan.engine)
@@ -3686,6 +3919,7 @@ export function sealOutputShapeSweepArtifact({
     executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
     sourceRevision: plan.sourceRevision,
     sourceTreeDigest: plan.sourceTreeDigest,
+    target: structuredClone(plan.target),
     catalogKeyDigest: plan.catalogKeyDigest,
     sweepPlanDigest: plan.sweepPlanDigest,
     loadedEngineIdentity: structuredClone(loadedEngineIdentity),
@@ -3706,6 +3940,7 @@ export function validateOutputShapeSweepArtifact(artifact, plan) {
       "executor",
       "sourceRevision",
       "sourceTreeDigest",
+      "target",
       "catalogKeyDigest",
       "sweepPlanDigest",
       "loadedEngineIdentity",
@@ -3721,6 +3956,7 @@ export function validateOutputShapeSweepArtifact(artifact, plan) {
     artifact.executor !== OUTPUT_SHAPE_SWEEP_EXECUTOR ||
     artifact.sourceRevision !== plan.sourceRevision ||
     artifact.sourceTreeDigest !== plan.sourceTreeDigest ||
+    canonicalJson(artifact.target) !== canonicalJson(plan.target) ||
     artifact.catalogKeyDigest !== plan.catalogKeyDigest ||
     artifact.sweepPlanDigest !== plan.sweepPlanDigest ||
     canonicalJson(artifact.loadedEngineIdentity) !==
@@ -3796,12 +4032,14 @@ export function buildVerifiedOutputDispositionEvidence({
   artifact,
   sourceRevision,
   sourceTreeDigest,
+  target,
   engine,
 }) {
   validateOutputShapeSweepPlan(plan, {
     catalog,
     sourceRevision,
     sourceTreeDigest,
+    target,
     engine,
   });
   if (plan.catalogKeyDigest !== outputShapeCatalogKeyDigest(dispositionRows)) {
@@ -3816,12 +4054,16 @@ export function buildVerifiedOutputDispositionEvidence({
   );
   const evidence = {
     outputDispositionEvidenceSchema:
-      "ibex/capsec-output-disposition-evidence/2",
+      "ibex/capsec-output-disposition-evidence/3",
     profile: PROFILE,
     status: "verified",
     requiredExecutor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
     sourceRevision: plan.sourceRevision,
-    engineBinaryDigest: plan.engine.binaryDigest,
+    sourceTreeDigest: plan.sourceTreeDigest,
+    target: structuredClone(plan.target),
+    engine: structuredClone(plan.engine),
+    sweepPlan: structuredClone(plan),
+    sweepArtifact: structuredClone(artifact),
     observations: artifact.observations.map((actual) => {
       const canonicalKey = canonicalOutputDispositionKey(actual.key);
       const reviewed = dispositionsByKey.get(canonicalKey);
@@ -3843,4 +4085,58 @@ export function buildVerifiedOutputDispositionEvidence({
   };
   validateOutputDispositionEvidence(dispositionRows, evidence);
   return evidence;
+}
+
+/**
+ * Validate the complete executor proof bundle before any target promotion.
+ * The projected observations alone are deliberately insufficient: promotion
+ * replays the sealed plan/artifact validation and reconstructs the projection
+ * byte-for-byte from their full per-row proof records.
+ */
+export function validatePromotableOutputDispositionEvidence({
+  catalog,
+  dispositionRows,
+  evidence,
+}) {
+  const state = validateOutputDispositionEvidence(dispositionRows, evidence);
+  if (state.status !== "verified") {
+    throw new Error(
+      "target promotion requires verified loaded-engine output-disposition evidence",
+    );
+  }
+  validateOutputShapeSweepPlan(evidence.sweepPlan, {
+    catalog,
+    sourceRevision: state.sourceRevision,
+    sourceTreeDigest: state.sourceTreeDigest,
+    target: state.target,
+    engine: state.engine,
+  });
+  validateOutputShapeSweepArtifact(
+    evidence.sweepArtifact,
+    evidence.sweepPlan,
+  );
+  const reconstructed = buildVerifiedOutputDispositionEvidence({
+    catalog,
+    dispositionRows,
+    plan: evidence.sweepPlan,
+    artifact: evidence.sweepArtifact,
+    sourceRevision: state.sourceRevision,
+    sourceTreeDigest: state.sourceTreeDigest,
+    target: state.target,
+    engine: state.engine,
+  });
+  if (canonicalJson(reconstructed) !== canonicalJson(evidence)) {
+    throw new Error(
+      "output-disposition evidence projection differs from its sealed sweep proof",
+    );
+  }
+  validateOutputDispositionJoin(catalog.rows, dispositionRows);
+  validateOutputShapeCatalogAccounts({
+    surfaceAccounts: catalog.surfaceAccounts,
+    rows: catalog.rows,
+    parameterizedOutputBindings:
+      catalog[ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD],
+    promotionStatus: "verified",
+  });
+  return state;
 }

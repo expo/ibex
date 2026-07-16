@@ -9,15 +9,28 @@ pub mod transpile;
 use anyhow::{anyhow, Context, Result};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use oxc_resolver::{ModuleType, ResolveOptions, Resolver};
+use oxc_resolver::{
+    FileMetadata as ResolverFileMetadata, FileSystem as ResolverFileSystem, ModuleType,
+    ResolveError, ResolveOptions, Resolver, ResolverGeneric,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsStr;
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::SystemTime;
+
+#[cfg(unix)]
+use std::collections::VecDeque;
+#[cfg(unix)]
+use std::ffi::{CString, OsString};
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+#[cfg(unix)]
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
@@ -158,6 +171,861 @@ pub struct ModuleLoader {
     /// Memoized `version` per package root dir (the nearest `package.json`), so
     /// version derivation is one read per package, not per module. (ENG-22621)
     package_versions: std::sync::RwLock<HashMap<PathBuf, Option<String>>>,
+    environment: CapturedModuleLoaderEnvironment,
+    transpile_mode: TranspileMode,
+}
+
+/// The complete filesystem input admitted to one armed resolver invocation.
+///
+/// `boundary_root` is the already-authenticated project root. Package
+/// manifests and their absences are captured by Host through its typed VFS
+/// read path and are the *only* `package.json` facts visible to OXC. A manifest
+/// missing from both sets is recorded for a later authenticated Host discovery
+/// pass and behaves as absent during this resolver attempt; it is never opened
+/// from the ambient host filesystem.
+///
+/// @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
+/// @ref LLP 0023#21-staged-authorization-identity
+#[derive(Clone)]
+pub(crate) struct AuthenticatedResolverInputs {
+    inner: Arc<AuthenticatedResolverInputState>,
+}
+
+struct AuthenticatedResolverInputState {
+    boundary_root: PathBuf,
+    package_manifests: BTreeMap<PathBuf, Arc<[u8]>>,
+    absent_package_manifests: BTreeSet<PathBuf>,
+    denied_principal_subtrees: BTreeSet<PathBuf>,
+    uncaptured_package_manifest_probes: std::sync::Mutex<BTreeSet<PathBuf>>,
+    #[cfg(unix)]
+    boundary_handle: std::fs::File,
+}
+
+impl AuthenticatedResolverInputs {
+    pub(crate) fn new(
+        boundary_root: PathBuf,
+        expected_boundary_object: &capsec_semantics::model::ObjectIdentity,
+        package_manifests: BTreeMap<PathBuf, Vec<u8>>,
+        absent_package_manifests: BTreeSet<PathBuf>,
+        denied_principal_subtrees: BTreeSet<PathBuf>,
+    ) -> Result<Self> {
+        let boundary_root = lexical_absolute_path_for_resolver(&boundary_root)
+            .context("authenticated resolver boundary is not an absolute normalized path")?;
+
+        // Validate the whole caller-supplied namespace before opening the
+        // boundary descriptor. An outside manifest key must therefore fail
+        // before this constructor performs any filesystem I/O.
+        let mut captured = BTreeMap::new();
+        for (path, bytes) in package_manifests {
+            let path = lexical_absolute_path_for_resolver(&path)
+                .context("authenticated package manifest path is not absolute")?;
+            anyhow::ensure!(
+                path.starts_with(&boundary_root),
+                "authenticated package manifest is outside the resolver boundary"
+            );
+            anyhow::ensure!(
+                path.file_name() == Some(OsStr::new("package.json")),
+                "authenticated resolver inputs may contain only package.json bytes"
+            );
+            anyhow::ensure!(
+                captured.insert(path, Arc::<[u8]>::from(bytes)).is_none(),
+                "authenticated package manifest paths are not unique after normalization"
+            );
+        }
+        let mut absent = BTreeSet::new();
+        for path in absent_package_manifests {
+            let path = lexical_absolute_path_for_resolver(&path)
+                .context("authenticated absent package manifest path is not absolute")?;
+            anyhow::ensure!(
+                path.starts_with(&boundary_root),
+                "authenticated absent package manifest is outside the resolver boundary"
+            );
+            anyhow::ensure!(
+                path.file_name() == Some(OsStr::new("package.json")),
+                "authenticated resolver absences may contain only package.json paths"
+            );
+            anyhow::ensure!(
+                !captured.contains_key(&path),
+                "package manifest cannot be both captured and authenticated absent"
+            );
+            anyhow::ensure!(
+                absent.insert(path),
+                "authenticated absent package manifest paths are not unique after normalization"
+            );
+        }
+        let mut denied_subtrees = BTreeSet::new();
+        for path in denied_principal_subtrees {
+            let path = lexical_absolute_path_for_resolver(&path)
+                .context("denied principal subtree path is not absolute")?;
+            anyhow::ensure!(
+                path != boundary_root && path.starts_with(&boundary_root),
+                "denied principal subtree must be a strict descendant of the resolver boundary"
+            );
+            anyhow::ensure!(
+                denied_subtrees.insert(path),
+                "denied principal subtree paths are not unique after normalization"
+            );
+        }
+        let inside_denied_subtree = |path: &Path| {
+            denied_subtrees
+                .iter()
+                .any(|denied| path == denied || path.starts_with(denied))
+        };
+        anyhow::ensure!(
+            captured.keys().all(|path| !inside_denied_subtree(path)),
+            "captured package manifest is inside a denied principal subtree"
+        );
+        anyhow::ensure!(
+            absent.iter().all(|path| !inside_denied_subtree(path)),
+            "absent package manifest is inside a denied principal subtree"
+        );
+
+        #[cfg(not(unix))]
+        {
+            let _ = (
+                boundary_root,
+                expected_boundary_object,
+                captured,
+                absent,
+                denied_subtrees,
+            );
+            anyhow::bail!(
+                "authenticated module resolution requires descriptor-relative Unix traversal"
+            );
+        }
+
+        #[cfg(unix)]
+        {
+            let boundary_handle =
+                std::fs::File::from(open_resolver_boundary(&boundary_root).with_context(|| {
+                    format!(
+                        "failed to retain authenticated resolver boundary {}",
+                        boundary_root.display()
+                    )
+                })?);
+            let actual_boundary_object = crate::vfs::object_identity_for_metadata(
+                &boundary_handle.metadata().with_context(|| {
+                    format!(
+                        "failed to inspect authenticated resolver boundary {}",
+                        boundary_root.display()
+                    )
+                })?,
+            )?;
+            anyhow::ensure!(
+                &actual_boundary_object == expected_boundary_object,
+                "authenticated resolver boundary object changed before retention"
+            );
+            Ok(Self {
+                inner: Arc::new(AuthenticatedResolverInputState {
+                    boundary_root,
+                    package_manifests: captured,
+                    absent_package_manifests: absent,
+                    denied_principal_subtrees: denied_subtrees,
+                    uncaptured_package_manifest_probes: std::sync::Mutex::new(BTreeSet::new()),
+                    boundary_handle,
+                }),
+            })
+        }
+    }
+
+    pub(crate) fn boundary_root(&self) -> &Path {
+        &self.inner.boundary_root
+    }
+
+    pub(crate) fn uncaptured_package_manifest_probes(&self) -> Result<BTreeSet<PathBuf>> {
+        self.inner
+            .uncaptured_package_manifest_probes
+            .lock()
+            .map(|probes| probes.clone())
+            .map_err(|_| anyhow!("authenticated resolver manifest-probe ledger is poisoned"))
+    }
+
+    fn normalize_in_boundary(&self, path: &Path) -> io::Result<PathBuf> {
+        let normalized = lexical_absolute_path_for_resolver(path)?;
+        if !normalized.starts_with(self.boundary_root()) {
+            return Err(resolver_boundary_refusal());
+        }
+        if self
+            .inner
+            .denied_principal_subtrees
+            .iter()
+            .any(|denied| normalized.as_path() == denied || normalized.starts_with(denied))
+        {
+            return Err(resolver_boundary_refusal());
+        }
+        Ok(normalized)
+    }
+
+    fn manifest_input(&self, path: &Path) -> io::Result<ResolverManifestInput<'_>> {
+        let normalized = self.normalize_in_boundary(path)?;
+        if normalized.file_name() != Some(OsStr::new("package.json")) {
+            return Ok(ResolverManifestInput::NotManifest);
+        }
+        if let Some(bytes) = self.inner.package_manifests.get(&normalized) {
+            return Ok(ResolverManifestInput::Present(bytes.as_ref()));
+        }
+        if self.inner.absent_package_manifests.contains(&normalized) {
+            return Ok(ResolverManifestInput::Unavailable);
+        }
+        self.inner
+            .uncaptured_package_manifest_probes
+            .lock()
+            .map_err(|_| {
+                io::Error::other("authenticated resolver manifest-probe ledger is poisoned")
+            })?
+            .insert(normalized);
+        Ok(ResolverManifestInput::Unavailable)
+    }
+
+    fn parse_manifest(&self, path: &Path) -> Result<Value> {
+        let bytes = match self.manifest_input(path)? {
+            ResolverManifestInput::Present(bytes) => bytes,
+            ResolverManifestInput::Unavailable => {
+                anyhow::bail!("authenticated package manifest was not captured")
+            }
+            ResolverManifestInput::NotManifest => {
+                anyhow::bail!("authenticated package manifest path is invalid")
+            }
+        };
+        serde_json::from_slice(bytes)
+            .with_context(|| format!("Invalid authenticated package manifest {}", path.display()))
+    }
+
+    fn file_system(&self) -> BoundedResolverFileSystem {
+        BoundedResolverFileSystem {
+            inputs: Some(self.clone()),
+        }
+    }
+}
+
+enum ResolverManifestInput<'a> {
+    NotManifest,
+    Present(&'a [u8]),
+    Unavailable,
+}
+
+/// OXC filesystem used only by armed resolution. Target metadata remains a
+/// descriptor-relative host lookup inside the retained project root; manifest
+/// reads are served exclusively from `AuthenticatedResolverInputs`.
+#[derive(Clone, Default)]
+struct BoundedResolverFileSystem {
+    inputs: Option<AuthenticatedResolverInputs>,
+}
+
+impl BoundedResolverFileSystem {
+    fn inputs(&self) -> io::Result<&AuthenticatedResolverInputs> {
+        self.inputs.as_ref().ok_or_else(resolver_boundary_refusal)
+    }
+
+    fn normalized(&self, path: &Path) -> io::Result<PathBuf> {
+        self.inputs()?.normalize_in_boundary(path)
+    }
+
+    fn manifest_input(&self, path: &Path) -> io::Result<ResolverManifestInput<'_>> {
+        self.inputs()?.manifest_input(path)
+    }
+}
+
+impl ResolverFileSystem for BoundedResolverFileSystem {
+    fn new() -> Self {
+        // Armed callers always use `ResolverGeneric::new_with_file_system`.
+        // Keeping the trait constructor inert makes an accidental generic
+        // `new` fail closed on its first operation.
+        Self::default()
+    }
+
+    fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
+        let normalized = self.normalized(path)?;
+        match self.manifest_input(&normalized)? {
+            ResolverManifestInput::Present(bytes) => Ok(bytes.to_vec()),
+            ResolverManifestInput::Unavailable => Err(resolver_manifest_not_found()),
+            ResolverManifestInput::NotManifest => Err(resolver_boundary_refusal()),
+        }
+    }
+
+    fn read_to_string(&self, path: &Path) -> io::Result<String> {
+        String::from_utf8(self.read(path)?)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "manifest is not UTF-8"))
+    }
+
+    fn metadata(&self, path: &Path) -> io::Result<ResolverFileMetadata> {
+        let normalized = self.normalized(path)?;
+        match self.manifest_input(&normalized)? {
+            ResolverManifestInput::Present(_) => {
+                return Ok(ResolverFileMetadata::new(true, false, false));
+            }
+            ResolverManifestInput::Unavailable => return Err(resolver_manifest_not_found()),
+            ResolverManifestInput::NotManifest => {}
+        }
+
+        #[cfg(unix)]
+        {
+            let resolved = resolve_bounded_unix_path(self.inputs()?, &normalized)?;
+            Ok(resolver_metadata_from_stat(&resolved.metadata))
+        }
+
+        #[cfg(not(unix))]
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "authenticated resolver filesystem is Unix-only",
+        ))
+    }
+
+    fn symlink_metadata(&self, path: &Path) -> io::Result<ResolverFileMetadata> {
+        let normalized = self.normalized(path)?;
+        match self.manifest_input(&normalized)? {
+            ResolverManifestInput::Present(_) => {
+                return Ok(ResolverFileMetadata::new(true, false, false));
+            }
+            ResolverManifestInput::Unavailable => return Err(resolver_manifest_not_found()),
+            ResolverManifestInput::NotManifest => {}
+        }
+
+        #[cfg(unix)]
+        {
+            bounded_unix_symlink_metadata(self.inputs()?, &normalized)
+                .map(|metadata| resolver_metadata_from_stat(&metadata))
+        }
+
+        #[cfg(not(unix))]
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "authenticated resolver filesystem is Unix-only",
+        ))
+    }
+
+    fn read_link(&self, path: &Path) -> std::result::Result<PathBuf, ResolveError> {
+        let normalized = self.normalized(path)?;
+        match self.manifest_input(&normalized)? {
+            ResolverManifestInput::Present(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "captured manifests are regular files",
+                )
+                .into());
+            }
+            ResolverManifestInput::Unavailable => {
+                return Err(resolver_manifest_not_found().into());
+            }
+            ResolverManifestInput::NotManifest => {}
+        }
+
+        #[cfg(unix)]
+        {
+            bounded_unix_read_link(self.inputs()?, &normalized).map_err(Into::into)
+        }
+
+        #[cfg(not(unix))]
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "authenticated resolver filesystem is Unix-only",
+        )
+        .into())
+    }
+
+    fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+        let normalized = self.normalized(path)?;
+        match self.manifest_input(&normalized)? {
+            ResolverManifestInput::Present(_) => {
+                #[cfg(unix)]
+                {
+                    let parent = normalized.parent().ok_or_else(resolver_boundary_refusal)?;
+                    let resolved_parent = resolve_bounded_unix_path(self.inputs()?, parent)?;
+                    if !resolver_metadata_from_stat(&resolved_parent.metadata).is_dir() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::NotADirectory,
+                            "manifest parent is not a directory",
+                        ));
+                    }
+                    return Ok(resolved_parent.canonical_path.join("package.json"));
+                }
+
+                #[cfg(not(unix))]
+                {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "authenticated resolver filesystem is Unix-only",
+                    ));
+                }
+            }
+            ResolverManifestInput::Unavailable => return Err(resolver_manifest_not_found()),
+            ResolverManifestInput::NotManifest => {}
+        }
+
+        #[cfg(unix)]
+        {
+            resolve_bounded_unix_path(self.inputs()?, &normalized)
+                .map(|resolved| resolved.canonical_path)
+        }
+
+        #[cfg(not(unix))]
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "authenticated resolver filesystem is Unix-only",
+        ))
+    }
+}
+
+fn resolver_boundary_refusal() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        "resolver path is outside the authenticated boundary",
+    )
+}
+
+fn resolver_manifest_not_found() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::NotFound,
+        "authenticated package manifest is unavailable",
+    )
+}
+
+fn lexical_absolute_path_for_resolver(path: &Path) -> io::Result<PathBuf> {
+    if !path.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "resolver path is not absolute",
+        ));
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let _ = normalized.pop();
+            }
+            Component::Normal(value) => normalized.push(value),
+        }
+    }
+    if !normalized.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "resolver path normalization lost its root",
+        ));
+    }
+    Ok(normalized)
+}
+
+#[cfg(unix)]
+struct BoundedUnixResolution {
+    canonical_path: PathBuf,
+    metadata: libc::stat,
+    directory: Option<OwnedFd>,
+}
+
+#[cfg(unix)]
+fn open_resolver_boundary(path: &Path) -> io::Result<OwnedFd> {
+    let path = CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "resolver boundary contains a NUL byte",
+        )
+    })?;
+    // SAFETY: `path` is a live NUL-terminated string. The returned descriptor
+    // is checked for failure and immediately moved into `OwnedFd`.
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `open` returned a new owned descriptor above.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+#[cfg(unix)]
+fn duplicate_resolver_fd(fd: RawFd) -> io::Result<OwnedFd> {
+    // SAFETY: `fd` is borrowed for this call; `fcntl` creates a distinct owned
+    // descriptor on success.
+    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `fcntl(F_DUPFD_CLOEXEC)` returned a new descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(duplicate) })
+}
+
+#[cfg(unix)]
+fn resolver_component_cstring(component: &OsStr) -> io::Result<CString> {
+    CString::new(component.as_bytes()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "resolver path component contains a NUL byte",
+        )
+    })
+}
+
+#[cfg(unix)]
+fn resolver_fstat(fd: RawFd) -> io::Result<libc::stat> {
+    let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `metadata` points to writable storage for one `stat`; `fd` is a
+    // live borrowed descriptor.
+    if unsafe { libc::fstat(fd, metadata.as_mut_ptr()) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: successful `fstat` initialized the whole output structure.
+    Ok(unsafe { metadata.assume_init() })
+}
+
+#[cfg(unix)]
+fn resolver_fstatat_nofollow(parent: RawFd, component: &OsStr) -> io::Result<libc::stat> {
+    let component = resolver_component_cstring(component)?;
+    let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `component` and `metadata` are valid for this call; `parent` is
+    // retained by the caller. `AT_SYMLINK_NOFOLLOW` prevents target access.
+    if unsafe {
+        libc::fstatat(
+            parent,
+            component.as_ptr(),
+            metadata.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: successful `fstatat` initialized the output structure.
+    Ok(unsafe { metadata.assume_init() })
+}
+
+#[cfg(unix)]
+fn resolver_open_directory_at(parent: RawFd, component: &OsStr) -> io::Result<OwnedFd> {
+    let component = resolver_component_cstring(component)?;
+    // SAFETY: `component` is a live NUL-terminated string and `parent` is a
+    // retained directory descriptor. `O_NOFOLLOW` closes the lstat/open race.
+    let fd = unsafe {
+        libc::openat(
+            parent,
+            component.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `openat` returned a new owned descriptor.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+#[cfg(unix)]
+fn resolver_read_link_at(parent: RawFd, component: &OsStr) -> io::Result<PathBuf> {
+    let component = resolver_component_cstring(component)?;
+    let mut capacity = 256usize;
+    loop {
+        let mut bytes = vec![0u8; capacity];
+        // SAFETY: the component string is valid, the output buffer has
+        // `capacity` writable bytes, and `parent` remains live for this call.
+        let length = unsafe {
+            libc::readlinkat(
+                parent,
+                component.as_ptr(),
+                bytes.as_mut_ptr().cast(),
+                bytes.len(),
+            )
+        };
+        if length < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let length = usize::try_from(length)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid symlink length"))?;
+        if length < bytes.len() {
+            bytes.truncate(length);
+            return Ok(PathBuf::from(OsString::from_vec(bytes)));
+        }
+        capacity = capacity.checked_mul(2).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "symlink target is too long")
+        })?;
+        if capacity > 64 * 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "symlink target is too long",
+            ));
+        }
+    }
+}
+
+#[cfg(unix)]
+fn resolver_stat_is_dir(metadata: &libc::stat) -> bool {
+    metadata.st_mode & libc::S_IFMT == libc::S_IFDIR
+}
+
+#[cfg(unix)]
+fn resolver_stat_is_symlink(metadata: &libc::stat) -> bool {
+    metadata.st_mode & libc::S_IFMT == libc::S_IFLNK
+}
+
+#[cfg(unix)]
+fn resolver_metadata_from_stat(metadata: &libc::stat) -> ResolverFileMetadata {
+    let kind = metadata.st_mode & libc::S_IFMT;
+    ResolverFileMetadata::new(
+        kind == libc::S_IFREG,
+        kind == libc::S_IFDIR,
+        kind == libc::S_IFLNK,
+    )
+}
+
+#[cfg(unix)]
+fn resolver_relative_components(
+    inputs: &AuthenticatedResolverInputs,
+    path: &Path,
+) -> io::Result<VecDeque<OsString>> {
+    let normalized = inputs.normalize_in_boundary(path)?;
+    let relative = normalized
+        .strip_prefix(inputs.boundary_root())
+        .map_err(|_| resolver_boundary_refusal())?;
+    let mut components = VecDeque::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(value) => components.push_back(value.to_os_string()),
+            Component::CurDir => {}
+            _ => return Err(resolver_boundary_refusal()),
+        }
+    }
+    Ok(components)
+}
+
+#[cfg(unix)]
+fn resolver_canonical_path(
+    inputs: &AuthenticatedResolverInputs,
+    components: &[OsString],
+) -> PathBuf {
+    let mut path = inputs.boundary_root().to_path_buf();
+    path.extend(components);
+    path
+}
+
+#[cfg(unix)]
+fn resolve_bounded_unix_path(
+    inputs: &AuthenticatedResolverInputs,
+    path: &Path,
+) -> io::Result<BoundedUnixResolution> {
+    let normalized = inputs.normalize_in_boundary(path)?;
+    let mut pending = resolver_relative_components(inputs, &normalized)?;
+    let mut current = duplicate_resolver_fd(inputs.inner.boundary_handle.as_raw_fd())?;
+    let mut resolved = Vec::<OsString>::new();
+    let mut symlink_depth = 0usize;
+
+    if pending.is_empty() {
+        return Ok(BoundedUnixResolution {
+            canonical_path: inputs.boundary_root().to_path_buf(),
+            metadata: resolver_fstat(current.as_raw_fd())?,
+            directory: Some(current),
+        });
+    }
+
+    loop {
+        let component = pending.pop_front().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "resolver traversal became empty",
+            )
+        })?;
+        let metadata = resolver_fstatat_nofollow(current.as_raw_fd(), &component)?;
+        if resolver_stat_is_symlink(&metadata) {
+            symlink_depth += 1;
+            if symlink_depth > 40 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "resolver symlink depth exceeded",
+                ));
+            }
+            let target = resolver_read_link_at(current.as_raw_fd(), &component)?;
+            let parent = resolver_canonical_path(inputs, &resolved);
+            let target = if target.is_absolute() {
+                target
+            } else {
+                parent.join(target)
+            };
+            // This lexical containment decision happens before the target is
+            // ever opened or statted. An outside link is therefore a refusal,
+            // not a target-existence probe.
+            let mut combined_target = target;
+            combined_target.extend(pending.iter());
+            // Validate the entire substituted path, including the unconsumed
+            // tail. Checking only the raw link target lets an ancestor target
+            // plus that tail enter a denied principal subtree before the next
+            // lookup.
+            let combined_target = inputs.normalize_in_boundary(&combined_target)?;
+            pending = resolver_relative_components(inputs, &combined_target)?;
+            current = duplicate_resolver_fd(inputs.inner.boundary_handle.as_raw_fd())?;
+            resolved.clear();
+            if pending.is_empty() {
+                return Ok(BoundedUnixResolution {
+                    canonical_path: inputs.boundary_root().to_path_buf(),
+                    metadata: resolver_fstat(current.as_raw_fd())?,
+                    directory: Some(current),
+                });
+            }
+            continue;
+        }
+
+        if pending.is_empty() {
+            resolved.push(component.clone());
+            let directory = if resolver_stat_is_dir(&metadata) {
+                Some(resolver_open_directory_at(current.as_raw_fd(), &component)?)
+            } else {
+                None
+            };
+            return Ok(BoundedUnixResolution {
+                canonical_path: resolver_canonical_path(inputs, &resolved),
+                metadata,
+                directory,
+            });
+        }
+
+        if !resolver_stat_is_dir(&metadata) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotADirectory,
+                "resolver path traverses a non-directory",
+            ));
+        }
+        current = resolver_open_directory_at(current.as_raw_fd(), &component)?;
+        resolved.push(component);
+    }
+}
+
+#[cfg(unix)]
+fn bounded_unix_parent(
+    inputs: &AuthenticatedResolverInputs,
+    path: &Path,
+) -> io::Result<(BoundedUnixResolution, OsString)> {
+    let normalized = inputs.normalize_in_boundary(path)?;
+    let final_component = normalized
+        .file_name()
+        .ok_or_else(resolver_boundary_refusal)?
+        .to_os_string();
+    let parent = normalized.parent().ok_or_else(resolver_boundary_refusal)?;
+    let resolved_parent = resolve_bounded_unix_path(inputs, parent)?;
+    if !resolver_stat_is_dir(&resolved_parent.metadata) || resolved_parent.directory.is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotADirectory,
+            "resolver path parent is not a directory",
+        ));
+    }
+    Ok((resolved_parent, final_component))
+}
+
+#[cfg(unix)]
+fn bounded_unix_symlink_metadata(
+    inputs: &AuthenticatedResolverInputs,
+    path: &Path,
+) -> io::Result<libc::stat> {
+    let normalized = inputs.normalize_in_boundary(path)?;
+    if normalized == inputs.boundary_root() {
+        return resolver_fstat(inputs.inner.boundary_handle.as_raw_fd());
+    }
+    let (parent, final_component) = bounded_unix_parent(inputs, &normalized)?;
+    let parent_fd = parent
+        .directory
+        .as_ref()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotADirectory, "invalid parent"))?;
+    resolver_fstatat_nofollow(parent_fd.as_raw_fd(), &final_component)
+}
+
+#[cfg(unix)]
+fn bounded_unix_read_link(
+    inputs: &AuthenticatedResolverInputs,
+    path: &Path,
+) -> io::Result<PathBuf> {
+    let normalized = inputs.normalize_in_boundary(path)?;
+    let (parent, final_component) = bounded_unix_parent(inputs, &normalized)?;
+    let parent_fd = parent
+        .directory
+        .as_ref()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotADirectory, "invalid parent"))?;
+    let metadata = resolver_fstatat_nofollow(parent_fd.as_raw_fd(), &final_component)?;
+    if !resolver_stat_is_symlink(&metadata) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "resolver object is not a symlink",
+        ));
+    }
+    let target = resolver_read_link_at(parent_fd.as_raw_fd(), &final_component)?;
+    let absolute_target = if target.is_absolute() {
+        target.clone()
+    } else {
+        parent.canonical_path.join(&target)
+    };
+    // Validate the raw link target before OXC is allowed to recurse into it.
+    // No target metadata or content operation precedes this check.
+    let _ = inputs.normalize_in_boundary(&absolute_target)?;
+    Ok(target)
+}
+
+const DEFAULT_TRANSPILE_CACHE_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TranspileMode {
+    DiagnosticPersistentCache,
+    ArmedFreshInMemory,
+}
+
+/// Process environment values that affect module lowering are captured while
+/// the Host is being constructed, before an armed Host is published. Module
+/// evaluation never re-enters the mutable host environment. Cache locations
+/// are retained only for unarmed diagnostic loaders; armed lowering never
+/// resolves or accesses them.
+/// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+struct CapturedModuleLoaderEnvironment {
+    runtime_transform: Option<String>,
+    legacy_runtime_transform: Option<String>,
+    transpile_script: Option<PathBuf>,
+    transpile_cache_max_bytes: u64,
+    test_transpile_input_barrier: Option<PathBuf>,
+    runtime_cache_dir: std::result::Result<PathBuf, String>,
+    fallback_temp_dir: PathBuf,
+    transpile_cache_dir: std::sync::OnceLock<std::result::Result<PathBuf, String>>,
+    transpile_tooling_hash: std::sync::OnceLock<std::result::Result<[u8; 32], String>>,
+    transpile_override_identity: Option<std::result::Result<TranspileOverrideIdentity, String>>,
+}
+
+impl CapturedModuleLoaderEnvironment {
+    fn capture() -> Self {
+        let transpile_script = std::env::var("EXACT_TRANSPILE_SCRIPT")
+            .ok()
+            .map(PathBuf::from);
+        let transpile_override_identity = transpile_script.as_ref().map(|path| {
+            compute_transpile_override_identity(path).map_err(|error| format!("{error:#}"))
+        });
+        Self {
+            runtime_transform: std::env::var("IBEX_RUNTIME_TRANSFORM").ok(),
+            legacy_runtime_transform: std::env::var("EXACT_RUNTIME_TRANSFORM").ok(),
+            transpile_script,
+            transpile_cache_max_bytes: std::env::var("IBEX_TRANSPILE_CACHE_MAX_BYTES")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(DEFAULT_TRANSPILE_CACHE_MAX_BYTES),
+            test_transpile_input_barrier: std::env::var("IBEX_TEST_TRANSPILE_INPUT_BARRIER")
+                .ok()
+                .map(PathBuf::from),
+            // Android's app-provided cache root (and the platform-directory
+            // fallback used elsewhere) is resolved while Host constructs the
+            // loader. Only an unarmed diagnostic import consumes this capture.
+            // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+            runtime_cache_dir: crate::runtime_cache_dir().map_err(|error| error.to_string()),
+            fallback_temp_dir: std::env::temp_dir(),
+            transpile_cache_dir: std::sync::OnceLock::new(),
+            transpile_tooling_hash: std::sync::OnceLock::new(),
+            // The override's immediate parent tree and its PATH-selected
+            // runner are frozen at the same Host-construction boundary. A
+            // later transpiling import cannot select a different compiler.
+            transpile_override_identity,
+        }
+    }
+
+    fn runtime_transform(&self) -> Option<&str> {
+        self.runtime_transform.as_deref()
+    }
+
+    fn legacy_runtime_transform(&self) -> Option<&str> {
+        self.legacy_runtime_transform.as_deref()
+    }
 }
 
 #[derive(Clone)]
@@ -235,6 +1103,14 @@ fn module_resolve_options(module_type: bool) -> ResolveOptions {
     }
 }
 
+fn authenticated_module_resolve_options(module_type: bool) -> ResolveOptions {
+    let mut options = module_resolve_options(module_type);
+    // NODE_PATH is process-global ambient authority. Armed package discovery
+    // is restricted to the authenticated boundary and captured manifests.
+    options.node_path = false;
+    options
+}
+
 impl ModuleLoader {
     pub fn new() -> Self {
         let builtins = build_builtin_registry(BUILTIN_MANIFEST_REGISTRATIONS);
@@ -243,7 +1119,27 @@ impl ModuleLoader {
             builtins,
             resolver: Resolver::new(module_resolve_options(false)),
             package_versions: std::sync::RwLock::new(HashMap::new()),
+            environment: CapturedModuleLoaderEnvironment::capture(),
+            transpile_mode: TranspileMode::DiagnosticPersistentCache,
         }
+    }
+
+    /// Permanently close persistent transpile-cache and subprocess paths before
+    /// this loader is published through an armed Host. Armed TypeScript/JSX
+    /// lowering consumes the loader's captured source and transform selection
+    /// directly in process; public cache hashes are not compiler authorship.
+    /// @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
+    pub(crate) fn arm_fresh_transpilation(&mut self) -> Result<()> {
+        anyhow::ensure!(
+            self.environment.transpile_script.is_none(),
+            "EXACT_TRANSPILE_SCRIPT is a diagnostic-only developer escape and is unavailable to an armed host"
+        );
+        anyhow::ensure!(
+            self.transpile_mode == TranspileMode::DiagnosticPersistentCache,
+            "module loader transpilation was already armed"
+        );
+        self.transpile_mode = TranspileMode::ArmedFreshInMemory;
+        Ok(())
     }
 
     /// Resolve only the kind metadata for one already-authorized direct file.
@@ -255,6 +1151,7 @@ impl ModuleLoader {
     /// The caller must complete target authorization before invoking this
     /// method because OXC may inspect an enclosing package manifest.
     /// @ref LLP 0024#4-grammar-selection
+    #[allow(dead_code)] // Retained for unarmed diagnostic callers and differential tests.
     pub(crate) fn resolve_direct_file_meta(&self, path: &Path) -> Result<ResolvedModule> {
         let parent = path
             .parent()
@@ -265,7 +1162,7 @@ impl ModuleLoader {
             .ok_or_else(|| anyhow!("direct file name is not UTF-8"))?;
         let resolver = Resolver::new(module_resolve_options(true));
         let resolved =
-            self.resolve_with_resolver_at(&resolver, &format!("./{name}"), parent, false)?;
+            self.resolve_with_resolver_at(&resolver, &format!("./{name}"), parent, false, None)?;
         let expected = std::fs::canonicalize(path)
             .with_context(|| format!("failed to authenticate direct file {}", path.display()))?;
         let actual = resolved
@@ -277,6 +1174,154 @@ impl ModuleLoader {
         if actual != expected {
             anyhow::bail!("direct file resolver selected a different path");
         }
+        Ok(resolved)
+    }
+
+    /// Resolve an already-authenticated direct file without consulting any
+    /// manifest or symlink target outside `inputs.boundary_root()`. The exact
+    /// target comparison prevents extension aliases or a package entry point
+    /// from silently replacing the submitted file.
+    /// @ref LLP 0024#4-grammar-selection
+    pub(crate) fn resolve_direct_file_meta_authenticated(
+        &self,
+        path: &Path,
+        inputs: &AuthenticatedResolverInputs,
+    ) -> Result<ResolvedModule> {
+        let path = inputs.normalize_in_boundary(path)?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow!("direct file has no parent directory"))?;
+        let name = path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .ok_or_else(|| anyhow!("direct file name is not UTF-8"))?;
+        let file_system = inputs.file_system();
+        let expected = file_system
+            .canonicalize(&path)
+            .with_context(|| format!("failed to authenticate direct file {}", path.display()))?;
+        let resolver = ResolverGeneric::new_with_file_system(
+            file_system,
+            authenticated_module_resolve_options(true),
+        );
+        let resolved = self.resolve_with_resolver_at(
+            &resolver,
+            &format!("./{name}"),
+            parent,
+            false,
+            Some(inputs),
+        )?;
+        let actual_path = resolved
+            .path
+            .as_deref()
+            .ok_or_else(|| anyhow!("direct file resolver returned no path"))?;
+        let actual = inputs
+            .file_system()
+            .canonicalize(actual_path)
+            .context("failed to authenticate resolved direct file")?;
+        if actual != expected {
+            anyhow::bail!("direct file resolver selected a different path");
+        }
+        Ok(resolved)
+    }
+
+    /// Armed general resolution. Unlike `resolve_meta`, `#imports` is handled
+    /// by the same bounded OXC resolver as relative and bare requests; the
+    /// legacy `find_package_root` helper is deliberately unreachable here.
+    pub(crate) fn resolve_meta_authenticated(
+        &self,
+        specifier: &str,
+        referrer: Option<&Path>,
+        inputs: &AuthenticatedResolverInputs,
+    ) -> Result<ResolvedModule> {
+        let specifier = specifier.trim();
+        if specifier.is_empty() {
+            return Err(anyhow!("Empty module specifier"));
+        }
+        let specifier = strip_file_module_decorations(specifier);
+        if let Some(module) = self.resolve_builtin_meta(specifier) {
+            return Ok(module);
+        }
+        if specifier.starts_with("exact:") {
+            return Err(anyhow!("Unknown exact builtin: {}", specifier));
+        }
+        if specifier.starts_with("node:") {
+            return Err(anyhow!("Unsupported node builtin: {}", specifier));
+        }
+
+        let base_dir = authenticated_resolver_base_dir(inputs, referrer)?;
+        let resolver = ResolverGeneric::new_with_file_system(
+            inputs.file_system(),
+            authenticated_module_resolve_options(true),
+        );
+        self.resolve_with_resolver_at(&resolver, specifier, &base_dir, false, Some(inputs))
+    }
+
+    /// Resolve a graph-approved bare request from its authenticated package
+    /// binding. The package-root manifest is parsed only from captured bytes;
+    /// disk contents cannot change `name`, `version`, `exports`, or kind.
+    pub(crate) fn resolve_meta_from_authenticated_bound_package(
+        &self,
+        specifier: &str,
+        package_name: &str,
+        package_root: &Path,
+        inputs: &AuthenticatedResolverInputs,
+    ) -> Result<ResolvedModule> {
+        let specifier = specifier.trim();
+        let requested_name = package_name_from_bare_specifier(specifier)
+            .ok_or_else(|| anyhow!("bound package resolution requires a bare specifier"))?;
+        if requested_name != package_name {
+            return Err(anyhow!("bound package name differs from requested package"));
+        }
+        let package_root = inputs.normalize_in_boundary(package_root)?;
+        let manifest_path = package_root.join("package.json");
+        let manifest = inputs.parse_manifest(&manifest_path)?;
+        if manifest.get("name").and_then(Value::as_str) != Some(package_name) {
+            anyhow::bail!("authenticated package manifest name differs from its principal");
+        }
+        let suffix = specifier
+            .strip_prefix(package_name)
+            .ok_or_else(|| anyhow!("bound package prefix is absent"))?;
+        if !suffix.is_empty() && !suffix.starts_with('/') {
+            return Err(anyhow!("invalid package subpath"));
+        }
+        if suffix
+            .split('/')
+            .any(|component| component == "." || component == "..")
+        {
+            return Err(anyhow!("package subpath contains traversal components"));
+        }
+
+        let anchored_specifier = if manifest
+            .get("exports")
+            .is_some_and(|value| !value.is_null())
+        {
+            specifier.to_owned()
+        } else if suffix.is_empty() {
+            ".".to_owned()
+        } else {
+            format!(".{suffix}")
+        };
+        let resolver = ResolverGeneric::new_with_file_system(
+            inputs.file_system(),
+            authenticated_module_resolve_options(true),
+        );
+        let mut resolved = self.resolve_with_resolver_at(
+            &resolver,
+            &anchored_specifier,
+            &package_root,
+            false,
+            Some(inputs),
+        )?;
+        let canonical_package_root = inputs
+            .file_system()
+            .canonicalize(&package_root)
+            .context("failed to authenticate bound package root")?;
+        resolved.package_name = Some(package_name.to_owned());
+        resolved.package_root = Some(canonical_package_root);
+        resolved.package_version = manifest
+            .get("version")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         Ok(resolved)
     }
 
@@ -337,24 +1382,8 @@ impl ModuleLoader {
             }
             return Err(anyhow!("Failed to resolve package import {}", specifier));
         }
-        if let Some(builtin) = self.builtins.get(specifier) {
-            return Ok(ResolvedModule {
-                id: specifier.to_string(),
-                kind: ModuleKind::Builtin,
-                path: None,
-                source: Some(builtin.source.clone()),
-                package_name: None,
-                package_root: None,
-                package_version: None,
-                package_integrity: None,
-                source_id: Some(crate::vfs::SourceId::builtin(builtin.source_key)),
-                source_label: None,
-                virtual_path: None,
-                resolver_path: None,
-                resolver_package_root: None,
-                private_resolver_path: None,
-                private_resolver_package_root: None,
-            });
+        if let Some(module) = self.resolve_builtin_meta(specifier) {
+            return Ok(module);
         }
 
         if specifier.starts_with("exact:") {
@@ -368,6 +1397,27 @@ impl ModuleLoader {
         self.resolve_with_oxc(specifier, referrer)
     }
 
+    fn resolve_builtin_meta(&self, specifier: &str) -> Option<ResolvedModule> {
+        let builtin = self.builtins.get(specifier)?;
+        Some(ResolvedModule {
+            id: specifier.to_string(),
+            kind: ModuleKind::Builtin,
+            path: None,
+            source: Some(builtin.source.clone()),
+            package_name: None,
+            package_root: None,
+            package_version: None,
+            package_integrity: None,
+            source_id: Some(crate::vfs::SourceId::builtin(builtin.source_key)),
+            source_label: None,
+            virtual_path: None,
+            resolver_path: None,
+            resolver_package_root: None,
+            private_resolver_path: None,
+            private_resolver_package_root: None,
+        })
+    }
+
     pub(crate) fn is_builtin_specifier(&self, specifier: &str) -> bool {
         self.builtins.contains_key(specifier.trim())
     }
@@ -379,6 +1429,7 @@ impl ModuleLoader {
     /// semantics while anchoring every permitted lookup at `package_root`; the
     /// legacy `main`/subpath case is rewritten to an exact relative lookup.
     /// @ref LLP 0021#decision-staging-and-principal-semantics
+    #[allow(dead_code)] // Retained for unarmed diagnostic callers and differential tests.
     pub(crate) fn resolve_meta_from_bound_package(
         &self,
         specifier: &str,
@@ -964,12 +2015,24 @@ impl ModuleLoader {
     }
 
     fn transpile_module(&self, path: &Path, target: &str, source: &str) -> Result<String> {
-        let cache_key = module_cache_key(path, target, source)?;
-        // `transpile_cache_dir` is memoized and already created+probed the
-        // directory once per process, so we don't re-`create_dir_all` here on
-        // every (mostly cache-hit) module load. A cache miss recreates the
-        // parent inside `run_transpile_command` before writing.
-        let cache_dir = transpile_cache_dir()?;
+        if self.transpile_mode == TranspileMode::ArmedFreshInMemory {
+            // This branch must precede cache-key and cache-directory selection:
+            // an armed loader never resolves, reads, writes, probes, or falls
+            // back through persistent transpile storage.
+            // @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
+            return transpile::transpile_source_to_cjs(
+                source,
+                path,
+                target,
+                self.environment.runtime_transform(),
+                self.environment.legacy_runtime_transform(),
+            );
+        }
+
+        let cache_key = module_cache_key(path, target, source, &self.environment)?;
+        // Diagnostic cache selection is captured per loader. A cache miss
+        // recreates the parent inside `run_transpile_command` before writing.
+        let cache_dir = transpile_cache_dir(&self.environment)?;
 
         let artifact_dir = cache_dir.join(&cache_key);
         for _ in 0..3 {
@@ -977,8 +2040,12 @@ impl ModuleLoader {
                 touch_transpile_artifact(&artifact_dir);
                 return Ok(output);
             }
-            publish_transpile_artifact(path, &artifact_dir, target, source)?;
-            enforce_transpile_cache_quota(&cache_dir, &artifact_dir);
+            publish_transpile_artifact(path, &artifact_dir, target, source, &self.environment)?;
+            enforce_transpile_cache_quota(
+                &cache_dir,
+                &artifact_dir,
+                self.environment.transpile_cache_max_bytes,
+            );
         }
         anyhow::bail!(
             "Transpile cache artifact {} repeatedly disappeared during publication",
@@ -1031,17 +2098,24 @@ impl ModuleLoader {
         base_dir: &Path,
         retry_bare_as_relative: bool,
     ) -> Result<ResolvedModule> {
-        self.resolve_with_resolver_at(&self.resolver, specifier, base_dir, retry_bare_as_relative)
+        self.resolve_with_resolver_at(
+            &self.resolver,
+            specifier,
+            base_dir,
+            retry_bare_as_relative,
+            None,
+        )
     }
 
-    fn resolve_with_resolver_at(
+    fn resolve_with_resolver_at<Fs: ResolverFileSystem>(
         &self,
-        resolver: &Resolver,
+        resolver: &ResolverGeneric<Fs>,
         specifier: &str,
         base_dir: &Path,
         retry_bare_as_relative: bool,
+        authenticated_inputs: Option<&AuthenticatedResolverInputs>,
     ) -> Result<ResolvedModule> {
-        let resolution = match resolver.resolve(&base_dir, specifier) {
+        let resolution = match resolver.resolve(base_dir, specifier) {
             Ok(resolution) => resolution,
             Err(err) => {
                 // Native hosts pass referrer-relative entry paths without a
@@ -1051,13 +2125,14 @@ impl ModuleLoader {
                 // referrer, retry as an explicit relative specifier so
                 // directory imports still land on index.*.
                 // @ref LLP 0004#resolution-order
-                let path_like = retry_bare_as_relative
+                let path_like = authenticated_inputs.is_none()
+                    && retry_bare_as_relative
                     && !specifier.starts_with('.')
                     && !Path::new(specifier).is_absolute()
                     && base_dir.join(specifier).exists();
                 if path_like {
                     resolver
-                        .resolve(&base_dir, &format!("./{specifier}"))
+                        .resolve(base_dir, &format!("./{specifier}"))
                         .with_context(|| format!("Failed to resolve module {}", specifier))?
                 } else {
                     return Err(err)
@@ -1065,6 +2140,10 @@ impl ModuleLoader {
                 }
             }
         };
+
+        if let Some(inputs) = authenticated_inputs {
+            let _ = inputs.normalize_in_boundary(resolution.path())?;
+        }
 
         let full_path = resolution.full_path().to_path_buf();
         // Oxc reports addon/Wasm candidates inconsistently across direct-file
@@ -1113,7 +2192,13 @@ impl ModuleLoader {
 
         let (mut package_name, mut package_root) =
             package_name_and_root_in_node_modules(&full_path).unzip();
-        let mut package_version = self.package_version_for(&full_path);
+        // `package_version_for` performs an ordinary manifest read and is
+        // therefore diagnostic-only. Armed resolution receives version data
+        // exclusively from OXC's captured `PackageJson` record below.
+        let mut package_version = authenticated_inputs
+            .is_none()
+            .then(|| self.package_version_for(&full_path))
+            .flatten();
         if let Some(pkg) = resolution.package_json() {
             let resolved_package_root = pkg.directory().to_path_buf();
             if package_name.is_none() {
@@ -1150,6 +2235,50 @@ impl ModuleLoader {
             private_resolver_package_root: None,
         })
     }
+}
+
+fn authenticated_resolver_base_dir(
+    inputs: &AuthenticatedResolverInputs,
+    referrer: Option<&Path>,
+) -> Result<PathBuf> {
+    let Some(referrer) = referrer else {
+        return Ok(inputs.boundary_root().to_path_buf());
+    };
+    let referrer = inputs.normalize_in_boundary(referrer)?;
+    let file_system = inputs.file_system();
+    let base_dir = match file_system.metadata(&referrer) {
+        Ok(metadata) if metadata.is_dir() => referrer,
+        Ok(metadata) if metadata.is_file() => referrer
+            .parent()
+            .ok_or_else(|| anyhow!("authenticated resolver referrer has no parent"))?
+            .to_path_buf(),
+        Ok(_) => anyhow::bail!("authenticated resolver referrer is not a file or directory"),
+        Err(error)
+            if error.kind() == io::ErrorKind::NotFound
+                && referrer
+                    .extension()
+                    .and_then(OsStr::to_str)
+                    .is_some_and(|extension| {
+                        matches!(
+                            extension,
+                            "js" | "cjs" | "mjs" | "ts" | "tsx" | "jsx" | "mts" | "cts" | "json"
+                        )
+                    }) =>
+        {
+            // The session lowering frontend intentionally uses a synthetic,
+            // nonexistent `.ibex-session-static-import.mjs` referrer. Preserve
+            // the historical file-like spelling rule without turning arbitrary
+            // NotFound or any boundary refusal into a parent-directory fallback.
+            referrer
+                .parent()
+                .ok_or_else(|| anyhow!("authenticated resolver referrer has no parent"))?
+                .to_path_buf()
+        }
+        Err(error) => return Err(error).context("authenticated resolver referrer is unavailable"),
+    };
+    file_system
+        .canonicalize(&base_dir)
+        .context("failed to authenticate resolver base directory")
 }
 
 fn read_package_manifest(path: &Path) -> Result<Value> {
@@ -1270,19 +2399,19 @@ pub(crate) fn authenticated_package_inventory(
 }
 
 #[cfg(test)]
-static PACKAGE_SOURCE_OPEN_HOOK: std::sync::OnceLock<
-    std::sync::Mutex<Option<(PathBuf, std::sync::Arc<std::sync::Barrier>)>>,
-> = std::sync::OnceLock::new();
+type PackageHookTarget = (PathBuf, std::sync::Arc<std::sync::Barrier>);
 
 #[cfg(test)]
-static PACKAGE_ROOT_OPEN_HOOK: std::sync::OnceLock<
-    std::sync::Mutex<Option<(PathBuf, std::sync::Arc<std::sync::Barrier>)>>,
-> = std::sync::OnceLock::new();
+type PackageHook = std::sync::OnceLock<std::sync::Mutex<Option<PackageHookTarget>>>;
 
 #[cfg(test)]
-static PACKAGE_INVENTORY_PASS_HOOK: std::sync::OnceLock<
-    std::sync::Mutex<Option<(PathBuf, std::sync::Arc<std::sync::Barrier>)>>,
-> = std::sync::OnceLock::new();
+static PACKAGE_SOURCE_OPEN_HOOK: PackageHook = std::sync::OnceLock::new();
+
+#[cfg(test)]
+static PACKAGE_ROOT_OPEN_HOOK: PackageHook = std::sync::OnceLock::new();
+
+#[cfg(test)]
+static PACKAGE_INVENTORY_PASS_HOOK: PackageHook = std::sync::OnceLock::new();
 
 #[cfg(test)]
 fn pause_before_authenticated_source_open(path: &Path) {
@@ -1300,12 +2429,7 @@ fn pause_before_authenticated_source_open(path: &Path) {
 }
 
 #[cfg(test)]
-fn pause_package_hook(
-    hook: &std::sync::OnceLock<
-        std::sync::Mutex<Option<(PathBuf, std::sync::Arc<std::sync::Barrier>)>>,
-    >,
-    path: &Path,
-) {
+fn pause_package_hook(hook: &PackageHook, path: &Path) {
     let hook = hook
         .get_or_init(|| std::sync::Mutex::new(None))
         .lock()
@@ -1435,7 +2559,7 @@ fn package_tree_integrity_and_source_unix(
                 return NonEmptyString::new(format!("apple-st-gen:{}", status.st_gen))
                     .map_err(anyhow::Error::msg);
             }
-            return NonEmptyString::new("retained-descriptor-v1").map_err(anyhow::Error::msg);
+            NonEmptyString::new("retained-descriptor-v1").map_err(anyhow::Error::msg)
         }
 
         #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -1712,41 +2836,50 @@ fn package_tree_integrity_and_source_unix(
             .with_context(|| format!("opening resolved package object {}", path.display()))
     }
 
+    #[derive(Default)]
+    struct AuthenticatedPackageTreePass {
+        records: Vec<(String, String)>,
+        captured_source: Option<Vec<u8>>,
+        objects: std::collections::BTreeSet<AuthenticatedPackageObject>,
+        retained_descriptors: Vec<std::fs::File>,
+    }
+
+    struct AuthenticatedPackageTreeWalk<'a> {
+        root: &'a Path,
+        source_relative: Option<&'a Path>,
+        capture_source: bool,
+        capture_inventory: bool,
+        membership: Option<&'a AuthenticatedPackageMembership>,
+        pass: &'a mut AuthenticatedPackageTreePass,
+    }
+
     fn retain_authenticated_object(
         opened: &std::fs::File,
         metadata: &std::fs::Metadata,
         display_path: &Path,
-        objects: &mut std::collections::BTreeSet<AuthenticatedPackageObject>,
-        retained_descriptors: &mut Vec<std::fs::File>,
+        pass: &mut AuthenticatedPackageTreePass,
     ) -> Result<()> {
         let generation = verification_generation(opened.as_raw_fd())?;
         let authenticated = AuthenticatedPackageObject {
             object: object_identity(metadata)?,
             verification_generation: generation,
         };
-        if objects.insert(authenticated) {
-            retained_descriptors.push(opened.try_clone().with_context(|| {
-                format!(
-                    "retaining authenticated package object {}",
-                    display_path.display()
-                )
-            })?);
+        if pass.objects.insert(authenticated) {
+            pass.retained_descriptors
+                .push(opened.try_clone().with_context(|| {
+                    format!(
+                        "retaining authenticated package object {}",
+                        display_path.display()
+                    )
+                })?);
         }
         Ok(())
     }
 
     fn walk_authenticated_package_tree(
-        root: &Path,
+        context: &mut AuthenticatedPackageTreeWalk<'_>,
         directory_fd: RawFd,
         relative_directory: &Path,
-        source_relative: Option<&Path>,
-        capture_source: bool,
-        capture_inventory: bool,
-        membership: Option<&AuthenticatedPackageMembership>,
-        records: &mut Vec<(String, String)>,
-        captured_source: &mut Option<Vec<u8>>,
-        objects: &mut std::collections::BTreeSet<AuthenticatedPackageObject>,
-        retained_descriptors: &mut Vec<std::fs::File>,
     ) -> Result<()> {
         let before_fd = unsafe { libc::dup(directory_fd) };
         if before_fd < 0 {
@@ -1758,17 +2891,21 @@ fn package_tree_integrity_and_source_unix(
         let names = directory_names(directory_fd)?;
         for name in names {
             let relative_path = relative_directory.join(std::ffi::OsString::from_vec(name.clone()));
-            let capture =
-                capture_source && source_relative.is_some_and(|source| source == relative_path);
+            let capture = context.capture_source
+                && context
+                    .source_relative
+                    .is_some_and(|source| source == relative_path);
             #[cfg(test)]
             if capture {
-                pause_before_authenticated_source_open(&root.join(&relative_path));
+                pause_before_authenticated_source_open(&context.root.join(&relative_path));
             }
             let c_name = CString::new(name.clone())?;
             let mut opened = open_entry_no_follow(directory_fd, &c_name).with_context(|| {
                 format!(
                     "package entry changed while opening {}",
-                    root.join(relative_directory)
+                    context
+                        .root
+                        .join(relative_directory)
                         .join(std::ffi::OsString::from_vec(name.clone()))
                         .display()
                 )
@@ -1784,19 +2921,7 @@ fn package_tree_integrity_and_source_unix(
                 })?
                 .replace(std::path::MAIN_SEPARATOR, "/");
             if metadata_before.is_dir() {
-                walk_authenticated_package_tree(
-                    root,
-                    opened.as_raw_fd(),
-                    &relative_path,
-                    source_relative,
-                    capture_source,
-                    capture_inventory,
-                    membership,
-                    records,
-                    captured_source,
-                    objects,
-                    retained_descriptors,
-                )?;
+                walk_authenticated_package_tree(context, opened.as_raw_fd(), &relative_path)?;
             } else if metadata_before.is_file() {
                 let generation_before = verification_generation(opened.as_raw_fd())?;
                 let mut digest = Sha256::new();
@@ -1826,21 +2951,20 @@ fn package_tree_integrity_and_source_unix(
                     ));
                 }
                 if let Some(bytes) = bytes {
-                    if captured_source.replace(bytes).is_some() {
+                    if context.pass.captured_source.replace(bytes).is_some() {
                         return Err(anyhow!("Package source appeared more than once"));
                     }
                 }
-                records.push((
+                context.pass.records.push((
                     relative,
                     format!("sha256-{}", URL_SAFE_NO_PAD.encode(digest.finalize())),
                 ));
-                if capture_inventory {
+                if context.capture_inventory {
                     retain_authenticated_object(
                         &opened,
                         &metadata_after,
-                        &root.join(&relative_path),
-                        objects,
-                        retained_descriptors,
+                        &context.root.join(&relative_path),
+                        context.pass,
                     )?;
                 }
             } else if metadata_before.file_type().is_symlink() {
@@ -1858,7 +2982,7 @@ fn package_tree_integrity_and_source_unix(
                         relative_path.display()
                     ));
                 }
-                records.push((
+                context.pass.records.push((
                     relative,
                     format!(
                         "symlink-sha256-{}",
@@ -1866,22 +2990,21 @@ fn package_tree_integrity_and_source_unix(
                     ),
                 ));
 
-                if capture_inventory {
+                if context.capture_inventory {
                     retain_authenticated_object(
                         &opened,
                         &metadata_before,
-                        &root.join(&relative_path),
-                        objects,
-                        retained_descriptors,
+                        &context.root.join(&relative_path),
+                        context.pass,
                     )?;
                 }
 
-                if capture || capture_inventory {
-                    let absolute_link = root.join(&relative_path);
+                if capture || context.capture_inventory {
+                    let absolute_link = context.root.join(&relative_path);
                     let resolved =
                         resolve_package_link(&absolute_link, &target_before, &metadata_before)?;
                     if capture {
-                        if !resolved.path.starts_with(root) {
+                        if !resolved.path.starts_with(context.root) {
                             anyhow::bail!(
                                 "authenticated package source symlink leaves its defining package: {}",
                                 absolute_link.display()
@@ -1919,13 +3042,13 @@ fn package_tree_integrity_and_source_unix(
                                 absolute_link.display()
                             );
                         }
-                        if captured_source.replace(bytes).is_some() {
+                        if context.pass.captured_source.replace(bytes).is_some() {
                             return Err(anyhow!("Package source appeared more than once"));
                         }
                     }
 
-                    if capture_inventory {
-                        let membership = membership.ok_or_else(|| {
+                    if context.capture_inventory {
+                        let membership = context.membership.ok_or_else(|| {
                             anyhow!("package inventory lacks authenticated binding membership")
                         })?;
                         let package_defined =
@@ -1951,8 +3074,7 @@ fn package_tree_integrity_and_source_unix(
                                     &target,
                                     &opened_metadata,
                                     &resolved.path,
-                                    objects,
-                                    retained_descriptors,
+                                    context.pass,
                                 )?;
                             }
                         }
@@ -1976,7 +3098,7 @@ fn package_tree_integrity_and_source_unix(
         if stamp(&after_metadata) != before_stamp {
             return Err(anyhow!(
                 "Package directory changed while authenticating {}",
-                root.join(relative_directory).display()
+                context.root.join(relative_directory).display()
             ));
         }
         Ok(())
@@ -2045,38 +3167,33 @@ fn package_tree_integrity_and_source_unix(
     }
 
     let inventory = |capture_source: bool,
-                     capture_objects: bool|
-     -> Result<(
-        Vec<(String, String)>,
-        Option<Vec<u8>>,
-        std::collections::BTreeSet<AuthenticatedPackageObject>,
-        Vec<std::fs::File>,
-    )> {
-        let mut records = Vec::new();
-        let mut captured = None;
-        let mut objects = std::collections::BTreeSet::new();
-        let mut retained_descriptors = Vec::new();
-        walk_authenticated_package_tree(
-            &root,
-            root_handle.as_raw_fd(),
-            Path::new(""),
-            source_relative.as_deref(),
-            capture_source,
-            capture_objects,
-            membership,
-            &mut records,
-            &mut captured,
-            &mut objects,
-            &mut retained_descriptors,
-        )?;
-        records.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
-        Ok((records, captured, objects, retained_descriptors))
+                     capture_inventory: bool|
+     -> Result<AuthenticatedPackageTreePass> {
+        let mut pass = AuthenticatedPackageTreePass::default();
+        {
+            let mut context = AuthenticatedPackageTreeWalk {
+                root: &root,
+                source_relative: source_relative.as_deref(),
+                capture_source,
+                capture_inventory,
+                membership,
+                pass: &mut pass,
+            };
+            walk_authenticated_package_tree(&mut context, root_handle.as_raw_fd(), Path::new(""))?;
+        }
+        pass.records
+            .sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+        Ok(pass)
     };
-    let (first, _, _, _) = inventory(false, false)?;
+    let first = inventory(false, false)?.records;
     #[cfg(test)]
     pause_package_hook(&PACKAGE_INVENTORY_PASS_HOOK, &root);
-    let (second, captured_source, objects, retained_descriptors) =
-        inventory(source_relative.is_some(), capture_inventory)?;
+    let AuthenticatedPackageTreePass {
+        records: second,
+        captured_source,
+        objects,
+        retained_descriptors,
+    } = inventory(source_relative.is_some(), capture_inventory)?;
     if first != second {
         return Err(anyhow!(
             "Package content changed between authenticated inventory passes"
@@ -2169,7 +3286,7 @@ fn package_tree_integrity_and_source_path(
                 )
             })?
             .collect::<std::io::Result<Vec<_>>>()?;
-        entries.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+        entries.sort_by_key(|entry| entry.file_name());
         for entry in entries {
             let name = entry.file_name();
             if name == OsStr::new("node_modules") || name == OsStr::new(".git") {
@@ -2454,7 +3571,12 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn module_cache_key(path: &Path, target: &str, source: &str) -> Result<String> {
+fn module_cache_key(
+    path: &Path,
+    target: &str,
+    source: &str,
+    environment: &CapturedModuleLoaderEnvironment,
+) -> Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(b"loader-transpile-v14-content-addressed\0");
     hasher.update(target.as_bytes());
@@ -2468,26 +3590,24 @@ fn module_cache_key(path: &Path, target: &str, source: &str) -> Result<String> {
     })?;
     hasher.update(cache_path.as_bytes());
     hasher.update(b"\0");
-    hasher.update(transpile_tooling_hash()?);
+    hasher.update(transpile_tooling_hash(environment)?);
     hasher.update(b"\0");
     hasher.update(source.as_bytes());
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Hash of the transpile tooling scripts, computed once per process and then
-/// memoized. The scripts/engine don't change underneath a running loader, and
-/// re-reading the override script for every module cache-key computation showed
-/// up in runtime-loader profiling. @ref LLP 0007#runtime-module-loading
-fn transpile_tooling_hash() -> Result<[u8; 32]> {
-    static CACHED: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
-    if let Some(hash) = CACHED.get() {
-        return Ok(*hash);
-    }
-    let hash = compute_transpile_tooling_hash()?;
-    // A concurrent initializer may win the race; either value is equally valid
-    // for the process, so ignore a failed set and return what we computed.
-    let _ = CACHED.set(hash);
-    Ok(hash)
+/// Hash of the exact tooling captured for this diagnostic loader. Keeping the
+/// memoization loader-local prevents one diagnostic Host from selecting
+/// tooling for another while retaining the per-module cache-key fast path.
+/// @ref LLP 0007#runtime-module-loading
+fn transpile_tooling_hash(environment: &CapturedModuleLoaderEnvironment) -> Result<[u8; 32]> {
+    environment
+        .transpile_tooling_hash
+        .get_or_init(|| {
+            compute_transpile_tooling_hash(environment).map_err(|error| error.to_string())
+        })
+        .clone()
+        .map_err(anyhow::Error::msg)
 }
 
 #[derive(Clone)]
@@ -2524,7 +3644,7 @@ fn capture_transpile_tool_directory(
     ) -> Result<()> {
         let mut entries =
             std::fs::read_dir(directory)?.collect::<std::result::Result<Vec<_>, _>>()?;
-        entries.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+        entries.sort_by_key(|entry| entry.file_name());
         for item in entries {
             let path = item.path();
             let metadata = std::fs::symlink_metadata(&path)?;
@@ -2633,24 +3753,27 @@ fn compute_transpile_override_identity(path: &Path) -> Result<TranspileOverrideI
     })
 }
 
-fn transpile_override_identity() -> Result<TranspileOverrideIdentity> {
-    static CACHED: std::sync::OnceLock<TranspileOverrideIdentity> = std::sync::OnceLock::new();
-    if let Some(identity) = CACHED.get() {
-        return Ok(identity.clone());
-    }
-    let identity = compute_transpile_override_identity(&transpile_script_path()?)?;
-    let _ = CACHED.set(identity.clone());
-    Ok(identity)
+fn transpile_override_identity(
+    environment: &CapturedModuleLoaderEnvironment,
+) -> Result<TranspileOverrideIdentity> {
+    environment
+        .transpile_override_identity
+        .as_ref()
+        .context("EXACT_TRANSPILE_SCRIPT must be set for subprocess transpilation")?
+        .clone()
+        .map_err(anyhow::Error::msg)
 }
 
-fn compute_transpile_tooling_hash() -> Result<[u8; 32]> {
+fn compute_transpile_tooling_hash(
+    environment: &CapturedModuleLoaderEnvironment,
+) -> Result<[u8; 32]> {
     // @ref LLP 0007#proposal — the in-process engine is part of the cache key
     // so the SWC fallback and Oxc candidate never share output.
     // Only the explicit subprocess override hashes a repo script.
-    if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
+    if environment.transpile_script.is_some() {
         let mut hasher = Sha256::new();
         hasher.update(b"subprocess-transpile-script\0");
-        let identity = transpile_override_identity()?;
+        let identity = transpile_override_identity(environment)?;
         let script_path = identity.path.to_str().with_context(|| {
             format!(
                 "Transpile override does not support a non-UTF-8 path: {}",
@@ -2664,31 +3787,38 @@ fn compute_transpile_tooling_hash() -> Result<[u8; 32]> {
     }
     let mut hasher = Sha256::new();
     hasher.update(b"in-process-transpile-engine\0");
-    hasher.update(transpile::selected_engine_cache_tag()?.as_bytes());
+    hasher.update(
+        transpile::selected_engine_cache_tag(
+            environment.runtime_transform(),
+            environment.legacy_runtime_transform(),
+        )?
+        .as_bytes(),
+    );
     Ok(hasher.finalize().into())
 }
 
-fn transpile_cache_dir() -> Result<PathBuf> {
-    // The resolved, writable cache directory doesn't change during a process
-    // run, so resolve it once (create_dir_all + a probe write) and reuse it.
-    // Without this, every transpiled-module load re-ran mkdir + a probe
-    // create/remove round trip even on cache hits — the per-load syscall churn
-    // runtime-loader profiling flagged. @ref LLP 0007#runtime-module-loading
-    static CACHED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    if let Some(dir) = CACHED.get() {
-        return Ok(dir.clone());
-    }
-    let dir = resolve_transpile_cache_dir()?;
-    let _ = CACHED.set(dir.clone());
-    Ok(dir)
+fn transpile_cache_dir(environment: &CapturedModuleLoaderEnvironment) -> Result<PathBuf> {
+    // Resolve once per diagnostic loader rather than once per process. Armed
+    // loaders return from `transpile_module` before reaching this function.
+    // @ref LLP 0007#runtime-module-loading
+    environment
+        .transpile_cache_dir
+        .get_or_init(|| resolve_transpile_cache_dir(environment).map_err(|error| error.to_string()))
+        .clone()
+        .map_err(anyhow::Error::msg)
 }
 
-fn resolve_transpile_cache_dir() -> Result<PathBuf> {
-    let mut dir = crate::runtime_cache_dir()?;
+fn resolve_transpile_cache_dir(environment: &CapturedModuleLoaderEnvironment) -> Result<PathBuf> {
+    let mut dir = environment
+        .runtime_cache_dir
+        .clone()
+        .map_err(anyhow::Error::msg)?;
     dir.push("typescript");
     dir.push("loader");
     if let Err(err) = ensure_transpile_cache_dir(&dir) {
-        let fallback = std::env::temp_dir()
+        let fallback = environment
+            .fallback_temp_dir
+            .clone()
             .join("exact")
             .join("typescript")
             .join("loader");
@@ -2701,9 +3831,15 @@ fn resolve_transpile_cache_dir() -> Result<PathBuf> {
                 fallback_err
             ));
         }
-        Ok(fallback)
+        std::fs::canonicalize(&fallback).with_context(|| {
+            format!(
+                "Failed to canonicalize transpile cache fallback {}",
+                fallback.display()
+            )
+        })
     } else {
-        Ok(dir)
+        std::fs::canonicalize(&dir)
+            .with_context(|| format!("Failed to canonicalize transpile cache {}", dir.display()))
     }
 }
 
@@ -2785,13 +3921,14 @@ fn publish_transpile_artifact(
     artifact_dir: &Path,
     target: &str,
     source: &str,
+    environment: &CapturedModuleLoaderEnvironment,
 ) -> Result<()> {
     let stage = unique_tmp_path(artifact_dir);
     std::fs::create_dir_all(&stage)
         .with_context(|| format!("Failed to create transpile stage {}", stage.display()))?;
     let stage_output = stage.join("module.js");
     let result = (|| -> Result<()> {
-        run_transpile_command(entry, &stage_output, target, source)?;
+        run_transpile_command(entry, &stage_output, target, source, environment)?;
         let output_bytes = std::fs::read(&stage_output)?;
         let manifest = TranspileCacheManifest {
             version: 1,
@@ -2901,27 +4038,41 @@ fn prune_transpile_cache_to_limit(cache_dir: &Path, keep: &Path, limit: u64) {
     }
 }
 
-fn enforce_transpile_cache_quota(cache_dir: &Path, keep: &Path) {
-    const DEFAULT_LIMIT: u64 = 256 * 1024 * 1024;
-    let limit = std::env::var("IBEX_TRANSPILE_CACHE_MAX_BYTES")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_LIMIT);
+fn enforce_transpile_cache_quota(cache_dir: &Path, keep: &Path, limit: u64) {
     prune_transpile_cache_to_limit(cache_dir, keep, limit);
 }
 
-fn run_transpile_command(entry: &Path, output: &Path, target: &str, source: &str) -> Result<()> {
+fn run_transpile_command(
+    entry: &Path,
+    output: &Path,
+    target: &str,
+    source: &str,
+    environment: &CapturedModuleLoaderEnvironment,
+) -> Result<()> {
     // Explicit override keeps a custom transpiler-script escape hatch;
     // everything else is in-process per LLP 0007, so TypeScript works
     // standalone without a Bun/Node subprocess.
-    if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
-        let script = transpile_override_identity()?;
-        return run_transpile_override(entry, output, target, source, &script);
+    if environment.transpile_script.is_some() {
+        let script = transpile_override_identity(environment)?;
+        return run_transpile_override(
+            entry,
+            output,
+            target,
+            source,
+            &script,
+            environment.test_transpile_input_barrier.as_deref(),
+        );
     }
 
     // Reuse the source the loader already read for this module instead of
     // re-reading the file inside the transpiler on a cache miss.
-    let code = transpile::transpile_source_to_cjs(source, entry, target)?;
+    let code = transpile::transpile_source_to_cjs(
+        source,
+        entry,
+        target,
+        environment.runtime_transform(),
+        environment.legacy_runtime_transform(),
+    )?;
 
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)
@@ -2940,6 +4091,7 @@ fn run_transpile_override(
     target: &str,
     source: &str,
     script: &TranspileOverrideIdentity,
+    test_barrier: Option<&Path>,
 ) -> Result<()> {
     verify_transpile_override_identity(script)?;
 
@@ -2981,10 +4133,11 @@ fn run_transpile_override(
     input.sync_all()?;
     drop(input);
 
-    // Stage the complete authenticated tool directory, not only its entry
-    // script. Relative helpers and package.json module-mode semantics are real
-    // executable inputs; resolving them from the live directory after hashing
-    // only the entry created stale-cache and split-input races.
+    // Stage the override entry's captured immediate-parent tree, not only its
+    // entry script. Relative helpers and package.json module-mode semantics
+    // within that tree are executable inputs. EXACT_TRANSPILE_SCRIPT is an
+    // operator-trusted developer escape: it must be self-contained here and
+    // must not rely on ancestor package/config discovery.
     std::fs::create_dir(&staged_tool_root)?;
     for tool_file in script.files.iter() {
         let staged = staged_tool_root.join(&tool_file.relative);
@@ -3000,7 +4153,7 @@ fn run_transpile_override(
     }
     let staged_script = staged_tool_root.join(&script.entry_relative);
 
-    wait_for_transpile_test_barrier(output)?;
+    wait_for_transpile_test_barrier(output, test_barrier)?;
     run_transpile_subprocess(
         &staged_input,
         output,
@@ -3043,12 +4196,11 @@ fn unique_staged_transpile_input(entry: &Path, output: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn wait_for_transpile_test_barrier(output: &Path) -> Result<()> {
-    let Ok(dir) = std::env::var("IBEX_TEST_TRANSPILE_INPUT_BARRIER") else {
+fn wait_for_transpile_test_barrier(output: &Path, dir: Option<&Path>) -> Result<()> {
+    let Some(dir) = dir else {
         return Ok(());
     };
-    let dir = PathBuf::from(dir);
-    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(dir)?;
     if let Ok(target) = std::fs::read_to_string(dir.join("target")) {
         if target != output.to_string_lossy() {
             return Ok(());
@@ -3106,7 +4258,54 @@ fn run_transpile_subprocess(
     runner: &Path,
     runner_name: &str,
 ) -> Result<()> {
-    let status = Command::new(runner)
+    let private_environment = unique_tmp_path(&output.with_file_name("transpile-environment"));
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        builder.mode(0o700);
+    }
+    builder.create(&private_environment).with_context(|| {
+        format!(
+            "Failed to create private transpile environment {}",
+            private_environment.display()
+        )
+    })?;
+    struct PrivateEnvironmentCleanup(PathBuf);
+    impl Drop for PrivateEnvironmentCleanup {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+    let _private_environment_cleanup = PrivateEnvironmentCleanup(private_environment.clone());
+
+    let mut command = Command::new(runner);
+    configure_transpile_subprocess_environment(&mut command, &private_environment);
+    command.current_dir(&private_environment);
+    if runner_name == "bun" {
+        let bun_config = private_environment.join("bunfig.toml");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&bun_config)
+            .and_then(|mut file| {
+                use std::io::Write as _;
+                file.write_all(b"# intentionally empty authenticated transpile config\n")
+            })
+            .with_context(|| {
+                format!(
+                    "Failed to create private Bun config {}",
+                    bun_config.display()
+                )
+            })?;
+        command.arg("--no-env-file").arg(format!(
+            "--config={}",
+            bun_config
+                .to_str()
+                .context("private Bun config path is not UTF-8")?
+        ));
+    }
+    let status = command
         .arg(script)
         .arg("--entry")
         .arg(entry)
@@ -3135,28 +4334,44 @@ fn run_transpile_subprocess(
     Ok(())
 }
 
-fn transpile_script_path() -> Result<PathBuf> {
-    // Runtime override so TS loading works off the build machine instead of
-    // depending on the CARGO_MANIFEST_DIR baked in at compile time.
-    // @ref LLP 0007#runtime-module-loading
-    let script = std::env::var("EXACT_TRANSPILE_SCRIPT")
-        .context("EXACT_TRANSPILE_SCRIPT must be set for subprocess transpilation")?;
-    let script = PathBuf::from(script);
-    if script.exists() {
-        return Ok(script);
-    }
-    anyhow::bail!(
-        "EXACT_TRANSPILE_SCRIPT points to missing file {}",
-        script.display()
-    );
+fn configure_transpile_subprocess_environment(command: &mut Command, private_environment: &Path) {
+    // The override directory and runner bytes are authenticated separately.
+    // No ambient runner controls are inputs to that identity, so do not let
+    // Node/Bun/native-loader variables or PATH cross into the compiler child.
+    // @ref LLP 0023#6-path-bearing-observables
+    command.env_clear();
+    command
+        .env("HOME", private_environment)
+        .env("XDG_CONFIG_HOME", private_environment)
+        .env("XDG_CACHE_HOME", private_environment)
+        .env("TMPDIR", private_environment)
+        .env("TMP", private_environment)
+        .env("TEMP", private_environment)
+        .env("BUN_RUNTIME_TRANSPILER_CACHE_PATH", private_environment)
+        .env("NODE_DISABLE_COMPILE_CACHE", "1")
+        .env("LANG", "C")
+        .env("LC_ALL", "C")
+        .env("TZ", "UTC");
+    #[cfg(windows)]
+    command
+        .env("USERPROFILE", private_environment)
+        .env("APPDATA", private_environment)
+        .env("LOCALAPPDATA", private_environment);
 }
 
 fn find_js_runner() -> Result<(PathBuf, &'static str)> {
-    if let Ok(path) = which::which("bun") {
-        return Ok((path, "bun"));
-    }
-    if let Ok(path) = which::which("node") {
-        return Ok((path, "node"));
+    let search_path = std::env::var_os("PATH")
+        .context("PATH is unavailable while capturing the transpile runner")?;
+    let cwd = std::env::current_dir()
+        .context("failed to capture the transpile runner search directory")?;
+    #[cfg(windows)]
+    let candidates = [("bun.exe", "bun"), ("node.exe", "node")];
+    #[cfg(not(windows))]
+    let candidates = [("bun", "bun"), ("node", "node")];
+    for (executable, name) in candidates {
+        if let Ok(path) = which::which_in(executable, Some(&search_path), &cwd) {
+            return Ok((path, name));
+        }
     }
     anyhow::bail!("bun or node is required to transpile TypeScript");
 }
@@ -3306,6 +4521,161 @@ mod tests {
 
     fn test_loader() -> ModuleLoader {
         ModuleLoader::new()
+    }
+
+    fn test_cache_environment(
+        preferred_runtime_cache: PathBuf,
+        fallback_temp_dir: PathBuf,
+    ) -> CapturedModuleLoaderEnvironment {
+        CapturedModuleLoaderEnvironment {
+            runtime_transform: None,
+            legacy_runtime_transform: None,
+            transpile_script: None,
+            transpile_cache_max_bytes: DEFAULT_TRANSPILE_CACHE_MAX_BYTES,
+            test_transpile_input_barrier: None,
+            runtime_cache_dir: Ok(preferred_runtime_cache),
+            fallback_temp_dir,
+            transpile_cache_dir: std::sync::OnceLock::new(),
+            transpile_tooling_hash: std::sync::OnceLock::new(),
+            transpile_override_identity: None,
+        }
+    }
+
+    fn write_forged_transpile_cache_artifact(
+        runtime_cache: &Path,
+        entry: &Path,
+        target: &str,
+        source: &str,
+        forged_output: &str,
+        environment: &CapturedModuleLoaderEnvironment,
+    ) -> PathBuf {
+        let cache_key = module_cache_key(entry, target, source, environment).unwrap();
+        let artifact = runtime_cache
+            .join("typescript")
+            .join("loader")
+            .join(cache_key);
+        std::fs::create_dir_all(&artifact).unwrap();
+        std::fs::write(artifact.join("module.js"), forged_output).unwrap();
+        let manifest = TranspileCacheManifest {
+            version: 1,
+            target: target.into(),
+            source_sha256: sha256_hex(source.as_bytes()),
+            output_sha256: sha256_hex(forged_output.as_bytes()),
+        };
+        std::fs::write(
+            artifact.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        artifact
+    }
+
+    #[test]
+    fn armed_loader_ignores_forged_public_hash_cache() {
+        let root = tempdir().unwrap();
+        let entry = root.path().join("module.ts");
+        let source = "export const answer: number = 42;";
+        std::fs::write(&entry, source).unwrap();
+        let runtime_cache = root.path().join("cache");
+        let fallback = root.path().join("fallback");
+        let environment = test_cache_environment(runtime_cache.clone(), fallback);
+        let forged_output = "throw new Error('forged cache executed');";
+        let artifact = write_forged_transpile_cache_artifact(
+            &runtime_cache,
+            &entry,
+            "es2015",
+            source,
+            forged_output,
+            &environment,
+        );
+
+        let mut loader = test_loader();
+        loader.environment = environment;
+        loader.arm_fresh_transpilation().unwrap();
+        let output = loader.transpile_module(&entry, "es2015", source).unwrap();
+
+        assert_ne!(output, forged_output);
+        assert!(!artifact.join(".last-used").exists());
+    }
+
+    #[test]
+    fn armed_loader_never_touches_unusable_cache_or_fallback() {
+        let root = tempdir().unwrap();
+        let entry = root.path().join("module.tsx");
+        let source = "export const view = <div>safe</div>;";
+        std::fs::write(&entry, source).unwrap();
+        let unusable_primary = root.path().join("cache-is-a-file");
+        std::fs::write(&unusable_primary, b"must remain a file").unwrap();
+        let untouched_fallback = root.path().join("fallback-must-remain-absent");
+
+        let mut loader = test_loader();
+        loader.environment =
+            test_cache_environment(unusable_primary.clone(), untouched_fallback.clone());
+        loader.arm_fresh_transpilation().unwrap();
+        let output = loader.transpile_module(&entry, "es2015", source).unwrap();
+
+        assert!(!output.is_empty());
+        assert_eq!(
+            std::fs::read(&unusable_primary).unwrap(),
+            b"must remain a file"
+        );
+        assert!(!untouched_fallback.exists());
+    }
+
+    #[test]
+    fn diagnostic_first_loader_state_cannot_seed_armed_transpilation() {
+        let root = tempdir().unwrap();
+        let entry = root.path().join("module.ts");
+        let source = "export const answer: number = 42;";
+        std::fs::write(&entry, source).unwrap();
+        let runtime_cache = root.path().join("shared-cache");
+        let fallback = root.path().join("fallback");
+        let diagnostic_environment =
+            test_cache_environment(runtime_cache.clone(), fallback.clone());
+        let forged_output = "module.exports = 'diagnostic forged cache';";
+        write_forged_transpile_cache_artifact(
+            &runtime_cache,
+            &entry,
+            "es2015",
+            source,
+            forged_output,
+            &diagnostic_environment,
+        );
+
+        let mut diagnostic = test_loader();
+        diagnostic.environment = diagnostic_environment;
+        assert_eq!(
+            diagnostic
+                .transpile_module(&entry, "es2015", source)
+                .unwrap(),
+            forged_output
+        );
+        assert_eq!(
+            diagnostic.transpile_mode,
+            TranspileMode::DiagnosticPersistentCache
+        );
+
+        let mut armed = test_loader();
+        armed.environment = test_cache_environment(runtime_cache, fallback);
+        armed.arm_fresh_transpilation().unwrap();
+        let armed_output = armed.transpile_module(&entry, "es2015", source).unwrap();
+        assert_eq!(armed.transpile_mode, TranspileMode::ArmedFreshInMemory);
+        assert_ne!(armed_output, forged_output);
+    }
+
+    #[test]
+    fn armed_loader_still_refuses_subprocess_override() {
+        let mut loader = test_loader();
+        loader.environment.transpile_script = Some(PathBuf::from("diagnostic-transpiler.js"));
+
+        let error = loader.arm_fresh_transpilation().unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("diagnostic-only developer escape"));
+        assert_eq!(
+            loader.transpile_mode,
+            TranspileMode::DiagnosticPersistentCache
+        );
     }
 
     #[test]
@@ -3475,6 +4845,439 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_direct_file_refuses_nearest_malformed_manifest_but_ignores_outer_one() {
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        let source = project.join("src");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(sandbox.path().join("package.json"), r#"{"type": "#).unwrap();
+        std::fs::write(source.join("entry.js"), "module.exports = 1;\n").unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let entry = project.join("src/entry.js");
+        let loader = test_loader();
+        assert!(
+            loader.resolve_direct_file_meta(&entry).is_err(),
+            "the diagnostic resolver should demonstrate the ambient malformed-manifest failure"
+        );
+
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .unwrap();
+        let bounded = loader
+            .resolve_direct_file_meta_authenticated(&entry, &inputs)
+            .expect("outside parent manifest must be invisible to armed resolution");
+        assert_eq!(bounded.kind, ModuleKind::CommonJs);
+        assert_eq!(bounded.path.as_deref(), Some(entry.as_path()));
+
+        // A malformed manifest inside the authenticated boundary is not the
+        // same as an ambient parent: once Host captures it as the nearest
+        // package scope, armed resolution must refuse instead of falling
+        // through to CommonJS or continuing the upward search.
+        let nearest_manifest = project.join("src/package.json");
+        std::fs::write(&nearest_manifest, r#"{"type": "#).unwrap();
+        let mut manifests = BTreeMap::new();
+        manifests.insert(nearest_manifest, br#"{"type": "#.to_vec());
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            manifests,
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .unwrap();
+        let error = loader
+            .resolve_direct_file_meta_authenticated(&entry, &inputs)
+            .expect_err("a captured malformed nearest manifest must refuse resolution");
+        assert!(
+            error.to_string().contains("Failed to resolve module"),
+            "unexpected malformed-manifest refusal: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_resolver_refuses_replaced_boundary_before_lookup() {
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        let original = sandbox.path().join("original");
+        let substitute = sandbox.path().join("substitute");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&substitute).unwrap();
+        let expected = test_object_identity(&project);
+
+        std::fs::rename(&project, &original).unwrap();
+        std::fs::rename(&substitute, &project).unwrap();
+        let error = AuthenticatedResolverInputs::new(
+            project,
+            &expected,
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .err()
+        .expect("a replacement boundary object must be refused");
+        assert!(
+            error
+                .to_string()
+                .contains("boundary object changed before retention"),
+            "unexpected boundary refusal: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_unknown_manifest_operations_record_without_host_lookup() {
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let manifest = project.join("package.json");
+        std::fs::write(&manifest, br#"{"type":"module"}"#).unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let manifest = project.join("package.json");
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .unwrap();
+        let file_system = inputs.file_system();
+
+        assert_eq!(
+            file_system.read(&manifest).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            file_system.read_to_string(&manifest).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            file_system.metadata(&manifest).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            file_system.symlink_metadata(&manifest).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert!(file_system
+            .read_link(&manifest)
+            .unwrap_err()
+            .to_string()
+            .contains("authenticated package manifest is unavailable"));
+        assert_eq!(
+            file_system.canonicalize(&manifest).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            inputs.uncaptured_package_manifest_probes().unwrap(),
+            BTreeSet::from([manifest])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_manifest_absence_suppresses_probe_and_disk_manifest() {
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("entry.js"), "module.exports = true;\n").unwrap();
+        std::fs::write(project.join("package.json"), r#"{"type": "#).unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let entry = project.join("entry.js");
+        let manifest = project.join("package.json");
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::from([manifest]),
+            BTreeSet::new(),
+        )
+        .unwrap();
+        let resolved = test_loader()
+            .resolve_direct_file_meta_authenticated(&entry, &inputs)
+            .expect("an authenticated absence must hide a conflicting disk manifest");
+        assert_eq!(resolved.kind, ModuleKind::CommonJs);
+        assert!(inputs
+            .uncaptured_package_manifest_probes()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_denied_foreign_subtree_blocks_symlink_but_same_root_symlink_resolves() {
+        use std::os::unix::fs::symlink;
+
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        let foreign = project.join("node_modules/foreign");
+        std::fs::create_dir_all(&foreign).unwrap();
+        std::fs::write(project.join("entry.js"), "module.exports = true;\n").unwrap();
+        std::fs::write(project.join("local.js"), "module.exports = 'local';\n").unwrap();
+        std::fs::write(foreign.join("target.js"), "module.exports = 'foreign';\n").unwrap();
+        symlink("local.js", project.join("local-link.js")).unwrap();
+        symlink(
+            "node_modules/foreign/target.js",
+            project.join("foreign-link.js"),
+        )
+        .unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let entry = project.join("entry.js");
+        let foreign = project.join("node_modules/foreign");
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::from([foreign]),
+        )
+        .unwrap();
+        let loader = test_loader();
+
+        let local = loader
+            .resolve_meta_authenticated("./local-link.js", Some(&entry), &inputs)
+            .expect("same-principal in-bound symlink must remain resolvable");
+        assert_eq!(
+            local.path.as_deref(),
+            Some(project.join("local.js").as_path())
+        );
+
+        let error = loader
+            .resolve_meta_authenticated("./foreign-link.js", Some(&entry), &inputs)
+            .expect_err("symlink into a denied foreign package subtree must be refused");
+        assert!(
+            error.to_string().contains("Failed to resolve module"),
+            "unexpected denied-subtree refusal: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_denied_subtree_blocks_ancestor_symlink_with_pending_tail() {
+        use std::os::unix::fs::symlink;
+
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        let package = project.join("node_modules/pkg");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(project.join("entry.js"), "module.exports = true;\n").unwrap();
+        std::fs::write(
+            package.join("index.js"),
+            "module.exports = 'foreign package';\n",
+        )
+        .unwrap();
+        symlink("node_modules", project.join("alias")).unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let entry = project.join("entry.js");
+        let denied_package = project.join("node_modules/pkg");
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::from([denied_package]),
+        )
+        .unwrap();
+
+        let error = test_loader()
+            .resolve_meta_authenticated("./alias/pkg/index.js", Some(&entry), &inputs)
+            .expect_err("the symlink target plus pending tail must be checked before entering pkg");
+        assert!(
+            error.to_string().contains("Failed to resolve module"),
+            "unexpected ancestor-symlink refusal: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_manifests_drive_kind_exports_and_package_imports() {
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        let source = project.join("src");
+        let package = project.join("node_modules/pkg");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(source.join("entry.js"), "export default 1;\n").unwrap();
+        std::fs::write(source.join("inside.js"), "export const inside = true;\n").unwrap();
+        std::fs::write(
+            package.join("captured.js"),
+            "export const captured = true;\n",
+        )
+        .unwrap();
+        std::fs::write(package.join("ambient.js"), "module.exports = 'ambient';\n").unwrap();
+
+        // Deliberately conflicting disk manifests prove OXC consumes the map,
+        // not a path reopen, for every manifest-controlled resolver feature.
+        std::fs::write(
+            project.join("package.json"),
+            r##"{"name":"ambient-app","type":"commonjs","imports":{"#inside":"./missing.js"}}"##,
+        )
+        .unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"pkg","version":"9.9.9","type":"commonjs","exports":{".":"./ambient.js"}}"#,
+        )
+        .unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let entry = project.join("src/entry.js");
+        let package = project.join("node_modules/pkg");
+        let captured_target = package.join("captured.js");
+        let mut manifests = BTreeMap::new();
+        manifests.insert(
+            project.join("package.json"),
+            br##"{"name":"app","type":"module","imports":{"#inside":"./src/inside.js"}}"##.to_vec(),
+        );
+        manifests.insert(
+            package.join("package.json"),
+            br#"{"name":"pkg","version":"1.2.3","type":"module","exports":{".":"./captured.js"}}"#
+                .to_vec(),
+        );
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            manifests,
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .unwrap();
+        let loader = test_loader();
+
+        assert_eq!(
+            loader
+                .resolve_direct_file_meta_authenticated(&entry, &inputs)
+                .unwrap()
+                .kind,
+            ModuleKind::Esm
+        );
+
+        let imported = loader
+            .resolve_meta_authenticated("#inside", Some(&entry), &inputs)
+            .unwrap();
+        assert_eq!(
+            imported.path.as_deref(),
+            Some(project.join("src/inside.js").as_path())
+        );
+        assert_eq!(imported.kind, ModuleKind::Esm);
+
+        let synthetic_referrer = project.join(".ibex-session-static-import.mjs");
+        let from_synthetic_referrer = loader
+            .resolve_meta_authenticated("./src/inside.js", Some(&synthetic_referrer), &inputs)
+            .expect("the bounded resolver must accept the session's file-like synthetic referrer");
+        assert_eq!(
+            from_synthetic_referrer.path.as_deref(),
+            Some(project.join("src/inside.js").as_path())
+        );
+
+        let exported = loader
+            .resolve_meta_authenticated("pkg", Some(&entry), &inputs)
+            .unwrap();
+        assert_eq!(exported.path.as_deref(), Some(captured_target.as_path()));
+        assert_eq!(exported.kind, ModuleKind::Esm);
+        assert_eq!(exported.package_version.as_deref(), Some("1.2.3"));
+
+        let bound = loader
+            .resolve_meta_from_authenticated_bound_package("pkg", "pkg", &package, &inputs)
+            .unwrap();
+        assert_eq!(bound.path.as_deref(), Some(captured_target.as_path()));
+        assert_eq!(bound.package_root.as_deref(), Some(package.as_path()));
+        assert_eq!(bound.package_version.as_deref(), Some("1.2.3"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_resolver_refuses_outside_symlink_target() {
+        use std::os::unix::fs::symlink;
+
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        let outside = sandbox.path().join("outside");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(project.join("entry.js"), "module.exports = 1;\n").unwrap();
+        std::fs::write(outside.join("target.js"), "module.exports = 'outside';\n").unwrap();
+        symlink(outside.join("target.js"), project.join("escape.js")).unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let entry = project.join("entry.js");
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .unwrap();
+        let error = test_loader()
+            .resolve_meta_authenticated("./escape.js", Some(&entry), &inputs)
+            .expect_err("an outside symlink target must not resolve");
+        assert!(
+            error.to_string().contains("Failed to resolve module"),
+            "unexpected bounded resolver error: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_resolver_disables_node_path_and_cannot_select_an_ambient_package() {
+        let options = authenticated_module_resolve_options(true);
+        assert!(
+            !options.node_path,
+            "armed resolver construction must never initialize or consult NODE_PATH"
+        );
+        assert!(
+            options
+                .modules
+                .iter()
+                .all(|path| !Path::new(path).is_absolute()),
+            "armed resolver module search must not contain an absolute ambient root"
+        );
+
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        let ambient = sandbox.path().join("ambient-modules/node-path-only");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&ambient).unwrap();
+        std::fs::write(project.join("entry.js"), "module.exports = 1;\n").unwrap();
+        std::fs::write(
+            ambient.join("package.json"),
+            r#"{"name":"node-path-only","main":"index.js"}"#,
+        )
+        .unwrap();
+        std::fs::write(ambient.join("index.js"), "module.exports = 'ambient';\n").unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let entry = project.join("entry.js");
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .unwrap();
+        let error = test_loader()
+            .resolve_meta_authenticated("node-path-only", Some(&entry), &inputs)
+            .expect_err("an ambient package outside the authenticated boundary must be invisible");
+        assert!(
+            error.to_string().contains("Failed to resolve module"),
+            "unexpected ambient-package refusal: {error:#}"
+        );
+    }
+
     // ENG-23007: the metadata-only path skips the load that the full resolve
     // performs. For a VALID module, `resolve` populates `source` (read +
     // transpiled) while `resolve_meta` leaves it `None` for the same path.
@@ -3584,10 +5387,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let entry = dir.path().join("module.ts");
         std::fs::write(&entry, "module.exports = 1").unwrap();
-        let first = module_cache_key(&entry, "es2015", "module.exports = 1").unwrap();
+        let environment = CapturedModuleLoaderEnvironment::capture();
+        let first = module_cache_key(&entry, "es2015", "module.exports = 1", &environment).unwrap();
         // The two sources have identical length and the file metadata is left
         // untouched between key computations. Content identity must still move.
-        let second = module_cache_key(&entry, "es2015", "module.exports = 2").unwrap();
+        let second =
+            module_cache_key(&entry, "es2015", "module.exports = 2", &environment).unwrap();
         assert_ne!(first, second);
     }
 
@@ -3629,7 +5434,7 @@ mod tests {
 
         std::thread::scope(|scope| {
             let handle = scope.spawn(|| {
-                run_transpile_override(&entry, &output, "es2015", source_a, &script_identity)
+                run_transpile_override(&entry, &output, "es2015", source_a, &script_identity, None)
             });
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
             while !ready.exists() && std::time::Instant::now() < deadline {
@@ -3704,6 +5509,7 @@ mod tests {
                     "es2015",
                     "export const answer = 42;\n",
                     &identity,
+                    None,
                 )
             });
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -3780,6 +5586,7 @@ mod tests {
         let source = "export const answer: number = 42;";
         std::fs::write(&entry, source).unwrap();
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(12));
+        let environment = CapturedModuleLoaderEnvironment::capture();
 
         std::thread::scope(|scope| {
             let mut handles = Vec::new();
@@ -3787,9 +5594,10 @@ mod tests {
                 let barrier = barrier.clone();
                 let entry = entry.clone();
                 let artifact = artifact.clone();
+                let environment = &environment;
                 handles.push(scope.spawn(move || {
                     barrier.wait();
-                    publish_transpile_artifact(&entry, &artifact, "es2015", source)
+                    publish_transpile_artifact(&entry, &artifact, "es2015", source, environment)
                 }));
             }
             for handle in handles {
@@ -4434,6 +6242,7 @@ const fs = require('fs');
 const loader = fs.readFileSync(__LOADER_PATH__, 'utf8');
 let dispatch = null;
 let dependencyResolves = 0;
+let importChecks = [];
 let currentCwd = '/project';
 globalThis.__exactHasSharedRuntimeBundle = true;
 globalThis.__exactCaptureSessionStaticImport = function(fn) {
@@ -4444,6 +6253,10 @@ globalThis.__exactCaptureSessionStaticImport = function(fn) {
   };
 };
 globalThis.__exactGetCwd = function() { return currentCwd; };
+globalThis.__exactCheckImport = function(hint, specifier, targetSourceId) {
+  importChecks.push([hint, specifier, targetSourceId]);
+  return true;
+};
 function logical(path) {
   return {
     schema: 'ibex/logical-path/1',
@@ -4495,9 +6308,16 @@ currentCwd = '/project/other';
 var afterCwdChange = globalThis.require('./dep space.js?v=other-cwd');
 var labelStack = '';
 try { topOne.where(); } catch (error) { labelStack = String(error && error.stack || error); }
+var cacheHitChecks = importChecks.filter(function(row) {
+  return typeof row[2] === 'string';
+});
 if (dependencyResolves !== 3 || globalThis.__depRuns !== 1 ||
     String(globalThis.__memoResult) !== 'true,1,1,file:///project/dep%20space.js' ||
     topOne !== topTwo || topOne !== afterCwdChange ||
+    JSON.stringify(cacheHitChecks) !== JSON.stringify([
+      [0, './dep space.js', 'ibex-source-id-v1:dep'],
+      [0, './dep space.js', 'ibex-source-id-v1:dep']
+    ]) ||
     labelStack.indexOf('file:///project/dep%20space.js') === -1) {
   throw new Error(JSON.stringify({
     dependencyResolves: dependencyResolves,
@@ -4505,6 +6325,7 @@ if (dependencyResolves !== 3 || globalThis.__depRuns !== 1 ||
     result: globalThis.__memoResult,
     topSame: topOne === topTwo,
     cwdSame: topOne === afterCwdChange,
+    importChecks: importChecks,
     labelStack: labelStack
   }));
 }

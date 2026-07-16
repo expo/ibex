@@ -24,7 +24,7 @@ use std::sync::OnceLock;
 extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
 }
 
@@ -39,79 +39,103 @@ pub struct LoadedEngineBinaryIdentity {
     pub structural_features: Vec<String>,
 }
 
-fn loaded_engine_identity() -> &'static std::result::Result<LoadedEngineBinaryIdentity, String> {
+const EMBEDDED_HERMES_PROFILE_PROVENANCE: &str =
+    include_str!(concat!(env!("OUT_DIR"), "/hermes_profile_provenance.json"));
+
+fn expected_loaded_engine_identity(
+) -> &'static std::result::Result<LoadedEngineBinaryIdentity, String> {
     static IDENTITY: OnceLock<std::result::Result<LoadedEngineBinaryIdentity, String>> =
         OnceLock::new();
-    IDENTITY.get_or_init(|| {
-        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-        use base64::Engine as _;
-        use sha2::{Digest as _, Sha256};
-        use std::io::Read as _;
+    IDENTITY.get_or_init(capture_loaded_engine_identity)
+}
 
-        let mut buffer = vec![0u8; 32 * 1024];
-        let length =
-            unsafe { ex_hermes_engine_binary_path(buffer.as_mut_ptr().cast(), buffer.len()) };
-        if length <= 0 {
-            return Err("failed to identify the loaded Hermes engine artifact".into());
+fn capture_loaded_engine_identity() -> Result<LoadedEngineBinaryIdentity, String> {
+    let mut buffer = vec![0u8; 32 * 1024];
+    let length = unsafe { ex_hermes_engine_binary_path(buffer.as_mut_ptr().cast(), buffer.len()) };
+    if length <= 0 {
+        return Err("failed to identify the loaded Hermes engine artifact".into());
+    }
+    buffer.truncate(length as usize);
+    let text =
+        std::str::from_utf8(&buffer).map_err(|_| "loaded Hermes path is not UTF-8".to_owned())?;
+    capture_engine_artifact_identity(std::path::Path::new(text), verify_loaded_mapping_object)
+}
+
+fn capture_engine_artifact_identity(
+    candidate_path: &std::path::Path,
+    verify_mapping: impl FnOnce(&std::fs::Metadata) -> Result<(), String>,
+) -> Result<LoadedEngineBinaryIdentity, String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
+    use std::io::Read as _;
+
+    let path = std::fs::canonicalize(candidate_path).map_err(|error| {
+        format!(
+            "failed to authenticate loaded Hermes artifact {}: {error}",
+            candidate_path.display()
+        )
+    })?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    let mut file = options.open(&path).map_err(|error| {
+        format!(
+            "failed to pin loaded Hermes artifact {}: {error}",
+            path.display()
+        )
+    })?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("failed to inspect loaded Hermes artifact: {error}"))?;
+    if !metadata.is_file() {
+        return Err("loaded Hermes artifact is not a regular file".into());
+    }
+    verify_mapping(&metadata)?;
+    let object = engine_object_identity(&metadata)?;
+    let mut hash = Sha256::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut chunk)
+            .map_err(|error| format!("failed to hash loaded Hermes artifact: {error}"))?;
+        if read == 0 {
+            break;
         }
-        buffer.truncate(length as usize);
-        let text = std::str::from_utf8(&buffer)
-            .map_err(|_| "loaded Hermes path is not UTF-8".to_owned())?;
-        let path = std::fs::canonicalize(text).map_err(|error| {
-            format!("failed to authenticate loaded Hermes artifact {text}: {error}")
-        })?;
-        let mut options = std::fs::OpenOptions::new();
-        options.read(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-        }
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
-        }
-        let mut file = options.open(&path).map_err(|error| {
-            format!(
-                "failed to pin loaded Hermes artifact {}: {error}",
-                path.display()
-            )
-        })?;
-        let metadata = file
-            .metadata()
-            .map_err(|error| format!("failed to inspect loaded Hermes artifact: {error}"))?;
-        if !metadata.is_file() {
-            return Err("loaded Hermes artifact is not a regular file".into());
-        }
-        verify_loaded_mapping_object(&metadata)?;
-        let object = engine_object_identity(&metadata)?;
-        let mut hash = Sha256::new();
-        let mut chunk = [0u8; 64 * 1024];
-        loop {
-            let read = file
-                .read(&mut chunk)
-                .map_err(|error| format!("failed to hash loaded Hermes artifact: {error}"))?;
-            if read == 0 {
-                break;
-            }
-            hash.update(&chunk[..read]);
-        }
-        let after = file
-            .metadata()
-            .map_err(|error| format!("failed to revalidate loaded Hermes artifact: {error}"))?;
-        if engine_object_identity(&after)? != object || after.len() != metadata.len() {
-            return Err("loaded Hermes artifact changed while it was authenticated".into());
-        }
-        let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
-        Ok(LoadedEngineBinaryIdentity {
-            engine_artifact_path: path,
-            kind: "hermes".into(),
-            binary_digest: digest,
-            object,
-            target_architecture: std::env::consts::ARCH.to_owned(),
-            structural_features: loaded_engine_structural_features(),
-        })
+        hash.update(&chunk[..read]);
+    }
+    let after = file
+        .metadata()
+        .map_err(|error| format!("failed to revalidate loaded Hermes artifact: {error}"))?;
+    let mut changed = engine_object_identity(&after)? != object || after.len() != metadata.len();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        changed |= after.mtime() != metadata.mtime()
+            || after.mtime_nsec() != metadata.mtime_nsec()
+            || after.ctime() != metadata.ctime()
+            || after.ctime_nsec() != metadata.ctime_nsec();
+    }
+    if changed {
+        return Err("loaded Hermes artifact changed while it was authenticated".into());
+    }
+    let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
+    Ok(LoadedEngineBinaryIdentity {
+        engine_artifact_path: path,
+        kind: "hermes".into(),
+        binary_digest: digest,
+        object,
+        target_architecture: std::env::consts::ARCH.to_owned(),
+        structural_features: loaded_engine_structural_features(),
     })
 }
 
@@ -156,67 +180,18 @@ fn engine_object_identity(
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), String> {
-    use std::os::unix::fs::MetadataExt;
-
-    let address = ex_hermes_engine_binary_path as usize;
-    let maps = std::fs::read_to_string("/proc/self/maps")
-        .map_err(|error| format!("failed to inspect loaded Hermes mapping: {error}"))?;
-    for line in maps.lines() {
-        let mut fields = line.split_whitespace();
-        let Some(range) = fields.next() else { continue };
-        let _permissions = fields.next();
-        let _offset = fields.next();
-        let Some(device) = fields.next() else {
-            continue;
-        };
-        let Some(inode) = fields.next() else { continue };
-        let Some((start, end)) = range.split_once('-') else {
-            continue;
-        };
-        let (Ok(start), Ok(end)) = (
-            usize::from_str_radix(start, 16),
-            usize::from_str_radix(end, 16),
-        ) else {
-            continue;
-        };
-        if !(start..end).contains(&address) {
-            continue;
-        }
-        let mapped_inode = inode
-            .parse::<u64>()
-            .map_err(|_| "loaded Hermes mapping has an invalid inode".to_owned())?;
-        let Some((major, minor)) = device.split_once(':') else {
-            return Err("loaded Hermes mapping has an invalid device".into());
-        };
-        let major = u64::from_str_radix(major, 16)
-            .map_err(|_| "loaded Hermes mapping has an invalid device major".to_owned())?;
-        let minor = u64::from_str_radix(minor, 16)
-            .map_err(|_| "loaded Hermes mapping has an invalid device minor".to_owned())?;
-        let mapped_device = libc::makedev(major as _, minor as _) as u64;
-        if mapped_inode != metadata.ino() || mapped_device != metadata.dev() {
-            return Err(
-                "loaded Hermes path names a different object than the executable mapping".into(),
-            );
-        }
-        return Ok(());
-    }
-    Err("could not locate the loaded Hermes executable mapping".into())
-}
-
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
 
     let mut device = 0u64;
     let mut inode = 0u64;
     if unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) } != 1 {
-        return Err("failed to identify the mapped Hermes vnode".into());
+        return Err("failed to identify the mapped Hermes factory object".into());
     }
     if device != metadata.dev() || inode != metadata.ino() {
         return Err(
-            "loaded Hermes path names a different object than the mapped Mach-O image".into(),
+            "loaded Hermes path names a different object than the mapped factory image".into(),
         );
     }
     Ok(())
@@ -240,28 +215,87 @@ fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), Str
     Err("this target cannot attest the loaded Hermes image object".into())
 }
 
-/// Identity of the artifact that supplied the linked Hermes runtime factory.
-/// The multi-megabyte digest is cached because the loaded artifact cannot
-/// change within the process execution it identifies.
+/// Initial identity of the artifact that supplied the linked Hermes runtime
+/// factory. This expected build identity is immutable for the process; callers
+/// that need a post-probe recheck use `verify_loaded_engine_binary_identity`,
+/// which reopens and re-hashes the mapped object instead of consulting this
+/// cache.
 pub fn loaded_engine_binary_path() -> Result<std::path::PathBuf, String> {
-    loaded_engine_identity()
+    expected_loaded_engine_identity()
         .as_ref()
         .map(|identity| identity.engine_artifact_path.clone())
         .map_err(Clone::clone)
 }
 
 pub fn loaded_engine_binary_digest() -> Result<String, String> {
-    loaded_engine_identity()
+    expected_loaded_engine_identity()
         .as_ref()
         .map(|identity| identity.binary_digest.clone())
         .map_err(Clone::clone)
 }
 
 pub fn loaded_engine_binary_identity() -> Result<LoadedEngineBinaryIdentity, String> {
-    loaded_engine_identity()
+    expected_loaded_engine_identity()
         .as_ref()
         .cloned()
         .map_err(Clone::clone)
+}
+
+/// Installer-origin assertion embedded only after build.rs independently
+/// matches it to the exact Hermes artifact selected for linking. Returning it
+/// rechecks the current file bytes of the device/inode object containing the
+/// Hermes factory against that receipt.
+///
+/// This does not hash the executable pages already mapped by the loader. It is
+/// therefore a mechanical file/object binding, not a complete loaded-code
+/// attestation; promotion still requires an independent sealed/signed package
+/// or equivalent mapping trust anchor.
+///
+/// `None` is an explicit unverified state for ordinary builds made without a
+/// receipt. CapSec conformance builds set
+/// `IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE=1`, so they fail at build time
+/// instead of reaching this state.
+// @ref LLP 0013#upstream-tracking-and-re-derivation — a pin/coordinate only
+// identifies the candidate loaded profile after link-time selection and the
+// mapped-factory-object/current-file check described above.
+pub fn loaded_engine_profile_provenance() -> Result<Option<serde_json::Value>, String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use std::fmt::Write as _;
+
+    let receipt: serde_json::Value = serde_json::from_str(EMBEDDED_HERMES_PROFILE_PROVENANCE)
+        .map_err(|error| format!("embedded Hermes provenance is not JSON: {error}"))?;
+    if receipt.is_null() {
+        return Ok(None);
+    }
+    let expected = receipt
+        .get("artifact")
+        .and_then(|artifact| artifact.get("binaryDigest"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "embedded Hermes provenance has no artifact binary digest".to_owned())?;
+    // This is deliberately fresh on every call: conformance invokes it again
+    // after probes, when the initial expected identity cache is no longer
+    // evidence about the current object bytes.
+    let identity = capture_loaded_engine_identity()?;
+    let encoded = identity
+        .binary_digest
+        .strip_prefix("sha256-")
+        .ok_or_else(|| "loaded Hermes identity has a malformed digest".to_owned())?;
+    let raw = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|_| "loaded Hermes identity digest is not base64url".to_owned())?;
+    let mut loaded_hex = String::with_capacity(71);
+    loaded_hex.push_str("sha256-");
+    for byte in raw {
+        write!(&mut loaded_hex, "{byte:02x}").expect("writing a digest to String cannot fail");
+    }
+    if expected != loaded_hex {
+        return Err(
+            "embedded Hermes profile receipt does not match the mapped factory object's current file bytes"
+                .to_owned(),
+        );
+    }
+    Ok(Some(receipt))
 }
 
 /// HBC version accepted by the mapped Hermes engine. This deliberately does
@@ -276,7 +310,16 @@ pub fn loaded_engine_bytecode_version() -> Result<u32, String> {
 pub fn verify_loaded_engine_binary_identity(
     expected: &LoadedEngineBinaryIdentity,
 ) -> Result<LoadedEngineBinaryIdentity, String> {
-    let actual = loaded_engine_binary_identity()?;
+    // Re-open and hash on every verification. The cached identity is the
+    // immutable pre-probe expectation, never the post-probe observation.
+    verify_engine_binary_identity_with(expected, capture_loaded_engine_identity)
+}
+
+fn verify_engine_binary_identity_with(
+    expected: &LoadedEngineBinaryIdentity,
+    capture: impl FnOnce() -> Result<LoadedEngineBinaryIdentity, String>,
+) -> Result<LoadedEngineBinaryIdentity, String> {
+    let actual = capture()?;
     if &actual != expected {
         return Err("loaded Hermes identity differs from the expected artifact".into());
     }
@@ -351,7 +394,7 @@ mod tests {
     use std::os::raw::c_char;
 
     #[test]
-    fn loaded_engine_identity_attests_the_mapped_artifact() {
+    fn loaded_engine_identity_binds_factory_object_to_current_file_snapshot() {
         let identity = super::loaded_engine_binary_identity().unwrap();
         assert_eq!(identity.kind, "hermes");
         assert!(identity.engine_artifact_path.is_absolute());
@@ -362,6 +405,75 @@ mod tests {
             super::verify_loaded_engine_binary_identity(&identity).unwrap(),
             identity
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn post_probe_identity_verification_reopens_and_rehashes_the_object() {
+        let directory = tempfile::tempdir().unwrap();
+        let artifact = directory.path().join("libhermesvm-test.so");
+        std::fs::write(&artifact, b"before-probe").unwrap();
+        let expected = super::capture_engine_artifact_identity(&artifact, |_| Ok(())).unwrap();
+
+        assert_eq!(
+            super::verify_engine_binary_identity_with(&expected, || {
+                super::capture_engine_artifact_identity(&artifact, |_| Ok(()))
+            })
+            .unwrap(),
+            expected
+        );
+
+        // Change bytes in place and preserve the length/object identity. A
+        // cached path, digest, or pre-probe Metadata snapshot would accept it;
+        // a required post-probe recheck must reopen and hash it again.
+        std::fs::write(&artifact, b"after--probe").unwrap();
+        let changed = super::capture_engine_artifact_identity(&artifact, |_| Ok(())).unwrap();
+        assert_eq!(changed.object, expected.object);
+        assert_ne!(changed.binary_digest, expected.binary_digest);
+        assert!(super::verify_engine_binary_identity_with(&expected, || {
+            super::capture_engine_artifact_identity(&artifact, |_| Ok(()))
+        })
+        .is_err());
+
+        // Replacing the pathname with the original bytes must also fail: a
+        // stale cached digest alone would match, but fresh metadata identifies
+        // a different object (and production's mapped-object check rejects it
+        // before the comparison).
+        let replacement = directory.path().join("replacement.so");
+        std::fs::write(&replacement, b"before-probe").unwrap();
+        std::fs::rename(&replacement, &artifact).unwrap();
+        let replaced = super::capture_engine_artifact_identity(&artifact, |_| Ok(())).unwrap();
+        assert_eq!(replaced.binary_digest, expected.binary_digest);
+        assert_ne!(replaced.object, expected.object);
+        assert!(super::verify_engine_binary_identity_with(&expected, || {
+            super::capture_engine_artifact_identity(&artifact, |_| Ok(()))
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn embedded_engine_profile_receipt_rechecks_factory_object_file_bytes() {
+        let receipt = match super::loaded_engine_profile_provenance() {
+            Ok(Some(receipt)) => receipt,
+            Ok(None) => {
+                // Ordinary developer builds may intentionally omit a receipt.
+                // Required CapSec builds fail instead of reaching this state.
+                return;
+            }
+            Err(error) => panic!("embedded Hermes provenance did not revalidate: {error}"),
+        };
+        assert_eq!(
+            receipt["schema"],
+            "ibex/hermes-profile-provenance-receipt/2"
+        );
+        let expected_profile = match std::env::consts::OS {
+            "android" => "android-maven",
+            "windows" => "windows-nuget",
+            _ => "source-patched",
+        };
+        assert_eq!(receipt["profileId"], expected_profile);
+        assert!(receipt["origin"]["reviewedProfileIdentity"].is_object());
+        assert!(super::loaded_engine_binary_identity().is_ok());
     }
 
     #[repr(C)]
@@ -399,6 +511,7 @@ mod tests {
         value: StructuredValueHandle,
         throw_metadata_status: u32,
         throw_metadata_fields: u32,
+        throw_error_class: u32,
         lifecycle_exit_code: i32,
         capability_flags: u32,
         message: StructuredOwnedBytes,
@@ -418,6 +531,8 @@ mod tests {
     const FAULT_NONE: u32 = 0;
     const FAULT_STALE_HANDLE: u32 = 7;
     const FAULT_RAW_THROW_UNAVAILABLE: u32 = 8;
+    const THROW_METADATA_UNAVAILABLE: u32 = 0;
+    const ERROR_CLASS_UNCLASSIFIED: u32 = 0;
     const CAPABILITY_SAFE_THROW: u32 = 1 << 1;
     const CAPABILITY_SOURCE_POSITIONS: u32 = 1 << 2;
 
@@ -608,6 +723,12 @@ mod tests {
             runtime: *mut HermesRuntimeOpaque,
             handle: StructuredValueHandle,
         ) -> u32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_exact_runtime_c_abi_probe_prepare(out_context: *mut *mut c_void) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_exact_runtime_c_abi_probe_wrong_thread(context: *mut c_void) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_exact_runtime_c_abi_probe_finish(context: *mut c_void) -> i32;
         #[cfg(target_os = "windows")]
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
@@ -1505,6 +1626,25 @@ mod tests {
         result
     }
 
+    #[test]
+    fn structured_diagnostic_result_mirror_matches_v2_error_class_layout() {
+        assert_eq!(
+            std::mem::offset_of!(StructuredEvaluationResult, throw_error_class),
+            48
+        );
+        assert_eq!(
+            std::mem::offset_of!(StructuredEvaluationResult, lifecycle_exit_code),
+            52
+        );
+        assert_eq!(
+            std::mem::offset_of!(StructuredEvaluationResult, capability_flags),
+            56
+        );
+        if cfg!(target_pointer_width = "64") {
+            assert_eq!(std::mem::size_of::<StructuredEvaluationResult>(), 112);
+        }
+    }
+
     /// Restricted worklets must cross the SharedValue boundary with the full
     /// typed identity. Stale identities are host-rejected no-ops, and values
     /// that cannot be represented as finite f32 never reach the host callback.
@@ -1850,6 +1990,39 @@ mod tests {
         }
     }
 
+    /// AC18 is a consumer-language contract, so the assertions and public ABI
+    /// calls live in exact_runtime_c_abi_check.c. Rust supplies only the
+    /// foreign thread needed to prove owner-thread rejection.
+    /// @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn independent_c11_consumer_executes_structured_value_abi() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let mut context = std::ptr::null_mut();
+            assert_eq!(
+                ibex_exact_runtime_c_abi_probe_prepare(&mut context),
+                0,
+                "C11 ABI prepare probe failed"
+            );
+            assert!(!context.is_null());
+
+            let context_address = context as usize;
+            let wrong_thread = std::thread::spawn(move || {
+                ibex_exact_runtime_c_abi_probe_wrong_thread(context_address as *mut c_void)
+            })
+            .join();
+            // Always return ownership to the C harness before interpreting
+            // the foreign-thread result, so a failing assertion cannot leak
+            // its live Hermes runtime.
+            let finish = ibex_exact_runtime_c_abi_probe_finish(context);
+            let wrong_thread = wrong_thread.expect("C11 ABI foreign thread panicked");
+            assert_eq!(wrong_thread, 0, "C11 ABI wrong-thread probe failed");
+            assert_eq!(finish, 0, "C11 ABI owner-thread finish probe failed");
+        }
+    }
+
     #[test]
     fn structured_diagnostic_eval_preserves_values_without_thenable_assimilation() {
         let _host_guard = crate::host::abi::host_test_lock();
@@ -1889,6 +2062,21 @@ mod tests {
             );
             assert_eq!(ex_hermes_value_kind(runtime, thenable.value), VALUE_INVALID);
             ex_hermes_evaluation_result_dispose(&mut thenable);
+
+            let mut revoked_proxy = structured_eval(
+                runtime,
+                b"const pair = Proxy.revocable([], {}); pair.revoke(); pair.proxy",
+            );
+            assert_eq!(revoked_proxy.outcome_tag, STRUCTURED_VALUE);
+            assert_eq!(
+                ex_hermes_value_kind(runtime, revoked_proxy.value),
+                VALUE_OBJECT
+            );
+            assert_eq!(
+                ex_hermes_value_release(runtime, revoked_proxy.value),
+                FAULT_NONE
+            );
+            ex_hermes_evaluation_result_dispose(&mut revoked_proxy);
             ex_hermes_destroy(runtime);
         }
     }
@@ -1917,8 +2105,12 @@ mod tests {
             assert_eq!(thrown.abi_version, STRUCTURED_ABI_VERSION);
             assert_eq!(thrown.struct_size as usize, std::mem::size_of_val(&thrown));
             assert_eq!(thrown.outcome_tag, STRUCTURED_THROW);
-            assert_eq!(thrown.throw_metadata_status, 0);
+            // This diagnostic seam advertises no SafeThrow capability, so
+            // its metadata discriminator must remain unavailable even when
+            // the linked engine has the trap-free native primitive.
+            assert_eq!(thrown.throw_metadata_status, THROW_METADATA_UNAVAILABLE);
             assert_eq!(thrown.throw_metadata_fields, 0);
+            assert_eq!(thrown.throw_error_class, ERROR_CLASS_UNCLASSIFIED);
             assert_eq!(
                 thrown.capability_flags & (CAPABILITY_SAFE_THROW | CAPABILITY_SOURCE_POSITIONS),
                 0
@@ -1933,13 +2125,20 @@ mod tests {
             assert_eq!(ex_hermes_value_release(runtime, thrown.value), FAULT_NONE);
             ex_hermes_evaluation_result_dispose(&mut thrown);
 
-            // The installed raw-throw patch does not expose a separate
-            // trap-free VM metadata accessor, even for an ordinary Error.
-            // Empty JSError strings therefore remain unavailable metadata.
+            // The same capability/metadata invariant applies to an ordinary
+            // Error: diagnostic evaluation cannot expose profile metadata.
             let mut ordinary_error = structured_eval(runtime, b"throw new Error('boom')");
             assert_eq!(ordinary_error.outcome_tag, STRUCTURED_THROW);
-            assert_eq!(ordinary_error.throw_metadata_status, 0);
+            assert_eq!(
+                ordinary_error.throw_metadata_status,
+                THROW_METADATA_UNAVAILABLE
+            );
             assert_eq!(ordinary_error.throw_metadata_fields, 0);
+            assert_eq!(ordinary_error.throw_error_class, ERROR_CLASS_UNCLASSIFIED);
+            assert!(ordinary_error.message.data.is_null());
+            assert_eq!(ordinary_error.message.length, 0);
+            assert!(ordinary_error.stack.data.is_null());
+            assert_eq!(ordinary_error.stack.length, 0);
             assert_eq!(
                 ordinary_error.capability_flags
                     & (CAPABILITY_SAFE_THROW | CAPABILITY_SOURCE_POSITIONS),
@@ -1955,6 +2154,25 @@ mod tests {
             assert_eq!(ordinary_error.abi_version, STRUCTURED_ABI_VERSION);
             assert!(ordinary_error.positions.is_null());
             assert_eq!(ordinary_error.position_count, 0);
+
+            let mut revoked_proxy = structured_eval(
+                runtime,
+                b"const pair = Proxy.revocable([], {}); pair.revoke(); throw pair.proxy",
+            );
+            assert_eq!(revoked_proxy.outcome_tag, STRUCTURED_THROW);
+            assert_eq!(
+                revoked_proxy.throw_metadata_status,
+                THROW_METADATA_UNAVAILABLE
+            );
+            assert_eq!(
+                ex_hermes_value_kind(runtime, revoked_proxy.value),
+                VALUE_OBJECT
+            );
+            assert_eq!(
+                ex_hermes_value_release(runtime, revoked_proxy.value),
+                FAULT_NONE
+            );
+            ex_hermes_evaluation_result_dispose(&mut revoked_proxy);
 
             let mut nul_string = structured_eval(runtime, b"throw 'left\\0right'");
             assert_eq!(nul_string.outcome_tag, STRUCTURED_THROW);

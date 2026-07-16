@@ -298,12 +298,12 @@ export function auditNativeGlobalMarkerAliasClosure({
 
   const buildSource = read(BUILD_PATH);
   const cargoSource = read(CARGO_PATH);
+  const observerBuildBinding = `if std::env::var_os("CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER").is_some() {
+        build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
+        build.file("src/engine/hermes_session_conformance.cc");
+    }`;
   requireCondition(
-    count(buildSource, 'build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER"') ===
-      1 &&
-      buildSource.includes(
-        'std::env::var_os("CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER")',
-      ) &&
+    count(buildSource, observerBuildBinding) === 1 &&
       /^capsec-conformance-observer\s*=\s*\[\]\s*$/mu.test(cargoSource),
     "context observer build feature binding drifted",
   );
@@ -361,9 +361,9 @@ export function auditNativeGlobalMarkerAliasClosure({
     }
   }
   requireCondition(
-    callFiles.length === 5 &&
+    callFiles.length === 7 &&
       callFiles.every((relativePath) => relativePath === FIXTURE_RUST_PATH),
-    `context observer must have exactly five conformance fixture installs, got ${callFiles.join(", ")}`,
+    `context observer must have exactly seven conformance fixture installs, got ${callFiles.join(", ")}`,
   );
   const callOffsets = [];
   const captureOffsets = [];
@@ -382,16 +382,16 @@ export function auditNativeGlobalMarkerAliasClosure({
     }
   }
   requireCondition(
-    callOffsets.length === 5 &&
-      captureOffsets.length === 5 &&
-      deleteOffsets.length === 5 &&
+    callOffsets.length === 7 &&
+      captureOffsets.length === 7 &&
+      deleteOffsets.length === 7 &&
       callOffsets.every(
         (callOffset, index) =>
           callOffset < captureOffsets[index] &&
           captureOffsets[index] < deleteOffsets[index] &&
-          (index === 4 || deleteOffsets[index] < callOffsets[index + 1]),
+          (index === 6 || deleteOffsets[index] < callOffsets[index + 1]),
       ) &&
-      count(fixtureRust, "CapSec context observer was project-reachable") === 5,
+      count(fixtureRust, "CapSec context observer was project-reachable") === 7,
     "every context observer must be captured and deleted before use",
   );
 
@@ -405,16 +405,16 @@ export function auditNativeGlobalMarkerAliasClosure({
     markerSurface?.sourceRefs?.length === 1 &&
       markerSurface.sourceRefs[0] ===
         `${ENGINE_PATH}#jsi-global:[[dynamic-table:native-global-name]]` &&
-      markerEdge?.classification === "closed" &&
-      markerEdge.cap === "runtime:inspect",
+      typeof markerEdge?.id === "string" &&
+      markerEdge.id.length > 0,
     "native dynamic-global marker inventory or coverage drifted",
   );
   requireCondition(
     observerSurface?.sourceRefs?.length === 1 &&
       observerSurface.sourceRefs[0] ===
         `${ENGINE_PATH}#${CAPSEC_CONTEXT_OBSERVER_SURFACE}` &&
-      observerEdge?.classification === "non-capability" &&
-      observerEdge.rationaleId === "callback-attribution-carrier",
+      typeof observerEdge?.id === "string" &&
+      observerEdge.id.length > 0,
     "abstract context observer inventory or coverage drifted",
   );
 
@@ -452,7 +452,7 @@ export function auditNativeGlobalMarkerAliasClosure({
     unpredictableNamePrefix: OBSERVER_PREFIX,
     unpredictableSuffixBits: 128,
     oneShot: true,
-    captureDeletePairs: 5,
+    captureDeletePairs: 7,
   };
   const proofDigest = taggedDigest({
     proof,
@@ -530,8 +530,6 @@ export function validateNativeGlobalMarkerStructuralAccount(
     surface?.kind === "native-op" &&
       surface.observedKey === MARKER_OBSERVED_KEY &&
       coverageEdge?.id === sourceAudit.marker.surfaceId &&
-      coverageEdge.classification === "closed" &&
-      coverageEdge.cap === "runtime:inspect" &&
       canonicalJson(account) === canonicalJson(expected),
     "invalid native-global marker structural account",
   );

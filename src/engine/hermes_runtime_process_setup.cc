@@ -78,14 +78,17 @@ void installProcessSetup(ExactHermesRuntime* handle) {
       });
   processObj.setProperty(rt, "nextTick", std::move(nextTickFn));
 
-  // When the shared runtime bundle is compiled in, skip eager env var
-  // copying.  The shared bundle creates a Proxy-based process.env that
-  // lazily reads from the native __exactGetEnv/__exactGetAllEnv host
-  // functions, making this eager copy (~0.6ms for ~40 env vars) wasted.
+  // Armed startup has a digest-bound empty environment base. The temporary
+  // native process object exists while the shared bundle's eager module
+  // initializers run, so it must carry an explicitly empty object rather than
+  // a host snapshot; the principal-sensitive proxy replaces it later.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
   {
     auto hasShared = rt.global().getProperty(rt, "__exactHasSharedRuntimeBundle");
     bool skipEnvCopy = hasShared.isBool() && hasShared.getBool();
-    if (!skipEnvCopy) {
+    if (handle->armed) {
+      processObj.setProperty(rt, "env", facebook::jsi::Object(rt));
+    } else if (!skipEnvCopy) {
       facebook::jsi::Object envObj(rt);
 #if defined(__APPLE__)
       char** envp = *_NSGetEnviron();

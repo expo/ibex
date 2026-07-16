@@ -49,7 +49,7 @@
 # async_detached_deputy_read_is_contained_but_granted_self_async_works.
 #
 diff --git a/include/hermes/VM/Runtime-inline.h b/include/hermes/VM/Runtime-inline.h
-index 8793016..0f0c7c3 100644
+index 8793016d582b3baaf0601c2da00a8c2dd9871728..c6bff4711ae2d12dcabb515c637dcfcf79090bf4 100644
 --- a/include/hermes/VM/Runtime-inline.h
 +++ b/include/hermes/VM/Runtime-inline.h
 @@ -9,6 +9,7 @@
@@ -81,7 +81,7 @@ index 8793016..0f0c7c3 100644
  
  inline Handle<HiddenClass> Runtime::getHiddenClassForPrototype(
 diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
-index 66b65c3..e0ce7bc 100644
+index 557b4cbfbde8ff9e1ff8fd51748f9f28b71f15ca..0e5d8b020e566ab3674023fc7395ebda6b32b432 100644
 --- a/include/hermes/VM/Runtime.h
 +++ b/include/hermes/VM/Runtime.h
 @@ -1065,6 +1065,47 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
@@ -146,7 +146,7 @@ index 66b65c3..e0ce7bc 100644
    BasicBlockExecutionInfo basicBlockExecInfo_;
  #endif
 diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
-index 09c8b21..0f806cf 100644
+index 9cd710ab181c1755e4ed041c2d5cda45a2fe0094..8db294411b0f48176b86ea7e5d3f9939e3616e17 100644
 --- a/lib/VM/CapabilityAttribution.cpp
 +++ b/lib/VM/CapabilityAttribution.cpp
 @@ -115,6 +115,27 @@ size_t collectStackPackageIds(Runtime &runtime, uint32_t *out, size_t max) {
@@ -195,7 +195,7 @@ index 09c8b21..0f806cf 100644
 +
  } // extern "C"
 diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
-index 98c12db..d82e722 100644
+index 7593533e0ad0a5722a35a4fb91fe8384508e5811..60f8e9d548705067d09547e4081922b00b06d908 100644
 --- a/lib/VM/Runtime.cpp
 +++ b/lib/VM/Runtime.cpp
 @@ -2033,10 +2033,27 @@ ExecutionStatus Runtime::drainJobs() {

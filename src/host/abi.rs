@@ -46,12 +46,32 @@ thread_local! {
 static TERMINAL_SESSION_OUTPUT_CLOSE_GUARD: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-// The authenticated CLI worker replaces the embedding host's lossy async
-// console queue with a synchronous, counted relay. This host-owned bit is
-// available in both the library and CLI crates; the non-cloneable guard keeps
-// its lifetime paired with the relay adapter.
-static AUTHENTICATED_WORKER_CONSOLE_RELAY_ACTIVE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+// An armed CLI output capture replaces the embedding host's lossy async
+// console queue with a synchronous, counted relay. The sealed state closes the
+// final descriptor-handoff race: once selected, new console records are
+// refused until the capture guard is dropped instead of escaping to restored
+// native descriptors or a late async writer.
+const TERMINAL_CONSOLE_RELAY_INACTIVE: u8 = 0;
+const TERMINAL_CONSOLE_RELAY_ACTIVE: u8 = 1;
+const TERMINAL_CONSOLE_RELAY_SEALED: u8 = 2;
+static TERMINAL_CONSOLE_RELAY_STATE: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(TERMINAL_CONSOLE_RELAY_INACTIVE);
+
+#[derive(Default)]
+struct TerminalConsoleRelayEpoch {
+    in_flight: std::sync::atomic::AtomicUsize,
+    write_failed: std::sync::atomic::AtomicBool,
+}
+
+fn terminal_console_relay_epoch() -> &'static Mutex<Option<Arc<TerminalConsoleRelayEpoch>>> {
+    static EPOCH: OnceLock<Mutex<Option<Arc<TerminalConsoleRelayEpoch>>>> = OnceLock::new();
+    EPOCH.get_or_init(|| Mutex::new(None))
+}
+
+fn terminal_console_relay_gate() -> &'static Mutex<()> {
+    static GATE: OnceLock<Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| Mutex::new(()))
+}
 
 /// Worker-local live terminal facts used by the typed `stdio:query` surface.
 ///
@@ -154,6 +174,11 @@ impl Drop for TerminalSessionStdioQueryGuard {
 /// Returns 1 when a session state supplied all outputs, 0 when no worker state
 /// is installed (the native adapter must query its own descriptor), and -1 for
 /// an invalid descriptor or pointer. Unknown dimensions are returned as zero.
+///
+/// # Safety
+///
+/// Each output pointer must address one properly aligned, writable scalar for
+/// the duration of this call.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_terminal_session_stdio_query(
     fd: i32,
@@ -186,16 +211,20 @@ pub unsafe extern "C" fn ex_host_terminal_session_stdio_query(
 
 #[doc(hidden)]
 pub struct AuthenticatedWorkerConsoleRelayGuard {
-    _private: (),
+    epoch: Arc<TerminalConsoleRelayEpoch>,
 }
 
 #[doc(hidden)]
 pub fn arm_authenticated_worker_console_relay() -> io::Result<AuthenticatedWorkerConsoleRelayGuard>
 {
-    AUTHENTICATED_WORKER_CONSOLE_RELAY_ACTIVE
+    let _gate = terminal_console_relay_gate()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let epoch = Arc::new(TerminalConsoleRelayEpoch::default());
+    TERMINAL_CONSOLE_RELAY_STATE
         .compare_exchange(
-            false,
-            true,
+            TERMINAL_CONSOLE_RELAY_INACTIVE,
+            TERMINAL_CONSOLE_RELAY_ACTIVE,
             std::sync::atomic::Ordering::AcqRel,
             std::sync::atomic::Ordering::Acquire,
         )
@@ -205,13 +234,125 @@ pub fn arm_authenticated_worker_console_relay() -> io::Result<AuthenticatedWorke
                 "an authenticated worker console relay is already active",
             )
         })?;
-    Ok(AuthenticatedWorkerConsoleRelayGuard { _private: () })
+    *terminal_console_relay_epoch()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&epoch));
+    Ok(AuthenticatedWorkerConsoleRelayGuard { epoch })
+}
+
+impl AuthenticatedWorkerConsoleRelayGuard {
+    fn epoch_status(&self) -> io::Result<()> {
+        let in_flight = self
+            .epoch
+            .in_flight
+            .load(std::sync::atomic::Ordering::Acquire);
+        let write_failed = self
+            .epoch
+            .write_failed
+            .load(std::sync::atomic::Ordering::Acquire);
+        match (in_flight, write_failed) {
+            (0, false) => Ok(()),
+            (0, true) => Err(io::Error::other(
+                "an authenticated host-console record failed before final handoff",
+            )),
+            (count, false) => Err(io::Error::other(format!(
+                "{count} authenticated host-console record(s) remain in flight during final handoff"
+            ))),
+            (count, true) => Err(io::Error::other(format!(
+                "{count} authenticated host-console record(s) remain in flight and an earlier record failed during final handoff"
+            ))),
+        }
+    }
+
+    /// Serialize descriptor replacement against synchronous host-console
+    /// records. Callers keep this closure small and perform no broker waits.
+    pub fn with_output_quiesced<T>(&self, action: impl FnOnce() -> T) -> T {
+        let _gate = terminal_console_relay_gate()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        action()
+    }
+
+    /// Refuse new host-console records before the standard descriptors move
+    /// through their bounded final handoff. A writer accepted before this call
+    /// owns a duplicate of the captured descriptor, so it cannot jump to a
+    /// subsequently restored fd 1/fd 2. Such a writer is reported as in-flight
+    /// instead of making restoration wait for a stalled output destination.
+    pub fn seal(&self) -> io::Result<()> {
+        let _gate = terminal_console_relay_gate()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let transition = match TERMINAL_CONSOLE_RELAY_STATE.compare_exchange(
+            TERMINAL_CONSOLE_RELAY_ACTIVE,
+            TERMINAL_CONSOLE_RELAY_SEALED,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        ) {
+            Ok(_) | Err(TERMINAL_CONSOLE_RELAY_SEALED) => Ok(()),
+            Err(_) => Err(io::Error::other(
+                "terminal console relay is not active during final handoff",
+            )),
+        };
+        transition?;
+        self.epoch_status()
+    }
+
+    fn with_final_sealed_status_action<T>(&self, action: impl FnOnce(io::Result<()>) -> T) -> T {
+        let _gate = terminal_console_relay_gate()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let status = if TERMINAL_CONSOLE_RELAY_STATE.load(std::sync::atomic::Ordering::Acquire)
+            == TERMINAL_CONSOLE_RELAY_SEALED
+        {
+            self.epoch_status()
+        } else {
+            Err(io::Error::other(
+                "terminal console relay was not sealed at final process exit",
+            ))
+        };
+        action(status)
+    }
+
+    /// Select the final status and terminate while the sealed-epoch gate is
+    /// still held. No console producer can enter between the loss observation
+    /// and `_exit`, and the non-returning contract is enforced by this method's
+    /// implementation rather than a caller-supplied closure type.
+    #[cfg(unix)]
+    pub fn exit_with_final_sealed_status(
+        &self,
+        status_without_new_loss: i32,
+        status_with_new_loss: i32,
+    ) -> ! {
+        self.with_final_sealed_status_action(|status| {
+            let status = if status.is_ok() {
+                status_without_new_loss
+            } else {
+                status_with_new_loss
+            };
+            // SAFETY: the console gate remains held until the process exits.
+            unsafe { libc::_exit(status) }
+        })
+    }
 }
 
 impl Drop for AuthenticatedWorkerConsoleRelayGuard {
     fn drop(&mut self) {
-        AUTHENTICATED_WORKER_CONSOLE_RELAY_ACTIVE
-            .store(false, std::sync::atomic::Ordering::Release);
+        let _gate = terminal_console_relay_gate()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        TERMINAL_CONSOLE_RELAY_STATE.store(
+            TERMINAL_CONSOLE_RELAY_INACTIVE,
+            std::sync::atomic::Ordering::Release,
+        );
+        let mut active_epoch = terminal_console_relay_epoch()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if active_epoch
+            .as_ref()
+            .is_some_and(|epoch| Arc::ptr_eq(epoch, &self.epoch))
+        {
+            active_epoch.take();
+        }
     }
 }
 
@@ -764,8 +905,8 @@ pub const EX_HOST_VFS_RESULT_STALE_IDENTITY: u32 = 11;
 pub const EX_HOST_VFS_RESULT_INPUT_TOO_LARGE: u32 = 12;
 pub const EX_HOST_VFS_RESULT_HOST_ERROR: u32 = 13;
 
-fn vfs_result_discriminant(error: &crate::vfs::VfsError) -> u32 {
-    match error.reason() {
+fn vfs_reason_discriminant(reason: crate::vfs::VfsReason) -> u32 {
+    match reason {
         crate::vfs::VfsReason::ClosedOperation => EX_HOST_VFS_RESULT_CLOSED_OPERATION,
         crate::vfs::VfsReason::StaleSession => EX_HOST_VFS_RESULT_STALE_SESSION,
         crate::vfs::VfsReason::MalformedInput => EX_HOST_VFS_RESULT_MALFORMED_INPUT,
@@ -782,7 +923,72 @@ fn vfs_result_discriminant(error: &crate::vfs::VfsError) -> u32 {
     }
 }
 
+fn vfs_result_discriminant(error: &crate::vfs::VfsError) -> u32 {
+    vfs_reason_discriminant(error.reason())
+}
+
 static HOST: OnceLock<RwLock<Host>> = OnceLock::new();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ProcessIpcBootstrap {
+    fd: i32,
+    serialization: u32,
+}
+
+#[derive(Default)]
+struct ProcessIpcBootstrapLease {
+    initialized: bool,
+    available: Option<ProcessIpcBootstrap>,
+}
+
+impl ProcessIpcBootstrapLease {
+    fn initialize_with(&mut self, capture: impl FnOnce() -> Option<ProcessIpcBootstrap>) {
+        if self.initialized {
+            return;
+        }
+        self.initialized = true;
+        self.available = capture();
+    }
+
+    fn take(&mut self) -> Option<ProcessIpcBootstrap> {
+        self.available.take()
+    }
+}
+
+/// Capture the inherited child-process channel exactly once, at the
+/// Host-to-engine construction handoff. The value is retained in a process-wide
+/// one-shot lease and released only to the first eligible claimed, unarmed Host
+/// context; neither armed `process.env` nor a later host-environment read
+/// participates in JavaScript bootstrap.
+/// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+/// @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+/// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+#[cfg(not(windows))]
+fn capture_process_ipc_bootstrap() -> Option<ProcessIpcBootstrap> {
+    let raw_fd = std::env::var("EXACT_IPC_FD").ok()?;
+    let fd = parse_process_ipc_fd(&raw_fd)?;
+    let serialization =
+        u32::from(std::env::var("EXACT_IPC_SERIALIZATION").as_deref() == Ok("advanced"));
+    Some(ProcessIpcBootstrap { fd, serialization })
+}
+
+#[cfg(any(not(windows), test))]
+fn parse_process_ipc_fd(raw_fd: &str) -> Option<i32> {
+    let digits = raw_fd.strip_prefix('+').unwrap_or(raw_fd);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    i32::try_from(digits.parse::<u32>().ok()?).ok()
+}
+
+// Native child-process IPC is a POSIX socket protocol. Windows spawn rejects
+// `ipc` stdio and must not interpret environment text as a transferable HANDLE
+// or descriptor authority.
+#[cfg(windows)]
+fn capture_process_ipc_bootstrap() -> Option<ProcessIpcBootstrap> {
+    None
+}
+
 struct HostContextRecord {
     host: Arc<Host>,
     claimed: bool,
@@ -790,6 +996,48 @@ struct HostContextRecord {
 }
 
 static HOST_CONTEXTS: OnceLock<RwLock<HashMap<u64, HostContextRecord>>> = OnceLock::new();
+static PROCESS_IPC_BOOTSTRAP_LEASE: OnceLock<Mutex<ProcessIpcBootstrapLease>> = OnceLock::new();
+
+fn process_ipc_bootstrap_lease() -> &'static Mutex<ProcessIpcBootstrapLease> {
+    PROCESS_IPC_BOOTSTRAP_LEASE.get_or_init(|| Mutex::new(ProcessIpcBootstrapLease::default()))
+}
+
+fn initialize_process_ipc_bootstrap_lease(host: &Host) {
+    let mut lease = match process_ipc_bootstrap_lease().lock() {
+        Ok(lease) => lease,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    lease.initialize_with(|| {
+        // The production armed entrypoint rejects these closed startup names.
+        // Keep direct embedding paths equally closed: only an explicitly
+        // unarmed compatibility Host may adopt the native IPC socket.
+        if host.armed_snapshot().is_some() {
+            None
+        } else {
+            capture_process_ipc_bootstrap()
+        }
+    });
+}
+
+fn take_process_ipc_bootstrap_for_context(
+    contexts: &RwLock<HashMap<u64, HostContextRecord>>,
+    lease: &Mutex<ProcessIpcBootstrapLease>,
+    context_id: u64,
+) -> Option<ProcessIpcBootstrap> {
+    let contexts = match contexts.read() {
+        Ok(contexts) => contexts,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let context = contexts.get(&context_id)?;
+    if !context.claimed || context.host.armed_snapshot().is_some() {
+        return None;
+    }
+    let mut lease = match lease.lock() {
+        Ok(lease) => lease,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    lease.take()
+}
 
 struct RuntimeVfsBinding {
     context_id: u64,
@@ -918,6 +1166,10 @@ fn lock_connection(connection: &Mutex<Connection>) -> MutexGuard<'_, Connection>
 }
 
 fn insert_host_context(host: Arc<Host>, claimed: bool) -> u64 {
+    // Capture at most once for the process, before engine JavaScript exists.
+    // Unclaimed Host replacement does not clone or discard the lease; only the
+    // first eligible claimed context can consume it.
+    initialize_process_ipc_bootstrap_lease(&host);
     // Random, non-zero context tokens are capabilities, not enumerable IDs.
     // Entropy failure or repeated collisions fail closed instead of falling
     // back to a wrapping process-global counter.
@@ -994,6 +1246,42 @@ pub fn install_host(host: Host) -> u64 {
 
     let _ = HOST.set(RwLock::new(host));
     context_id
+}
+
+/// Move the construction-time child-process IPC signal out of its exact Host
+/// context.  This is deliberately an `ibex_private_*` implementation bridge,
+/// not a public embedder ABI, and it is one-shot: a second runtime cannot replay
+/// a descriptor signal captured for the first.
+///
+/// `serialization` is 0 for JSON and 1 for the advanced codec.
+/// @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+/// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+#[export_name = "ibex_private_take_process_ipc_bootstrap"]
+pub(crate) unsafe extern "C" fn private_take_process_ipc_bootstrap(
+    context_id: u64,
+    out_fd: *mut i32,
+    out_serialization: *mut u32,
+) -> i32 {
+    if out_fd.is_null() || out_serialization.is_null() {
+        return 0;
+    }
+    unsafe {
+        *out_fd = -1;
+        *out_serialization = 0;
+    }
+    let Some(contexts) = HOST_CONTEXTS.get() else {
+        return 0;
+    };
+    let Some(bootstrap) =
+        take_process_ipc_bootstrap_for_context(contexts, process_ipc_bootstrap_lease(), context_id)
+    else {
+        return 0;
+    };
+    unsafe {
+        *out_fd = bootstrap.fd;
+        *out_serialization = bootstrap.serialization;
+    }
+    1
 }
 
 /// Install an immutable armed host from caller-owned bytes. The bytes are
@@ -1276,6 +1564,12 @@ fn unbind_runtime_vfs_session(runtime_nonce: u64) -> bool {
     true
 }
 
+/// Claim the pending armed Host context identified by `digest`.
+///
+/// # Safety
+///
+/// A non-null `digest` must point to a readable NUL-terminated C string for the
+/// duration of this call.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_claim_armed_context(digest: *const c_char) -> u64 {
     if digest.is_null() {
@@ -1439,6 +1733,13 @@ pub extern "C" fn ex_host_vfs_unbind_runtime(runtime_nonce: u64) -> u32 {
 
 /// Return a malloc-independent, explicit-length copy of the runtime's virtual
 /// cwd. The caller frees a non-empty output with `ex_host_free_buffer`.
+///
+/// # Safety
+///
+/// `module_ids` must address `module_ids_len` readable, properly aligned `u64`
+/// values. `out_virtual` and `out_virtual_len` must each address one writable
+/// value, and a non-null `out_errno` must address one writable `i32`, for the
+/// duration of this call.
 /// @abi-output ex_host_vfs_get_cwd out_virtual role=output kind=buffer length=out_virtual_len ownership=caller-frees:ex_host_free_buffer
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_vfs_get_cwd(
@@ -1505,6 +1806,14 @@ pub unsafe extern "C" fn ex_host_vfs_get_cwd(
 /// borrowed and explicit-length; successful output is the canonical virtual
 /// spelling, never a host path. Native code must perform the typed cwd and
 /// directory-metadata decisions before calling this private commit operation.
+///
+/// # Safety
+///
+/// For nonzero lengths, `module_ids` and `input` must address their declared
+/// readable elements or bytes. `module_ids` must be properly aligned.
+/// `out_virtual` and `out_virtual_len` must each address one writable value,
+/// and a non-null `out_errno` must address one writable `i32`, for the duration
+/// of this call.
 /// @abi-output ex_host_vfs_chdir out_virtual role=output kind=buffer length=out_virtual_len ownership=caller-frees:ex_host_free_buffer
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_vfs_chdir(
@@ -1595,6 +1904,13 @@ pub unsafe extern "C" fn ex_host_vfs_chdir(
 /// Resolve lexical virtual syntax against the runtime's sealed cwd. The
 /// backing bytes are for private native adapter use only; `out_virtual` is the
 /// separate safe spelling for JavaScript-visible fields and diagnostics.
+///
+/// # Safety
+///
+/// For a nonzero `input_len`, `input` must address that many readable bytes.
+/// Each output-data and output-length pointer must address one writable value,
+/// and a non-null `out_errno` must address one writable `i32`, for the duration
+/// of this call.
 /// @abi-output ex_host_vfs_resolve_path out_backing role=output kind=buffer length=out_backing_len ownership=caller-frees:ex_host_free_buffer
 /// @abi-output ex_host_vfs_resolve_path out_virtual role=output kind=buffer length=out_virtual_len ownership=caller-frees:ex_host_free_buffer
 #[no_mangle]
@@ -1811,6 +2127,15 @@ fn console_mirror_enabled() -> bool {
     })
 }
 
+/// Eagerly initialize process-lifetime observability controls while the Host
+/// is being constructed. Later log/console calls consume only these immutable
+/// values and never consult a mutated post-arm host environment.
+/// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+pub(crate) fn capture_immutable_environment_configuration() {
+    let _ = security_log_enabled();
+    let _ = console_mirror_enabled();
+}
+
 fn write_stdio_line(writer: &mut impl Write, msg: &str) -> io::Result<()> {
     writer.write_all(msg.as_bytes())?;
     writer.write_all(b"\n")
@@ -1826,23 +2151,43 @@ fn write_stderr_line(msg: &str) {
     let _ = write_stdio_line(&mut stderr, msg);
 }
 
-fn worker_output_relay_is_active() -> bool {
-    AUTHENTICATED_WORKER_CONSOLE_RELAY_ACTIVE.load(std::sync::atomic::Ordering::Acquire)
+#[cfg(unix)]
+fn duplicate_counted_worker_console_writer(level: i32) -> io::Result<std::fs::File> {
+    use std::os::fd::FromRawFd as _;
+
+    let source = if level == 1 {
+        libc::STDERR_FILENO
+    } else {
+        libc::STDOUT_FILENO
+    };
+    loop {
+        // SAFETY: source is a live standard descriptor while the console relay
+        // gate serializes this duplicate against descriptor replacement. The
+        // returned descriptor is uniquely transferred into File below.
+        let descriptor = unsafe { libc::fcntl(source, libc::F_DUPFD_CLOEXEC, 3) };
+        if descriptor >= 0 {
+            // SAFETY: fcntl returned a fresh, uniquely owned descriptor.
+            return Ok(unsafe { std::fs::File::from_raw_fd(descriptor) });
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
 }
 
-fn write_counted_worker_console_record(level: i32, payload: &[u8]) {
-    let write = |writer: &mut dyn Write| -> io::Result<()> {
-        writer.write_all(payload)?;
-        writer.write_all(b"\n")?;
-        writer.flush()
-    };
-    if level == 1 {
-        let mut stderr = io::stderr().lock();
-        let _ = write(&mut stderr);
-    } else {
-        let mut stdout = io::stdout().lock();
-        let _ = write(&mut stdout);
-    }
+#[cfg(not(unix))]
+fn duplicate_counted_worker_console_writer(_level: i32) -> io::Result<std::fs::File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "authenticated counted console relay requires Unix descriptors",
+    ))
+}
+
+fn write_counted_worker_console_record(writer: &mut impl Write, payload: &[u8]) -> io::Result<()> {
+    writer.write_all(payload)?;
+    writer.write_all(b"\n")?;
+    writer.flush()
 }
 
 // @ref LLP 0006#degrade-diagnostics-never-the-caller — console output is mirrored to stdio from the JS
@@ -1871,6 +2216,11 @@ struct ConsoleQueue {
 // writer thread otherwise races process teardown, and on Windows
 // (legacyUnarmedExit -> ExitProcess) it loses deterministically. (ENG-23639)
 static CONSOLE_PENDING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[doc(hidden)]
+pub fn terminal_console_pending_records() -> u64 {
+    CONSOLE_PENDING.load(std::sync::atomic::Ordering::Acquire)
+}
 
 impl ConsoleQueue {
     fn enqueue(&self, line: ConsoleLine) {
@@ -2907,13 +3257,15 @@ pub unsafe extern "C" fn ex_host_lifecycle_exit_code_set_stack(
 
 /// Authorize one stage of the native `fs.open` branch against authenticated
 /// logical roots, a retained parent directory, and the actual descriptor.
-/// Returns 1 allow, 0 deny, and -1 for malformed/unsupported adapter input.
+/// Returns one stable `EX_HOST_VFS_RESULT_*` discriminant. The runtime nonce is
+/// validated before shape so a stale/foreign generation is always tier zero.
 ///
 /// # Safety
 /// `module_ids` must reference `module_ids_len` values. `path` and an optional
 /// `presented_handle_id` must be valid C strings for the duration of the call.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
+    runtime_nonce: u64,
     module_id: u64,
     module_ids: *const u64,
     module_ids_len: usize,
@@ -2925,17 +3277,21 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
     needs_read: i32,
     needs_write: i32,
     presented_handle_id: *const c_char,
-) -> i32 {
+) -> u32 {
     use capsec_semantics::decision::DecisionOutcome;
     use capsec_semantics::model::{NonEmptyString, Stage};
 
+    let _session_lease = match runtime_vfs_session(runtime_nonce, "authorize") {
+        Ok(session) => session,
+        Err(_) => return EX_HOST_VFS_RESULT_STALE_SESSION,
+    };
     if path.is_null()
         || module_ids.is_null()
         || module_ids_len == 0
         || module_ids_len > 257
         || !matches!(stage, 0..=5)
     {
-        return -1;
+        return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
     }
     let (operation_key, coverage_edge_id) = match surface {
         0 => ("fs-open", "surface.native.op.exactfsopen.05ao6wa"),
@@ -2984,7 +3340,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
             "surface.native.op.exactsqlitevalues.03uveqn",
         ),
         24 => ("sqlite-exec", "surface.native.op.exactsqliteexec.0oogg80"),
-        _ => return -1,
+        _ => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
     };
     let follow_mode = if matches!(surface, 10 | 11 | 15) {
         capsec_semantics::model::FollowMode::NoFollowFinal
@@ -2992,25 +3348,20 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
         capsec_semantics::model::FollowMode::FollowFinal
     };
     let path_bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
-    #[cfg(unix)]
-    let path = {
-        use std::os::unix::ffi::OsStrExt;
-        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(path_bytes))
-    };
-    #[cfg(not(unix))]
     let path = match std::str::from_utf8(path_bytes) {
         Ok(path) => std::path::PathBuf::from(path),
-        Err(_) => return -1,
+        Err(_) => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
     };
     let presented = if presented_handle_id.is_null() {
         Vec::new()
     } else {
-        let value = unsafe { CStr::from_ptr(presented_handle_id) }
-            .to_string_lossy()
-            .into_owned();
+        let value = match unsafe { CStr::from_ptr(presented_handle_id) }.to_str() {
+            Ok(value) => value.to_owned(),
+            Err(_) => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
+        };
         match NonEmptyString::new(value) {
             Ok(value) => vec![value],
-            Err(_) => return -1,
+            Err(_) => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
         }
     };
     let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
@@ -3039,10 +3390,10 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
         #[cfg(unix)]
         {
             if parent_fd < 0 {
-                return -1;
+                return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
             }
             let Some(parent_object) = object_identity_for_fd(parent_fd) else {
-                return 0;
+                return EX_HOST_VFS_RESULT_STALE_IDENTITY;
             };
             let (object_state, final_object, final_object_generation) = match object_identity_at(
                 parent_fd,
@@ -3059,7 +3410,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
                     None,
                     None,
                 ),
-                Err(()) => return 0,
+                Err(()) => return EX_HOST_VFS_RESULT_HOST_ERROR,
             };
             (
                 Stage::Discovery,
@@ -3073,26 +3424,26 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
         }
         #[cfg(not(unix))]
         {
-            return -1;
+            return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
         }
     } else {
         if parent_fd < 0 || fd < 0 {
-            return -1;
+            return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
         }
         #[cfg(unix)]
         {
             let Some(final_object) = object_identity_for_fd(fd) else {
-                return -1;
+                return EX_HOST_VFS_RESULT_STALE_IDENTITY;
             };
             let Some(final_object_generation) = object_verification_generation_for_fd(fd) else {
-                return -1;
+                return EX_HOST_VFS_RESULT_STALE_IDENTITY;
             };
             let Some(parent_object) = object_identity_for_fd(parent_fd) else {
-                return -1;
+                return EX_HOST_VFS_RESULT_STALE_IDENTITY;
             };
             let retained = match NonEmptyString::new(format!("fd:{fd}")) {
                 Ok(value) => value,
-                Err(_) => return -1,
+                Err(_) => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
             };
             (
                 if stage == 1 {
@@ -3110,7 +3461,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
         }
         #[cfg(not(unix))]
         {
-            return -1;
+            return EX_HOST_VFS_RESULT_MALFORMED_INPUT;
         }
     };
     let resolved_parent_path = if stage == Stage::Requested {
@@ -3118,7 +3469,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
     } else {
         match resolved_path_for_fd(parent_fd) {
             Some(path) => Some(path),
-            None => return 0,
+            None => return EX_HOST_VFS_RESULT_STALE_IDENTITY,
         }
     };
     with_host(
@@ -3129,24 +3480,24 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
                 .collect::<Option<Vec<_>>>()
             {
                 Some(principals) => principals,
-                None => return -1,
+                None => return EX_HOST_VFS_RESULT_POLICY_DENIED,
             };
             let constrained_principals =
                 match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
                     Ok(principals) => principals,
-                    Err(_) => return -1,
+                    Err(_) => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
                 };
             #[cfg(unix)]
             if matches!(stage, Stage::Discovery | Stage::Commit) {
                 let Some(principal) = host.typed_principal_for_module(&module_id.to_string())
                 else {
-                    return -1;
+                    return EX_HOST_VFS_RESULT_POLICY_DENIED;
                 };
                 let requested = match host.typed_logical_path(&principal, &path) {
                     Ok(requested) => requested,
                     Err(error) => {
                         eprintln!("error: typed filesystem path refused: {error}");
-                        return -1;
+                        return EX_HOST_VFS_RESULT_STALE_IDENTITY;
                     }
                 };
                 // Opening a logical root necessarily retains its parent, which
@@ -3157,12 +3508,12 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
                 if !requested.components.is_empty() {
                     match host.validate_typed_parent_fd_ancestry(&principal, &path, parent_fd) {
                         Ok(true) => {}
-                        Ok(false) => return 0,
+                        Ok(false) => return EX_HOST_VFS_RESULT_OUTSIDE_MOUNT,
                         Err(error) => {
                             eprintln!(
                                 "error: retained filesystem parent ancestry refused: {error}"
                             );
-                            return -1;
+                            return EX_HOST_VFS_RESULT_STALE_IDENTITY;
                         }
                     }
                 }
@@ -3195,16 +3546,16 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
                         DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
                     ) =>
                 {
-                    1
+                    EX_HOST_VFS_RESULT_OK
                 }
-                Ok(_) => 0,
+                Ok(_) => EX_HOST_VFS_RESULT_POLICY_DENIED,
                 Err(error) => {
                     eprintln!("error: typed filesystem authorization refused: {error}");
-                    -1
+                    EX_HOST_VFS_RESULT_HOST_ERROR
                 }
             }
         },
-        -1,
+        EX_HOST_VFS_RESULT_STALE_SESSION,
     )
 }
 
@@ -3361,13 +3712,108 @@ pub unsafe extern "C" fn ex_host_authorize_typed_system_info_stack(
     )
 }
 
-/// Authorize one requested/commit stage for an exact broker-base environment
-/// read. Returns 1 allow, 0 deny, and -1 for malformed adapter input.
+/// Authorize one requested/commit stage for an exact principal-overlay
+/// environment read. Returns 1 allow, 0 deny, and -1 for malformed adapter
+/// input.
 ///
 /// # Safety
 /// `module_ids` and `name` must reference their declared lengths for this call.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_authorize_typed_environment_read_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    stage: u32,
+    read_surface: u32,
+    name: *const u8,
+    name_len: usize,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{EnvironmentName, Stage};
+
+    if module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || name.is_null()
+        || name_len == 0
+        || name_len > 32_768
+        || stage > 1
+        || read_surface > 1
+    {
+        return -1;
+    }
+    let stage = if stage == 0 {
+        Stage::Requested
+    } else {
+        Stage::Commit
+    };
+    let name = unsafe { std::slice::from_raw_parts(name, name_len) };
+    let name = match std::str::from_utf8(name)
+        .ok()
+        .and_then(|name| EnvironmentName::new(name).ok())
+    {
+        Some(name) => name,
+        None => return -1,
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            let decision = if read_surface == 0 {
+                host.authorize_typed_environment_read_stage(
+                    &module_id.to_string(),
+                    constrained_principals,
+                    name,
+                    stage,
+                )
+            } else {
+                host.authorize_typed_environment_enumeration_stage(
+                    &module_id.to_string(),
+                    constrained_principals,
+                    name,
+                    stage,
+                )
+            };
+            match decision {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed environment authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
+/// Authorize one requested/commit stage for an exact principal-overlay
+/// environment mutation. Returns 1 allow, 0 deny, and -1 for malformed adapter
+/// input.
+///
+/// # Safety
+/// `module_ids` and `name` must reference their declared lengths for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_environment_write_stack(
     module_id: u64,
     module_ids: *const u64,
     module_ids_len: usize,
@@ -3417,7 +3863,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_environment_read_stack(
                     Ok(principals) => principals,
                     Err(_) => return -1,
                 };
-            match host.authorize_typed_environment_read_stage(
+            match host.authorize_typed_environment_write_stage(
                 &module_id.to_string(),
                 constrained_principals,
                 name,
@@ -4093,7 +4539,7 @@ fn object_verification_generation_from_stat(
         if stat.st_gen != 0 {
             return NonEmptyString::new(format!("apple-st-gen:{}", stat.st_gen)).ok();
         }
-        return NonEmptyString::new("retained-descriptor-v1").ok();
+        NonEmptyString::new("retained-descriptor-v1").ok()
     }
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     {
@@ -4346,6 +4792,34 @@ pub extern "C" fn ex_host_is_allow_all() -> i32 {
 #[no_mangle]
 pub extern "C" fn ex_host_is_armed() -> i32 {
     with_host(|host| i32::from(host.armed_snapshot().is_some()), 0)
+}
+
+/// Return the immutable, digest-bound compatibility controls for the active
+/// armed Host. Bits: 0 = Bun facade, 1 = compat fixture mode, 2 = Bun fixture
+/// section. These controls affect trusted compatibility shape only; they are
+/// never projected into `process.env` and grant no external authority.
+#[no_mangle]
+pub extern "C" fn ex_host_armed_bootstrap_compatibility_flags() -> u32 {
+    with_host(
+        |host| {
+            let Some(snapshot) = host.armed_snapshot() else {
+                return 0;
+            };
+            snapshot
+                .bootstrap_compatibility_modes()
+                .iter()
+                .fold(0_u32, |flags, mode| {
+                    flags
+                        | match mode.as_str() {
+                            "bun" => 1,
+                            "fixture" => 2,
+                            "fixture:bun" => 4,
+                            _ => 0,
+                        }
+                })
+        },
+        0,
+    )
 }
 
 /// Return the authenticated snapshot endowments for the active Host context as
@@ -4807,19 +5281,42 @@ pub extern "C" fn ex_host_register_module_package(
     );
 }
 
-/// Import-graph gate: may `module_id` load `specifier`? Returns 1 if the load
-/// may proceed under the active mode (audit logs but permits), else 0.
+/// Import-graph gate: may `module_id` load `specifier`? On an authenticated
+/// route-cache hit, `target_source_id` names the already-resolved file identity
+/// whose exact defining principal must be re-authorized without another
+/// filesystem lookup. Returns 1 if the load may proceed, else 0.
 ///
 /// @ref LLP 0013#policy — builtins are reachable by `require`, so import policy
 /// is the primary containment gate for them.
 #[no_mangle]
-pub extern "C" fn ex_host_check_import(module_id: u64, specifier: *const c_char) -> i32 {
-    if specifier.is_null() {
-        return 1;
-    }
-    let specifier = unsafe { CStr::from_ptr(specifier) }.to_string_lossy();
+pub extern "C" fn ex_host_check_import(
+    module_id: u64,
+    specifier: *const c_char,
+    target_source_id: *const c_char,
+) -> i32 {
     let module = PrincipalIdBuf::new(module_id);
-    let allowed = with_host(|host| host.check_import(module.as_str(), &specifier), true);
+    let allowed = if target_source_id.is_null() {
+        if specifier.is_null() {
+            true
+        } else {
+            let specifier = unsafe { CStr::from_ptr(specifier) }.to_string_lossy();
+            with_host(|host| host.check_import(module.as_str(), &specifier), true)
+        }
+    } else {
+        if specifier.is_null() {
+            return 0;
+        }
+        let Ok(target_source_id) = unsafe { CStr::from_ptr(target_source_id) }.to_str() else {
+            return 0;
+        };
+        let Ok(specifier) = unsafe { CStr::from_ptr(specifier) }.to_str() else {
+            return 0;
+        };
+        with_host(
+            |host| host.check_cached_module_import(module.as_str(), specifier, target_source_id),
+            false,
+        )
+    };
     if allowed {
         1
     } else {
@@ -6680,6 +7177,11 @@ pub extern "C" fn ex_host_console_log(level: i32, message: *const c_char) {
 /// hosts retain the bounded asynchronous diagnostics queue. This split makes
 /// queue backpressure a host policy without letting it silently drop or reorder
 /// CLI program output, and preserves embedded NUL bytes end to end.
+///
+/// # Safety
+///
+/// For a nonzero `length`, `message` must address `length` readable bytes for
+/// the duration of this synchronous call.
 /// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_console_log_bytes(level: i32, message: *const u8, length: usize) {
@@ -6695,17 +7197,69 @@ pub unsafe extern "C" fn ex_host_console_log_bytes(level: i32, message: *const u
     };
     #[cfg(target_os = "android")]
     write_android_logcat(level, &String::from_utf8_lossy(bytes));
-    if worker_output_relay_is_active() {
-        write_counted_worker_console_record(level, bytes);
-        return;
-    }
-    if !console_mirror_enabled() {
-        return;
-    }
-    let msg = String::from_utf8_lossy(bytes).into_owned();
-    match level {
-        1 => enqueue_stderr_line(msg),
-        _ => enqueue_stdout_line(msg),
+    // The gate makes arming, synchronous writes, sealing, and the inactive
+    // queue decision one ordered transition. In particular, a writer cannot
+    // observe INACTIVE, pause, and enqueue after an armed caller has drained
+    // the preexisting asynchronous queue.
+    let counted_writer = {
+        let _gate = terminal_console_relay_gate()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match TERMINAL_CONSOLE_RELAY_STATE.load(std::sync::atomic::Ordering::Acquire) {
+            TERMINAL_CONSOLE_RELAY_ACTIVE => {
+                let epoch = terminal_console_relay_epoch()
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                    .cloned();
+                match (epoch, duplicate_counted_worker_console_writer(level)) {
+                    (Some(epoch), Ok(writer)) => {
+                        epoch
+                            .in_flight
+                            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                        Some((epoch, writer))
+                    }
+                    (Some(epoch), Err(_)) => {
+                        epoch
+                            .write_failed
+                            .store(true, std::sync::atomic::Ordering::Release);
+                        None
+                    }
+                    (None, _) => None,
+                }
+            }
+            TERMINAL_CONSOLE_RELAY_SEALED => {
+                if let Some(epoch) = terminal_console_relay_epoch()
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                {
+                    epoch
+                        .write_failed
+                        .store(true, std::sync::atomic::Ordering::Release);
+                }
+                None
+            }
+            _ if !console_mirror_enabled() => None,
+            _ => {
+                let msg = String::from_utf8_lossy(bytes).into_owned();
+                match level {
+                    1 => enqueue_stderr_line(msg),
+                    _ => enqueue_stdout_line(msg),
+                }
+                None
+            }
+        }
+    };
+    if let Some((epoch, mut writer)) = counted_writer {
+        if write_counted_worker_console_record(&mut writer, bytes).is_err() {
+            epoch
+                .write_failed
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+        epoch
+            .in_flight
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
     }
 }
 
@@ -6714,6 +7268,195 @@ mod tests {
     use super::*;
     use crate::host::{Host, HostConfig, SecurityMode};
     use std::io::{self, Write};
+
+    #[cfg(unix)]
+    #[test]
+    fn final_sealed_console_observation_excludes_a_new_producer() {
+        const MARKER: &[u8] = b"post-seal-producer";
+
+        let guard = arm_authenticated_worker_console_relay().unwrap();
+        guard.seal().unwrap();
+        let (start_tx, start_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let producer = std::thread::spawn(move || {
+            start_rx.recv().unwrap();
+            // SAFETY: MARKER is live for this synchronous call.
+            unsafe {
+                ex_host_console_log_bytes(0, MARKER.as_ptr(), MARKER.len());
+            }
+            done_tx.send(()).unwrap();
+        });
+        guard.with_final_sealed_status_action(|status| {
+            assert!(status.is_ok());
+            start_tx.send(()).unwrap();
+            assert_eq!(
+                done_rx.recv_timeout(std::time::Duration::from_millis(50)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout),
+                "a producer entered after the final sealed-epoch observation"
+            );
+        });
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+        producer.join().unwrap();
+        assert!(
+            guard.seal().is_err(),
+            "the post-seal attempt was not recorded after the final gate opened"
+        );
+    }
+
+    #[test]
+    fn process_ipc_bootstrap_lease_initializes_only_once() {
+        let mut lease = ProcessIpcBootstrapLease::default();
+        let captures = Cell::new(0_u32);
+        lease.initialize_with(|| {
+            captures.set(captures.get() + 1);
+            Some(ProcessIpcBootstrap {
+                fd: 17,
+                serialization: 1,
+            })
+        });
+        lease.initialize_with(|| {
+            captures.set(captures.get() + 1);
+            Some(ProcessIpcBootstrap {
+                fd: 18,
+                serialization: 0,
+            })
+        });
+
+        assert_eq!(captures.get(), 1);
+        assert_eq!(
+            lease.take(),
+            Some(ProcessIpcBootstrap {
+                fd: 17,
+                serialization: 1,
+            })
+        );
+        assert_eq!(lease.take(), None);
+    }
+
+    #[test]
+    fn process_ipc_bootstrap_fd_parser_rejects_malformed_and_out_of_range_text() {
+        assert_eq!(parse_process_ipc_fd("0"), Some(0));
+        assert_eq!(parse_process_ipc_fd("+23"), Some(23));
+        for malformed in [
+            "",
+            "+",
+            "-1",
+            " 3",
+            "3 ",
+            "3.0",
+            "0x3",
+            "2147483648",
+            "4294967296",
+        ] {
+            assert_eq!(
+                parse_process_ipc_fd(malformed),
+                None,
+                "accepted malformed IPC descriptor text {malformed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn process_ipc_bootstrap_requires_claimed_unarmed_context_and_is_one_shot() {
+        let audit = Arc::new(Host::new(HostConfig {
+            mode: SecurityMode::Audit,
+            ..Default::default()
+        }));
+        let armed = Arc::new(crate::host::tests::example_vfs_armed_host());
+        let contexts = RwLock::new(HashMap::from([
+            (
+                11,
+                HostContextRecord {
+                    host: Arc::clone(&audit),
+                    claimed: false,
+                    runtime_nonce: None,
+                },
+            ),
+            (
+                12,
+                HostContextRecord {
+                    host: Arc::clone(&audit),
+                    claimed: true,
+                    runtime_nonce: None,
+                },
+            ),
+            (
+                13,
+                HostContextRecord {
+                    host: Arc::clone(&audit),
+                    claimed: true,
+                    runtime_nonce: None,
+                },
+            ),
+            (
+                14,
+                HostContextRecord {
+                    host: armed,
+                    claimed: true,
+                    runtime_nonce: None,
+                },
+            ),
+        ]));
+        let marker = ProcessIpcBootstrap {
+            fd: 23,
+            serialization: 1,
+        };
+        let lease = Mutex::new(ProcessIpcBootstrapLease {
+            initialized: true,
+            available: Some(marker),
+        });
+
+        assert_eq!(
+            take_process_ipc_bootstrap_for_context(&contexts, &lease, 99),
+            None,
+            "a forged context id must not consume the process lease"
+        );
+        assert_eq!(
+            take_process_ipc_bootstrap_for_context(&contexts, &lease, 11),
+            None,
+            "an unclaimed context must not consume the process lease"
+        );
+        {
+            let mut records = contexts.write().unwrap();
+            records.remove(&11);
+            records.insert(
+                15,
+                HostContextRecord {
+                    host: Arc::clone(&audit),
+                    claimed: false,
+                    runtime_nonce: None,
+                },
+            );
+        }
+        assert_eq!(
+            take_process_ipc_bootstrap_for_context(&contexts, &lease, 15),
+            None,
+            "replacement must remain ineligible until it is claimed"
+        );
+        assert_eq!(
+            take_process_ipc_bootstrap_for_context(&contexts, &lease, 14),
+            None,
+            "an armed context must never adopt environment-carried IPC authority"
+        );
+        contexts.write().unwrap().get_mut(&15).unwrap().claimed = true;
+        assert_eq!(
+            take_process_ipc_bootstrap_for_context(&contexts, &lease, 15),
+            Some(marker),
+            "replacing an unclaimed context must not lose the process lease"
+        );
+        assert_eq!(
+            take_process_ipc_bootstrap_for_context(&contexts, &lease, 15),
+            None,
+            "the same context must not replay the lease"
+        );
+        assert_eq!(
+            take_process_ipc_bootstrap_for_context(&contexts, &lease, 12),
+            None,
+            "a later claimed context must not rebind the descriptor"
+        );
+    }
 
     unsafe fn take_vfs_output(data: *mut u8, len: u64) -> Vec<u8> {
         let bytes = if len == 0 {
@@ -6981,13 +7724,169 @@ mod tests {
     }
 
     #[test]
+    fn typed_fs_authorization_uses_the_vfs_union_and_stale_session_precedence() {
+        let _guard = host_test_lock();
+        let context =
+            insert_host_context(Arc::new(crate::host::tests::example_vfs_armed_host()), true);
+        assert_ne!(context, 0);
+        let nonce = 0x4552_5255_4e49_4f4e;
+        assert_eq!(
+            ex_host_vfs_bind_runtime(context, nonce),
+            EX_HOST_VFS_RESULT_OK
+        );
+        let previous = ex_host_enter_context(context);
+        assert_ne!(previous, u64::MAX);
+
+        let root = [0_u64];
+        assert_eq!(
+            unsafe {
+                ex_host_authorize_typed_fs_stack(
+                    nonce.wrapping_add(1),
+                    0,
+                    ptr::null(),
+                    0,
+                    ptr::null(),
+                    u32::MAX,
+                    u32::MAX,
+                    -1,
+                    -1,
+                    0,
+                    0,
+                    ptr::null(),
+                )
+            },
+            EX_HOST_VFS_RESULT_STALE_SESSION,
+            "tier-zero session identity must win over malformed shape"
+        );
+        assert_eq!(
+            unsafe {
+                ex_host_authorize_typed_fs_stack(
+                    nonce,
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    ptr::null(),
+                    0,
+                    0,
+                    -1,
+                    -1,
+                    0,
+                    0,
+                    ptr::null(),
+                )
+            },
+            EX_HOST_VFS_RESULT_MALFORMED_INPUT
+        );
+
+        let missing = std::ffi::CString::new(
+            crate::host::tests::test_project_root()
+                .join("authorization-must-not-probe-missing")
+                .to_string_lossy()
+                .as_bytes(),
+        )
+        .unwrap();
+        let forged = [u64::MAX - 1];
+        assert_eq!(
+            unsafe {
+                ex_host_authorize_typed_fs_stack(
+                    nonce,
+                    forged[0],
+                    forged.as_ptr(),
+                    forged.len(),
+                    missing.as_ptr(),
+                    0,
+                    1,
+                    -1,
+                    -1,
+                    1,
+                    0,
+                    ptr::null(),
+                )
+            },
+            EX_HOST_VFS_RESULT_POLICY_DENIED,
+            "an unauthenticated principal must not be collapsed into malformed or absence"
+        );
+
+        ex_host_restore_context(previous);
+        assert_eq!(ex_host_vfs_unbind_runtime(nonce), EX_HOST_VFS_RESULT_OK);
+        ex_host_release_context(context);
+    }
+
+    #[test]
+    fn generated_vfs_union_corpus_executes_every_projection_and_precedence_pair() {
+        use crate::vfs::VfsReason;
+
+        fn reason(id: &str) -> VfsReason {
+            match id {
+                "stale-session" => VfsReason::StaleSession,
+                "closed-operation" => VfsReason::ClosedOperation,
+                "malformed-input" => VfsReason::MalformedInput,
+                "encoded-separator" => VfsReason::EncodedSeparator,
+                "outside-mount" => VfsReason::OutsideMount,
+                "synthetic-node" => VfsReason::SyntheticNode,
+                "policy-denied" => VfsReason::PolicyDenied,
+                "absent" => VfsReason::Absent,
+                "symlink-depth" => VfsReason::SymlinkDepthExceeded,
+                "unmappable-link" => VfsReason::UnmappableLink,
+                "stale-identity" => VfsReason::StaleIdentity,
+                "input-too-large" => VfsReason::InputTooLarge,
+                "host-error" => VfsReason::HostError,
+                other => panic!("unknown generated VFS reason {other}"),
+            }
+        }
+
+        let union: serde_json::Value = serde_json::from_str(include_str!(
+            "../../llp/fixtures/0023-vfs-error-union.v1.json"
+        ))
+        .unwrap();
+        for entry in union["reasons"].as_array().unwrap() {
+            let reason = reason(entry["id"].as_str().unwrap());
+            assert_eq!(
+                vfs_reason_discriminant(reason),
+                entry["discriminant"].as_u64().unwrap() as u32
+            );
+            assert_eq!(reason.stable_code(), entry["code"].as_str().unwrap());
+            assert_eq!(
+                reason.precedence_rank(),
+                entry["precedence"].as_u64().unwrap() as u8
+            );
+        }
+
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../llp/fixtures/0023-vfs-error-precedence.generated.json"
+        ))
+        .unwrap();
+        assert_eq!(corpus["reasonCount"], 13);
+        assert_eq!(corpus["pairCount"], 78);
+        for pair in corpus["pairs"].as_array().unwrap() {
+            let contenders = pair["contenders"].as_array().unwrap();
+            let left = reason(contenders[0].as_str().unwrap());
+            let right = reason(contenders[1].as_str().unwrap());
+            let winner = reason(pair["winner"].as_str().unwrap());
+            assert_eq!(left.dominant(right), winner, "{}", pair["id"]);
+            assert_eq!(right.dominant(left), winner, "{}", pair["id"]);
+            assert_eq!(winner.stable_code(), pair["winnerCode"]);
+            assert_eq!(
+                vfs_reason_discriminant(winner),
+                pair["winnerDiscriminant"].as_u64().unwrap() as u32
+            );
+        }
+    }
+
+    #[test]
     fn runtime_vfs_bind_rejects_package_binding_outside_project_without_publishing() {
         let _guard = host_test_lock();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_package = outside.path().join("image-lib");
+        std::fs::create_dir_all(&outside_package).unwrap();
         let host = crate::host::tests::example_vfs_armed_host_with(|snapshot| {
-            snapshot["rootBindings"][0]["hostPath"]["components"] = serde_json::json!([
-                {"encoding": "utf8", "value": "outside"},
-                {"encoding": "utf8", "value": "image-lib"}
-            ]);
+            snapshot["rootBindings"][0]["hostPath"]["components"] =
+                serde_json::to_value(crate::host::host_path_components(&outside_package).unwrap())
+                    .unwrap();
+            snapshot["rootBindings"][0]["object"] = serde_json::to_value(
+                crate::host::object_identity_for_host_path(&outside_package).unwrap(),
+            )
+            .unwrap();
         });
         let context_id = insert_host_context(Arc::new(host), true);
         assert_ne!(context_id, 0);

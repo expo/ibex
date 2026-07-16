@@ -71,11 +71,25 @@ function coverage(rows) {
 describe("root-global disposition manifest", () => {
   test("records stable branches, aliases, private consumers, and registry ids", () => {
     const rows = [
+      surface("__exactCompatModes"),
       surface("__exactExit"),
       surface("__exactFsMutationGuard"),
       surface("__exactGetCwd"),
       surface("__exactOnRejectionHandled"),
       surface("__exactOnUnhandledRejection"),
+      surface("__exactProcessIpcBootstrap"),
+      surface("__exactProcessIpcBootstrap.close", {
+        globalName: "__exactProcessIpcBootstrap",
+        memberName: "close",
+      }),
+      surface("__exactProcessIpcBootstrap.fd", {
+        globalName: "__exactProcessIpcBootstrap",
+        memberName: "fd",
+      }),
+      surface("__exactProcessIpcBootstrap.serialization", {
+        globalName: "__exactProcessIpcBootstrap",
+        memberName: "serialization",
+      }),
       surface("__exactSetCwd"),
       surface("global:process", { globalName: "process" }),
       surface("global:window", { globalName: "window" }),
@@ -96,6 +110,28 @@ describe("root-global disposition manifest", () => {
     });
     expect(privateExit.registryEdgeId).toBe("edge.exactexit");
     expect(privateExit.installId).toMatch(/^root-global\.exactexit\./u);
+    expect(
+      manifest.rows.find(
+        (row) => row.observedKey === "native-op:__exactCompatModes",
+      ),
+    ).toMatchObject({
+      disposition: "sealed",
+      privateConsumer: null,
+      liveExpectation: "absent",
+    });
+    const ipcBootstrapRows = manifest.rows.filter((row) =>
+      row.observedKey.startsWith("native-op:__exactProcessIpcBootstrap"),
+    );
+    expect(ipcBootstrapRows).toHaveLength(4);
+    expect(
+      ipcBootstrapRows.every(
+        (row) =>
+          row.disposition === "sealed" &&
+          row.privateConsumer === null &&
+          row.liveExpectation === "absent" &&
+          row.branch.activation === "ipc-channel-bootstrap",
+      ),
+    ).toBe(true);
     expect(
       manifest.rows.find(
         (row) => row.observedKey === "native-op:__exactFsMutationGuard",
@@ -264,6 +300,13 @@ describe("root-global disposition manifest", () => {
           ],
         },
       }),
+      surface("global:exact.invokeHostAsync", {
+        globalName: "exact",
+        memberName: "invokeHostAsync",
+        sourceRefs: [
+          "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync",
+        ],
+      }),
       surface("__OriginalPromise", {
         metadata: {
           sourceKey: "shared_runtime",
@@ -314,6 +357,9 @@ describe("root-global disposition manifest", () => {
     expect(activation("AsyncFunction")).toBe("intrinsic-reference-only");
     expect(activation("__exactNativeWrapState")).toBe(
       "post-bootstrap-lazy",
+    );
+    expect(activation("exact")).toBe(
+      "post-bootstrap-embedder-endowment",
     );
     expect(activation("__OriginalPromise")).toBe(
       "diagnostic-unarmed-promise-fallback",

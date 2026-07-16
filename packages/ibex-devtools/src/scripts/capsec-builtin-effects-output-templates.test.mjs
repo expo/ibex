@@ -91,18 +91,18 @@ function countFamilies(rows) {
 }
 
 describe("builtin effects output recipes", () => {
-  test("accounts for the exact 653 registrar and 40 descriptor-residual rows", async () => {
+  test("accounts for the exact 605 callable-return rows", async () => {
     const { selected, missing } = await loaded;
     expect(missing).toEqual([]);
-    expect(selected).toHaveLength(693);
+    expect(selected).toHaveLength(605);
     const registrar = selected.filter(
       (row) => row.invocation.cohort === "registrar",
     );
     const descriptorResidual = selected.filter(
       (row) => row.invocation.cohort === "descriptor-residual",
     );
-    expect(registrar).toHaveLength(653);
-    expect(descriptorResidual).toHaveLength(40);
+    expect(registrar).toHaveLength(605);
+    expect(descriptorResidual).toHaveLength(0);
     expect(countFamilies(registrar)).toEqual(
       BUILTIN_EFFECTS_REGISTRAR_FAMILY_COUNTS,
     );
@@ -114,8 +114,8 @@ describe("builtin effects output recipes", () => {
         selected.map((row) => row.invocation),
       ),
     ).toMatchObject({
-      total: 693,
-      cohorts: { "descriptor-residual": 40, registrar: 653 },
+      total: 605,
+      cohorts: { registrar: 605 },
     });
   }, 30_000);
 
@@ -198,7 +198,7 @@ describe("builtin effects output recipes", () => {
         expect(encoded).not.toContain(forbidden);
       }
     }
-    expect(selectedNoEffectBranches).toBe(364);
+    expect(selectedNoEffectBranches).toBe(316);
   }, 30_000);
 
   test("uses isolated public-family fixtures and honest source operations", async () => {
@@ -208,10 +208,15 @@ describe("builtin effects output recipes", () => {
         row.invocation,
       ]),
     );
-    expect(byExport.get("node_http:ClientRequest.connection").route).toMatchObject({
-      operation: "get",
-      receiver: { kind: "prototype-shell", ownerPath: ["ClientRequest"] },
-    });
+    // Accessors and unresolved descriptor values are `[[value]]` catalog
+    // rows in v2. They are property observations, not callable-return probes.
+    for (const identity of [
+      "node_http:ClientRequest.connection",
+      "node_fs_promises:access",
+      "node_os:platform",
+    ]) {
+      expect(byExport.has(identity), identity).toBe(false);
+    }
     expect(byExport.get("node_net:Socket.write").route).toMatchObject({
       operation: "call",
       receiver: { kind: "prototype-shell", ownerPath: ["Socket"] },
@@ -237,12 +242,6 @@ describe("builtin effects output recipes", () => {
       },
       { kind: "noop-function" },
     ]);
-    expect(byExport.get("node_fs_promises:access").route.arguments).toEqual([
-      {
-        kind: "json",
-        value: expect.stringMatching(/^\/project\/fixtures\//),
-      },
-    ]);
     for (const identity of [
       "node_fs:readFile",
       "node_fs:writeFile",
@@ -267,10 +266,6 @@ describe("builtin effects output recipes", () => {
         nativeTerminal: terminal,
       });
     }
-    expect(byExport.get("node_os:platform").positiveControl).toEqual({
-      kind: "public-family-positive-control",
-      family: "node_os",
-    });
     for (const invocation of byExport.values()) {
       expect(invocation.route.fixture).toEqual({
         kind: "isolated-family-fixture",

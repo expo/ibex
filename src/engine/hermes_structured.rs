@@ -15,8 +15,9 @@ use std::sync::Arc;
 
 use super::evaluation::{
     ArmedSessionToken, CapabilityStratum, EngineFault, EntryKind, EvaluationOutcome,
-    EvaluationResult, EvaluatorCapabilities, ModuleKind, SourceRequest, StructuredEngineFault,
-    ThrowMetadata, ValueHandle, WorkKind, WorkTarget, STRUCTURED_EVALUATION_VERSION,
+    EvaluationResult, EvaluatorCapabilities, ModuleKind, NativeErrorClass, SourceRequest,
+    StructuredEngineFault, ThrowMetadata, ValueHandle, WorkKind, WorkTarget,
+    STRUCTURED_EVALUATION_VERSION,
 };
 use super::session_lowering::{
     lower_program, LoweredDeclarationKind, LoweredStaticImportBindingKind,
@@ -53,7 +54,27 @@ const THROW_METADATA_CAPTURED: u32 = 1;
 const THROW_FIELD_MESSAGE: u32 = 1 << 0;
 const THROW_FIELD_STACK: u32 = 1 << 1;
 const THROW_FIELD_POSITIONS: u32 = 1 << 2;
-const THROW_FIELDS_KNOWN: u32 = THROW_FIELD_MESSAGE | THROW_FIELD_STACK | THROW_FIELD_POSITIONS;
+const THROW_FIELD_MESSAGE_TRUNCATED: u32 = 1 << 3;
+const THROW_FIELD_STACK_TRUNCATED: u32 = 1 << 4;
+const THROW_FIELDS_KNOWN: u32 = THROW_FIELD_MESSAGE
+    | THROW_FIELD_STACK
+    | THROW_FIELD_POSITIONS
+    | THROW_FIELD_MESSAGE_TRUNCATED
+    | THROW_FIELD_STACK_TRUNCATED;
+pub const SAFE_TEXT_MAX_BYTES: usize = 16 * 1024;
+pub const SAFE_TEXT_TRUNCATION_MARKER: &str = "...[truncated]";
+
+const ERROR_CLASS_UNCLASSIFIED: u32 = 0;
+const ERROR_CLASS_ERROR: u32 = 1;
+const ERROR_CLASS_AGGREGATE_ERROR: u32 = 2;
+const ERROR_CLASS_EVAL_ERROR: u32 = 3;
+const ERROR_CLASS_RANGE_ERROR: u32 = 4;
+const ERROR_CLASS_REFERENCE_ERROR: u32 = 5;
+const ERROR_CLASS_SYNTAX_ERROR: u32 = 6;
+const ERROR_CLASS_TYPE_ERROR: u32 = 7;
+const ERROR_CLASS_URI_ERROR: u32 = 8;
+const ERROR_CLASS_TIMEOUT_ERROR: u32 = 9;
+const ERROR_CLASS_QUIT_ERROR: u32 = 10;
 
 const VALUE_INVALID: u32 = 0;
 const VALUE_UNDEFINED: u32 = 1;
@@ -187,6 +208,7 @@ struct NativeEvaluationResult {
     value: NativeValueHandle,
     throw_metadata_status: u32,
     throw_metadata_fields: u32,
+    throw_error_class: u32,
     lifecycle_exit_code: i32,
     capability_flags: u32,
     message: NativeOwnedBytes,
@@ -206,6 +228,7 @@ impl NativeEvaluationResult {
             value: NativeValueHandle::EMPTY,
             throw_metadata_status: THROW_METADATA_UNAVAILABLE,
             throw_metadata_fields: 0,
+            throw_error_class: ERROR_CLASS_UNCLASSIFIED,
             lifecycle_exit_code: 0,
             capability_flags: 0,
             message: NativeOwnedBytes::EMPTY,
@@ -272,10 +295,13 @@ extern "C" {
         handle: NativeValueHandle,
         out_data: *mut *mut u8,
         out_length: *mut usize,
+        out_truncated: *mut u32,
     ) -> u32;
     fn ex_hermes_value_safe_throw_metadata(
         runtime: *mut HermesRuntimeOpaque,
         handle: NativeValueHandle,
+        metadata_fields: *mut u32,
+        error_class: *mut u32,
         message: *mut NativeOwnedBytes,
         stack: *mut NativeOwnedBytes,
     ) -> u32;
@@ -337,6 +363,7 @@ pub enum ValueKind {
 pub struct Stage1Display {
     pub kind: ValueKind,
     pub text: Arc<str>,
+    pub truncated: bool,
 }
 
 /// Linear acknowledgement receipt for the exact rooted value and work target
@@ -1042,29 +1069,47 @@ pub unsafe fn render_value_stage1(
     handle: &ValueHandle,
 ) -> Result<Stage1Display, EngineFault> {
     let kind = unsafe { value_kind(runtime, handle)? };
-    let text = match kind {
-        ValueKind::Function => Arc::from("[Function]"),
-        ValueKind::Array => Arc::from("[Array]"),
-        ValueKind::Object => Arc::from("[Object]"),
+    let (text, truncated) = match kind {
+        ValueKind::Function => (Arc::from("[Function]"), false),
+        ValueKind::Array => (Arc::from("[Array]"), false),
+        ValueKind::Object => (Arc::from("[Object]"), false),
         _ => {
             let native_runtime = unsafe { runtime_for_handle(runtime, handle)? };
             let mut data = ptr::null_mut();
             let mut length = 0usize;
+            let mut truncated = 0u32;
             let fault = unsafe {
                 ex_hermes_value_stage1_text(
                     native_runtime,
                     native_handle(handle),
                     &mut data,
                     &mut length,
+                    &mut truncated,
                 )
             };
             if let Some(fault) = decode_fault(fault)? {
                 return Err(EngineFault::Structured(fault));
             }
+            let truncated = match truncated {
+                0 => false,
+                1 => true,
+                other => {
+                    unsafe { ex_hermes_free_string(data.cast()) };
+                    return Err(protocol(format!(
+                        "native Stage-1 renderer returned invalid truncation flag {other}"
+                    )));
+                }
+            };
             if data.is_null() {
                 return Err(protocol(
                     "native primitive Stage-1 renderer omitted its byte payload",
                 ));
+            }
+            if length > SAFE_TEXT_MAX_BYTES {
+                unsafe { ex_hermes_free_string(data.cast()) };
+                return Err(protocol(format!(
+                    "native Stage-1 renderer exceeded the {SAFE_TEXT_MAX_BYTES}-byte bound"
+                )));
             }
             let bytes = unsafe { std::slice::from_raw_parts(data, length) };
             let decoded = std::str::from_utf8(bytes)
@@ -1072,16 +1117,32 @@ pub unsafe fn render_value_stage1(
                 .map_err(|_| protocol("native Stage-1 renderer returned invalid UTF-8"));
             unsafe { ex_hermes_free_string(data.cast()) };
             let mut decoded = decoded?;
+            if truncated {
+                let Some(prefix) = decoded.strip_suffix(SAFE_TEXT_TRUNCATION_MARKER) else {
+                    return Err(protocol(
+                        "truncated native Stage-1 text omitted its trusted marker",
+                    ));
+                };
+                decoded.truncate(prefix.len());
+            }
             if kind == ValueKind::String {
                 decoded = serde_json::to_string(&decoded)
                     .map_err(|error| protocol(format!("failed to quote string: {error}")))?;
             } else if kind == ValueKind::BigInt {
-                decoded.push('n');
+                if decoded.is_empty() && truncated {
+                    decoded.push_str("[BigInt]");
+                } else {
+                    decoded.push('n');
+                }
             }
-            Arc::from(decoded)
+            (Arc::from(decoded), truncated)
         }
     };
-    Ok(Stage1Display { kind, text })
+    Ok(Stage1Display {
+        kind,
+        text,
+        truncated,
+    })
 }
 
 /// Settle one exact Stage-1 receipt. `displayed=true` is the only disposition
@@ -1155,12 +1216,16 @@ pub unsafe fn render_and_release_async_failure_value(
         },
         live_nonce,
     )?;
+    let mut metadata_fields = 0u32;
+    let mut error_class = ERROR_CLASS_UNCLASSIFIED;
     let mut message = NativeOwnedBytes::EMPTY;
     let mut stack = NativeOwnedBytes::EMPTY;
     let metadata_fault = unsafe {
         ex_hermes_value_safe_throw_metadata(
             native_runtime,
             native_handle(&handle),
+            &mut metadata_fields,
+            &mut error_class,
             &mut message,
             &mut stack,
         )
@@ -1168,13 +1233,27 @@ pub unsafe fn render_and_release_async_failure_value(
     let metadata = match decode_fault(metadata_fault) {
         Ok(None) => {
             let decoded = (|| unsafe {
+                validate_throw_metadata_fields(metadata_fields)?;
+                let message_truncated = metadata_fields & THROW_FIELD_MESSAGE_TRUNCATED != 0;
+                let stack_truncated = metadata_fields & THROW_FIELD_STACK_TRUNCATED != 0;
                 Ok(ThrowMetadata::Captured {
+                    error_class: decode_error_class(error_class)?,
                     message: decode_optional_utf8(
                         message,
-                        !owned_bytes_are_absent(message),
+                        metadata_fields & THROW_FIELD_MESSAGE != 0,
+                        message_truncated,
                         "message",
+                        SAFE_TEXT_MAX_BYTES,
                     )?,
-                    stack: decode_optional_utf8(stack, !owned_bytes_are_absent(stack), "stack")?,
+                    message_truncated,
+                    stack: decode_optional_utf8(
+                        stack,
+                        metadata_fields & THROW_FIELD_STACK != 0,
+                        stack_truncated,
+                        "stack",
+                        SAFE_TEXT_MAX_BYTES,
+                    )?,
+                    stack_truncated,
                     positions: Vec::new(),
                 })
             })();
@@ -1575,6 +1654,7 @@ fn validate_lifecycle_absent(raw: &NativeEvaluationResult) -> Result<(), EngineF
 fn validate_metadata_absent(raw: &NativeEvaluationResult) -> Result<(), EngineFault> {
     if raw.throw_metadata_status != THROW_METADATA_UNAVAILABLE
         || raw.throw_metadata_fields != 0
+        || raw.throw_error_class != ERROR_CLASS_UNCLASSIFIED
         || !owned_bytes_are_absent(raw.message)
         || !owned_bytes_are_absent(raw.stack)
         || !raw.positions.is_null()
@@ -1587,15 +1667,29 @@ fn validate_metadata_absent(raw: &NativeEvaluationResult) -> Result<(), EngineFa
     Ok(())
 }
 
+fn decode_error_class(raw: u32) -> Result<NativeErrorClass, EngineFault> {
+    match raw {
+        ERROR_CLASS_UNCLASSIFIED => Ok(NativeErrorClass::Unclassified),
+        ERROR_CLASS_ERROR => Ok(NativeErrorClass::Error),
+        ERROR_CLASS_AGGREGATE_ERROR => Ok(NativeErrorClass::AggregateError),
+        ERROR_CLASS_EVAL_ERROR => Ok(NativeErrorClass::EvalError),
+        ERROR_CLASS_RANGE_ERROR => Ok(NativeErrorClass::RangeError),
+        ERROR_CLASS_REFERENCE_ERROR => Ok(NativeErrorClass::ReferenceError),
+        ERROR_CLASS_SYNTAX_ERROR => Ok(NativeErrorClass::SyntaxError),
+        ERROR_CLASS_TYPE_ERROR => Ok(NativeErrorClass::TypeError),
+        ERROR_CLASS_URI_ERROR => Ok(NativeErrorClass::UriError),
+        ERROR_CLASS_TIMEOUT_ERROR => Ok(NativeErrorClass::TimeoutError),
+        ERROR_CLASS_QUIT_ERROR => Ok(NativeErrorClass::QuitError),
+        other => Err(protocol(format!(
+            "throw carried unknown native error class {other}"
+        ))),
+    }
+}
+
 unsafe fn decode_throw_metadata(
     raw: &NativeEvaluationResult,
 ) -> Result<ThrowMetadata, EngineFault> {
-    if raw.throw_metadata_fields & !THROW_FIELDS_KNOWN != 0 {
-        return Err(protocol(format!(
-            "throw metadata carried unknown field bits 0x{:x}",
-            raw.throw_metadata_fields & !THROW_FIELDS_KNOWN
-        )));
-    }
+    validate_throw_metadata_fields(raw.throw_metadata_fields)?;
     match raw.throw_metadata_status {
         THROW_METADATA_UNAVAILABLE => {
             validate_metadata_absent(raw)?;
@@ -1604,18 +1698,24 @@ unsafe fn decode_throw_metadata(
             })
         }
         THROW_METADATA_CAPTURED => {
+            let message_truncated = raw.throw_metadata_fields & THROW_FIELD_MESSAGE_TRUNCATED != 0;
+            let stack_truncated = raw.throw_metadata_fields & THROW_FIELD_STACK_TRUNCATED != 0;
             let message = unsafe {
                 decode_optional_utf8(
                     raw.message,
                     raw.throw_metadata_fields & THROW_FIELD_MESSAGE != 0,
+                    message_truncated,
                     "message",
+                    SAFE_TEXT_MAX_BYTES,
                 )?
             };
             let stack = unsafe {
                 decode_optional_utf8(
                     raw.stack,
                     raw.throw_metadata_fields & THROW_FIELD_STACK != 0,
+                    stack_truncated,
                     "stack",
+                    SAFE_TEXT_MAX_BYTES,
                 )?
             };
             let positions = unsafe {
@@ -1626,8 +1726,11 @@ unsafe fn decode_throw_metadata(
                 )?
             };
             Ok(ThrowMetadata::Captured {
+                error_class: decode_error_class(raw.throw_error_class)?,
                 message,
+                message_truncated,
                 stack,
+                stack_truncated,
                 positions,
             })
         }
@@ -1635,6 +1738,26 @@ unsafe fn decode_throw_metadata(
             "throw carried unknown metadata status {other}"
         ))),
     }
+}
+
+fn validate_throw_metadata_fields(fields: u32) -> Result<(), EngineFault> {
+    if fields & !THROW_FIELDS_KNOWN != 0 {
+        return Err(protocol(format!(
+            "throw metadata carried unknown field bits 0x{:x}",
+            fields & !THROW_FIELDS_KNOWN
+        )));
+    }
+    if fields & THROW_FIELD_MESSAGE_TRUNCATED != 0 && fields & THROW_FIELD_MESSAGE == 0 {
+        return Err(protocol(
+            "throw message truncation bit was present without the message field bit",
+        ));
+    }
+    if fields & THROW_FIELD_STACK_TRUNCATED != 0 && fields & THROW_FIELD_STACK == 0 {
+        return Err(protocol(
+            "throw stack truncation bit was present without the stack field bit",
+        ));
+    }
+    Ok(())
 }
 
 unsafe fn decode_source_positions(
@@ -1655,7 +1778,7 @@ unsafe fn decode_source_positions(
             "throw source-position field bit requires a nonempty position array",
         ));
     }
-    if (positions as usize) % std::mem::align_of::<NativeSourcePosition>() != 0 {
+    if !(positions as usize).is_multiple_of(std::mem::align_of::<NativeSourcePosition>()) {
         return Err(protocol("throw source-position array is misaligned"));
     }
     if count > isize::MAX as usize / size_of::<NativeSourcePosition>() {
@@ -1674,9 +1797,15 @@ unsafe fn decode_source_positions(
                     "throw source position {index} is not one-based"
                 )));
             }
-            let Some(label) =
-                (unsafe { decode_optional_utf8(position.source_label, true, "source label")? })
-            else {
+            let Some(label) = (unsafe {
+                decode_optional_utf8(
+                    position.source_label,
+                    true,
+                    false,
+                    "source label",
+                    isize::MAX as usize,
+                )?
+            }) else {
                 return Err(protocol(format!(
                     "throw source position {index} omitted its required label"
                 )));
@@ -1699,7 +1828,9 @@ unsafe fn decode_source_positions(
 unsafe fn decode_optional_utf8(
     bytes: NativeOwnedBytes,
     present: bool,
+    truncated: bool,
     name: &str,
+    maximum_bytes: usize,
 ) -> Result<Option<Arc<str>>, EngineFault> {
     if !present {
         if !owned_bytes_are_absent(bytes) {
@@ -1709,9 +1840,9 @@ unsafe fn decode_optional_utf8(
         }
         return Ok(None);
     }
-    if bytes.length > isize::MAX as usize {
+    if bytes.length > maximum_bytes {
         return Err(protocol(format!(
-            "throw {name} metadata length exceeds the addressable range"
+            "throw {name} metadata exceeded the {maximum_bytes}-byte bound"
         )));
     }
     if bytes.length != 0 && bytes.data.is_null() {
@@ -1720,11 +1851,21 @@ unsafe fn decode_optional_utf8(
         )));
     }
     if bytes.length == 0 {
+        if truncated {
+            return Err(protocol(format!(
+                "truncated throw {name} metadata omitted its trusted marker"
+            )));
+        }
         return Ok(Some(Arc::from("")));
     }
     let slice = unsafe { std::slice::from_raw_parts(bytes.data.cast_const(), bytes.length) };
     let text = std::str::from_utf8(slice)
         .map_err(|_| protocol(format!("throw {name} metadata is not UTF-8")))?;
+    if truncated && !text.ends_with(SAFE_TEXT_TRUNCATION_MARKER) {
+        return Err(protocol(format!(
+            "truncated throw {name} metadata omitted its trusted marker"
+        )));
+    }
     Ok(Some(Arc::from(text)))
 }
 
@@ -1922,18 +2063,19 @@ mod tests {
             offset_of!(NativeEvaluationResult, throw_metadata_fields),
             44
         );
-        assert_eq!(offset_of!(NativeEvaluationResult, lifecycle_exit_code), 48);
-        assert_eq!(offset_of!(NativeEvaluationResult, capability_flags), 52);
+        assert_eq!(offset_of!(NativeEvaluationResult, throw_error_class), 48);
+        assert_eq!(offset_of!(NativeEvaluationResult, lifecycle_exit_code), 52);
+        assert_eq!(offset_of!(NativeEvaluationResult, capability_flags), 56);
         assert_eq!(offset_of!(NativeSourcePosition, source_label), 0);
         if cfg!(target_pointer_width = "64") {
             assert_eq!(offset_of!(NativeSourcePosition, line), 16);
             assert_eq!(offset_of!(NativeSourcePosition, column), 20);
             assert_eq!(size_of::<NativeSourcePosition>(), 24);
-            assert_eq!(offset_of!(NativeEvaluationResult, message), 56);
-            assert_eq!(offset_of!(NativeEvaluationResult, stack), 72);
-            assert_eq!(offset_of!(NativeEvaluationResult, positions), 88);
-            assert_eq!(offset_of!(NativeEvaluationResult, position_count), 96);
-            assert_eq!(size_of::<NativeEvaluationResult>(), 104);
+            assert_eq!(offset_of!(NativeEvaluationResult, message), 64);
+            assert_eq!(offset_of!(NativeEvaluationResult, stack), 80);
+            assert_eq!(offset_of!(NativeEvaluationResult, positions), 96);
+            assert_eq!(offset_of!(NativeEvaluationResult, position_count), 104);
+            assert_eq!(size_of::<NativeEvaluationResult>(), 112);
         }
     }
 
@@ -2043,6 +2185,7 @@ mod tests {
         };
         raw.throw_metadata_status = THROW_METADATA_CAPTURED;
         raw.throw_metadata_fields = THROW_FIELD_MESSAGE;
+        raw.throw_error_class = ERROR_CLASS_TYPE_ERROR;
         raw.capability_flags |= CAPABILITY_SAFE_THROW;
         raw.message = NativeOwnedBytes {
             data: message.as_mut_ptr(),
@@ -2055,13 +2198,61 @@ mod tests {
         assert_eq!(
             metadata,
             ThrowMetadata::Captured {
+                error_class: NativeErrorClass::TypeError,
                 message: Some(Arc::from("boom\0after")),
+                message_truncated: false,
                 stack: None,
+                stack_truncated: false,
                 positions: Vec::new(),
             }
         );
 
         message[0] = 0xff;
+        assert!(matches!(convert(&raw), Err(EngineFault::Protocol(_))));
+    }
+
+    #[test]
+    fn throw_truncation_bits_require_presence_bound_and_trusted_marker() {
+        let mut message = format!("prefix{SAFE_TEXT_TRUNCATION_MARKER}").into_bytes();
+        let mut raw = successful_raw(OUTCOME_THROW);
+        raw.value = NativeValueHandle {
+            runtime_nonce: 41,
+            handle_id: 5,
+        };
+        raw.throw_metadata_status = THROW_METADATA_CAPTURED;
+        raw.throw_metadata_fields = THROW_FIELD_MESSAGE | THROW_FIELD_MESSAGE_TRUNCATED;
+        raw.throw_error_class = ERROR_CLASS_ERROR;
+        raw.capability_flags |= CAPABILITY_SAFE_THROW;
+        raw.message = NativeOwnedBytes {
+            data: message.as_mut_ptr(),
+            length: message.len(),
+        };
+        let converted = convert(&raw).unwrap();
+        let EvaluationOutcome::Throw { metadata, .. } = converted.evaluation.result.unwrap() else {
+            panic!("expected throw outcome")
+        };
+        assert!(matches!(
+            metadata,
+            ThrowMetadata::Captured {
+                message_truncated: true,
+                stack_truncated: false,
+                ..
+            }
+        ));
+
+        raw.throw_metadata_fields = THROW_FIELD_MESSAGE_TRUNCATED;
+        assert!(matches!(convert(&raw), Err(EngineFault::Protocol(_))));
+        raw.throw_metadata_fields = THROW_FIELD_MESSAGE | THROW_FIELD_MESSAGE_TRUNCATED;
+        message.truncate("prefix".len());
+        raw.message.length = message.len();
+        assert!(matches!(convert(&raw), Err(EngineFault::Protocol(_))));
+
+        let mut oversized = vec![b'x'; SAFE_TEXT_MAX_BYTES + 1];
+        raw.throw_metadata_fields = THROW_FIELD_MESSAGE;
+        raw.message = NativeOwnedBytes {
+            data: oversized.as_mut_ptr(),
+            length: oversized.len(),
+        };
         assert!(matches!(convert(&raw), Err(EngineFault::Protocol(_))));
     }
 
@@ -2164,6 +2355,10 @@ mod tests {
         raw.message.length = 0;
         raw.throw_metadata_fields = 1 << 8;
         assert!(matches!(convert(&raw), Err(EngineFault::Protocol(_))));
+
+        raw.throw_metadata_fields = 0;
+        raw.throw_error_class = 99;
+        assert!(matches!(convert(&raw), Err(EngineFault::Protocol(_))));
     }
 
     #[test]
@@ -2177,6 +2372,10 @@ mod tests {
         assert!(matches!(convert(&raw), Err(EngineFault::Protocol(_))));
 
         raw.throw_metadata_status = THROW_METADATA_UNAVAILABLE;
+        raw.throw_error_class = ERROR_CLASS_TYPE_ERROR;
+        assert!(matches!(convert(&raw), Err(EngineFault::Protocol(_))));
+
+        raw.throw_error_class = ERROR_CLASS_UNCLASSIFIED;
         raw.lifecycle_exit_code = 1;
         assert!(matches!(convert(&raw), Err(EngineFault::Protocol(_))));
     }

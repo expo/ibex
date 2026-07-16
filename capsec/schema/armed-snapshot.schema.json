@@ -23,6 +23,8 @@
     "rootBindings",
     "pathCanonicalizers",
     "principals",
+    "environmentBase",
+    "bootstrapCompatibilityModes",
     "processAuthorityCeiling",
     "generations",
     "protectedObjects",
@@ -112,6 +114,20 @@
       "type": "array",
       "minItems": 1,
       "items": { "$ref": "#/$defs/principalAuthority" }
+    },
+    "environmentBase": {
+      "description": "Explicitly empty armed session environment base. Values exist only in exact-name principal overlays admitted by the principal authority rows.",
+      "type": "array",
+      "maxItems": 0
+    },
+    "bootstrapCompatibilityModes": {
+      "description": "Digest-bound, authority-neutral compatibility controls consumed during trusted bootstrap. They are not environment entries and are removed before project code.",
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["bun", "fixture", "fixture:bun"]
+      }
     },
     "processAuthorityCeiling": {
       "oneOf": [

@@ -327,6 +327,30 @@ bool installModuleLoader(ExactHermesRuntime* handle) {
   return false;
 }
 
+void captureLegacyBootstrapEnvironment(ExactHermesRuntime* handle) {
+  if (!handle) return;
+  handle->legacy_stream_enhance_source =
+      env_flag_enabled("EX_STREAM_ENHANCE_SOURCE");
+  handle->legacy_stream_enhance_hbc =
+      env_flag_enabled("EX_STREAM_ENHANCE_HBC") ||
+      !handle->legacy_stream_enhance_source;
+  handle->legacy_web_crypto_source =
+      env_flag_enabled("EX_WEB_CRYPTO_SOURCE");
+  handle->legacy_web_crypto_hbc =
+      env_flag_enabled("EX_WEB_CRYPTO_HBC") ||
+      !handle->legacy_web_crypto_source;
+  handle->legacy_web_storage_source =
+      env_flag_enabled("EX_WEB_STORAGE_SOURCE");
+  handle->legacy_web_storage_hbc =
+      env_flag_enabled("EX_WEB_STORAGE_HBC") ||
+      !handle->legacy_web_storage_source;
+  handle->legacy_form_data_source =
+      env_flag_enabled("EX_FORM_DATA_SOURCE");
+  handle->legacy_form_data_hbc =
+      env_flag_enabled("EX_FORM_DATA_HBC") ||
+      !handle->legacy_form_data_source;
+}
+
 void ensureStreamEnhance(ExactHermesRuntime* handle) {
   if (handle->stream_enhance_loaded) return;
   handle->stream_enhance_loaded = true;
@@ -335,17 +359,14 @@ void ensureStreamEnhance(ExactHermesRuntime* handle) {
     return;
   }
   try {
-    bool sourceStreamEnhance = env_flag_enabled("EX_STREAM_ENHANCE_SOURCE");
-    bool streamEnhanceHbc =
-        env_flag_enabled("EX_STREAM_ENHANCE_HBC") || !sourceStreamEnhance;
     if (!eval_bootstrap_script(
             handle,
             g_streamEnhanceJS,
             reinterpret_cast<const uint8_t*>(STREAM_ENHANCE_HBC),
             STREAM_ENHANCE_HBC_LEN,
             "<stream-enhance>",
-            sourceStreamEnhance,
-            streamEnhanceHbc)) {
+            handle->legacy_stream_enhance_source,
+            handle->legacy_stream_enhance_hbc)) {
       throw std::runtime_error("Stream enhance failed to evaluate");
     }
   } catch (const facebook::jsi::JSError& err) {
@@ -365,16 +386,14 @@ void ensureWebCrypto(ExactHermesRuntime* handle) {
     return;
   }
   try {
-    bool source_preferred = env_flag_enabled("EX_WEB_CRYPTO_SOURCE");
-    bool hbc_enabled = env_flag_enabled("EX_WEB_CRYPTO_HBC") || !source_preferred;
     if (!eval_bootstrap_script(
             handle,
             g_webCryptoJS,
             reinterpret_cast<const uint8_t*>(WEB_CRYPTO_HBC),
             WEB_CRYPTO_HBC_LEN,
             "<web-crypto>",
-            source_preferred,
-            hbc_enabled)) {
+            handle->legacy_web_crypto_source,
+            handle->legacy_web_crypto_hbc)) {
       throw std::runtime_error("Web Crypto failed to evaluate");
     }
   } catch (const facebook::jsi::JSError& err) {
@@ -394,16 +413,14 @@ void ensureWebStorage(ExactHermesRuntime* handle) {
     return;
   }
   try {
-    bool source_preferred = env_flag_enabled("EX_WEB_STORAGE_SOURCE");
-    bool hbc_enabled = env_flag_enabled("EX_WEB_STORAGE_HBC") || !source_preferred;
     if (!eval_bootstrap_script(
             handle,
             g_webStorageJS,
             reinterpret_cast<const uint8_t*>(WEB_STORAGE_HBC),
             WEB_STORAGE_HBC_LEN,
             "<web-storage>",
-            source_preferred,
-            hbc_enabled)) {
+            handle->legacy_web_storage_source,
+            handle->legacy_web_storage_hbc)) {
       throw std::runtime_error("Storage failed to evaluate");
     }
   } catch (const facebook::jsi::JSError& err) {
@@ -423,16 +440,14 @@ void ensureFormData(ExactHermesRuntime* handle) {
     return;
   }
   try {
-    bool source_preferred = env_flag_enabled("EX_FORM_DATA_SOURCE");
-    bool hbc_enabled = env_flag_enabled("EX_FORM_DATA_HBC") || !source_preferred;
     if (!eval_bootstrap_script(
             handle,
             g_formDataJS,
             reinterpret_cast<const uint8_t*>(FORM_DATA_HBC),
             FORM_DATA_HBC_LEN,
             "<form-data>",
-            source_preferred,
-            hbc_enabled)) {
+            handle->legacy_form_data_source,
+            handle->legacy_form_data_hbc)) {
       throw std::runtime_error("FormData failed to evaluate");
     }
   } catch (const facebook::jsi::JSError& err) {

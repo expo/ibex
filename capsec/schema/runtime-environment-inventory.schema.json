@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/runtime-environment-inventory.schema.json",
+  "title": "Ibex production runtime environment inventory",
+  "type": "object",
+  "required": [
+    "inventorySchema",
+    "generatorSha256",
+    "schemaSha256",
+    "fixedCompatibilityProjection",
+    "rows"
+  ],
+  "properties": {
+    "inventorySchema": {
+      "const": "ibex/runtime-environment-inventory/1"
+    },
+    "generatorSha256": { "$ref": "#/$defs/sha256" },
+    "schemaSha256": { "$ref": "#/$defs/sha256" },
+    "fixedCompatibilityProjection": {
+      "type": "object",
+      "required": [
+        "names",
+        "sourceReadStage",
+        "snapshotCaptureStage",
+        "bootstrapUseStage",
+        "armedPrincipalOverlayFallback",
+        "sourceRefs"
+      ],
+      "properties": {
+        "names": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "prefixItems": [
+            { "const": "EXACT_COMPAT_BUN" },
+            { "const": "EXACT_COMPAT_TEST" },
+            { "const": "EXACT_TEST_SECTION" }
+          ],
+          "items": false
+        },
+        "sourceReadStage": { "const": "launcher-pre-arm-read" },
+        "snapshotCaptureStage": { "const": "snapshot-finalization" },
+        "bootstrapUseStage": { "const": "authenticated-projection-use" },
+        "armedPrincipalOverlayFallback": { "const": false },
+        "sourceRefs": {
+          "type": "object",
+          "required": [
+            "launcherRead",
+            "snapshotField",
+            "hostProjection",
+            "nativeBootstrapUse",
+            "javascriptBootstrapUse"
+          ],
+          "properties": {
+            "launcherRead": { "type": "string", "minLength": 1 },
+            "snapshotField": { "type": "string", "minLength": 1 },
+            "hostProjection": { "type": "string", "minLength": 1 },
+            "nativeBootstrapUse": { "type": "string", "minLength": 1 },
+            "javascriptBootstrapUse": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/row" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256-[0-9a-f]{64}$"
+    },
+    "postArmEvidence": {
+      "type": "object",
+      "required": ["sourceRefs", "summary"],
+      "properties": {
+        "sourceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 3 }
+        },
+        "summary": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "stage": {
+      "enum": [
+        "armed-bootstrap-host-read",
+        "child-environment-construction",
+        "launcher-pre-arm-read",
+        "post-arm-host-read",
+        "principal-overlay-read",
+        "trusted-bootstrap-host-write"
+      ]
+    },
+    "occurrence": {
+      "type": "object",
+      "required": [
+        "accessor",
+        "context",
+        "direction",
+        "hostEnvironment",
+        "language",
+        "occurrenceIndex",
+        "postArmDisposition",
+        "postArmEvidence",
+        "scope",
+        "sourcePath",
+        "sourceRef",
+        "sourceOffset",
+        "stage"
+      ],
+      "properties": {
+        "accessor": { "type": "string", "minLength": 1 },
+        "context": {
+          "enum": [
+            "runtime-bootstrap-output",
+            "runtime-input",
+            "spawn-child-env",
+            "startup-input",
+            "trusted-bootstrap-output"
+          ]
+        },
+        "direction": { "enum": ["read", "unset", "write"] },
+        "hostEnvironment": { "type": "boolean" },
+        "language": { "enum": ["cpp", "javascript", "rust"] },
+        "occurrenceIndex": { "type": "integer", "minimum": 0 },
+        "postArmDisposition": {
+          "anyOf": [
+            {
+              "enum": [
+                "armed-unreachable-host-read",
+                "effect-gated-host-read",
+                "production-unreachable-host-read",
+                "test-only-effect-hook"
+              ]
+            },
+            { "type": "null" }
+          ]
+        },
+        "postArmEvidence": {
+          "anyOf": [
+            { "$ref": "#/$defs/postArmEvidence" },
+            { "type": "null" }
+          ]
+        },
+        "scope": {
+          "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+        },
+        "sourcePath": { "type": "string", "minLength": 1 },
+        "sourceRef": { "type": "string", "minLength": 1 },
+        "sourceOffset": {
+          "anyOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "null" }
+          ]
+        },
+        "stage": { "$ref": "#/$defs/stage" }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "stage": { "const": "post-arm-host-read" } },
+            "required": ["stage"]
+          },
+          "then": {
+            "properties": {
+              "postArmDisposition": { "type": "string" },
+              "postArmEvidence": { "$ref": "#/$defs/postArmEvidence" }
+            }
+          },
+          "else": {
+            "properties": {
+              "postArmDisposition": { "type": "null" },
+              "postArmEvidence": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "row": {
+      "type": "object",
+      "required": [
+        "surfaceName",
+        "dynamic",
+        "dynamicKey",
+        "authoredNames",
+        "allowedStages",
+        "occurrences"
+      ],
+      "properties": {
+        "surfaceName": { "type": "string", "pattern": "^env:" },
+        "dynamic": { "type": "boolean" },
+        "dynamicKey": {
+          "anyOf": [{ "type": "string" }, { "type": "null" }]
+        },
+        "authoredNames": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "allowedStages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stage" }
+        },
+        "occurrences": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/occurrence" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

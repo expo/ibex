@@ -132,6 +132,19 @@ describe("native networking backend lexical discovery", () => {
 });
 
 describe("native networking backend repository inventory", () => {
+  test("keeps the degraded curl child independent of ambient configuration", () => {
+    const source = readSource("src/engine/native_fetch_linux.cc");
+    expect(source).not.toContain("posix_spawnp");
+    expect(source).not.toMatch(/\benviron\b/u);
+    expect(source).toContain('"curl", "-q", "-sS"');
+    expect(source).toContain('"/usr/bin/curl"');
+    expect(source).toContain('"/bin/curl"');
+    expect(source).toContain('"/usr/local/bin/curl"');
+    expect(source).toContain("char* empty_environment[] = {nullptr};");
+    expect(source).toContain("posix_spawn(");
+    expect(source).toContain("empty_environment");
+  });
+
   test("groups the exact ABI operations into deterministic target alternatives", () => {
     const rows = discoverNativeNetworkingBackendSurfaces(repoRoot);
 

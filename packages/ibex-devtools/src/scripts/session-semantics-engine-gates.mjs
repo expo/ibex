@@ -177,6 +177,7 @@ function metadataObservation(observation, names) {
     declarativeRecord,
     varDeclaredNames: observation.varDeclaredNames,
     sessionCreatedVars: observation.sessionCreatedVars,
+    globalExtensible: observation.objectRecord.extensible,
     own,
   };
 }

@@ -33,6 +33,7 @@ import {
   scanModuleSpecifierEntries,
   scanNativeLifecycleSurfaces,
   scanPrivateNativeIdentifiers,
+  scanPrivateSessionWorkerBootstrap,
   scanPrincipalEnvironmentOverlayProxy,
   scanRuntimeCliSurfaces,
   scanRuntimeCommandClasses,
@@ -689,7 +690,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       .metadata.outputContract;
     expect(cppContract.return).toMatchObject({
       kind: "pointer",
-      ownership: { kind: "unknown" },
+      ownership: {
+        kind: "caller-owned",
+        releaseFunction: "ex_hermes_free_string",
+      },
       role: "value",
     });
     expect(
@@ -3077,18 +3081,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
 
   test("native environment enumeration exposes exact platform alternatives", () => {
     const source = `
+      void populateDiagnosticProcessEnvironment() {
+      #if defined(_WIN32)
+        GetEnvironmentStringsW();
+      #else
+      #if defined(__APPLE__)
+        _NSGetEnviron();
+      #else
+        auto envp = ::environ;
+      #endif
+      #endif
+      }
       auto getAllEnvFn = facebook::jsi::Function::createFromHostFunction(
         rt, facebook::jsi::PropNameID::forAscii(rt, "__exactGetAllEnv"), 0,
         [](facebook::jsi::Runtime&, const auto&, const auto*, size_t) {
-        #if defined(_WIN32)
-          GetEnvironmentStringsW();
-        #else
-        #if defined(__APPLE__)
-          _NSGetEnviron();
-        #else
-          auto envp = ::environ;
-        #endif
-        #endif
+          populateDiagnosticProcessEnvironment();
         });
       rt.global().setProperty(rt, "__exactGetAllEnv", std::move(getAllEnvFn));
     `;
@@ -3144,9 +3151,30 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
       {
         ...inputs,
+        hermesVersionText: inputs.hermesVersionText.replace(
+          "2399d266ed06c2a907f1ceb2606c0958a293751781f23774a292c438779c3285",
+          "0399d266ed06c2a907f1ceb2606c0958a293751781f23774a292c438779c3285",
+        ),
+      },
+      {
+        ...inputs,
+        hermesVersionText: inputs.hermesVersionText.replace(
+          "46fc1bfcb0a0aa2c79a81d7804105c88de7d2936fce31ca14aa4ba0e847869ee",
+          "06fc1bfcb0a0aa2c79a81d7804105c88de7d2936fce31ca14aa4ba0e847869ee",
+        ),
+      },
+      {
+        ...inputs,
         windowsInstallerText: inputs.windowsInstallerText.replace(
           '[string]$Version = "0.71.1"',
           '[string]$Version = "0.71.2"',
+        ),
+      },
+      {
+        ...inputs,
+        windowsInstallerText: inputs.windowsInstallerText.replace(
+          "c6d2ba6bba442b44ce4f1d5c0e7eb2c9d3fcafe24765464e3a01607c0ccafadb4b028a4cb502e6779c7d0bf3c11d8e591d8a6150cbf9137aee70a2fe62371f74",
+          "06d2ba6bba442b44ce4f1d5c0e7eb2c9d3fcafe24765464e3a01607c0ccafadb4b028a4cb502e6779c7d0bf3c11d8e591d8a6150cbf9137aee70a2fe62371f74",
         ),
       },
       {
@@ -3584,6 +3612,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(rows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "route:resolution:rust:resolve",
+        "route:resolution:rust:resolve_meta_authenticated",
+        "route:resolution:rust:open_resolver_boundary",
+        "route:resolution:rust:canonicalize",
+        "route:resolution:rust:read_link",
         "route:load:rust:load_module_source",
         "route:cache:rust:ensure_transpile_cache_dir",
         "route:transform:rust:transpile_source_to_cjs",
@@ -3604,7 +3636,6 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       for (const falsePositive of [
         `operation:${category}:from_raw_fd`,
         `operation:${category}:last_os_error`,
-        `operation:${category}:read_link`,
         `route:${category}:rust:digest_file`,
         `route:${category}:rust:directory_names`,
         `route:${category}:rust:stamp`,
@@ -3613,8 +3644,183 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         expect(rows.some((row) => row.name === falsePositive)).toBe(false);
       }
     }
+    for (const category of ["cache", "load", "transform"]) {
+      expect(
+        rows.some((row) => row.name === `operation:${category}:read_link`),
+      ).toBe(false);
+    }
+    for (const category of ["cache", "load", "subprocess", "transform"]) {
+      for (const authenticatedResolverOnly of [
+        "authenticated_module_resolve_options",
+        "authenticated_resolver_base_dir",
+        "bounded_unix_parent",
+        "bounded_unix_read_link",
+        "bounded_unix_symlink_metadata",
+        "boundary_root",
+        "canonicalize",
+        "duplicate_resolver_fd",
+        "file_system",
+        "inputs",
+        "lexical_absolute_path_for_resolver",
+        "manifest_input",
+        "metadata",
+        "module_resolve_options",
+        "new",
+        "normalize_in_boundary",
+        "normalized",
+        "open_resolver_boundary",
+        "parse_manifest",
+        "read",
+        "read_link",
+        "read_to_string",
+        "resolve_bounded_unix_path",
+        "resolve_builtin_meta",
+        "resolve_direct_file_meta_authenticated",
+        "resolve_meta_authenticated",
+        "resolve_meta_from_authenticated_bound_package",
+        "resolver_boundary_refusal",
+        "resolver_canonical_path",
+        "resolver_component_cstring",
+        "resolver_fstat",
+        "resolver_fstatat_nofollow",
+        "resolver_manifest_not_found",
+        "resolver_metadata_from_stat",
+        "resolver_open_directory_at",
+        "resolver_read_link_at",
+        "resolver_relative_components",
+        "resolver_stat_is_dir",
+        "resolver_stat_is_symlink",
+        "symlink_metadata",
+        "uncaptured_package_manifest_probes",
+      ]) {
+        expect(
+          rows.some(
+            (row) =>
+              row.name ===
+              `route:${category}:rust:${authenticatedResolverOnly}`,
+          ),
+          `${category}:${authenticatedResolverOnly}`,
+        ).toBe(false);
+      }
+    }
+    expect(rows.map((row) => row.name)).toContain(
+      "route:resolution:rust:resolve_builtin_meta",
+    );
     expect(rows.some((row) => row.name === "transform-engine:from_value")).toBe(
       false,
+    );
+    expect(rows.some((row) => row.name.endsWith(":rust:drop"))).toBe(false);
+    for (const category of ["cache", "load", "resolution", "transform"]) {
+      for (const accessor of [
+        "cache_tag",
+        "legacy_runtime_transform",
+        "runtime_transform",
+        "selected_engine_cache_tag",
+        "transpile_source_to_cjs",
+      ]) {
+        expect(rows.map((row) => row.name), `${category}:${accessor}`).toContain(
+          `route:${category}:rust:${accessor}`,
+        );
+      }
+    }
+    expect(
+      rows.find(
+        (row) => row.name === "route:load:rust:transpile_module",
+      ).metadata.calleeDefinitions,
+    ).toEqual(
+      expect.arrayContaining([
+        "module_loader::CapturedModuleLoaderEnvironment::legacy_runtime_transform",
+        "module_loader::CapturedModuleLoaderEnvironment::runtime_transform",
+        "transpile::transpile_source_to_cjs",
+      ]),
+    );
+    expect(
+      rows.find(
+        (row) => row.name === "route:cache:rust:selected_engine_cache_tag",
+      ).metadata.calleeDefinitions,
+    ).toEqual(
+      expect.arrayContaining([
+        "transpile::TransformEngine::cache_tag",
+        "transpile::selected_transform_engine",
+      ]),
+    );
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:metadata")
+        .metadata.calleeDefinitions,
+    ).toEqual(
+      expect.arrayContaining([
+        "module_loader::BoundedResolverFileSystem::manifest_input",
+        "module_loader::BoundedResolverFileSystem::normalized",
+        "module_loader::resolve_bounded_unix_path",
+      ]),
+    );
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:new").metadata
+        .definitions,
+    ).toEqual(["module_loader::AuthenticatedResolverInputs::new"]);
+    for (const callback of [
+      "canonicalize",
+      "metadata",
+      "read",
+      "read_link",
+      "read_to_string",
+      "symlink_metadata",
+    ]) {
+      expect(
+        rows.find(
+          (row) => row.name === `route:resolution:rust:${callback}`,
+        ).metadata.definitions,
+        callback,
+      ).toEqual([
+        `module_loader::BoundedResolverFileSystem as ResolverFileSystem::${callback}`,
+      ]);
+    }
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:manifest_input")
+        .metadata.definitions,
+    ).toEqual([
+      "module_loader::AuthenticatedResolverInputs::manifest_input",
+      "module_loader::BoundedResolverFileSystem::manifest_input",
+    ]);
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:resolver_fstat")
+        .metadata.targetVariant,
+    ).toBe("posix");
+    expect(
+      rows.find((row) => row.name === "route:resolution:rust:metadata")
+        .metadata.branches,
+    ).toEqual([
+      {
+        id: "descriptor-relative-posix",
+        implementationDisposition: "concrete",
+        targetVariant: "posix",
+      },
+      {
+        id: "windows-unsupported",
+        implementationDisposition: "unsupported-stub",
+        targetVariant: "windows",
+      },
+    ]);
+    expect(
+      rows.find(
+        (row) =>
+          row.name ===
+          "route:resolution:rust:authenticated_resolver_base_dir",
+      ).metadata.calleeDefinitions,
+    ).toEqual(
+      expect.arrayContaining([
+        "module_loader::BoundedResolverFileSystem as ResolverFileSystem::canonicalize",
+        "module_loader::BoundedResolverFileSystem as ResolverFileSystem::metadata",
+      ]),
+    );
+    expect(
+      rows.find(
+        (row) =>
+          row.name ===
+          "route:cache:rust:walk_transpile_tool_directory",
+      ).metadata.calleeDefinitions,
+    ).toContain(
+      "module_loader::capture_transpile_tool_directory::walk_transpile_tool_directory",
     );
     expect(
       rows.find((row) => row.name === "operation:cache:write").metadata
@@ -3625,6 +3831,151 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toContain(
       "src/module_loader/mod.rs#publish_transpile_artifact:external:qualified:std::fs::write:count-1",
     );
+    expect(
+      rows.find((row) => row.name === "external-calls:resolution").sourceRefs,
+    ).toContain(
+      "src/module_loader/mod.rs#duplicate_resolver_fd:external:qualified:libc::fcntl:count-1",
+    );
+    expect(
+      rows.find((row) => row.name === "operation:resolution:read").metadata
+        .qualifiedPaths,
+    ).toEqual(["qualified:std::fs::read"]);
+    expect(
+      rows.find((row) => row.name === "operation:resolution:metadata").metadata
+        .qualifiedPaths,
+    ).toEqual([
+      "method:DirEntry:metadata",
+      "method:File:metadata",
+      "qualified:libc::fstat",
+      "qualified:libc::fstatat",
+      "qualified:std::fs::metadata",
+    ]);
+    expect(
+      rows.find((row) => row.name === "operation:resolution:open").metadata
+        .qualifiedPaths,
+    ).toEqual(["qualified:libc::open", "qualified:libc::openat"]);
+    expect(
+      rows.find((row) => row.name === "operation:resolution:open").metadata
+        .targetVariant,
+    ).toBe("posix");
+    expect(
+      rows.find((row) => row.name === "operation:resolution:read_link")
+        .sourceRefs,
+    ).toContain(
+      "src/module_loader/mod.rs#resolver_read_link_at:operation:qualified:libc::readlinkat",
+    );
+    expect(
+      rows.find((row) => row.name === "operation:subprocess:status").metadata
+        .qualifiedPaths,
+    ).toEqual(["method:Command:status"]);
+
+    const receiverFixtureSource = `${fs
+      .readFileSync(path.join(repoRoot, "src/module_loader/mod.rs"), "utf8")
+      .replace(
+        "fn normalize_import_target(base: &Path, target: PathBuf) -> Option<PathBuf> {",
+        "fn normalize_import_target(base: &Path, target: PathBuf) -> Option<PathBuf> {\n    scanner_receiver_fixture();",
+      )
+      .replace(
+        ') -> Result<()> {\n    let private_environment = unique_tmp_path(&output.with_file_name("transpile-environment"));',
+        ') -> Result<()> {\n    runner_name.status();\n    let private_environment = unique_tmp_path(&output.with_file_name("transpile-environment"));',
+      )}
+fn scanner_receiver_fixture() {
+    scanner_receiver_positive();
+    scanner_receiver_negative();
+    scanner_receiver_ambiguous();
+}
+fn scanner_receiver_positive(
+    entry: DirEntry,
+    path: &Path,
+    path_buf: PathBuf,
+) {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    let file = options.open(path);
+    file.read();
+    file.metadata();
+    entry.metadata();
+    path_buf.as_path().canonicalize();
+    path_buf.canonicalize();
+    let command = Command::new(path);
+    command.status();
+}
+fn scanner_receiver_negative(
+    options: OpenOptions,
+    lock: RwLock<()>,
+    other: ArbitraryReceiver,
+) {
+    options.read();
+    lock.read();
+    other.read();
+    other.metadata();
+    other.canonicalize();
+    other.status();
+}
+fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>) {
+    let ambiguous = choose(OpenOptions::new(), File::from(fd_one));
+    ambiguous.read();
+    let tuple = (File::from(fd_two), lock);
+    tuple.metadata();
+    let wrapped = Some(File::from(fd_two));
+    wrapped.read();
+    wrapped.metadata();
+    let wrapped_postfix = File::from(fd_two).into_wrapper();
+    wrapped_postfix.read();
+    wrapped_postfix.metadata();
+    let wrapped_struct = Wrapper { inner: File::from(fd_two) };
+    wrapped_struct.read();
+    wrapped_struct.metadata();
+}
+`;
+    expect(
+      receiverFixtureSource.match(/scanner_receiver_fixture\(\);/gu),
+    ).toHaveLength(1);
+    expect(receiverFixtureSource.match(/runner_name\.status\(\);/gu)).toHaveLength(
+      1,
+    );
+    const receiverRows = scanRustLoaderRoutes([
+      {
+        sourcePath: "src/module_loader/mod.rs",
+        text: receiverFixtureSource,
+      },
+      {
+        sourcePath: "src/module_loader/transpile.rs",
+        text: fs.readFileSync(
+          path.join(repoRoot, "src/module_loader/transpile.rs"),
+          "utf8",
+        ),
+      },
+    ]);
+    const receiverOperationRefs = (operation) =>
+      receiverRows
+        .find((row) => row.name === `operation:resolution:${operation}`)
+        .sourceRefs.filter((sourceRef) =>
+          sourceRef.includes("scanner_receiver"),
+        );
+    expect(receiverOperationRefs("read")).toEqual([
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:File:read",
+    ]);
+    expect(receiverOperationRefs("metadata")).toEqual([
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:DirEntry:metadata",
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:File:metadata",
+    ]);
+    expect(receiverOperationRefs("canonicalize")).toEqual([
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:Path:canonicalize",
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:PathBuf:canonicalize",
+    ]);
+    expect(receiverOperationRefs("status")).toEqual([
+      "src/module_loader/mod.rs#scanner_receiver_positive:operation:method:Command:status",
+    ]);
+    const subprocessStatus = receiverRows.find(
+      (row) => row.name === "operation:subprocess:status",
+    );
+    expect(subprocessStatus.metadata.qualifiedPaths).toEqual([
+      "method:Command:status",
+    ]);
+    expect(subprocessStatus.sourceRefs).toEqual([
+      "src/module_loader/mod.rs#run_transpile_subprocess:operation:method:Command:status",
+    ]);
 
     const mutated = scanRustLoaderRoutes([
       {
@@ -3649,11 +4000,41 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         (row) => row.name === "operation:cache:future_authority_call",
       ),
     ).toBe(true);
+    const ownerDecoy = scanRustLoaderRoutes([
+      {
+        sourcePath: "src/module_loader/mod.rs",
+        text: `${fs.readFileSync(
+          path.join(repoRoot, "src/module_loader/mod.rs"),
+          "utf8",
+        )}\nstruct UnrelatedResolver;\nimpl UnrelatedResolver { fn metadata(&self) {} fn normalized(&self) {} }\n`,
+      },
+      {
+        sourcePath: "src/module_loader/transpile.rs",
+        text: fs.readFileSync(
+          path.join(repoRoot, "src/module_loader/transpile.rs"),
+          "utf8",
+        ),
+      },
+    ]);
+    expect(
+      ownerDecoy.find(
+        (row) => row.name === "route:resolution:rust:metadata",
+      ).metadata.definitions,
+    ).toEqual([
+      "module_loader::BoundedResolverFileSystem as ResolverFileSystem::metadata",
+    ]);
+    expect(
+      ownerDecoy.some((row) =>
+        row.metadata?.definitions?.some((definition) =>
+          definition.includes("UnrelatedResolver"),
+        ),
+      ),
+    ).toBe(false);
     expect(() =>
       scanRustLoaderRoutes([
         { sourcePath: "empty.rs", text: "fn resolve() {}" },
       ]),
-    ).toThrow(/Rust loader resolution root .* is absent/);
+    ).toThrow(/Rust loader resolution root .* expected one definition/);
   });
 
   test("CDP routes and fallback are structural and comment-safe", () => {
@@ -3936,11 +4317,35 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         {
           sourcePath: "runtime.rs",
           text: String.raw`
+            use std::process::Command;
             const PRIMARY: &str = "IBEX_MODE";
+            fn runtime_env(ibex_name: &str, legacy_name: &str) {
+              std::env::var(ibex_name);
+              std::env::var(legacy_name);
+            }
+            fn env_flag_enabled(name: &str) { std::env::var(name); }
+            fn timeout_from_env(name: &str) { std::env::var(name); }
             fn read(name: &str) {
               std::env::var(PRIMARY);
               std::env::var(name);
               runtime_env("IBEX_WATCH", "EXACT_WATCH");
+            }
+            fn child(dynamic_name: &str) {
+              let mut command = Command::new("runner");
+              command.env("IBEX_CHILD_EXPLICIT", "1");
+              command.env(dynamic_name, "1");
+              command.env_remove("IBEX_CHILD_REMOVED");
+              command.env_clear();
+              let _qualified = std::process::Command::new("other");
+            }
+          `,
+        },
+        {
+          sourcePath: "src/host/abi.rs",
+          text: String.raw`
+            fn capture_process_ipc_bootstrap() {
+              std::env::var("EXACT_IPC_FD");
+              std::env::var("EXACT_IPC_SERIALIZATION");
             }
           `,
         },
@@ -3949,11 +4354,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         {
           sourcePath: "native_android_networking.cc",
           text: String.raw`
+            extern char** environ;
             void init() {
+              char* copied = nullptr;
+              size_t copiedLength = 0;
+              _dupenv_s(&copied, &copiedLength, dynamicEnvironmentName);
               setenv("EXACT_ANDROID_FILES_DIR", files, 1);
               auto shell = getenvString("ComSpec");
               auto apple = _NSGetEnviron();
               auto posix = ::environ;
+              auto bare = environ;
+              consume(environ);
               auto windows = GetEnvironmentStringsW();
             }
           `,
@@ -3966,6 +4377,16 @@ describe("LLP 0021 WP1 source surface inventory", () => {
             }
           `,
         },
+        {
+          sourcePath: "hermes_runtime_internal.h",
+          text: String.raw`
+            bool env_flag_enabled(const char* env_name);
+            inline void observerDelay() {
+              const char* value = std::getenv(
+                  "IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+            }
+          `,
+        },
       ],
     });
     expect(rows.map((row) => row.name)).toEqual(
@@ -3974,6 +4395,9 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "env:<dynamic>:javascript:process[]",
         "env:<dynamic>:javascript:Object.defineProperty(process.env)",
         "env:<dynamic>:rust:env::var",
+        "env:<dynamic>:rust:Command::default_env",
+        "env:<dynamic>:rust:Command::env",
+        "env:<dynamic>:rust:Command::env_clear",
         "env:COMSPEC",
         "env:EXACT_ASSIGNED",
         "env:EXACT_ALIASED",
@@ -3986,7 +4410,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "env:HOME",
         "env:IBEX_MODE",
         "env:IBEX_DESTRUCTURED",
+        "env:IBEX_CHILD_EXPLICIT",
+        "env:IBEX_CHILD_REMOVED",
         "env:IBEX_REFLECT_SET",
+        "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
         "env:IBEX_WATCH",
       ]),
     );
@@ -4009,6 +4436,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       rows.find((row) => row.name === "env:EXACT_QUIET").metadata.contexts,
     ).toEqual(["spawn-child-env"]);
+    for (const name of ["env:IBEX_CHILD_EXPLICIT", "env:IBEX_CHILD_REMOVED"]) {
+      expect(rows.find((row) => row.name === name).metadata.contexts).toEqual([
+        "spawn-child-env",
+      ]);
+    }
+    expect(
+      rows.find(
+        (row) => row.name === "env:<dynamic>:rust:Command::default_env",
+      ).metadata.occurrences,
+    ).toHaveLength(2);
+    for (const name of ["env:EXACT_IPC_FD", "env:EXACT_IPC_SERIALIZATION"]) {
+      expect(rows.find((row) => row.name === name).metadata.contexts).toEqual([
+        "startup-input",
+      ]);
+    }
     for (const name of ["env:EXACT_ASSIGNED", "env:IBEX_REFLECT_SET"]) {
       expect(
         rows.find((row) => row.name === name).metadata.accessDirections,
@@ -4022,7 +4464,82 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       rows
         .filter((row) => row.name.startsWith("env:<dynamic>:cpp:"))
         .map((row) => row.metadata.accessors[0]),
-    ).toEqual(["::environ", "GetEnvironmentStringsW", "_NSGetEnviron"]);
+    ).toEqual([
+      "::environ",
+      "GetEnvironmentStringsW",
+      "_NSGetEnviron",
+      "_dupenv_s",
+      "environ",
+    ]);
+    expect(
+      rows.find((row) => row.name === "env:<dynamic>:cpp:environ").metadata
+        .occurrences,
+    ).toHaveLength(2);
+    expect(
+      rows.some(
+        (row) => row.name === "env:<dynamic>:cpp:env_flag_enabled",
+      ),
+    ).toBe(false);
+    expect(
+      rows.some((row) =>
+        new Set([
+          "env:<dynamic>:rust:env_flag_enabled",
+          "env:<dynamic>:rust:runtime_env",
+          "env:<dynamic>:rust:timeout_from_env",
+        ]).has(row.name),
+      ),
+    ).toBe(false);
+    for (const row of rows) {
+      expect(row.metadata.occurrences.length, row.name).toBeGreaterThan(0);
+      expect(
+        [
+          ...new Set(
+            row.metadata.occurrences.map(
+              (occurrence) => occurrence.sourceRef,
+            ),
+          ),
+        ].sort(),
+        row.name,
+      ).toEqual(row.sourceRefs);
+    }
+  });
+
+  test("private session worker bootstrap retains both implementation constants", () => {
+    const row = scanPrivateSessionWorkerBootstrap(String.raw`
+      pub(crate) const WORKER_BOOTSTRAP_ARG: &str = "__ibex-session-worker-v1";
+      pub(crate) const WORKER_BOOTSTRAP_SURFACE_ID: &str =
+          "private:ibex:session-worker-bootstrap:v1";
+    `);
+    expect(row).toMatchObject({
+      kind: "startup",
+      name: "private:ibex:session-worker-bootstrap:v1",
+      metadata: {
+        argument: "__ibex-session-worker-v1",
+        evidenceType: "private-session-worker-bootstrap",
+        javascriptReachability: "none",
+        visibility: "private-supervisor-worker",
+      },
+    });
+    expect(row.sourceRefs).toEqual([
+      "src/bin/ibex/session_worker.rs#WORKER_BOOTSTRAP_ARG",
+      "src/bin/ibex/session_worker.rs#WORKER_BOOTSTRAP_SURFACE_ID",
+    ]);
+    for (const [from, to] of [
+      ["__ibex-session-worker-v1", "--public-worker"],
+      [
+        "private:ibex:session-worker-bootstrap:v1",
+        "private:ibex:session-worker-bootstrap:v2",
+      ],
+    ]) {
+      expect(() =>
+        scanPrivateSessionWorkerBootstrap(
+          String.raw`
+            pub(crate) const WORKER_BOOTSTRAP_ARG: &str = "__ibex-session-worker-v1";
+            pub(crate) const WORKER_BOOTSTRAP_SURFACE_ID: &str = "private:ibex:session-worker-bootstrap:v1";
+          `.replace(from, to),
+        ),
+      ).toThrow(/private worker bootstrap/u);
+    }
   });
 
   test("process values crossing complex bindings remain visible to the environment inventory", () => {
@@ -5274,6 +5791,16 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       expect(first[category].length).toBeGreaterThan(0);
     }
     expect(first).toEqual(second);
+    const callbackDelayEnvironment = first.startup.find(
+      (row) => row.name === "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
+    );
+    expect(callbackDelayEnvironment).toBeDefined();
+    expect(
+      callbackDelayEnvironment.metadata.occurrences.some(
+        (occurrence) =>
+          occurrence.sourcePath === "src/engine/hermes_runtime_internal.h",
+      ),
+    ).toBe(true);
     expect(first.surfaces.map((row) => row.observedKey)).toEqual(
       [...first.surfaces.map((row) => row.observedKey)].sort(),
     );
@@ -5287,7 +5814,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    expect(first.hostAbi).toHaveLength(277);
+    expect(first.hostAbi).toHaveLength(278);
+    for (const [name, sourceRef] of [
+      [
+        "evaluation:installGlobals:native-freeze-conformance-observation",
+        "src/engine/hermes_runtime.cc#installGlobals:evaluateJavaScript:<native-freeze-conformance-observation>",
+      ],
+      [
+        "script:native-freeze-conformance-observation",
+        "src/engine/hermes_runtime.cc#script:<native-freeze-conformance-observation>",
+      ],
+    ]) {
+      expect(first.startup.find((row) => row.name === name), name).toMatchObject(
+        { sourceRefs: [sourceRef] },
+      );
+    }
     expect(
       first.hostAbi.every(
         (row) =>
@@ -5347,7 +5888,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 227,
+      "output-bearing": 228,
       "structural-only": 50,
     });
     expect(
@@ -5356,7 +5897,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           account.status === "output-bearing" &&
           account.evidenceUnresolved.length > 0,
       ),
-    ).toHaveLength(51);
+    ).toHaveLength(0);
     expect(
       catalogAbiAccounts
         .filter((account) => account.status === "unresolved")
@@ -5380,7 +5921,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 150, return: 209 });
+    ).toEqual({ callback: 59, out: 158, return: 210 });
     expect(
       Object.fromEntries(
         [
@@ -5396,7 +5937,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "none:void": 68,
       "value:aggregate": 17,
       "value:pointer": 46,
-      "value:scalar": 146,
+      "value:scalar": 147,
     });
     expect(
       Object.fromEntries(
@@ -5412,8 +5953,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toEqual({
       "callback-payload": 38,
       inout: 8,
-      input: 562,
-      output: 44,
+        input: 564,
+      output: 47,
     });
 
     const accountFor = (name) =>
@@ -5494,6 +6035,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "out:result.positions",
       "out:result.stack.data",
       "out:result.struct_size",
+      "out:result.throw_error_class",
       "out:result.throw_metadata_fields",
       "out:result.throw_metadata_status",
       "out:result.value.handle_id",
@@ -5536,7 +6078,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       accountFor("ex_hermes_value_safe_throw_metadata").outputChannels.map(
         (channel) => channel.selector,
       ),
-    ).toEqual(["[[return]]", "out:message.data", "out:stack.data"]);
+    ).toEqual([
+      "[[return]]",
+      "out:error_class",
+      "out:message.data",
+      "out:metadata_fields",
+      "out:stack.data",
+    ]);
 
     const moduleSyncContract = first.hostAbi.find(
       (row) => row.name === "ex_hermes_set_module_sync_callback",
@@ -5647,7 +6195,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(144);
+    ).toHaveLength(145);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);
@@ -6033,11 +6581,31 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       environmentRows.find((row) => row.name === "env:EXACT_QUIET").metadata
         .contexts,
     ).toContain("spawn-child-env");
-    expect(
-      environmentRows.find((row) => row.name === "env:EXACT_IPC_FD").sourceRefs,
-    ).toContain(
-      "src/engine/bootstrap/stream-enhance.js#process.env:EXACT_IPC_FD:read",
+    const ipcFdEnvironment = environmentRows.find(
+      (row) => row.name === "env:EXACT_IPC_FD",
     );
+    expect(ipcFdEnvironment.sourceRefs).toContain(
+      "src/host/abi.rs#env::var:EXACT_IPC_FD:read",
+    );
+    expect(ipcFdEnvironment.metadata.contexts).toEqual(
+      expect.arrayContaining(["startup-input", "spawn-child-env"]),
+    );
+    expect(
+      ipcFdEnvironment.sourceRefs.some((sourceRef) =>
+        sourceRef.includes("#process.env:EXACT_IPC_FD:read"),
+      ),
+    ).toBe(false);
+    const ipcSerializationEnvironment = environmentRows.find(
+      (row) => row.name === "env:EXACT_IPC_SERIALIZATION",
+    );
+    expect(ipcSerializationEnvironment.sourceRefs).toContain(
+      "src/host/abi.rs#env::var:EXACT_IPC_SERIALIZATION:read",
+    );
+    expect(
+      ipcSerializationEnvironment.sourceRefs.some((sourceRef) =>
+        sourceRef.includes("#process.env:EXACT_IPC_SERIALIZATION:read"),
+      ),
+    ).toBe(false);
     expect(
       environmentRows.some((row) => row.name.startsWith("env:IBEX_CAPSEC_")),
     ).toBe(true);
@@ -6065,12 +6633,24 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       environmentRows
         .filter((row) =>
-          ["::environ", "GetEnvironmentStringsW", "_NSGetEnviron"].some(
+          [
+            "::environ",
+            "GetEnvironmentStringsW",
+            "_NSGetEnviron",
+            "_dupenv_s",
+            "environ",
+          ].some(
             (accessor) => row.metadata.accessors.includes(accessor),
           ),
         )
         .map((row) => row.metadata.accessors[0]),
-    ).toEqual(["::environ", "GetEnvironmentStringsW", "_NSGetEnviron"]);
+    ).toEqual([
+      "::environ",
+      "GetEnvironmentStringsW",
+      "_NSGetEnviron",
+      "_dupenv_s",
+      "environ",
+    ]);
     expect(
       environmentRows.find((row) =>
         row.metadata.accessors.includes("::environ"),
@@ -6078,6 +6658,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toContain(
       "src/engine/hermes_runtime_process_setup.cc#::environ:dynamic:read",
     );
+    expect(
+      environmentRows.find((row) =>
+        row.metadata.accessors.includes("environ"),
+      ).sourceRefs,
+    ).toEqual([
+      "src/engine/hermes_runtime_process.cc#environ:dynamic:read",
+    ]);
     for (const row of environmentRows) {
       for (const ref of row.sourceRefs) {
         expect(ref).not.toMatch(

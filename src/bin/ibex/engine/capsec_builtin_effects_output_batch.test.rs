@@ -10,7 +10,6 @@ use super::*;
 use base64::Engine as _;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{Read as _, Write as _};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -612,9 +611,7 @@ fn family_control_script(
     let tcp_port = loopback.tcp_port;
     let udp_port = loopback.udp_port;
     let body = match family {
-        "node_http" => format!(
-            "var s=m.createServer(function(q,r){{r.end('ok')}});s.on('error',noop);s.listen({{host:'127.0.0.1',port:0}});s.close();"
-        ),
+        "node_http" => "var s=m.createServer(function(q,r){r.end('ok')});s.on('error',noop);s.listen({host:'127.0.0.1',port:0});s.close();".to_owned(),
         "node_net" => format!(
             "var s=m.createServer(noop);s.on('error',noop);s.listen({{host:'127.0.0.1',port:0}});s.close();var q=m.connect({{host:'127.0.0.1',port:{tcp_port}}});q.on('error',noop);q.destroy();"
         ),
@@ -624,9 +621,7 @@ fn family_control_script(
         "node_https" => format!(
             "var q=m.get({{hostname:'127.0.0.1',port:{tcp_port},path:'/',rejectUnauthorized:false}});q.on('error',noop);"
         ),
-        "ws" => format!(
-            "var S=m.WebSocketServer||m.Server;var s=new S({{host:'127.0.0.1',port:0}});s.on('error',noop);s.on('listening',function(){{s.close()}});"
-        ),
+        "ws" => "var S=m.WebSocketServer||m.Server;var s=new S({host:'127.0.0.1',port:0});s.on('error',noop);s.on('listening',function(){s.close()});".to_owned(),
         "node_http2" => format!(
             "var s=m.createServer();s.on('error',noop);s.listen({{host:'127.0.0.1',port:0}});s.close();var q=m.connect('http://127.0.0.1:{tcp_port}');q.on('error',noop);q.destroy();"
         ),
@@ -733,12 +728,12 @@ fn validate_bound_typed_decisions(
             return Err("effect-classified source operation emitted no typed decisions".to_owned());
         }
         if no_effect_branch["carrierEdgeId"] != invocation(row)["coverageEdgeId"]
-            || !no_effect_branch["branchId"]
+            || no_effect_branch["branchId"]
                 .as_str()
-                .is_some_and(|branch| !branch.is_empty())
-            || !no_effect_branch["conditions"]
+                .is_none_or(|branch| branch.is_empty())
+            || no_effect_branch["conditions"]
                 .as_array()
-                .is_some_and(|conditions| !conditions.is_empty())
+                .is_none_or(|conditions| conditions.is_empty())
         {
             return Err("zero-decision source operation has no exact no-effect branch".to_owned());
         }
@@ -1098,6 +1093,7 @@ async fn execute_family(
         0,
         None,
         |snapshot| {
+            snapshot["bootstrapCompatibilityModes"] = json!(["bun"]);
             snapshot["principals"][0]["imports"]["builtins"] = Value::Array(imports.clone());
             snapshot["entry"] = json!({
                 "kind": "repl",
@@ -1112,9 +1108,6 @@ async fn execute_family(
     );
     let reset = HostResetGuard;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))?;
-    engine
-        .eval_immediate("globalThis.__exactCompatModes = ['bun'];")
-        .await?;
     engine.load_runtime().await?;
     let mut sweep = AuthenticatedEffectsSweep::new(&host)?;
 

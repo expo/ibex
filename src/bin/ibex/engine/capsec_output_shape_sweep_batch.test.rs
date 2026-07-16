@@ -5,7 +5,6 @@
 use super::*;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write as _;
 
 mod global_callable_batch {
     include!("capsec_global_callable_batch.test.rs");
@@ -15,8 +14,8 @@ mod native_freeze_batch {
     include!("capsec_native_freeze_output_batch.test.rs");
 }
 
-const EXECUTOR: &str = "ibex-public-surface-harness/output-shape-sweep-v2";
-const BATCH_SCHEMA: &str = "ibex/capsec-output-shape-executor-batch/2";
+const EXECUTOR: &str = "ibex-public-surface-harness/output-shape-sweep-v3";
+const BATCH_SCHEMA: &str = "ibex/capsec-output-shape-executor-batch/3";
 const AUTHORED_BUILTIN_HARNESS: &str = include_str!("capsec_public_noncap_builtin_invocation.js");
 const GLOBAL_ACCESSOR_HARNESS: &str = include_str!("capsec_global_accessor_get.js");
 const AUTHORED_BUILTIN_TIMEOUT_MS: u64 = 1_000;
@@ -748,10 +747,11 @@ fn read_plan(path: &std::path::Path) -> Value {
         .expect("output-shape sweep plan must be strict JSON");
     assert_eq!(
         plan["outputShapeSweepPlanSchema"],
-        "ibex/capsec-output-shape-sweep-plan/2"
+        "ibex/capsec-output-shape-sweep-plan/3"
     );
     assert_eq!(plan["profile"], "ibex/capsec/1");
     assert_eq!(plan["executor"], EXECUTOR);
+    assert!(plan["target"].is_object());
     assert!(plan["rows"].is_array());
     plan
 }
@@ -3059,6 +3059,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         Vec::new(),
         None,
         |snapshot| {
+            snapshot["bootstrapCompatibilityModes"] = json!(["bun"]);
             snapshot["principals"][0]["imports"]["builtins"] =
                 Value::Array(module_specifiers.clone());
             snapshot["entry"] = json!({
@@ -3080,10 +3081,6 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         "/project/entry.mjs",
     )
     .await;
-    engine
-        .eval_immediate("globalThis.__exactCompatModes = ['bun'];")
-        .await
-        .expect("select output-shape compatibility profile");
     engine
         .load_runtime()
         .await
@@ -3139,6 +3136,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
             Vec::new(),
             None,
             |snapshot| {
+                snapshot["bootstrapCompatibilityModes"] = json!(["bun"]);
                 snapshot["principals"][0]["imports"]["builtins"] =
                     Value::Array(module_specifiers.clone());
                 snapshot["principals"][0]["imports"]["packages"] = json!(["image-lib@2.4.1"]);
@@ -3166,10 +3164,6 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         let reset = HostResetGuard;
         let mode_engine = HermesEngine::new_with_armed_snapshot(Some(&mode_digest))
             .expect("create authenticated output-shape mode runtime");
-        mode_engine
-            .eval_immediate("globalThis.__exactCompatModes = ['bun'];")
-            .await
-            .expect("select authenticated output-shape compatibility profile");
         mode_engine
             .load_runtime()
             .await
@@ -3268,6 +3262,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
             Vec::new(),
             None,
             |snapshot| {
+                snapshot["bootstrapCompatibilityModes"] = json!(["bun"]);
                 snapshot["entry"] = json!({
                     "kind": "repl",
                     "identity": "ibex:repl",
@@ -3279,10 +3274,6 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         let reset = HostResetGuard;
         let safe_engine = HermesEngine::new_with_armed_snapshot(Some(&safe_digest))
             .expect("create safe-throw-metadata output-shape runtime");
-        safe_engine
-            .eval_immediate("globalThis.__exactCompatModes = ['bun'];")
-            .await
-            .expect("select safe-throw-metadata compatibility profile");
         safe_engine
             .load_runtime()
             .await
@@ -3452,6 +3443,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         "executor": EXECUTOR,
         "sourceRevision": plan["sourceRevision"].clone(),
         "sourceTreeDigest": plan["sourceTreeDigest"].clone(),
+        "target": plan["target"].clone(),
         "catalogKeyDigest": plan["catalogKeyDigest"].clone(),
         "sweepPlanDigest": plan["sweepPlanDigest"].clone(),
         "loadedEngineIdentity": serde_json::to_value(identity_before)

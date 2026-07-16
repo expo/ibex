@@ -1,10 +1,8 @@
 //! Supervisor-owned terminal session core.
 //!
-//! This module deliberately stops at typed ports. The legacy rustyline REPL
-//! cannot implement the asynchronous editor contract because its completer
-//! blocks the same reader that must consume `Ctrl+C`; wiring that adapter would
-//! be a false safety claim. A future PTY/ConPTY adapter can drive this core
-//! without changing its interrupt policy.
+//! The production editor keeps its raw input reader independent from a single,
+//! queue-bounded advisory completion producer. Completion therefore cannot hold
+//! the reader that must turn `Ctrl+C` into an interrupt-machine event.
 //!
 //! @ref LLP 0025#5-terminal-presentation-and-restoration — the supervisor owns
 //! raw-mode entry and restores before any potentially blocking cleanup.
@@ -63,6 +61,26 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[cfg(all(unix, not(target_has_atomic = "32")))]
+compile_error!("the Unix terminal signal bridge requires lock-free 32-bit atomics");
+
+#[cfg(unix)]
+pub(crate) use crate::direct_execution_interrupt::DirectExecutionCancellationRegistration;
+
+#[cfg(not(unix))]
+#[derive(Clone, Default)]
+pub(crate) struct DirectExecutionCancellationRegistration;
+
+#[cfg(not(unix))]
+impl DirectExecutionCancellationRegistration {
+    pub(crate) fn register(
+        &self,
+        _engine: Arc<dyn crate::engine::Engine>,
+    ) -> Result<(), Arc<dyn crate::engine::Engine>> {
+        Ok(())
+    }
+}
 
 const PROMPT_LIVE_BIT: u64 = 1_u64 << 63;
 const PROMPT_CYCLE_MASK: u64 = !PROMPT_LIVE_BIT;
@@ -663,6 +681,157 @@ fn escape_session_text(text: &str) -> String {
     escaped
 }
 
+const NATIVE_DIAGNOSTIC_MAX_BYTES: usize = 16 * 1024;
+const NATIVE_DIAGNOSTIC_TRUNCATION: &str = "...[truncated]";
+
+fn render_bounded_native_diagnostic(prefix: &str, detail: &str) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let payload_limit = NATIVE_DIAGNOSTIC_MAX_BYTES
+        .saturating_sub(NATIVE_DIAGNOSTIC_TRUNCATION.len())
+        .saturating_sub(1);
+    let mut line = String::with_capacity(NATIVE_DIAGNOSTIC_MAX_BYTES);
+    let mut truncated = false;
+    for ch in prefix.chars().chain(detail.chars()) {
+        let code = ch as u32;
+        if ch == '\x1b'
+            || ch.is_control()
+            || (0x80..=0x9f).contains(&code)
+            || matches!(code, 0x2028 | 0x2029 | 0x202a..=0x202e | 0x2066..=0x2069)
+        {
+            let mut escaped = String::with_capacity(10);
+            let _ = write!(escaped, "\\u{{{code:04x}}}");
+            if line.len().saturating_add(escaped.len()) > payload_limit {
+                truncated = true;
+                break;
+            }
+            line.push_str(&escaped);
+        } else {
+            if line.len().saturating_add(ch.len_utf8()) > payload_limit {
+                truncated = true;
+                break;
+            }
+            line.push(ch);
+        }
+    }
+    if truncated {
+        line.push_str(NATIVE_DIAGNOSTIC_TRUNCATION);
+    }
+    line.push('\n');
+    line.into_bytes()
+}
+
+#[cfg(unix)]
+fn write_bounded_native_diagnostic(descriptor: i32, bytes: &[u8], budget: Duration) -> bool {
+    let descriptor = match NativeFd::duplicate(descriptor) {
+        Ok(descriptor) => descriptor,
+        Err(_) => return false,
+    };
+    let original_flags = match descriptor_flags(descriptor.raw(), libc::F_GETFL) {
+        Ok(flags) => flags,
+        Err(_) => return false,
+    };
+    // Darwin may deliver a pipe-generated SIGPIPE to another unblocked thread,
+    // so a caller-thread signal mask is insufficient. Preserve and restore the
+    // process disposition around this synchronous, bounded raw write.
+    let _sigpipe = match SigpipeIgnoreGuard::install() {
+        Ok(sigpipe) => sigpipe,
+        Err(_) => return false,
+    };
+    if set_descriptor_flag(
+        descriptor.raw(),
+        libc::F_SETFL,
+        original_flags | libc::O_NONBLOCK,
+    )
+    .is_err()
+    {
+        return false;
+    }
+    let deadline = Instant::now()
+        .checked_add(budget)
+        .unwrap_or_else(Instant::now);
+    let mut offset = 0_usize;
+    let result = loop {
+        if offset == bytes.len() {
+            break true;
+        }
+        // SAFETY: descriptor is live and the remaining slice is valid.
+        let written = unsafe {
+            libc::write(
+                descriptor.raw(),
+                bytes[offset..].as_ptr().cast(),
+                bytes.len() - offset,
+            )
+        };
+        if written > 0 {
+            offset += written as usize;
+            continue;
+        }
+        if written == 0 {
+            break false;
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() != io::ErrorKind::WouldBlock {
+            break false;
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            break false;
+        }
+        let remaining = deadline.saturating_duration_since(now);
+        let timeout = remaining.as_millis().min(i32::MAX as u128) as i32;
+        let mut poll_descriptor = libc::pollfd {
+            fd: descriptor.raw(),
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        // SAFETY: poll_descriptor names one live descriptor.
+        let ready = unsafe { libc::poll(&mut poll_descriptor, 1, timeout.max(1)) };
+        if ready == 0 {
+            break false;
+        }
+        if ready < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            break false;
+        }
+    };
+    let restored = set_descriptor_flag(descriptor.raw(), libc::F_SETFL, original_flags).is_ok();
+    result && restored
+}
+
+/// Deliver one terminal-safe diagnostic directly to a supervisor-selected
+/// standard stream without allowing a blocked or failed destination to hang or
+/// panic the owner. Exit paths call this only after descriptor restoration;
+/// startup callers use it before descriptor capture begins.
+/// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker
+/// @ref LLP 0025#5-terminal-presentation-and-restoration
+pub(crate) fn emit_bounded_native_diagnostic(
+    destination: NativeOutputDestination,
+    prefix: &str,
+    detail: &str,
+) -> bool {
+    let line = render_bounded_native_diagnostic(prefix, detail);
+    #[cfg(unix)]
+    {
+        let descriptor = match destination {
+            NativeOutputDestination::Stdout => libc::STDOUT_FILENO,
+            NativeOutputDestination::Stderr => libc::STDERR_FILENO,
+        };
+        write_bounded_native_diagnostic(
+            descriptor,
+            &line,
+            Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS),
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (destination, line);
+        false
+    }
+}
+
 fn escape_session_bytes(bytes: &[u8]) -> Vec<u8> {
     escape_session_text(&String::from_utf8_lossy(bytes)).into_bytes()
 }
@@ -780,9 +949,10 @@ impl CapturedColorFacts {
 
     /// Apply LLP 0025's ordered predicate to facts captured before arming.
     pub const fn session_ansi(self) -> bool {
-        if self.plain_transcript || (self.interactive_mode && !self.interactive_editor) {
-            false
-        } else if self.no_color {
+        if self.plain_transcript
+            || (self.interactive_mode && !self.interactive_editor)
+            || self.no_color
+        {
             false
         } else if self.clicolor_force {
             true
@@ -903,6 +1073,11 @@ fn render_display_node(
         skip_display_nodes(cursor, u64::from(child_count))?;
         return Ok(());
     };
+    if kind == DisplayNodeKind::Truncation {
+        // This node kind is a producer-authenticated, broker-styled signal. It
+        // is never inferred from hostile payload text.
+        *bounded_fallback = true;
+    }
 
     render_display_payload(
         payload,
@@ -1037,6 +1212,10 @@ pub(crate) fn encode_authenticated_display(
 ) -> Result<Vec<u8>, &'static str> {
     use crate::engine::AuthenticatedDisplayKind as Kind;
 
+    display
+        .validate_wire()
+        .map_err(|_| "display violated safe-text invariants")?;
+
     let tag = match display.kind {
         Kind::String => DISPLAY_NODE_TAG_STRING,
         Kind::Number | Kind::BigInt => DISPLAY_NODE_TAG_NUMBER,
@@ -1049,10 +1228,17 @@ pub(crate) fn encode_authenticated_display(
     let payload = display.text.as_bytes();
     let payload_length =
         u32::try_from(payload.len()).map_err(|_| "display payload is too large")?;
+    const TRUSTED_TRUNCATION_PAYLOAD: &[u8] = b"...[truncated]";
+    let truncation_node_length = if display.truncated {
+        2 + 4 + TRUSTED_TRUNCATION_PAYLOAD.len() + 4
+    } else {
+        0
+    };
     let capacity = DISPLAY_TREE_MAGIC
         .len()
         .checked_add(2 + 2 + 4 + 4)
         .and_then(|length| length.checked_add(payload.len()))
+        .and_then(|length| length.checked_add(truncation_node_length))
         .ok_or("display tree length overflow")?;
     let mut wire = Vec::with_capacity(capacity);
     wire.extend_from_slice(DISPLAY_TREE_MAGIC);
@@ -1060,7 +1246,17 @@ pub(crate) fn encode_authenticated_display(
     wire.extend_from_slice(&tag.to_le_bytes());
     wire.extend_from_slice(&payload_length.to_le_bytes());
     wire.extend_from_slice(payload);
-    wire.extend_from_slice(&0_u32.to_le_bytes());
+    wire.extend_from_slice(&(u32::from(display.truncated)).to_le_bytes());
+    if display.truncated {
+        wire.extend_from_slice(&DISPLAY_NODE_TAG_TRUNCATION.to_le_bytes());
+        wire.extend_from_slice(
+            &u32::try_from(TRUSTED_TRUNCATION_PAYLOAD.len())
+                .expect("trusted truncation payload length fits u32")
+                .to_le_bytes(),
+        );
+        wire.extend_from_slice(TRUSTED_TRUNCATION_PAYLOAD);
+        wire.extend_from_slice(&0_u32.to_le_bytes());
+    }
     Ok(wire)
 }
 
@@ -1377,6 +1573,12 @@ pub struct BrokerLossAccounting {
     pub relays: Vec<RelayLoss>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct BrokerFinishReport {
+    loss: BrokerLossAccounting,
+    flush_error: Option<String>,
+}
+
 impl BrokerLossAccounting {
     pub fn has_loss(&self) -> bool {
         self.relays.iter().any(|relay| {
@@ -1384,6 +1586,7 @@ impl BrokerLossAccounting {
                 || relay.session_bytes > 0
                 || relay.program_frames > 0
                 || relay.session_frames > 0
+                || relay.control_frames > 0
         })
     }
 }
@@ -2080,6 +2283,23 @@ impl<W: NonBlockingRelaySink> InProcessOutputBroker<W> {
         &mut self,
         budget: Duration,
     ) -> Result<BrokerLossAccounting, BrokerEnqueueError> {
+        let report = self.finish_with_budget_report(budget)?;
+        if let Some(message) = report.flush_error {
+            return Err(BrokerEnqueueError::WriteFailed {
+                relay: self.routes.control,
+                message,
+            });
+        }
+        Ok(report.loss)
+    }
+
+    /// Internal typed finish used by product adapters. It retains forced-close
+    /// loss accounting even when the sink's final flush fails, because a
+    /// string-only error cannot prove which other destination remains usable.
+    fn finish_with_budget_report(
+        &mut self,
+        budget: Duration,
+    ) -> Result<BrokerFinishReport, BrokerEnqueueError> {
         if self.closed {
             return Err(BrokerEnqueueError::Closed);
         }
@@ -2099,13 +2319,7 @@ impl<W: NonBlockingRelaySink> InProcessOutputBroker<W> {
         }
         let flush_error = self.sink.flush().err();
         let loss = self.force_close()?;
-        if let Some(message) = flush_error {
-            return Err(BrokerEnqueueError::WriteFailed {
-                relay: self.routes.control,
-                message,
-            });
-        }
-        Ok(loss)
+        Ok(BrokerFinishReport { loss, flush_error })
     }
 
     fn pump_relay_once(&mut self, relay_id: RelayId) -> RelayPump {
@@ -2371,15 +2585,35 @@ impl SignalRestoreState {
             return;
         }
         let input_fd = self.input_fd.load(Ordering::Relaxed);
-        let control_fd = self.control_fd.load(Ordering::Relaxed);
         // SAFETY: observing ARMED with acquire ordering makes the initialized
         // termios copy and descriptor stores visible.
         let original = unsafe { (*self.original.get()).assume_init_ref() };
-        // SAFETY: tcsetattr and write are async-signal-safe POSIX operations;
-        // all pointers and lengths refer to process-lifetime static storage.
+        // SAFETY: tcsetattr is async-signal-safe and original points to
+        // process-lifetime initialized storage. Cosmetic terminal writes are
+        // deliberately omitted here: an async-signal-safe write to a blocking,
+        // flow-controlled TTY can still wait forever and prevent the required
+        // _exit. The ordinary escape and cleanup lanes restore those bytes.
         unsafe {
             libc::tcsetattr(input_fd, libc::TCSANOW, original);
-            write_terminal_restore_bytes(control_fd);
+        }
+    }
+
+    /// Full restoration for an ordinary supervisor thread that is about to
+    /// take the engine-independent escape. Unlike the fatal handler lane, this
+    /// path may emit the cursor/SGR reset before bounded cleanup and `_exit`.
+    unsafe fn restore_from_ordinary_escape(&self) {
+        // SAFETY: the caller owns an ordinary supervisor lane and observes the
+        // same armed process-lifetime termios storage as the signal fallback.
+        unsafe {
+            self.restore_from_signal();
+        }
+        if self.state.load(Ordering::Acquire) == SIGNAL_RESTORE_ARMED {
+            let control_fd = self.control_fd.load(Ordering::Relaxed);
+            // SAFETY: control_fd and both byte strings remain valid for the
+            // process lifetime; this is deliberately not a signal-handler path.
+            unsafe {
+                write_terminal_restore_bytes(control_fd);
+            }
         }
     }
 }
@@ -2388,11 +2622,7 @@ impl SignalRestoreState {
 static SIGNAL_RESTORE_STATE: SignalRestoreState = SignalRestoreState::new();
 
 #[cfg(unix)]
-const TERMINAL_FATAL_SIGNALS: [libc::c_int; 9] = [
-    libc::SIGINT,
-    libc::SIGTERM,
-    libc::SIGHUP,
-    libc::SIGQUIT,
+const TERMINAL_FATAL_SIGNALS: [libc::c_int; 5] = [
     libc::SIGABRT,
     libc::SIGSEGV,
     libc::SIGBUS,
@@ -2440,6 +2670,15 @@ impl UnixFatalSignalGuard {
 #[cfg(unix)]
 impl Drop for UnixFatalSignalGuard {
     fn drop(&mut self) {
+        // A failed cooked-mode restore leaves the process-global termios copy
+        // armed. In that state returning a forced-fault signal to a
+        // prior/default disposition would let a later signal kill the process
+        // while its terminal is still raw. Retain the restoration handlers for
+        // the remaining process lifetime; the normal successful path disarms
+        // first.
+        if SIGNAL_RESTORE_STATE.state.load(Ordering::Acquire) == SIGNAL_RESTORE_ARMED {
+            return;
+        }
         restore_signal_actions(&self.previous);
     }
 }
@@ -2453,14 +2692,115 @@ const SESSION_SIGNAL_SHUTDOWN: u8 = 1 << 2;
 #[cfg(unix)]
 const SESSION_SIGNAL_INTERRUPT: u8 = 1 << 3;
 #[cfg(unix)]
-static SESSION_SIGNAL_PENDING: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+const SESSION_SIGNAL_TERMINATE: u8 = 1 << 4;
+#[cfg(unix)]
+const SESSION_SIGNAL_HANGUP: u8 = 1 << 5;
+#[cfg(unix)]
+const SESSION_SIGNAL_QUIT: u8 = 1 << 6;
+#[cfg(unix)]
+const SESSION_SIGNAL_PENDING_MASK: u32 = u8::MAX as u32;
+#[cfg(unix)]
+const SESSION_SIGNAL_EVENT_SHIFT: u32 = 8;
+#[cfg(unix)]
+const SESSION_SIGNAL_EVENT_BITS: u32 = 4;
+#[cfg(unix)]
+const SESSION_SIGNAL_EVENT_MASK: u32 = (1 << SESSION_SIGNAL_EVENT_BITS) - 1;
+#[cfg(unix)]
+const SESSION_SIGNAL_EVENT_SLOTS: usize = 3;
+#[cfg(unix)]
+// `target_has_atomic = "32"` is Rust's promise that these operations are
+// provided as target atomics rather than a lock-backed emulation. The
+// compile_error above makes that an explicit Unix signal-handler requirement.
+static SESSION_SIGNAL_STATE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 #[cfg(unix)]
 static SESSION_SIGNAL_WRITE_FD: std::sync::atomic::AtomicI32 =
     std::sync::atomic::AtomicI32::new(-1);
 
 #[cfg(unix)]
-unsafe fn wake_session_signal_loop(bits: u8) {
-    SESSION_SIGNAL_PENDING.fetch_or(bits, Ordering::AcqRel);
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum SessionSignalEvent {
+    None = 0,
+    Shutdown = 1,
+    Interrupt = 2,
+    Terminate = 3,
+    Hangup = 4,
+    Quit = 5,
+}
+
+#[cfg(unix)]
+impl SessionSignalEvent {
+    const fn from_code(code: u8) -> Self {
+        match code {
+            1 => Self::Shutdown,
+            2 => Self::Interrupt,
+            3 => Self::Terminate,
+            4 => Self::Hangup,
+            5 => Self::Quit,
+            _ => Self::None,
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SessionSignalBatch {
+    pending: u8,
+    events: [SessionSignalEvent; SESSION_SIGNAL_EVENT_SLOTS],
+}
+
+#[cfg(unix)]
+fn append_session_signal_event(state: u32, bits: u8, event: SessionSignalEvent) -> u32 {
+    let mut next = state | u32::from(bits);
+    if event == SessionSignalEvent::None {
+        return next;
+    }
+    let mut slot = 0_usize;
+    while slot < SESSION_SIGNAL_EVENT_SLOTS {
+        let shift = SESSION_SIGNAL_EVENT_SHIFT + (slot as u32 * SESSION_SIGNAL_EVENT_BITS);
+        if (next >> shift) & SESSION_SIGNAL_EVENT_MASK == 0 {
+            next |= u32::from(event as u8) << shift;
+            break;
+        }
+        slot += 1;
+    }
+    next
+}
+
+#[cfg(unix)]
+fn decode_session_signal_batch(state: u32) -> SessionSignalBatch {
+    let mut events = [SessionSignalEvent::None; SESSION_SIGNAL_EVENT_SLOTS];
+    for (slot, event) in events.iter_mut().enumerate() {
+        let shift = SESSION_SIGNAL_EVENT_SHIFT + (slot as u32 * SESSION_SIGNAL_EVENT_BITS);
+        *event =
+            SessionSignalEvent::from_code(((state >> shift) & SESSION_SIGNAL_EVENT_MASK) as u8);
+    }
+    SessionSignalBatch {
+        pending: (state & SESSION_SIGNAL_PENDING_MASK) as u8,
+        events,
+    }
+}
+
+#[cfg(unix)]
+fn take_session_signal_batch() -> SessionSignalBatch {
+    decode_session_signal_batch(SESSION_SIGNAL_STATE.swap(0, Ordering::AcqRel))
+}
+
+#[cfg(unix)]
+unsafe fn wake_session_signal_loop(bits: u8, event: SessionSignalEvent) {
+    let mut state = SESSION_SIGNAL_STATE.load(Ordering::Acquire);
+    loop {
+        let next = append_session_signal_event(state, bits, event);
+        match SESSION_SIGNAL_STATE.compare_exchange_weak(
+            state,
+            next,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => break,
+            Err(observed) => state = observed,
+        }
+    }
     let descriptor = SESSION_SIGNAL_WRITE_FD.load(Ordering::Acquire);
     if descriptor >= 0 {
         let byte = [bits];
@@ -2476,7 +2816,7 @@ unsafe fn wake_session_signal_loop(bits: u8) {
 unsafe extern "C" fn terminal_session_signal_handler(signal: libc::c_int) {
     let bits = session_signal_bits(signal);
     // SAFETY: this handler calls only lock-free atomics and nonblocking write.
-    unsafe { wake_session_signal_loop(bits) }
+    unsafe { wake_session_signal_loop(bits, session_signal_event(signal)) }
 }
 
 #[cfg(unix)]
@@ -2485,8 +2825,31 @@ const fn session_signal_bits(signal: libc::c_int) -> u8 {
         SESSION_SIGNAL_RESIZE
     } else if signal == libc::SIGINT {
         SESSION_SIGNAL_INTERRUPT
-    } else {
+    } else if signal == libc::SIGTSTP {
         SESSION_SIGNAL_SUSPEND
+    } else if signal == libc::SIGTERM {
+        SESSION_SIGNAL_TERMINATE
+    } else if signal == libc::SIGHUP {
+        SESSION_SIGNAL_HANGUP
+    } else if signal == libc::SIGQUIT {
+        SESSION_SIGNAL_QUIT
+    } else {
+        0
+    }
+}
+
+#[cfg(unix)]
+const fn session_signal_event(signal: libc::c_int) -> SessionSignalEvent {
+    if signal == libc::SIGINT {
+        SessionSignalEvent::Interrupt
+    } else if signal == libc::SIGTERM {
+        SessionSignalEvent::Terminate
+    } else if signal == libc::SIGHUP {
+        SessionSignalEvent::Hangup
+    } else if signal == libc::SIGQUIT {
+        SessionSignalEvent::Quit
+    } else {
+        SessionSignalEvent::None
     }
 }
 
@@ -2499,22 +2862,27 @@ impl UnixSessionSignalHandle {
     fn request_suspend(self) {
         // SAFETY: ordinary-thread callers may use the same async-signal-safe
         // wake route as the SIGTSTP handler.
-        unsafe { wake_session_signal_loop(SESSION_SIGNAL_SUSPEND) }
+        unsafe { wake_session_signal_loop(SESSION_SIGNAL_SUSPEND, SessionSignalEvent::None) }
     }
 
     fn request_shutdown(self) {
         // SAFETY: see request_suspend.
-        unsafe { wake_session_signal_loop(SESSION_SIGNAL_SHUTDOWN) }
+        unsafe { wake_session_signal_loop(SESSION_SIGNAL_SHUTDOWN, SessionSignalEvent::Shutdown) }
     }
 }
 
-/// Scoped self-pipe bridge for live SIGWINCH, external SIGTSTP, and the
-/// non-editor terminate tier's SIGINT. Signal handlers never touch the worker
-/// channel, terminal mutex, broker, or heap.
+/// Scoped self-pipe bridge for live SIGWINCH, external SIGTSTP/SIGINT, and the
+/// ordinary process-control signals SIGTERM/SIGHUP/SIGQUIT.
+/// Signal handlers never touch the worker channel, terminal mutex, broker, or
+/// heap; an ordinary coordinator routes each observed interrupt by topology.
+/// The bridge is one-shot per process: dispositions are scoped, but its CLOEXEC
+/// descriptors remain process-lifetime so an already-entered handler can never
+/// observe fd reuse or a later session scope.
 #[cfg(unix)]
 struct UnixSessionSignalGuard {
     receiver: Option<NativeFd>,
-    writer: NativeFd,
+    reader_keepalive: Option<NativeFd>,
+    writer: Option<NativeFd>,
     previous: Vec<(libc::c_int, libc::sigaction)>,
 }
 
@@ -2522,24 +2890,32 @@ struct UnixSessionSignalGuard {
 impl UnixSessionSignalGuard {
     fn install(capture_suspend: bool, capture_interrupt: bool) -> io::Result<Self> {
         let (receiver, writer) = native_pipe()?;
+        // Keep one reader in the guard after the coordinator takes its source.
+        // During finalization the coordinator joins before the last cooked-mode
+        // restore, but the scoped handlers deliberately remain installed until
+        // that restore succeeds. A retained reader makes a signal in that
+        // interval a harmless pending byte instead of an EPIPE/SIGPIPE escape.
+        let reader_keepalive = NativeFd::duplicate(receiver.raw())?;
         let writer_flags = descriptor_flags(writer.raw(), libc::F_GETFL)?;
         set_descriptor_flag(writer.raw(), libc::F_SETFL, writer_flags | libc::O_NONBLOCK)?;
-        SESSION_SIGNAL_PENDING.store(0, Ordering::Release);
         SESSION_SIGNAL_WRITE_FD
             .compare_exchange(-1, writer.raw(), Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| {
                 io::Error::new(
                     io::ErrorKind::AlreadyExists,
-                    "another terminal signal bridge is already active",
+                    "the process-lifetime terminal signal bridge was already installed",
                 )
             })?;
+        SESSION_SIGNAL_STATE.store(0, Ordering::Release);
 
-        let signals: &[libc::c_int] = match (capture_suspend, capture_interrupt) {
-            (true, true) => &[libc::SIGWINCH, libc::SIGTSTP, libc::SIGINT],
-            (true, false) => &[libc::SIGWINCH, libc::SIGTSTP],
-            (false, true) => &[libc::SIGWINCH, libc::SIGINT],
-            (false, false) => &[libc::SIGWINCH],
-        };
+        let mut signals = Vec::with_capacity(6);
+        signals.extend([libc::SIGWINCH, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT]);
+        if capture_suspend {
+            signals.push(libc::SIGTSTP);
+        }
+        if capture_interrupt {
+            signals.push(libc::SIGINT);
+        }
         let mut previous = Vec::with_capacity(signals.len());
         for signal in signals {
             let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
@@ -2548,29 +2924,43 @@ impl UnixSessionSignalGuard {
             if unsafe { libc::sigemptyset(&mut action.sa_mask) } != 0 {
                 let error = io::Error::last_os_error();
                 restore_signal_actions(&previous);
-                SESSION_SIGNAL_WRITE_FD.store(-1, Ordering::Release);
+                if previous.is_empty() {
+                    SESSION_SIGNAL_WRITE_FD.store(-1, Ordering::Release);
+                } else {
+                    std::mem::forget(receiver);
+                    std::mem::forget(reader_keepalive);
+                    std::mem::forget(writer);
+                }
                 return Err(error);
             }
             let mut old: libc::sigaction = unsafe { std::mem::zeroed() };
-            if unsafe { libc::sigaction(*signal, &action, &mut old) } != 0 {
+            if unsafe { libc::sigaction(signal, &action, &mut old) } != 0 {
                 let error = io::Error::last_os_error();
                 restore_signal_actions(&previous);
-                SESSION_SIGNAL_WRITE_FD.store(-1, Ordering::Release);
+                if previous.is_empty() {
+                    SESSION_SIGNAL_WRITE_FD.store(-1, Ordering::Release);
+                } else {
+                    std::mem::forget(receiver);
+                    std::mem::forget(reader_keepalive);
+                    std::mem::forget(writer);
+                }
                 return Err(error);
             }
-            previous.push((*signal, old));
+            previous.push((signal, old));
         }
         Ok(Self {
             receiver: Some(receiver),
-            writer,
+            reader_keepalive: Some(reader_keepalive),
+            writer: Some(writer),
             previous,
         })
     }
 
-    fn protected_descriptors(&self) -> [i32; 2] {
+    fn protected_descriptors(&self) -> [i32; 3] {
         [
             self.receiver.as_ref().map_or(-1, NativeFd::raw),
-            self.writer.raw(),
+            self.reader_keepalive.as_ref().map_or(-1, NativeFd::raw),
+            self.writer.as_ref().map_or(-1, NativeFd::raw),
         ]
     }
 
@@ -2580,19 +2970,40 @@ impl UnixSessionSignalGuard {
             .map(|receiver| (receiver, UnixSessionSignalHandle))
             .ok_or_else(|| io::Error::other("terminal signal source was already taken"))
     }
-}
 
-#[cfg(unix)]
-const fn captures_non_editor_interrupt(presentation: CapturedPresentation) -> bool {
-    !presentation.editor_control
+    fn retain_bridge_descriptors(&mut self) {
+        for descriptor in [
+            self.receiver.take(),
+            self.reader_keepalive.take(),
+            self.writer.take(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            std::mem::forget(descriptor);
+        }
+    }
 }
 
 #[cfg(unix)]
 impl Drop for UnixSessionSignalGuard {
     fn drop(&mut self) {
+        // `ActiveReplCapture` declares its terminal before this guard, so normal
+        // field teardown gives the terminal lifecycle one final restore attempt
+        // first. If cooked mode is still not back, restoring a prior/default
+        // SIGINT disposition would re-open the raw-terminal death race. Retain
+        // both the scoped dispositions and the self-pipe for process lifetime.
+        if SIGNAL_RESTORE_STATE.state.load(Ordering::Acquire) == SIGNAL_RESTORE_ARMED {
+            self.retain_bridge_descriptors();
+            return;
+        }
         restore_signal_actions(&self.previous);
-        SESSION_SIGNAL_WRITE_FD.store(-1, Ordering::Release);
-        SESSION_SIGNAL_PENDING.store(0, Ordering::Release);
+        SESSION_SIGNAL_STATE.store(0, Ordering::Release);
+        // sigaction restoration cannot join a handler already entered on
+        // another runtime thread. Retain the old descriptor numbers and global
+        // claim so such a handler can finish harmlessly and no later session can
+        // mistake its wake for a current signal.
+        self.retain_bridge_descriptors();
     }
 }
 
@@ -3028,45 +3439,13 @@ fn is_generated_interrupt_byte(byte: u8) -> bool {
 fn generated_counts_as_editor_input(byte: u8) -> bool {
     crate::repl_surface::keybinding_for_bytes(&[byte])
         .map(|binding| binding.counts_as_editor_input)
-        .unwrap_or(byte >= 0x20 && byte != 0x7f)
+        .unwrap_or(!is_generated_interrupt_byte(byte))
 }
 
 /// Pluggable event source for an editor integration. Implementations must keep
 /// producing input events while completion work is pending elsewhere.
 pub trait EditorPort {
     fn try_next_event(&mut self) -> Result<Option<EditorInputEvent>, String>;
-}
-
-pub struct AsyncEditorPort {
-    events: mpsc::Receiver<EditorInputEvent>,
-    reader_thread: thread::JoinHandle<()>,
-}
-
-impl AsyncEditorPort {
-    pub fn recv_timeout(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<EditorInputEvent, mpsc::RecvTimeoutError> {
-        self.events.recv_timeout(timeout)
-    }
-
-    /// Join only after the input descriptor has reached EOF or been closed by
-    /// the terminal adapter; joining a live raw reader would itself block.
-    pub fn join_reader(self) -> thread::Result<()> {
-        self.reader_thread.join()
-    }
-}
-
-impl EditorPort for AsyncEditorPort {
-    fn try_next_event(&mut self) -> Result<Option<EditorInputEvent>, String> {
-        match self.events.try_recv() {
-            Ok(event) => Ok(Some(event)),
-            Err(mpsc::TryRecvError::Empty) => Ok(None),
-            Err(mpsc::TryRecvError::Disconnected) => {
-                Err("dedicated editor reader disconnected".to_string())
-            }
-        }
-    }
 }
 
 /// A single atomic prompt-liveness snapshot shared with the input reader.
@@ -3140,66 +3519,13 @@ impl PromptWitness {
     }
 }
 
-/// Spawn the raw byte reader independently of completion and worker traffic.
-/// The annex-owned interrupt byte is always an event and never enters the edit buffer.
-pub fn spawn_editor_reader<R>(mut reader: R, witness: PromptWitness) -> io::Result<AsyncEditorPort>
-where
-    R: Read + Send + 'static,
-{
-    let (tx, rx) = mpsc::channel();
-    let reader_thread = thread::Builder::new()
-        .name("ibex-terminal-input".to_string())
-        .spawn(move || {
-            let mut byte = [0_u8; 1];
-            loop {
-                match reader.read(&mut byte) {
-                    Ok(0) => {
-                        let _ = tx.send(EditorInputEvent::Eof);
-                        break;
-                    }
-                    Ok(_)
-                        if matches!(
-                            crate::repl_surface::keybinding_for_bytes(&byte)
-                                .map(|binding| binding.action),
-                            Some(crate::repl_surface::KeybindingAction::InterruptMachine)
-                        ) =>
-                    {
-                        if tx.send(EditorInputEvent::Interrupt).is_err() {
-                            break;
-                        }
-                    }
-                    Ok(_) => {
-                        if tx
-                            .send(EditorInputEvent::Byte {
-                                byte: byte[0],
-                                observed_prompt: witness.observe(),
-                            })
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(error) => {
-                        let _ = tx.send(EditorInputEvent::ReaderError(error.to_string()));
-                        break;
-                    }
-                }
-            }
-        })?;
-    Ok(AsyncEditorPort {
-        events: rx,
-        reader_thread,
-    })
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EditorAdapterGap {
-    SynchronousCompletionBlocksInterruptInput,
+pub enum EditorAdapterStatus {
+    BoundedAsynchronousCompletion,
 }
 
-pub fn legacy_rustyline_adapter_status() -> Result<(), EditorAdapterGap> {
-    Err(EditorAdapterGap::SynchronousCompletionBlocksInterruptInput)
+pub const fn production_editor_adapter_status() -> EditorAdapterStatus {
+    EditorAdapterStatus::BoundedAsynchronousCompletion
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3306,6 +3632,60 @@ pub(crate) async fn run_worker_repl_execution_adapter(
     run_repl_unix(plan, session, driver, history, Some(relays)).await
 }
 
+#[cfg(unix)]
+trait WorkerProducerTeardownControl {
+    fn quiesce_preserving_lifecycle(&self) -> anyhow::Result<()>;
+    fn dispose_preserving_lifecycle(&self) -> anyhow::Result<()>;
+}
+
+#[cfg(unix)]
+impl WorkerProducerTeardownControl for crate::session_worker_runtime::SupervisorRuntimeControl {
+    fn quiesce_preserving_lifecycle(&self) -> anyhow::Result<()> {
+        crate::session_worker_runtime::SupervisorRuntimeControl::quiesce_preserving_lifecycle(self)
+    }
+
+    fn dispose_preserving_lifecycle(&self) -> anyhow::Result<()> {
+        crate::session_worker_runtime::SupervisorRuntimeControl::dispose_preserving_lifecycle(self)
+    }
+}
+
+/// Panic-only producer lifetime guard. Callers declare this immediately after
+/// their active capture and before the terminal signal coordinator. Rust then
+/// drops the coordinator first (restoring and joining), this guard second
+/// (stopping the producer without reaping it), and the capture third (draining
+/// the now-closed relays). The owning session/controller drops only afterward.
+// @ref LLP 0025#5-terminal-presentation-and-restoration — restoration must
+// precede every potentially blocking cleanup step, including unwind cleanup.
+// @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker — the
+// supervisor stops a producer independently of the evaluator/runtime lock.
+#[cfg(unix)]
+struct WorkerProducerUnwindGuard<C: WorkerProducerTeardownControl> {
+    control: Option<C>,
+}
+
+#[cfg(unix)]
+impl<C: WorkerProducerTeardownControl> WorkerProducerUnwindGuard<C> {
+    const fn new(control: Option<C>) -> Self {
+        Self { control }
+    }
+
+    fn disarm(&mut self) {
+        self.control.take();
+    }
+}
+
+#[cfg(unix)]
+impl<C: WorkerProducerTeardownControl> Drop for WorkerProducerUnwindGuard<C> {
+    fn drop(&mut self) {
+        let Some(control) = self.control.take() else {
+            return;
+        };
+        if control.quiesce_preserving_lifecycle().is_err() {
+            let _ = control.dispose_preserving_lifecycle();
+        }
+    }
+}
+
 /// Execute program-mode stdin in the authenticated worker while this process
 /// remains the sole output/session owner.
 #[cfg(unix)]
@@ -3325,6 +3705,10 @@ pub(crate) async fn run_worker_program_execution_adapter(
     }
     let mut active = ActiveReplCapture::start(plan, Some(relays))
         .context("failed to construct the worker program output adapter")?;
+    // Declaration order is teardown order in reverse: the signal coordinator
+    // below restores/joins first, then this guard stops the producer, then the
+    // active capture drains its closed relays.
+    let mut producer_unwind = WorkerProducerUnwindGuard::new(Some(program.runtime_control()));
     let non_editor_interrupt =
         NonEditorWorkerInterruptControl::Program(program.cancellation_port());
     let mut terminal_signals = start_worker_terminal_signal_coordinator(
@@ -3332,13 +3716,16 @@ pub(crate) async fn run_worker_program_execution_adapter(
         Some(program.terminal_control()),
         None,
         Some(non_editor_interrupt),
+        None,
     )
     .context("failed to start the worker terminal signal coordinator")?;
-    let readiness = mint_execution_adapter_ready(&mut active.lease, plan.route);
-    execution_adapter_status_with_readiness(plan, Some(&readiness)).map_err(anyhow::Error::from)?;
     let broker = active.broker.clone();
-    let outcome = program.execute(source);
-    drop(readiness);
+    let outcome = {
+        let readiness = mint_execution_adapter_ready(&mut active.lease, plan.route);
+        execution_adapter_status_with_readiness(plan, Some(&readiness))
+            .map_err(anyhow::Error::from)?;
+        program.execute(source)
+    };
 
     // Even non-editor program mode follows the universal restore-before-block
     // ordering, then drains the authenticated result cutoff before publishing
@@ -3346,7 +3733,7 @@ pub(crate) async fn run_worker_program_execution_adapter(
     if let Some(signals) = terminal_signals.as_ref() {
         signals.request_shutdown();
     }
-    let restore = active
+    let initial_restore = active
         .restore_terminal()
         .context("failed to restore program terminal state");
     let signal_finish = match terminal_signals.take() {
@@ -3355,88 +3742,190 @@ pub(crate) async fn run_worker_program_execution_adapter(
             .context("failed to finish the worker terminal signal coordinator"),
         None => Ok(()),
     };
-    active.disarm_session_signals();
-    let mut unreportable_output_loss = false;
+    let restore = restore_terminal_before_disarming_session_signals(&mut active)
+        .context("failed to make final program terminal restoration");
+    let descriptor_restore = active
+        .restore_descriptors()
+        .context("failed to restore program standard descriptors");
+    let mut unavailable_loss_relays = BTreeSet::new();
+    let mut output_loss_details = Vec::new();
+    let mut cleanup_details = Vec::new();
+    let mut unknown_output_loss = false;
+    let mut settlement_damage = SecondarySettlementDamage::default();
     let settlement = match outcome {
         Ok(outcome) => {
             let (stdout_cutoff, stderr_cutoff) = outcome.cutoffs();
             if let Err(error) = broker.worker_barrier(stdout_cutoff, stderr_cutoff) {
-                unreportable_output_loss |= error.is_output_loss();
-                let _ =
-                    broker.diagnostic(&format!("worker program output barrier failed: {error}"));
+                settlement_damage.record_worker_barrier(
+                    "worker program output barrier failed after the outcome was fixed",
+                    error,
+                );
             }
-            settle_remote_program_outcome(&broker, outcome)
-                .unwrap_or(InlineSettlement::Fixed(EXIT_STATUS_BROKEN_PIPE))
+            settle_remote_program_outcome(&broker, outcome, &mut settlement_damage)
         }
         Err(error) => {
-            let _ = broker.diagnostic(&format!(
-                "engine fault: authenticated worker program failed: {error:#}"
-            ));
+            settlement_damage.record_broker_result(
+                "worker-program execution diagnostic was not delivered",
+                broker.diagnostic(&format!(
+                    "engine fault: authenticated worker program failed: {error:#}"
+                )),
+            );
             InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
         }
     };
     // Cleanup happens after the cause is fixed. A later restoration, signal,
     // or disposal error cannot replace a fault/interrupt status; only bounded
     // output loss may modify a successful orderly/cooperative disposition.
-    let _restore_error = restore.err();
-    let _signal_error = signal_finish.err();
-    let _dispose_error = program.dispose_preserving_lifecycle().err();
-    match active.finish_report() {
-        Ok(loss) => unreportable_output_loss |= loss.has_loss(),
-        Err(_) => unreportable_output_loss = true,
+    if let Err(error) = initial_restore {
+        cleanup_details.push(format!(
+            "initial program terminal restoration failed: {error:#}"
+        ));
     }
-    Ok(settlement.final_status(unreportable_output_loss))
+    if let Err(error) = restore {
+        cleanup_details.push(format!("program terminal restoration failed: {error:#}"));
+    }
+    if let Err(error) = signal_finish {
+        cleanup_details.push(format!("program signal cleanup failed: {error:#}"));
+    }
+    if let Err(error) = descriptor_restore {
+        cleanup_details.push(format!("program descriptor restoration failed: {error:#}"));
+    }
+    let mut worker_reaped = false;
+    if let Err(error) = program.quiesce_preserving_lifecycle() {
+        cleanup_details.push(format!("program worker quiescence failed: {error:#}"));
+        match program.dispose_preserving_lifecycle() {
+            Ok(()) => worker_reaped = true,
+            Err(dispose_error) => {
+                unknown_output_loss = true;
+                cleanup_details.push(format!(
+                    "program worker fallback disposal failed: {dispose_error:#}"
+                ));
+            }
+        }
+    }
+    producer_unwind.disarm();
+    match active.finish_report() {
+        Ok(report) => collect_execution_report_loss(
+            plan,
+            &report,
+            "bounded worker-program broker close",
+            &mut unavailable_loss_relays,
+            &mut output_loss_details,
+            &mut unknown_output_loss,
+        ),
+        Err(FileProgramAdapterError::NativeWithReport { error, report }) => {
+            cleanup_details.push(format!("program adapter restoration failed: {error}"));
+            collect_execution_report_loss(
+                plan,
+                &report,
+                "bounded worker-program broker close",
+                &mut unavailable_loss_relays,
+                &mut output_loss_details,
+                &mut unknown_output_loss,
+            );
+        }
+        Err(FileProgramAdapterError::Broker(error)) => {
+            unknown_output_loss = true;
+            output_loss_details.push(format!("bounded output broker cleanup failed: {error}"));
+        }
+        Err(FileProgramAdapterError::RelayThreadPanicked) => {
+            unknown_output_loss = true;
+            output_loss_details.push("bounded output broker thread panicked".to_owned());
+        }
+        Err(FileProgramAdapterError::Gate(error)) => {
+            cleanup_details.push(format!("program adapter cleanup gate failed: {error}"));
+        }
+        Err(FileProgramAdapterError::Native(error)) => {
+            cleanup_details.push(format!("program adapter cleanup failed: {error}"));
+        }
+    }
+    if !worker_reaped {
+        if let Err(error) = program.dispose_preserving_lifecycle() {
+            cleanup_details.push(format!("program worker disposal failed: {error:#}"));
+        }
+    }
+    settlement_damage.apply(
+        plan,
+        &mut unavailable_loss_relays,
+        &mut output_loss_details,
+        &mut unknown_output_loss,
+    );
+    let output_loss = unknown_output_loss || !output_loss_details.is_empty();
+    let mut diagnostic_details = output_loss_details.clone();
+    diagnostic_details.extend(cleanup_details.iter().cloned());
+    let reported = output_loss
+        && report_output_loss_after_restore(
+            plan,
+            &unavailable_loss_relays,
+            &diagnostic_details.join("; "),
+        );
+    if !output_loss && !cleanup_details.is_empty() {
+        let _ =
+            report_output_loss_after_restore(plan, &BTreeSet::new(), &cleanup_details.join("; "));
+    }
+    Ok(settlement.final_status(output_loss && !reported))
 }
 
 #[cfg(unix)]
 fn settle_remote_program_outcome(
     broker: &ReplBrokerHandle,
     outcome: crate::session_worker_runtime::RemoteProgramOutcome,
-) -> anyhow::Result<InlineSettlement> {
+    damage: &mut SecondarySettlementDamage,
+) -> InlineSettlement {
     use crate::session_worker_runtime::RemoteProgramOutcome;
 
     match outcome {
         RemoteProgramOutcome::Completed { status, .. }
-        | RemoteProgramOutcome::Lifecycle { status, .. } => {
-            Ok(InlineSettlement::Successful(status))
-        }
-        RemoteProgramOutcome::Cancelled { .. } => {
-            Ok(InlineSettlement::Fixed(EXIT_STATUS_INTERRUPT))
-        }
+        | RemoteProgramOutcome::Lifecycle { status, .. } => InlineSettlement::Successful(status),
+        RemoteProgramOutcome::Cancelled { .. } => InlineSettlement::Fixed(EXIT_STATUS_INTERRUPT),
         RemoteProgramOutcome::Throw { detail, .. } => {
-            match serde_json::from_slice::<crate::engine::AuthenticatedThrow>(&detail) {
-                Ok(thrown) => render_inline_throw(broker, thrown),
+            match crate::engine::decode_authenticated_throw(&detail) {
+                Ok(thrown) => {
+                    if let Err(error) = render_inline_throw(broker, thrown) {
+                        damage.record_broker_failure(
+                            "worker-program throw diagnostic was not delivered",
+                            error,
+                        );
+                    }
+                    InlineSettlement::Fixed(1)
+                }
                 Err(_) => {
-                    broker
-                        .diagnostic(&String::from_utf8_lossy(&detail))
-                        .map_err(anyhow::Error::msg)?;
+                    damage.record_broker_result(
+                        "invalid worker-program throw envelope diagnostic was not delivered",
+                        broker.diagnostic(
+                            "engine fault: worker throw envelope violated safe-text invariants",
+                        ),
+                    );
+                    InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
                 }
             }
-            Ok(InlineSettlement::Fixed(1))
         }
         RemoteProgramOutcome::AsyncFailure { failure, .. } => {
-            broker
-                .diagnostic(&format!("asynchronous task failed: {failure}"))
-                .map_err(anyhow::Error::msg)?;
-            Ok(InlineSettlement::Fixed(1))
+            damage.record_broker_result(
+                "worker-program asynchronous-failure diagnostic was not delivered",
+                broker.diagnostic(&format!("asynchronous task failed: {failure}")),
+            );
+            InlineSettlement::Fixed(1)
         }
         RemoteProgramOutcome::Refused { detail, .. } => {
-            broker
-                .diagnostic(&format!(
+            damage.record_broker_result(
+                "worker-program refusal diagnostic was not delivered",
+                broker.diagnostic(&format!(
                     "evaluation refused: {}",
                     String::from_utf8_lossy(&detail)
-                ))
-                .map_err(anyhow::Error::msg)?;
-            Ok(InlineSettlement::Fixed(1))
+                )),
+            );
+            InlineSettlement::Fixed(1)
         }
         RemoteProgramOutcome::EngineFault { detail, .. } => {
-            broker
-                .diagnostic(&format!(
+            damage.record_broker_result(
+                "worker-program engine-fault diagnostic was not delivered",
+                broker.diagnostic(&format!(
                     "engine fault: {}",
                     String::from_utf8_lossy(&detail)
-                ))
-                .map_err(anyhow::Error::msg)?;
-            Ok(InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT))
+                )),
+            );
+            InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
         }
     }
 }
@@ -3457,6 +3946,70 @@ enum InlineSettlement {
     Successful(i32),
     /// A fault, interrupt, or broker failure whose status is already fixed.
     Fixed(i32),
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct SecondarySettlementDamage {
+    output: Vec<SecondaryOutputDamage>,
+}
+
+#[cfg(unix)]
+enum SecondaryOutputDamage {
+    Unknown {
+        detail: String,
+    },
+    WorkerBarrier {
+        detail: String,
+        error: WorkerBarrierFailure,
+    },
+}
+
+#[cfg(unix)]
+impl SecondarySettlementDamage {
+    fn record_broker_failure(&mut self, context: &str, error: impl fmt::Display) {
+        self.output.push(SecondaryOutputDamage::Unknown {
+            detail: format!("{context}: {error}"),
+        });
+    }
+
+    fn record_broker_result(&mut self, context: &str, result: Result<(), String>) {
+        if let Err(error) = result {
+            self.record_broker_failure(context, error);
+        }
+    }
+
+    fn record_worker_barrier(&mut self, context: &str, error: WorkerBarrierFailure) {
+        self.output.push(SecondaryOutputDamage::WorkerBarrier {
+            detail: context.to_owned(),
+            error,
+        });
+    }
+
+    fn apply(
+        self,
+        plan: SessionIoPlan,
+        unavailable: &mut BTreeSet<RelayId>,
+        output_details: &mut Vec<String>,
+        unknown_output_loss: &mut bool,
+    ) {
+        for damage in self.output {
+            match damage {
+                SecondaryOutputDamage::Unknown { detail } => {
+                    *unknown_output_loss = true;
+                    output_details.push(detail);
+                }
+                SecondaryOutputDamage::WorkerBarrier { detail, error } => {
+                    if error.is_output_loss() {
+                        error.record_unavailable_relays(plan, unavailable);
+                    } else {
+                        *unknown_output_loss = true;
+                    }
+                    output_details.push(format!("{detail}: {error}"));
+                }
+            }
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -3524,36 +4077,116 @@ pub(crate) async fn run_authenticated_inline_execution_adapter(
         let mut active = ActiveReplCapture::start(plan, None)
             .map_err(anyhow::Error::new)
             .context("failed to construct the inline output adapter")?;
-        let readiness = mint_execution_adapter_ready(&mut active.lease, plan.route);
-        execution_adapter_status_with_readiness(plan, Some(&readiness))
-            .map_err(anyhow::Error::from)?;
+        let cancellation = DirectExecutionCancellationRegistration::default();
+        cancellation
+            .register(engine.clone())
+            .map_err(|_| anyhow::anyhow!("inline interrupt engine was already registered"))?;
         let broker = active.broker.clone();
-
-        let evaluation = ingress.evaluate(engine.as_ref(), source).await;
-        let settlement = settle_authenticated_inline_evaluation(
-            engine.as_ref(),
-            &lifecycle,
-            &broker,
-            evaluation,
-            result_presentation,
-        )
-        .await;
-        drop(readiness);
+        let descriptor_handoff = active.descriptor_handoff.clone();
+        let (restore_stdout, restore_stderr) = descriptor_handoff.signal_restore_descriptors();
+        let interrupt_handoff = descriptor_handoff.clone();
+        let interrupt_broker = broker.clone();
+        let direct_interrupt =
+            crate::direct_execution_interrupt::DirectExecutionInterruptCoordinator::install(
+                restore_stdout,
+                restore_stderr,
+                cancellation,
+                move || {
+                    let finish = force_finish_repl_after_descriptor_handoff(
+                        plan,
+                        interrupt_handoff.as_ref(),
+                        &interrupt_broker,
+                    );
+                    interrupt_handoff.exit_after_forced_finish(
+                        finish,
+                        InlineSettlement::Fixed(EXIT_STATUS_INTERRUPT),
+                    );
+                },
+            )
+            .context("failed to install inline SIGINT mediation")?;
+        let mut settlement_damage = SecondarySettlementDamage::default();
+        let settlement = {
+            let readiness = mint_execution_adapter_ready(&mut active.lease, plan.route);
+            execution_adapter_status_with_readiness(plan, Some(&readiness))
+                .map_err(anyhow::Error::from)?;
+            let evaluation = ingress.evaluate(engine.as_ref(), source).await;
+            let settlement = settle_authenticated_inline_evaluation(
+                engine.as_ref(),
+                &lifecycle,
+                &broker,
+                evaluation,
+                result_presentation,
+                &mut settlement_damage,
+            )
+            .await;
+            if !direct_interrupt.begin_settlement() {
+                crate::direct_execution_interrupt::DirectExecutionInterruptCoordinator::wait_for_interrupt_termination();
+            }
+            settlement
+        };
 
         let finish = active.finish_report();
+        let mut unavailable = BTreeSet::new();
+        let mut output_loss_details = Vec::new();
+        let mut cleanup_details = Vec::new();
+        let mut unknown_output_loss = false;
         match finish {
-            Ok(loss) if loss.has_loss() && settlement.permits_cleanup_loss_upgrade() => {
-                Ok(EXIT_STATUS_BROKEN_PIPE)
+            Ok(report) => collect_execution_report_loss(
+                plan,
+                &report,
+                "bounded inline broker close",
+                &mut unavailable,
+                &mut output_loss_details,
+                &mut unknown_output_loss,
+            ),
+            Err(FileProgramAdapterError::NativeWithReport { error, report }) => {
+                cleanup_details.push(format!("inline adapter restoration failed: {error}"));
+                collect_execution_report_loss(
+                    plan,
+                    &report,
+                    "bounded inline broker close",
+                    &mut unavailable,
+                    &mut output_loss_details,
+                    &mut unknown_output_loss,
+                );
             }
-            Ok(_) => Ok(settlement.status()),
-            Err(
-                FileProgramAdapterError::Broker(_) | FileProgramAdapterError::RelayThreadPanicked,
-            ) if settlement.permits_cleanup_loss_upgrade() => Ok(EXIT_STATUS_BROKEN_PIPE),
-            Err(
-                FileProgramAdapterError::Broker(_) | FileProgramAdapterError::RelayThreadPanicked,
-            ) => Ok(settlement.status()),
-            Err(error) => Err(anyhow::Error::new(error)),
+            Err(FileProgramAdapterError::Broker(error)) => {
+                unknown_output_loss = true;
+                output_loss_details.push(format!("bounded inline broker cleanup failed: {error}"));
+            }
+            Err(FileProgramAdapterError::RelayThreadPanicked) => {
+                unknown_output_loss = true;
+                output_loss_details.push("bounded inline broker thread panicked".to_owned());
+            }
+            Err(FileProgramAdapterError::Gate(error)) => {
+                cleanup_details.push(format!("inline adapter cleanup gate failed: {error}"));
+            }
+            Err(FileProgramAdapterError::Native(error)) => {
+                cleanup_details.push(format!("inline adapter cleanup failed: {error}"));
+            }
         }
+        if let Err(error) = direct_interrupt.finish() {
+            cleanup_details.push(format!("inline signal cleanup failed: {error}"));
+        }
+        settlement_damage.apply(
+            plan,
+            &mut unavailable,
+            &mut output_loss_details,
+            &mut unknown_output_loss,
+        );
+        let output_loss = unknown_output_loss || !output_loss_details.is_empty();
+        let mut diagnostic_details = output_loss_details;
+        diagnostic_details.extend(cleanup_details.iter().cloned());
+        let reported = output_loss
+            && report_output_loss_after_restore(plan, &unavailable, &diagnostic_details.join("; "));
+        if !output_loss && !cleanup_details.is_empty() {
+            let _ = report_output_loss_after_restore(
+                plan,
+                &BTreeSet::new(),
+                &cleanup_details.join("; "),
+            );
+        }
+        Ok(settlement.final_status(output_loss && !reported))
     }
     #[cfg(not(unix))]
     {
@@ -3563,6 +4196,13 @@ pub(crate) async fn run_authenticated_inline_execution_adapter(
 }
 
 #[cfg(unix)]
+/// Apply the non-interactive cause ordering to one authenticated inline
+/// evaluation. Asynchronous failure collection is part of settlement rather
+/// than cleanup: a collection fault or pre-receipt loss is an engine fault,
+/// while a paired lifecycle notification is valid only when the Host's
+/// supervisor-authoritative record agrees with it.
+/// @ref LLP 0024#9-asynchronous-failures
+/// @ref LLP 0025#8-exit-and-lifecycle
 async fn settle_authenticated_inline_evaluation(
     engine: &dyn crate::engine::Engine,
     lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
@@ -3572,8 +4212,38 @@ async fn settle_authenticated_inline_evaluation(
         crate::runtime::AuthenticatedEvaluationFailure,
     >,
     result_presentation: InlineResultPresentation,
+    damage: &mut SecondarySettlementDamage,
 ) -> InlineSettlement {
     use crate::engine::AuthenticatedEvaluation;
+
+    let initial_async_failures = match engine.take_authenticated_async_failures().await {
+        Ok(failures) => failures,
+        Err(error) => {
+            return preserve_inline_evaluation_after_async_collection_error(
+                engine, lifecycle, broker, evaluation, error, damage,
+            )
+            .await;
+        }
+    };
+    if !initial_async_failures.is_empty() {
+        // A background failure can become reportable while top-level-await is
+        // still settling. It is therefore an earlier cause than the foreground
+        // outcome returned alongside it. Releasing an unused display receipt is
+        // later cleanup and cannot replace that cause.
+        let receipt_cleanup_error = match evaluation {
+            Ok(AuthenticatedEvaluation::Value {
+                receipt: Some(receipt),
+                ..
+            }) => engine.release_undisplayed_value(receipt).await.err(),
+            _ => None,
+        };
+        return report_inline_async_failures(
+            broker,
+            initial_async_failures,
+            receipt_cleanup_error,
+            damage,
+        );
+    }
 
     let (display, receipt) = match evaluation {
         Err(error) => {
@@ -3587,15 +4257,19 @@ async fn settle_authenticated_inline_evaluation(
             } else {
                 "evaluation refused"
             };
-            let _ = broker.diagnostic(&format!("{label}: {error:#}"));
+            damage.record_broker_result(
+                "inline evaluation diagnostic was not delivered",
+                broker.diagnostic(&format!("{label}: {error:#}")),
+            );
             return InlineSettlement::Fixed(status);
         }
         Ok(AuthenticatedEvaluation::Lifecycle(status)) => {
-            let _ = lifecycle.take_pending_request();
-            return finish_successful_inline(lifecycle, broker, Some(status));
+            return finish_authenticated_inline_lifecycle(lifecycle, broker, status, damage);
         }
         Ok(AuthenticatedEvaluation::Throw(thrown)) => {
-            render_inline_throw(broker, thrown);
+            if let Err(error) = render_inline_throw(broker, thrown) {
+                damage.record_broker_failure("inline throw diagnostic was not delivered", error);
+            }
             return InlineSettlement::Fixed(1);
         }
         Ok(AuthenticatedEvaluation::Cancelled) => {
@@ -3609,62 +4283,138 @@ async fn settle_authenticated_inline_evaluation(
     // quiescence. A cooperative exit raised by a timer is carried by the shared
     // lifecycle port and supersedes the pending display value.
     let drain = engine.drive_authenticated_program_to_quiescence().await;
-    if let Some(request) = lifecycle.take_pending_request() {
-        if let Some(receipt) = receipt {
-            let _ = engine.release_undisplayed_value(receipt).await;
-        }
-        return finish_successful_inline(lifecycle, broker, Some(request.status));
-    }
     let async_failures = match engine.take_authenticated_async_failures().await {
         Ok(failures) => failures,
-        Err(error) => vec![
-            crate::engine::AuthenticatedAsyncFailure::capture_unavailable(format!(
-                "asynchronous failure drain failed: {error:#}"
-            )),
-        ],
+        Err(collection_error) => {
+            // A lifecycle request committed while the program drain ran is an
+            // already-latched cause. Otherwise a drain failure precedes this
+            // collector failure; only an otherwise-orderly drain lets the
+            // collector fault become the primary engine fault.
+            if let Some(request) = lifecycle.take_pending_request() {
+                if let Some(receipt) = receipt {
+                    if let Err(error) = engine.release_undisplayed_value(receipt).await {
+                        damage.record_broker_result(
+                            "inline cleanup diagnostic was not delivered",
+                            broker.diagnostic(&format!(
+                                "suppressed-result cleanup failed after cooperative exit: {error:#}"
+                            )),
+                        );
+                    }
+                }
+                damage.record_broker_result(
+                    "inline collection-failure diagnostic was not delivered",
+                    broker.diagnostic(&format!(
+                        "asynchronous failure collection failed after cooperative exit: {collection_error:#}"
+                    )),
+                );
+                return finish_successful_inline(lifecycle, broker, Some(request.status), damage);
+            }
+
+            if let Some(receipt) = receipt {
+                if let Err(error) = engine.release_undisplayed_value(receipt).await {
+                    damage.record_broker_result(
+                        "inline cleanup diagnostic was not delivered",
+                        broker.diagnostic(&format!(
+                            "suppressed-result cleanup failed after settlement fault: {error:#}"
+                        )),
+                    );
+                }
+            }
+            return match drain {
+                Err(error) => {
+                    let status = if error.is_engine_fault() {
+                        EXIT_STATUS_ENGINE_FAULT
+                    } else {
+                        1
+                    };
+                    damage.record_broker_result(
+                        "inline drain-failure diagnostic was not delivered",
+                        broker.diagnostic(&format!("{error:#}")),
+                    );
+                    damage.record_broker_result(
+                        "inline collection-failure diagnostic was not delivered",
+                        broker.diagnostic(&format!(
+                            "asynchronous failure collection also failed: {collection_error:#}"
+                        )),
+                    );
+                    InlineSettlement::Fixed(status)
+                }
+                Ok(()) => {
+                    damage.record_broker_result(
+                        "inline collection-fault diagnostic was not delivered",
+                        broker.diagnostic(&format!(
+                            "engine fault: asynchronous failure collection failed after the authenticated inline drain: {collection_error:#}"
+                        )),
+                    );
+                    InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
+                }
+            };
+        }
     };
     if !async_failures.is_empty() {
+        let receipt_cleanup_error = match receipt {
+            Some(receipt) => engine.release_undisplayed_value(receipt).await.err(),
+            None => None,
+        };
+        return report_inline_async_failures(broker, async_failures, receipt_cleanup_error, damage);
+    }
+    if let Some(request) = lifecycle.take_pending_request() {
         if let Some(receipt) = receipt {
-            let _ = engine.release_undisplayed_value(receipt).await;
+            if let Err(error) = engine.release_undisplayed_value(receipt).await {
+                damage.record_broker_result(
+                    "inline cleanup diagnostic was not delivered",
+                    broker.diagnostic(&format!(
+                        "suppressed-result cleanup failed after cooperative exit: {error:#}"
+                    )),
+                );
+            }
         }
-        for failure in async_failures {
-            let _ = broker.diagnostic(&format!("unhandled asynchronous failure: {failure}"));
-        }
-        return InlineSettlement::Fixed(1);
+        return finish_successful_inline(lifecycle, broker, Some(request.status), damage);
     }
     if let Err(error) = drain {
         if let Some(receipt) = receipt {
-            let _ = engine.release_undisplayed_value(receipt).await;
+            if let Err(cleanup_error) = engine.release_undisplayed_value(receipt).await {
+                damage.record_broker_result(
+                    "inline cleanup diagnostic was not delivered",
+                    broker.diagnostic(&format!(
+                        "suppressed-result cleanup failed after program drain failure: {cleanup_error:#}"
+                    )),
+                );
+            }
         }
         let status = if error.is_engine_fault() {
             EXIT_STATUS_ENGINE_FAULT
         } else {
             1
         };
-        let _ = broker.diagnostic(&format!("{error:#}"));
+        damage.record_broker_result(
+            "inline drain-failure diagnostic was not delivered",
+            broker.diagnostic(&format!("{error:#}")),
+        );
         return InlineSettlement::Fixed(status);
     }
 
     let Some(display) = display else {
-        return finish_successful_inline(lifecycle, broker, None);
+        return finish_successful_inline(lifecycle, broker, None, damage);
     };
     if result_presentation == InlineResultPresentation::Suppress {
-        let release_status = match receipt {
-            Some(receipt) => match engine.release_undisplayed_value(receipt).await {
-                Ok(()) => None,
-                Err(error) => {
-                    let _ = broker.diagnostic(&format!(
-                        "engine fault: failed to release undisplayed value: {error:#}"
-                    ));
-                    Some(EXIT_STATUS_ENGINE_FAULT)
-                }
-            },
+        // Latch a cooperative request on both sides of the potentially blocking
+        // release. Once accepted, a later release failure is cleanup damage and
+        // cannot replace the lifecycle cause.
+        let cooperative_status = lifecycle
+            .take_pending_request()
+            .map(|request| request.status);
+        let release_error = match receipt {
+            Some(receipt) => engine.release_undisplayed_value(receipt).await.err(),
             None => None,
         };
-        return match release_status {
-            Some(status) => InlineSettlement::Fixed(status),
-            None => finish_successful_inline(lifecycle, broker, None),
-        };
+        return settle_suppressed_inline_release(
+            lifecycle,
+            broker,
+            cooperative_status,
+            release_error,
+            damage,
+        );
     }
 
     crate::host::abi::ex_host_console_flush(BROKER_FLUSH_BUDGET_MILLIS as u32);
@@ -3674,30 +4424,261 @@ async fn settle_authenticated_inline_evaluation(
             Err(_) => (DisplayDisposition::WriteFailed, true),
         },
         Err(error) => {
-            let _ = broker.diagnostic(&format!("display fallback: {error}"));
+            damage.record_broker_result(
+                "inline display-fallback diagnostic was not delivered",
+                broker.diagnostic(&format!("display fallback: {error}")),
+            );
             (DisplayDisposition::Fallback, false)
         }
     };
+    if write_failed {
+        damage.record_broker_failure(
+            "inline display write failed after settlement",
+            "broker selected WriteFailed",
+        );
+    }
     if let Some(receipt) = receipt {
         let engine_disposition = match disposition {
             DisplayDisposition::Displayed => crate::engine::DisplayDisposition::Displayed,
             DisplayDisposition::Fallback => crate::engine::DisplayDisposition::Fallback,
             DisplayDisposition::WriteFailed => crate::engine::DisplayDisposition::WriteFailed,
         };
-        if let Err(error) = engine
+        let mut cooperative = lifecycle.take_pending_request();
+        let acknowledgement_error = engine
             .acknowledge_display(receipt, engine_disposition)
             .await
-        {
-            let _ = broker.diagnostic(&format!(
-                "engine fault: display acknowledgement failed: {error:#}"
-            ));
+            .err();
+        cooperative = cooperative.or_else(|| lifecycle.take_pending_request());
+        if let Some(request) = cooperative {
+            if let Some(error) = acknowledgement_error {
+                damage.record_broker_result(
+                    "inline display-cleanup diagnostic was not delivered",
+                    broker.diagnostic(&format!(
+                        "display acknowledgement failed after cooperative exit: {error:#}"
+                    )),
+                );
+            }
+            return finish_successful_inline(lifecycle, broker, Some(request.status), damage);
+        }
+        if let Some(error) = acknowledgement_error {
+            damage.record_broker_result(
+                "inline display-acknowledgement diagnostic was not delivered",
+                broker.diagnostic(&format!(
+                    "engine fault: display acknowledgement failed: {error:#}"
+                )),
+            );
             return InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT);
         }
     }
-    if write_failed || broker.boundary().is_err() {
-        InlineSettlement::Fixed(EXIT_STATUS_BROKEN_PIPE)
+    let settlement = resolve_successful_inline_status(lifecycle, None);
+    damage.record_broker_result(
+        "inline result boundary was not delivered",
+        broker.boundary(),
+    );
+    settlement
+}
+
+#[cfg(unix)]
+fn settle_suppressed_inline_release(
+    lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+    broker: &ReplBrokerHandle,
+    cooperative_status_before_release: Option<i32>,
+    release_error: Option<anyhow::Error>,
+    damage: &mut SecondarySettlementDamage,
+) -> InlineSettlement {
+    let cooperative_status = cooperative_status_before_release.or_else(|| {
+        lifecycle
+            .take_pending_request()
+            .map(|request| request.status)
+    });
+    if let Some(status) = cooperative_status {
+        if let Some(error) = release_error {
+            damage.record_broker_result(
+                "inline cleanup diagnostic was not delivered",
+                broker.diagnostic(&format!(
+                    "failed to release undisplayed value after cooperative exit: {error:#}"
+                )),
+            );
+        }
+        return finish_successful_inline(lifecycle, broker, Some(status), damage);
+    }
+    if let Some(error) = release_error {
+        damage.record_broker_result(
+            "inline release-fault diagnostic was not delivered",
+            broker.diagnostic(&format!(
+                "engine fault: failed to release undisplayed value: {error:#}"
+            )),
+        );
+        return InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT);
+    }
+    finish_successful_inline(lifecycle, broker, None, damage)
+}
+
+#[cfg(unix)]
+async fn preserve_inline_evaluation_after_async_collection_error(
+    engine: &dyn crate::engine::Engine,
+    lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+    broker: &ReplBrokerHandle,
+    evaluation: std::result::Result<
+        crate::engine::AuthenticatedEvaluation,
+        crate::runtime::AuthenticatedEvaluationFailure,
+    >,
+    collection_error: anyhow::Error,
+    damage: &mut SecondarySettlementDamage,
+) -> InlineSettlement {
+    use crate::engine::AuthenticatedEvaluation;
+
+    let collection_detail = format!(
+        "asynchronous failure collection failed after inline evaluation settled: {collection_error:#}"
+    );
+    match evaluation {
+        Err(error) => {
+            let status = if error.is_engine_fault() {
+                EXIT_STATUS_ENGINE_FAULT
+            } else {
+                1
+            };
+            damage.record_broker_result(
+                "inline evaluation diagnostic was not delivered",
+                broker.diagnostic(&format!("evaluation failed: {error:#}")),
+            );
+            damage.record_broker_result(
+                "inline collection-failure diagnostic was not delivered",
+                broker.diagnostic(&collection_detail),
+            );
+            InlineSettlement::Fixed(status)
+        }
+        Ok(AuthenticatedEvaluation::Lifecycle(status)) => {
+            damage.record_broker_result(
+                "inline collection-failure diagnostic was not delivered",
+                broker.diagnostic(&collection_detail),
+            );
+            finish_authenticated_inline_lifecycle(lifecycle, broker, status, damage)
+        }
+        Ok(AuthenticatedEvaluation::Throw(thrown)) => {
+            if let Err(error) = render_inline_throw(broker, thrown) {
+                damage.record_broker_failure("inline throw diagnostic was not delivered", error);
+            }
+            damage.record_broker_result(
+                "inline collection-failure diagnostic was not delivered",
+                broker.diagnostic(&collection_detail),
+            );
+            InlineSettlement::Fixed(1)
+        }
+        Ok(AuthenticatedEvaluation::Cancelled) => {
+            damage.record_broker_result(
+                "inline collection-failure diagnostic was not delivered",
+                broker.diagnostic(&collection_detail),
+            );
+            InlineSettlement::Fixed(EXIT_STATUS_INTERRUPT)
+        }
+        Ok(AuthenticatedEvaluation::Value { receipt, .. }) => {
+            if let Some(receipt) = receipt {
+                if let Err(error) = engine.release_undisplayed_value(receipt).await {
+                    damage.record_broker_result(
+                        "inline cleanup diagnostic was not delivered",
+                        broker.diagnostic(&format!(
+                            "suppressed-result cleanup also failed: {error:#}"
+                        )),
+                    );
+                }
+            }
+            if let Some(request) = lifecycle.take_pending_request() {
+                damage.record_broker_result(
+                    "inline collection-failure diagnostic was not delivered",
+                    broker.diagnostic(&collection_detail),
+                );
+                finish_successful_inline(lifecycle, broker, Some(request.status), damage)
+            } else {
+                damage.record_broker_result(
+                    "inline collection-fault diagnostic was not delivered",
+                    broker.diagnostic(&format!("engine fault: {collection_detail}")),
+                );
+                InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
+            }
+        }
+        Ok(AuthenticatedEvaluation::Empty) => {
+            if let Some(request) = lifecycle.take_pending_request() {
+                damage.record_broker_result(
+                    "inline collection-failure diagnostic was not delivered",
+                    broker.diagnostic(&collection_detail),
+                );
+                finish_successful_inline(lifecycle, broker, Some(request.status), damage)
+            } else {
+                damage.record_broker_result(
+                    "inline collection-fault diagnostic was not delivered",
+                    broker.diagnostic(&format!("engine fault: {collection_detail}")),
+                );
+                InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn report_inline_async_failures(
+    broker: &ReplBrokerHandle,
+    failures: Vec<crate::engine::AuthenticatedAsyncFailure>,
+    receipt_cleanup_error: Option<anyhow::Error>,
+    damage: &mut SecondarySettlementDamage,
+) -> InlineSettlement {
+    let status = if failures.iter().any(|failure| {
+        matches!(
+            failure,
+            crate::engine::AuthenticatedAsyncFailure::PreReceiptLoss { .. }
+        )
+    }) {
+        EXIT_STATUS_ENGINE_FAULT
     } else {
-        resolve_successful_inline_status(lifecycle, None)
+        1
+    };
+    for failure in failures {
+        damage.record_broker_result(
+            "inline asynchronous-failure diagnostic was not delivered",
+            broker.diagnostic(&format!("unhandled asynchronous failure: {failure}")),
+        );
+    }
+    if let Some(error) = receipt_cleanup_error {
+        damage.record_broker_result(
+            "inline cleanup diagnostic was not delivered",
+            broker.diagnostic(&format!(
+                "suppressed-result cleanup failed after the primary asynchronous failure: {error:#}"
+            )),
+        );
+    }
+    InlineSettlement::Fixed(status)
+}
+
+#[cfg(unix)]
+fn finish_authenticated_inline_lifecycle(
+    lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+    broker: &ReplBrokerHandle,
+    evaluation_status: i32,
+    damage: &mut SecondarySettlementDamage,
+) -> InlineSettlement {
+    match lifecycle.take_pending_request() {
+        Some(request) if request.status == evaluation_status => {
+            finish_successful_inline(lifecycle, broker, Some(request.status), damage)
+        }
+        Some(request) => {
+            damage.record_broker_result(
+                "inline lifecycle-mismatch diagnostic was not delivered",
+                broker.diagnostic(&format!(
+                    "engine fault: authenticated inline lifecycle status disagreed with the supervisor record (evaluation {evaluation_status}, supervisor {}, request {})",
+                    request.status, request.request_id
+                )),
+            );
+            InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
+        }
+        None => {
+            damage.record_broker_result(
+                "inline lifecycle-missing-record diagnostic was not delivered",
+                broker.diagnostic(&format!(
+                    "engine fault: authenticated inline lifecycle outcome {evaluation_status} had no pending supervisor record"
+                )),
+            );
+            InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
+        }
     }
 }
 
@@ -3706,13 +4687,22 @@ fn finish_successful_inline(
     lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
     broker: &ReplBrokerHandle,
     cooperative_status: Option<i32>,
+    damage: &mut SecondarySettlementDamage,
 ) -> InlineSettlement {
-    if broker.boundary().is_err() {
-        return InlineSettlement::Fixed(EXIT_STATUS_BROKEN_PIPE);
+    let mut settlement = resolve_successful_inline_status(lifecycle, cooperative_status);
+    let boundary = broker.boundary();
+    if let InlineSettlement::Successful(status) = settlement {
+        // A cooperative request accepted while the bounded boundary was in
+        // flight supersedes the otherwise-orderly status. The boundary failure
+        // itself remains secondary output damage.
+        settlement = resolve_successful_inline_status(lifecycle, Some(status));
     }
-    let settlement = resolve_successful_inline_status(lifecycle, cooperative_status);
+    damage.record_broker_result("inline completion boundary was not delivered", boundary);
     if settlement == InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT) {
-        let _ = broker.diagnostic("engine fault: Root lifecycle exitCode read was denied");
+        damage.record_broker_result(
+            "inline lifecycle-read diagnostic was not delivered",
+            broker.diagnostic("engine fault: Root lifecycle exitCode read was denied"),
+        );
     }
     settlement
 }
@@ -3740,21 +4730,35 @@ fn resolve_successful_inline_status(
 }
 
 #[cfg(unix)]
-fn render_inline_throw(broker: &ReplBrokerHandle, thrown: crate::engine::AuthenticatedThrow) {
-    let _ = broker.diagnostic(&thrown.value.text);
+fn render_inline_throw(
+    broker: &ReplBrokerHandle,
+    thrown: crate::engine::AuthenticatedThrow,
+) -> Result<(), String> {
+    let mut failures = Vec::new();
+    let mut emit = |text: &str| {
+        if let Err(error) = broker.diagnostic(text) {
+            failures.push(error);
+        }
+    };
+    emit(&thrown.value.diagnostic_text());
     if let Some(message) = thrown.metadata.message() {
-        let _ = broker.diagnostic(message);
+        emit(message);
     }
     if let Some(stack) = thrown.metadata.stack() {
         for line in stack.lines() {
-            let _ = broker.diagnostic(line);
+            emit(line);
         }
     }
     for position in thrown.metadata.positions() {
-        let _ = broker.diagnostic(&format!(
+        emit(&format!(
             "at {}:{}:{}",
             position.source_label, position.line, position.column
         ));
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
     }
 }
 
@@ -3797,6 +4801,10 @@ fn execution_adapter_status_with_readiness(
 pub enum FileProgramAdapterError {
     Gate(ExecutionAdapterGap),
     Native(io::Error),
+    NativeWithReport {
+        error: io::Error,
+        report: Box<FileProgramExecutionReport>,
+    },
     Broker(String),
     RelayThreadPanicked,
 }
@@ -3806,6 +4814,9 @@ impl fmt::Display for FileProgramAdapterError {
         match self {
             Self::Gate(error) => write!(formatter, "file execution adapter: {error}"),
             Self::Native(error) => write!(formatter, "file execution adapter I/O: {error}"),
+            Self::NativeWithReport { error, .. } => {
+                write!(formatter, "file execution adapter I/O: {error}")
+            }
             Self::Broker(error) => write!(formatter, "file execution output broker: {error}"),
             Self::RelayThreadPanicked => {
                 formatter.write_str("file execution output relay thread panicked")
@@ -3828,9 +4839,49 @@ pub struct FileProgramExecutionReport {
     loss: BrokerLossAccounting,
     unaccepted_stdout_bytes: usize,
     unaccepted_stderr_bytes: usize,
+    stdout_input_open: bool,
+    stderr_input_open: bool,
+    stdio_handoff_stdout_unknown: bool,
+    stdio_handoff_stderr_unknown: bool,
+    broker_owned_diagnostic_failures: usize,
+    finish_error: Option<String>,
+    /// A structurally distinct relay which completed without loss and can
+    /// carry the bounded loss diagnostic after the standard descriptors have
+    /// been restored. `None` means the loss consumed every available
+    /// destination, so LLP 0025's successful-cause 141 modifier applies.
+    loss_report_destinations: [Option<NativeOutputDestination>; 2],
 }
 
 impl FileProgramExecutionReport {
+    #[cfg(test)]
+    pub(crate) fn with_unaccepted_stdout_byte_for_test() -> Self {
+        Self {
+            receipts: Vec::new(),
+            loss: BrokerLossAccounting {
+                forced_close_epoch: 1,
+                forced_close_sequence: 1,
+                relays: Vec::new(),
+            },
+            unaccepted_stdout_bytes: 1,
+            unaccepted_stderr_bytes: 0,
+            stdout_input_open: false,
+            stderr_input_open: false,
+            stdio_handoff_stdout_unknown: false,
+            stdio_handoff_stderr_unknown: false,
+            broker_owned_diagnostic_failures: 0,
+            finish_error: None,
+            loss_report_destinations: [None, None],
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_reportable_unaccepted_stdout_byte_for_test() -> Self {
+        Self {
+            loss_report_destinations: [Some(NativeOutputDestination::Stderr), None],
+            ..Self::with_unaccepted_stdout_byte_for_test()
+        }
+    }
+
     pub fn receipts(&self) -> &[BrokerReceipt] {
         &self.receipts
     }
@@ -3847,23 +4898,294 @@ impl FileProgramExecutionReport {
         self.unaccepted_stderr_bytes
     }
 
+    pub const fn input_streams_open(&self) -> (bool, bool) {
+        (self.stdout_input_open, self.stderr_input_open)
+    }
+
+    pub const fn broker_owned_diagnostic_failures(&self) -> usize {
+        self.broker_owned_diagnostic_failures
+    }
+
+    pub fn finish_error(&self) -> Option<&str> {
+        self.finish_error.as_deref()
+    }
+
+    pub const fn loss_report_destination(&self) -> Option<NativeOutputDestination> {
+        self.loss_report_destinations[0]
+    }
+
+    pub const fn loss_report_destinations(&self) -> [Option<NativeOutputDestination>; 2] {
+        self.loss_report_destinations
+    }
+
     pub fn has_loss(&self) -> bool {
         self.loss.has_loss()
             || self.unaccepted_stdout_bytes != 0
             || self.unaccepted_stderr_bytes != 0
+            || self.stdout_input_open
+            || self.stderr_input_open
+            || self.stdio_handoff_stdout_unknown
+            || self.stdio_handoff_stderr_unknown
+            || self.broker_owned_diagnostic_failures != 0
+            || self.finish_error.is_some()
     }
+
+    #[cfg(unix)]
+    fn record_unavailable_relays(&self, plan: SessionIoPlan, unavailable: &mut BTreeSet<RelayId>) {
+        record_broker_loss_relays(unavailable, &self.loss);
+        let routes = plan.broker_routes();
+        if self.unaccepted_stdout_bytes != 0 {
+            unavailable.insert(routes.program_stdout);
+        }
+        if self.unaccepted_stderr_bytes != 0 {
+            unavailable.insert(routes.program_stderr);
+        }
+        if self.stdout_input_open {
+            unavailable.insert(routes.program_stdout);
+        }
+        if self.stderr_input_open {
+            unavailable.insert(routes.program_stderr);
+        }
+        if self.stdio_handoff_stdout_unknown {
+            unavailable.insert(routes.program_stdout);
+        }
+        if self.stdio_handoff_stderr_unknown {
+            unavailable.insert(routes.program_stderr);
+        }
+        if self.broker_owned_diagnostic_failures != 0 {
+            unavailable.insert(routes.control);
+        }
+    }
+
+    #[cfg(unix)]
+    fn merge_standard_descriptor_handoff(
+        &mut self,
+        plan: SessionIoPlan,
+        handoff: &StandardDescriptorHandoffReport,
+    ) {
+        self.unaccepted_stdout_bytes = self
+            .unaccepted_stdout_bytes
+            .saturating_add(handoff.unaccepted_stdout_bytes);
+        self.unaccepted_stderr_bytes = self
+            .unaccepted_stderr_bytes
+            .saturating_add(handoff.unaccepted_stderr_bytes);
+        self.stdio_handoff_stdout_unknown |= handoff.stdout_unknown;
+        self.stdio_handoff_stderr_unknown |= handoff.stderr_unknown;
+        if !handoff.details.is_empty() {
+            let detail = format!("stdio descriptor handoff: {}", handoff.details.join("; "));
+            self.finish_error = Some(match self.finish_error.take() {
+                Some(error) => format!("{error}; {detail}"),
+                None => detail,
+            });
+        }
+        let mut unavailable = BTreeSet::new();
+        self.record_unavailable_relays(plan, &mut unavailable);
+        self.loss_report_destinations = output_loss_report_destinations(plan, &unavailable);
+    }
+}
+
+#[cfg(unix)]
+fn output_loss_report_destinations(
+    plan: SessionIoPlan,
+    unavailable: &BTreeSet<RelayId>,
+) -> [Option<NativeOutputDestination>; 2] {
+    let routes = plan.broker_routes();
+    let mut destinations = [None, None];
+    let mut destination_count = 0;
+    // Prefer the control and session routes, then either distinct program
+    // destination. A shared topology intentionally offers only one relay, so
+    // loss on it has no second destination and returns None.
+    for relay in [
+        routes.control,
+        routes.session,
+        routes.program_stderr,
+        routes.program_stdout,
+    ] {
+        if unavailable.contains(&relay) {
+            continue;
+        }
+        let destination = if relay == NATIVE_STDOUT_RELAY {
+            Some(NativeOutputDestination::Stdout)
+        } else if relay == NATIVE_STDERR_RELAY {
+            Some(NativeOutputDestination::Stderr)
+        } else {
+            None
+        };
+        let Some(destination) = destination else {
+            continue;
+        };
+        if destinations[..destination_count].contains(&Some(destination)) {
+            continue;
+        }
+        destinations[destination_count] = Some(destination);
+        destination_count += 1;
+        if destination_count == destinations.len() {
+            break;
+        }
+    }
+    destinations
+}
+
+#[cfg(unix)]
+fn record_broker_loss_relays(unavailable: &mut BTreeSet<RelayId>, loss: &BrokerLossAccounting) {
+    unavailable.extend(loss.relays.iter().filter_map(|relay| {
+        (relay.program_bytes != 0
+            || relay.session_bytes != 0
+            || relay.program_frames != 0
+            || relay.session_frames != 0
+            || relay.control_frames != 0)
+            .then_some(relay.relay)
+    }));
+}
+
+#[cfg(unix)]
+fn file_program_loss_report_destinations(
+    plan: SessionIoPlan,
+    loss: &BrokerLossAccounting,
+    unaccepted_stdout_bytes: usize,
+    unaccepted_stderr_bytes: usize,
+    stdout_input_open: bool,
+    stderr_input_open: bool,
+    broker_owned_diagnostic_failures: usize,
+) -> [Option<NativeOutputDestination>; 2] {
+    let routes = plan.broker_routes();
+    let mut unavailable = BTreeSet::new();
+    record_broker_loss_relays(&mut unavailable, loss);
+    if unaccepted_stdout_bytes != 0 {
+        unavailable.insert(routes.program_stdout);
+    }
+    if unaccepted_stderr_bytes != 0 {
+        unavailable.insert(routes.program_stderr);
+    }
+    if stdout_input_open {
+        unavailable.insert(routes.program_stdout);
+    }
+    if stderr_input_open {
+        unavailable.insert(routes.program_stderr);
+    }
+    if broker_owned_diagnostic_failures != 0 {
+        unavailable.insert(routes.control);
+    }
+    output_loss_report_destinations(plan, &unavailable)
+}
+
+#[cfg(unix)]
+fn file_program_loss_report_destination(
+    plan: SessionIoPlan,
+    loss: &BrokerLossAccounting,
+    unaccepted_stdout_bytes: usize,
+    unaccepted_stderr_bytes: usize,
+) -> Option<NativeOutputDestination> {
+    file_program_loss_report_destinations(
+        plan,
+        loss,
+        unaccepted_stdout_bytes,
+        unaccepted_stderr_bytes,
+        false,
+        false,
+        0,
+    )[0]
+}
+
+#[cfg(unix)]
+fn report_output_loss_after_restore(
+    plan: SessionIoPlan,
+    unavailable: &BTreeSet<RelayId>,
+    detail: &str,
+) -> bool {
+    output_loss_report_destinations(plan, unavailable)
+        .into_iter()
+        .flatten()
+        .any(|destination| emit_bounded_native_diagnostic(destination, "error: ", detail))
+}
+
+#[cfg(unix)]
+fn collect_execution_report_loss(
+    plan: SessionIoPlan,
+    report: &FileProgramExecutionReport,
+    context: &str,
+    unavailable: &mut BTreeSet<RelayId>,
+    details: &mut Vec<String>,
+    unknown: &mut bool,
+) {
+    if !report.has_loss() {
+        return;
+    }
+    report.record_unavailable_relays(plan, unavailable);
+    *unknown |= report.finish_error.is_some()
+        || report.stdout_input_open
+        || report.stderr_input_open
+        || report.stdio_handoff_stdout_unknown
+        || report.stdio_handoff_stderr_unknown
+        || report.broker_owned_diagnostic_failures != 0;
+    let open_inputs = match (report.stdout_input_open, report.stderr_input_open) {
+        (true, true) => ", stdout and stderr inputs still open",
+        (true, false) => ", stdout input still open",
+        (false, true) => ", stderr input still open",
+        (false, false) => "",
+    };
+    let diagnostic_failures = if report.broker_owned_diagnostic_failures != 0 {
+        format!(
+            ", {} broker-owned diagnostic(s) refused",
+            report.broker_owned_diagnostic_failures
+        )
+    } else {
+        String::new()
+    };
+    let handoff_unknown = match (
+        report.stdio_handoff_stdout_unknown,
+        report.stdio_handoff_stderr_unknown,
+    ) {
+        (true, true) => ", buffered stdout and stderr state unknown",
+        (true, false) => ", buffered stdout state unknown",
+        (false, true) => ", buffered stderr state unknown",
+        (false, false) => "",
+    };
+    details.push(format!(
+        "{context} lost output at sequence {} ({} unaccepted stdout byte(s), {} unaccepted stderr byte(s){open_inputs}{handoff_unknown}{diagnostic_failures}{})",
+        report.loss.forced_close_sequence,
+        report.unaccepted_stdout_bytes,
+        report.unaccepted_stderr_bytes,
+        report
+            .finish_error
+            .as_deref()
+            .map(|error| format!(", final flush failed: {error}"))
+            .unwrap_or_default()
+    ));
 }
 
 /// The only production adapter currently complete enough to mint readiness.
 /// Construction validates the File/Program tuple; `run` activates native
 /// descriptor capture before it polls the supplied future and retains that
-/// capture until restoration and bounded broker finish have completed.
+/// capture until restoration and bounded broker finish have completed. Its
+/// outer error means execution never began; after the future has settled, its
+/// output is always returned alongside the separate cleanup/report result so a
+/// later adapter failure cannot erase the program's primary cause.
 // @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker — file-mode
 // fd 1/fd 2 bytes enter the same bounded, receipt-sequenced broker.
 // @ref LLP 0025#5-terminal-presentation-and-restoration — native descriptors
 // are restored before the bounded broker finish and on unwinding Drop paths.
 pub struct FileProgramExecutionAdapter {
     plan: SessionIoPlan,
+}
+
+#[cfg(unix)]
+async fn poll_future_catching_panic<F>(
+    mut future: std::pin::Pin<&mut F>,
+) -> std::result::Result<F::Output, Box<dyn std::any::Any + Send>>
+where
+    F: Future + ?Sized,
+{
+    std::future::poll_fn(|context| {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            future.as_mut().poll(context)
+        })) {
+            Ok(std::task::Poll::Ready(output)) => std::task::Poll::Ready(Ok(output)),
+            Ok(std::task::Poll::Pending) => std::task::Poll::Pending,
+            Err(payload) => std::task::Poll::Ready(Err(payload)),
+        }
+    })
+    .await
 }
 
 impl FileProgramExecutionAdapter {
@@ -3882,24 +5204,126 @@ impl FileProgramExecutionAdapter {
     pub async fn run<F>(
         self,
         execution: F,
-    ) -> Result<(F::Output, FileProgramExecutionReport), FileProgramAdapterError>
+    ) -> Result<
+        (
+            F::Output,
+            Result<FileProgramExecutionReport, FileProgramAdapterError>,
+        ),
+        FileProgramAdapterError,
+    >
     where
+        F: Future,
+    {
+        self.run_with_diagnostics_and_interrupt(|_, _| execution)
+            .await
+    }
+
+    pub(crate) async fn run_with_diagnostics<B, F>(
+        self,
+        build: B,
+    ) -> Result<
+        (
+            F::Output,
+            Result<FileProgramExecutionReport, FileProgramAdapterError>,
+        ),
+        FileProgramAdapterError,
+    >
+    where
+        B: FnOnce(FileProgramDiagnosticPort) -> F,
+        F: Future,
+    {
+        self.run_with_diagnostics_and_interrupt(|diagnostics, _| build(diagnostics))
+            .await
+    }
+
+    pub(crate) async fn run_with_diagnostics_and_interrupt<B, F>(
+        self,
+        build: B,
+    ) -> Result<
+        (
+            F::Output,
+            Result<FileProgramExecutionReport, FileProgramAdapterError>,
+        ),
+        FileProgramAdapterError,
+    >
+    where
+        B: FnOnce(FileProgramDiagnosticPort, DirectExecutionCancellationRegistration) -> F,
         F: Future,
     {
         #[cfg(unix)]
         {
             let mut active = ActiveFileProgramCapture::start(self.plan)?;
-            let readiness = mint_execution_adapter_ready(&mut active.lease, active.plan.route);
-            execution_adapter_status_with_readiness(active.plan, Some(&readiness))
-                .map_err(FileProgramAdapterError::Gate)?;
-            let output = execution.await;
-            drop(readiness);
-            let report = active.finish()?;
-            Ok((output, report))
+            let cancellation = DirectExecutionCancellationRegistration::default();
+            let descriptor_handoff = active.descriptor_handoff.clone();
+            let commands = active
+                .commands
+                .as_ref()
+                .expect("active file broker command lane")
+                .clone();
+            let (restore_stdout, restore_stderr) = descriptor_handoff.signal_restore_descriptors();
+            let interrupt_plan = active.plan;
+            let interrupt_handoff = descriptor_handoff.clone();
+            let direct_interrupt =
+                crate::direct_execution_interrupt::DirectExecutionInterruptCoordinator::install(
+                    restore_stdout,
+                    restore_stderr,
+                    cancellation.clone(),
+                    move || {
+                        let finish = force_finish_file_after_descriptor_handoff(
+                            interrupt_plan,
+                            interrupt_handoff.as_ref(),
+                            &commands,
+                        );
+                        interrupt_handoff.exit_after_forced_finish(
+                            finish,
+                            InlineSettlement::Fixed(EXIT_STATUS_INTERRUPT),
+                        );
+                    },
+                )?;
+            let diagnostics = active.diagnostic_port();
+            let (execution, output) = {
+                let readiness = mint_execution_adapter_ready(&mut active.lease, active.plan.route);
+                execution_adapter_status_with_readiness(active.plan, Some(&readiness))
+                    .map_err(FileProgramAdapterError::Gate)?;
+                // Poll through a catch boundary while retaining the pinned
+                // future. A runtime/evaluator future may own objects whose Drop
+                // path needs the process descriptors to have been restored
+                // already. Dropping that future as part of the original unwind
+                // would run it before `active`, because it was created later in
+                // this scope.
+                // @ref LLP 0025#5-terminal-presentation-and-restoration
+                let mut execution = Box::pin(build(diagnostics, cancellation));
+                let output = poll_future_catching_panic(execution.as_mut()).await;
+                if !direct_interrupt.begin_settlement() {
+                    crate::direct_execution_interrupt::DirectExecutionInterruptCoordinator::wait_for_interrupt_termination();
+                }
+                (execution, output)
+            };
+            let report = active.finish();
+            let interrupt_finish = direct_interrupt
+                .finish()
+                .map_err(FileProgramAdapterError::Native);
+            let report = match (report, interrupt_finish) {
+                (report @ Err(_), _) => report,
+                (Ok(report), Ok(())) => Ok(report),
+                (Ok(_), Err(error)) => Err(error),
+            };
+            match output {
+                Ok(output) => {
+                    drop(execution);
+                    Ok((output, report))
+                }
+                Err(payload) => {
+                    // `finish` restored both standard descriptors and bounded
+                    // the broker before any evaluator-owned destructor runs.
+                    drop(execution);
+                    std::panic::resume_unwind(payload)
+                }
+            }
         }
         #[cfg(not(unix))]
         {
-            let _ = execution;
+            let _ = build;
             Err(FileProgramAdapterError::Gate(
                 ExecutionAdapterGap::StructuredFileEvaluationUnavailable,
             ))
@@ -4023,8 +5447,670 @@ fn flush_process_stdio() -> io::Result<()> {
 }
 
 #[cfg(unix)]
-enum NativeRelayCommand {
-    Write(Vec<u8>),
+fn arm_console_relay_for_capture(
+) -> io::Result<Arc<crate::host::abi::AuthenticatedWorkerConsoleRelayGuard>> {
+    let guard = Arc::new(crate::host::abi::arm_authenticated_worker_console_relay()?);
+    crate::host::abi::ex_host_console_flush(BROKER_FLUSH_BUDGET_MILLIS as u32);
+    let pending = crate::host::abi::terminal_console_pending_records();
+    if pending != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!("{pending} pre-capture host-console record(s) did not drain"),
+        ));
+    }
+    Ok(guard)
+}
+
+#[cfg(unix)]
+#[derive(Clone, Debug, Default)]
+struct StandardDescriptorHandoffReport {
+    unaccepted_stdout_bytes: usize,
+    unaccepted_stderr_bytes: usize,
+    stdout_unknown: bool,
+    stderr_unknown: bool,
+    details: Vec<String>,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Debug, Default)]
+struct StandardDescriptorHandoffOutcome {
+    report: StandardDescriptorHandoffReport,
+    restore_error: Option<String>,
+}
+
+#[cfg(unix)]
+enum CaptureWriteDescriptors {
+    Shared {
+        output: Option<NativeFd>,
+    },
+    Split {
+        stdout: Option<NativeFd>,
+        stderr: Option<NativeFd>,
+    },
+}
+
+#[cfg(unix)]
+struct StandardDescriptorHandoffState {
+    capture_writes: CaptureWriteDescriptors,
+    outcome: Option<StandardDescriptorHandoffOutcome>,
+}
+
+/// Idempotent owner of the process-standard descriptor transition.
+///
+/// A retained capture writer lets the owner first redirect fd 1/fd 2 to
+/// private staging pipes, synchronously flush language/libc buffers, restore
+/// the native descriptors, and only then append the staged FIFO suffix to the
+/// broker's capture pipe. The suffix replay is bounded and any remainder is
+/// exact reportable loss; no destination writer survives this method.
+/// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker
+/// @ref LLP 0025#5-terminal-presentation-and-restoration
+#[cfg(unix)]
+struct StandardDescriptorHandoff {
+    console_relay: Arc<crate::host::abi::AuthenticatedWorkerConsoleRelayGuard>,
+    restore_stdout: NativeFd,
+    restore_stderr: NativeFd,
+    stdout_descriptor_flags: i32,
+    stderr_descriptor_flags: i32,
+    state: Mutex<StandardDescriptorHandoffState>,
+}
+
+#[cfg(unix)]
+struct StandardDescriptorHandoffConfig {
+    topology: OutputDestinationTopology,
+    console_relay: Arc<crate::host::abi::AuthenticatedWorkerConsoleRelayGuard>,
+    restore_stdout: NativeFd,
+    restore_stderr: NativeFd,
+    stdout_descriptor_flags: i32,
+    stderr_descriptor_flags: i32,
+    stdout_capture: NativeFd,
+    stderr_capture: Option<NativeFd>,
+}
+
+#[cfg(unix)]
+impl StandardDescriptorHandoff {
+    fn new(config: StandardDescriptorHandoffConfig) -> Self {
+        let StandardDescriptorHandoffConfig {
+            topology,
+            console_relay,
+            restore_stdout,
+            restore_stderr,
+            stdout_descriptor_flags,
+            stderr_descriptor_flags,
+            stdout_capture,
+            stderr_capture,
+        } = config;
+        let capture_writes = match topology {
+            OutputDestinationTopology::Shared { .. } => CaptureWriteDescriptors::Shared {
+                output: Some(stdout_capture),
+            },
+            OutputDestinationTopology::Split => CaptureWriteDescriptors::Split {
+                stdout: Some(stdout_capture),
+                stderr: Some(stderr_capture.expect("split capture has a stderr writer")),
+            },
+        };
+        Self {
+            console_relay,
+            restore_stdout,
+            restore_stderr,
+            stdout_descriptor_flags,
+            stderr_descriptor_flags,
+            state: Mutex::new(StandardDescriptorHandoffState {
+                capture_writes,
+                outcome: None,
+            }),
+        }
+    }
+
+    /// Retained native duplicates used only by the async-signal-safe fallback
+    /// while this handoff remains alive. Ordinary interruption uses
+    /// `force_finish_bounded`, which also accounts the abandoned suffix.
+    fn signal_restore_descriptors(&self) -> (i32, i32) {
+        (self.restore_stdout.raw(), self.restore_stderr.raw())
+    }
+
+    fn finish(&self) -> StandardDescriptorHandoffOutcome {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(outcome) = state.outcome.as_ref() {
+            return outcome.clone();
+        }
+
+        let mut outcome = StandardDescriptorHandoffOutcome::default();
+        if let Err(error) = self.console_relay.seal() {
+            outcome.report.stdout_unknown = true;
+            outcome.report.stderr_unknown = true;
+            outcome
+                .report
+                .details
+                .push(format!("failed to seal host-console output: {error}"));
+        }
+
+        let staged = StagedStandardOutput::new(match &state.capture_writes {
+            CaptureWriteDescriptors::Shared { .. } => OutputDestinationTopology::Shared {
+                destination: NativeOutputDestination::Stdout,
+            },
+            CaptureWriteDescriptors::Split { .. } => OutputDestinationTopology::Split,
+        });
+        match staged {
+            Ok(staged) => self.finish_through_staging(staged, &mut state, &mut outcome),
+            Err(error) => {
+                outcome.report.stdout_unknown = true;
+                outcome.report.stderr_unknown = true;
+                outcome
+                    .report
+                    .details
+                    .push(format!("failed to create stdio staging pipes: {error}"));
+                self.restore_native_descriptors(&mut outcome);
+            }
+        }
+
+        // Closing these retained writers is the EOF handoff to the broker.
+        // It happens even after setup/restoration failure, so no later owner
+        // can append an unaccounted suffix.
+        Self::close_capture_writes(&mut state.capture_writes);
+        if let Err(error) = self.console_relay.seal() {
+            outcome.report.stdout_unknown = true;
+            outcome.report.stderr_unknown = true;
+            outcome
+                .report
+                .details
+                .push(format!("sealed host-console output was refused: {error}"));
+        }
+        state.outcome = Some(outcome.clone());
+        outcome
+    }
+
+    /// Engine-independent descriptor escape. Unlike the ordinary handoff,
+    /// this path never waits for a Rust stdio lock, a libc FILE lock/flush, or
+    /// another handoff owner. Buffered state is therefore conservatively
+    /// unknown, but fd 1/fd 2 restoration itself remains finite even when an
+    /// evaluator or console producer is wedged in output.
+    /// @ref LLP 0025#5-terminal-presentation-and-restoration
+    /// @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
+    fn force_finish_bounded(&self) -> StandardDescriptorHandoffOutcome {
+        let mut outcome = StandardDescriptorHandoffOutcome::default();
+
+        // Restoration is the first operation: even the console relay's small
+        // producer gate is ordinary synchronization and must not stand
+        // between an interrupt and the native fd escape.
+        self.restore_native_descriptors(&mut outcome);
+        if let Err(error) = self.console_relay.seal() {
+            outcome.report.stdout_unknown = true;
+            outcome.report.stderr_unknown = true;
+            outcome
+                .report
+                .details
+                .push(format!("failed to seal host-console output: {error}"));
+        }
+
+        // Restoration also precedes the nonblocking state-lock attempt.
+        // A concurrent ordinary owner may be stuck acquiring a language/libc
+        // stdio lock while it holds `state`; ForceFinish must bypass it.
+        match self.state.try_lock() {
+            Ok(mut state) => {
+                if let Some(completed) = state.outcome.as_ref() {
+                    return completed.clone();
+                }
+                outcome.report.stdout_unknown = true;
+                outcome.report.stderr_unknown = true;
+                outcome.report.details.push(
+                    "forced descriptor handoff bypassed potentially blocked buffered stdio flush"
+                        .to_string(),
+                );
+                Self::close_capture_writes(&mut state.capture_writes);
+                state.outcome = Some(outcome.clone());
+            }
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                let mut state = poisoned.into_inner();
+                outcome.report.stdout_unknown = true;
+                outcome.report.stderr_unknown = true;
+                outcome.report.details.push(
+                    "forced descriptor handoff recovered poisoned state and bypassed buffered stdio flush"
+                        .to_string(),
+                );
+                Self::close_capture_writes(&mut state.capture_writes);
+                state.outcome = Some(outcome.clone());
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {
+                outcome.report.stdout_unknown = true;
+                outcome.report.stderr_unknown = true;
+                outcome.report.details.push(
+                    "forced descriptor handoff bypassed an in-progress stdio handoff owner"
+                        .to_string(),
+                );
+            }
+        }
+        outcome
+    }
+
+    fn close_capture_writes(capture_writes: &mut CaptureWriteDescriptors) {
+        match capture_writes {
+            CaptureWriteDescriptors::Shared { output } => drop(output.take()),
+            CaptureWriteDescriptors::Split { stdout, stderr } => {
+                drop(stdout.take());
+                drop(stderr.take());
+            }
+        }
+    }
+
+    fn console_relay_status(&self) -> io::Result<()> {
+        self.console_relay.seal()
+    }
+
+    fn exit_after_forced_finish(
+        &self,
+        finish: ForcedReplFinishOutcome,
+        settlement: InlineSettlement,
+    ) -> ! {
+        let status_without_new_loss = finish.final_status(settlement);
+        let status_with_new_loss = finish.final_status_with_console(
+            settlement,
+            Err(io::Error::other("late sealed console output loss")),
+        );
+        self.console_relay
+            .exit_with_final_sealed_status(status_without_new_loss, status_with_new_loss)
+    }
+
+    fn finish_through_staging(
+        &self,
+        mut staged: StagedStandardOutput,
+        state: &mut StandardDescriptorHandoffState,
+        outcome: &mut StandardDescriptorHandoffOutcome,
+    ) {
+        let stop = Arc::new(AtomicBool::new(false));
+        let collector_stop = Arc::clone(&stop);
+        let reads = staged.take_reads();
+        let collector = thread::Builder::new()
+            .name("ibex-stdio-handoff".to_string())
+            .spawn(move || collect_staged_standard_output(reads, collector_stop));
+        let collector = match collector {
+            Ok(collector) => collector,
+            Err(error) => {
+                outcome.report.stdout_unknown = true;
+                outcome.report.stderr_unknown = true;
+                outcome
+                    .report
+                    .details
+                    .push(format!("failed to start stdio staging collector: {error}"));
+                self.restore_native_descriptors(outcome);
+                return;
+            }
+        };
+
+        let stdout_staged = duplicate_over(staged.stdout_write(), libc::STDOUT_FILENO);
+        let stderr_staged = duplicate_over(staged.stderr_write(), libc::STDERR_FILENO);
+        if let Err(error) = stdout_staged.as_ref() {
+            outcome.report.stdout_unknown = true;
+            outcome
+                .report
+                .details
+                .push(format!("failed to stage stdout: {error}"));
+        }
+        if let Err(error) = stderr_staged.as_ref() {
+            outcome.report.stderr_unknown = true;
+            outcome
+                .report
+                .details
+                .push(format!("failed to stage stderr: {error}"));
+        }
+
+        if stdout_staged.is_ok() && stderr_staged.is_ok() {
+            flush_process_stdio_for_handoff(outcome);
+        } else {
+            // The flush helper necessarily touches both language streams and
+            // libc's global stream set. If either fd failed to enter staging,
+            // do not risk flushing buffered bytes through the old capture
+            // descriptor under backpressure or the restored native target.
+            outcome.report.stdout_unknown = true;
+            outcome.report.stderr_unknown = true;
+        }
+        self.restore_native_descriptors(outcome);
+
+        // The dup2 restorations closed fd 1/fd 2's staging references. Drop
+        // the construction-time writers before asking the collector to finish
+        // its final nonblocking drain.
+        staged.close_writes();
+        stop.store(true, Ordering::Release);
+        let collected = match collector.join() {
+            Ok(collected) => collected,
+            Err(_) => {
+                outcome.report.stdout_unknown = true;
+                outcome.report.stderr_unknown = true;
+                outcome
+                    .report
+                    .details
+                    .push("stdio staging collector panicked".to_string());
+                return;
+            }
+        };
+        outcome.report.stdout_unknown |= collected.stdout_unknown;
+        outcome.report.stderr_unknown |= collected.stderr_unknown;
+        outcome.report.details.extend(collected.details);
+        outcome.report.unaccepted_stdout_bytes = outcome
+            .report
+            .unaccepted_stdout_bytes
+            .saturating_add(collected.stdout_discarded);
+        outcome.report.unaccepted_stderr_bytes = outcome
+            .report
+            .unaccepted_stderr_bytes
+            .saturating_add(collected.stderr_discarded);
+
+        let deadline = Instant::now()
+            .checked_add(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS))
+            .unwrap_or_else(Instant::now);
+        match &mut state.capture_writes {
+            CaptureWriteDescriptors::Shared { output } => {
+                let accepted = output.as_ref().map_or(0, |output| {
+                    write_bounded_capture_suffix(output.raw(), &collected.stdout, deadline)
+                });
+                outcome.report.unaccepted_stdout_bytes = outcome
+                    .report
+                    .unaccepted_stdout_bytes
+                    .saturating_add(collected.stdout.len().saturating_sub(accepted));
+            }
+            CaptureWriteDescriptors::Split { stdout, stderr } => {
+                let stdout_accepted = stdout.as_ref().map_or(0, |stdout| {
+                    write_bounded_capture_suffix(stdout.raw(), &collected.stdout, deadline)
+                });
+                let stderr_accepted = stderr.as_ref().map_or(0, |stderr| {
+                    write_bounded_capture_suffix(stderr.raw(), &collected.stderr, deadline)
+                });
+                outcome.report.unaccepted_stdout_bytes = outcome
+                    .report
+                    .unaccepted_stdout_bytes
+                    .saturating_add(collected.stdout.len().saturating_sub(stdout_accepted));
+                outcome.report.unaccepted_stderr_bytes = outcome
+                    .report
+                    .unaccepted_stderr_bytes
+                    .saturating_add(collected.stderr.len().saturating_sub(stderr_accepted));
+            }
+        }
+    }
+
+    fn restore_native_descriptors(&self, outcome: &mut StandardDescriptorHandoffOutcome) {
+        let stdout =
+            duplicate_over(self.restore_stdout.raw(), libc::STDOUT_FILENO).and_then(|()| {
+                set_descriptor_flag(
+                    libc::STDOUT_FILENO,
+                    libc::F_SETFD,
+                    self.stdout_descriptor_flags,
+                )
+            });
+        let stderr =
+            duplicate_over(self.restore_stderr.raw(), libc::STDERR_FILENO).and_then(|()| {
+                set_descriptor_flag(
+                    libc::STDERR_FILENO,
+                    libc::F_SETFD,
+                    self.stderr_descriptor_flags,
+                )
+            });
+        outcome.restore_error = match (stdout.err(), stderr.err()) {
+            (Some(stdout), Some(stderr)) => Some(format!(
+                "stdout restoration failed: {stdout}; stderr restoration failed: {stderr}"
+            )),
+            (Some(error), None) => Some(format!("stdout restoration failed: {error}")),
+            (None, Some(error)) => Some(format!("stderr restoration failed: {error}")),
+            (None, None) => None,
+        };
+    }
+}
+
+#[cfg(unix)]
+fn flush_process_stdio_for_handoff(outcome: &mut StandardDescriptorHandoffOutcome) {
+    if let Err(error) = io::stdout().lock().flush() {
+        outcome.report.stdout_unknown = true;
+        outcome
+            .report
+            .details
+            .push(format!("Rust stdout flush failed: {error}"));
+    }
+    if let Err(error) = io::stderr().lock().flush() {
+        outcome.report.stderr_unknown = true;
+        outcome
+            .report
+            .details
+            .push(format!("Rust stderr flush failed: {error}"));
+    }
+    // SAFETY: a null stream asks libc to flush every open output stream.
+    if unsafe { libc::fflush(std::ptr::null_mut()) } == libc::EOF {
+        outcome.report.stdout_unknown = true;
+        outcome.report.stderr_unknown = true;
+        outcome.report.details.push(format!(
+            "libc output flush failed: {}",
+            io::Error::last_os_error()
+        ));
+    }
+}
+
+#[cfg(unix)]
+struct StagedStandardOutput {
+    reads: Option<StagedStandardOutputReads>,
+    stdout_write: Option<NativeFd>,
+    stderr_write: Option<NativeFd>,
+}
+
+#[cfg(unix)]
+enum StagedStandardOutputReads {
+    Shared(NativeFd),
+    Split { stdout: NativeFd, stderr: NativeFd },
+}
+
+#[cfg(unix)]
+impl StagedStandardOutput {
+    fn new(topology: OutputDestinationTopology) -> io::Result<Self> {
+        match topology {
+            OutputDestinationTopology::Shared { .. } => {
+                let (read, write) = native_pipe()?;
+                make_nonblocking(write.raw())?;
+                Ok(Self {
+                    reads: Some(StagedStandardOutputReads::Shared(read)),
+                    stdout_write: Some(write),
+                    stderr_write: None,
+                })
+            }
+            OutputDestinationTopology::Split => {
+                let (stdout_read, stdout_write) = native_pipe()?;
+                let (stderr_read, stderr_write) = native_pipe()?;
+                make_nonblocking(stdout_write.raw())?;
+                make_nonblocking(stderr_write.raw())?;
+                Ok(Self {
+                    reads: Some(StagedStandardOutputReads::Split {
+                        stdout: stdout_read,
+                        stderr: stderr_read,
+                    }),
+                    stdout_write: Some(stdout_write),
+                    stderr_write: Some(stderr_write),
+                })
+            }
+        }
+    }
+
+    fn take_reads(&mut self) -> StagedStandardOutputReads {
+        self.reads
+            .take()
+            .expect("staging reads are transferred once")
+    }
+
+    fn stdout_write(&self) -> i32 {
+        self.stdout_write.as_ref().expect("staged stdout").raw()
+    }
+
+    fn stderr_write(&self) -> i32 {
+        self.stderr_write
+            .as_ref()
+            .map_or_else(|| self.stdout_write(), NativeFd::raw)
+    }
+
+    fn close_writes(&mut self) {
+        self.stdout_write.take();
+        self.stderr_write.take();
+    }
+}
+
+#[cfg(unix)]
+fn make_nonblocking(descriptor: i32) -> io::Result<()> {
+    let flags = descriptor_flags(descriptor, libc::F_GETFL)?;
+    set_descriptor_flag(descriptor, libc::F_SETFL, flags | libc::O_NONBLOCK)
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct CollectedStandardOutput {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    stdout_discarded: usize,
+    stderr_discarded: usize,
+    stdout_unknown: bool,
+    stderr_unknown: bool,
+    details: Vec<String>,
+}
+
+#[cfg(unix)]
+fn collect_staged_standard_output(
+    reads: StagedStandardOutputReads,
+    stop: Arc<AtomicBool>,
+) -> CollectedStandardOutput {
+    let mut collected = CollectedStandardOutput::default();
+    let (stdout, stderr) = match reads {
+        StagedStandardOutputReads::Shared(output) => (output, None),
+        StagedStandardOutputReads::Split { stdout, stderr } => (stdout, Some(stderr)),
+    };
+    let mut stdout_eof = false;
+    let mut stderr_eof = stderr.is_none();
+    loop {
+        let mut progressed = drain_staged_stream(
+            stdout.raw(),
+            &mut collected.stdout,
+            &mut collected.stdout_discarded,
+            &mut collected.stdout_unknown,
+            &mut collected.details,
+            "stdout",
+            &mut stdout_eof,
+        );
+        if let Some(stderr) = stderr.as_ref() {
+            progressed |= drain_staged_stream(
+                stderr.raw(),
+                &mut collected.stderr,
+                &mut collected.stderr_discarded,
+                &mut collected.stderr_unknown,
+                &mut collected.details,
+                "stderr",
+                &mut stderr_eof,
+            );
+        }
+        if stdout_eof && stderr_eof {
+            break;
+        }
+        if stop.load(Ordering::Acquire) && !progressed {
+            break;
+        }
+        if !progressed {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    collected
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg(unix)]
+fn drain_staged_stream(
+    descriptor: i32,
+    retained: &mut Vec<u8>,
+    discarded: &mut usize,
+    unknown: &mut bool,
+    details: &mut Vec<String>,
+    label: &str,
+    eof: &mut bool,
+) -> bool {
+    if *eof {
+        return false;
+    }
+    let mut progressed = false;
+    let mut bytes = [0_u8; 8192];
+    loop {
+        // SAFETY: descriptor and the stack buffer are live for this read.
+        let amount = unsafe { libc::read(descriptor, bytes.as_mut_ptr().cast(), bytes.len()) };
+        if amount > 0 {
+            progressed = true;
+            let amount = amount as usize;
+            let available = BROKER_QUEUE_BOUND_BYTES.saturating_sub(retained.len());
+            let keep = amount.min(available);
+            retained.extend_from_slice(&bytes[..keep]);
+            *discarded = (*discarded).saturating_add(amount - keep);
+            continue;
+        }
+        if amount == 0 {
+            *eof = true;
+            break;
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() == io::ErrorKind::WouldBlock {
+            break;
+        }
+        *unknown = true;
+        *eof = true;
+        details.push(format!("failed to collect staged {label}: {error}"));
+        break;
+    }
+    progressed
+}
+
+#[cfg(unix)]
+fn write_bounded_capture_suffix(descriptor: i32, bytes: &[u8], deadline: Instant) -> usize {
+    if bytes.is_empty() || make_nonblocking(descriptor).is_err() {
+        return 0;
+    }
+    let _sigpipe = match SigpipeIgnoreGuard::install() {
+        Ok(sigpipe) => sigpipe,
+        Err(_) => return 0,
+    };
+    let mut offset = 0;
+    while offset < bytes.len() {
+        // SAFETY: the retained capture descriptor and remaining bytes live for
+        // the duration of this synchronous write.
+        let amount = unsafe {
+            libc::write(
+                descriptor,
+                bytes[offset..].as_ptr().cast(),
+                bytes.len() - offset,
+            )
+        };
+        if amount > 0 {
+            offset += amount as usize;
+            continue;
+        }
+        if amount == 0 {
+            break;
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        if error.kind() != io::ErrorKind::WouldBlock || Instant::now() >= deadline {
+            break;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let timeout = remaining.as_millis().min(i32::MAX as u128) as i32;
+        let mut output = libc::pollfd {
+            fd: descriptor,
+            events: libc::POLLOUT,
+            revents: 0,
+        };
+        // SAFETY: output names one retained capture descriptor.
+        let ready = unsafe { libc::poll(&mut output, 1, timeout.max(1)) };
+        if ready == 0 {
+            break;
+        }
+        if ready < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            break;
+        }
+    }
+    offset
 }
 
 #[cfg(unix)]
@@ -4032,8 +6118,8 @@ fn write_native_relay(descriptor: i32, bytes: &[u8]) -> Result<usize, String> {
     let mut offset = 0;
     while offset < bytes.len() {
         loop {
-            // SAFETY: the worker owns descriptor and bytes remains live until
-            // the complete blocking write has either succeeded or failed.
+            // SAFETY: descriptor is live and bytes remains borrowed for the
+            // duration of the write.
             let written = unsafe {
                 libc::write(
                     descriptor,
@@ -4058,126 +6144,84 @@ fn write_native_relay(descriptor: i32, bytes: &[u8]) -> Result<usize, String> {
 }
 
 #[cfg(unix)]
-struct PendingNativeRelayWrite {
-    epoch: u64,
-    sequence: u64,
-    lane: BrokerLane,
-    length: usize,
+fn try_write_native_relay(descriptor: i32, bytes: &[u8]) -> Result<RelayWriteOutcome, String> {
+    loop {
+        // SAFETY: descriptor is live and bytes remains borrowed for the
+        // duration of this nonblocking write.
+        let written = unsafe { libc::write(descriptor, bytes.as_ptr().cast(), bytes.len()) };
+        if written > 0 {
+            return Ok(RelayWriteOutcome::Written(written as usize));
+        }
+        if written == 0 {
+            return Err("native relay returned a zero-byte write".to_string());
+        }
+        let error = io::Error::last_os_error();
+        match error.kind() {
+            io::ErrorKind::Interrupted => continue,
+            io::ErrorKind::WouldBlock => return Ok(RelayWriteOutcome::WouldBlock),
+            _ => return Err(error.to_string()),
+        }
+    }
+}
+
+/// An owned, nonblocking physical destination. The broker accounts each
+/// successful partial write immediately; there is no in-flight writer that
+/// can outlive forced-close accounting.
+// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker — relay
+// destinations are nonblocking and partial writes are accounted exactly.
+// @ref LLP 0025#8-exit-and-lifecycle — finish cannot leave a writer capable of
+// producing bytes after the broker has finalized its loss report.
+#[cfg(unix)]
+struct NativeRelayDestination {
+    descriptor: NativeFd,
+    original_status_flags: i32,
+    finished: bool,
 }
 
 #[cfg(unix)]
-struct NativeRelayWorker {
-    commands: Option<mpsc::SyncSender<NativeRelayCommand>>,
-    acknowledgements: mpsc::Receiver<Result<usize, String>>,
-    pending: Option<PendingNativeRelayWrite>,
-    worker: Option<thread::JoinHandle<()>>,
-}
+impl NativeRelayDestination {
+    fn new(descriptor: NativeFd) -> io::Result<Self> {
+        let flags = descriptor_flags(descriptor.raw(), libc::F_GETFL)?;
+        Self::with_status_flags(descriptor, flags)
+    }
 
-#[cfg(unix)]
-impl NativeRelayWorker {
-    fn spawn(name: &'static str, descriptor: NativeFd) -> io::Result<Self> {
-        let (command_tx, command_rx) = mpsc::sync_channel(1);
-        let (ack_tx, ack_rx) = mpsc::channel();
-        let worker = thread::Builder::new()
-            .name(name.to_string())
-            .spawn(move || {
-                while let Ok(NativeRelayCommand::Write(bytes)) = command_rx.recv() {
-                    let result = write_native_relay(descriptor.raw(), &bytes);
-                    if ack_tx.send(result).is_err() {
-                        break;
-                    }
-                }
-            })?;
+    fn with_status_flags(descriptor: NativeFd, original_status_flags: i32) -> io::Result<Self> {
+        set_descriptor_flag(
+            descriptor.raw(),
+            libc::F_SETFL,
+            original_status_flags | libc::O_NONBLOCK,
+        )?;
         Ok(Self {
-            commands: Some(command_tx),
-            acknowledgements: ack_rx,
-            pending: None,
-            worker: Some(worker),
+            descriptor,
+            original_status_flags,
+            finished: false,
         })
     }
 
-    fn try_write(&mut self, request: &RelayWriteRequest<'_>) -> Result<RelayWriteOutcome, String> {
-        if let Some(pending) = &self.pending {
-            if pending.epoch != request.epoch
-                || pending.sequence != request.sequence
-                || pending.lane != request.lane
-                || pending.length != request.bytes.len()
-            {
-                return Err(
-                    "native relay changed a write while acknowledgement was pending".into(),
-                );
-            }
-            return match self.acknowledgements.try_recv() {
-                Ok(Ok(written)) => {
-                    self.pending = None;
-                    Ok(RelayWriteOutcome::Written(written))
-                }
-                Ok(Err(error)) => {
-                    self.pending = None;
-                    Err(error)
-                }
-                Err(mpsc::TryRecvError::Empty) => Ok(RelayWriteOutcome::WouldBlock),
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.pending = None;
-                    Err("native relay worker disconnected".to_string())
-                }
-            };
+    fn try_write(&mut self, bytes: &[u8]) -> Result<RelayWriteOutcome, String> {
+        if self.finished {
+            return Err("native relay destination is finished".to_string());
         }
-
-        self.commands
-            .as_ref()
-            .ok_or_else(|| "native relay is closed".to_string())?
-            .try_send(NativeRelayCommand::Write(request.bytes.to_vec()))
-            .map_err(|error| format!("native relay command queue: {error}"))?;
-        self.pending = Some(PendingNativeRelayWrite {
-            epoch: request.epoch,
-            sequence: request.sequence,
-            lane: request.lane,
-            length: request.bytes.len(),
-        });
-        Ok(RelayWriteOutcome::WouldBlock)
+        try_write_native_relay(self.descriptor.raw(), bytes)
     }
 
     fn finish(&mut self) -> Result<(), String> {
-        let mut acknowledgement_error = None;
-        if self.pending.is_some() {
-            match self.acknowledgements.try_recv() {
-                Ok(Ok(_)) => self.pending = None,
-                Ok(Err(error)) => {
-                    self.pending = None;
-                    acknowledgement_error = Some(error);
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.pending = None;
-                    acknowledgement_error = Some("native relay worker disconnected".to_string());
-                }
-                Err(mpsc::TryRecvError::Empty) => {}
-            }
+        if self.finished {
+            return Ok(());
         }
-        self.commands.take();
-        if self.pending.is_none() {
-            if let Some(worker) = self.worker.take() {
-                worker
-                    .join()
-                    .map_err(|_| "native relay worker panicked".to_string())?;
-            }
-        } else {
-            // A blocked destination must not defeat the broker's finite flush
-            // budget. Dropping the JoinHandle detaches this one CLI-only
-            // relay; the process exits after the adapter reports its frame as
-            // forced-close loss.
-            self.worker.take();
-        }
-        if let Some(error) = acknowledgement_error {
-            Err(error)
-        } else {
-            Ok(())
-        }
+        set_descriptor_flag(
+            self.descriptor.raw(),
+            libc::F_SETFL,
+            self.original_status_flags,
+        )
+        .map_err(|error| error.to_string())?;
+        self.finished = true;
+        Ok(())
     }
 }
 
 #[cfg(unix)]
-impl Drop for NativeRelayWorker {
+impl Drop for NativeRelayDestination {
     fn drop(&mut self) {
         let _ = self.finish();
     }
@@ -4187,11 +6231,11 @@ impl Drop for NativeRelayWorker {
 enum NativeRelaySink {
     Shared {
         relay: RelayId,
-        worker: NativeRelayWorker,
+        destination: NativeRelayDestination,
     },
     Split {
-        stdout: NativeRelayWorker,
-        stderr: NativeRelayWorker,
+        stdout: NativeRelayDestination,
+        stderr: NativeRelayDestination,
     },
 }
 
@@ -4204,19 +6248,25 @@ impl NativeRelaySink {
     ) -> io::Result<Self> {
         match topology {
             OutputDestinationTopology::Shared { destination } => {
-                let (name, descriptor) = match destination {
-                    NativeOutputDestination::Stdout => ("ibex-file-shared-relay", stdout),
-                    NativeOutputDestination::Stderr => ("ibex-file-shared-relay", stderr),
+                let descriptor = match destination {
+                    NativeOutputDestination::Stdout => stdout,
+                    NativeOutputDestination::Stderr => stderr,
                 };
                 Ok(Self::Shared {
                     relay: destination.relay_id(),
-                    worker: NativeRelayWorker::spawn(name, descriptor)?,
+                    destination: NativeRelayDestination::new(descriptor)?,
                 })
             }
-            OutputDestinationTopology::Split => Ok(Self::Split {
-                stdout: NativeRelayWorker::spawn("ibex-file-stdout-relay", stdout)?,
-                stderr: NativeRelayWorker::spawn("ibex-file-stderr-relay", stderr)?,
-            }),
+            OutputDestinationTopology::Split => {
+                // Query both descriptions before either is changed: stdout
+                // and stderr can be duplicates sharing one status-flag set.
+                let stdout_flags = descriptor_flags(stdout.raw(), libc::F_GETFL)?;
+                let stderr_flags = descriptor_flags(stderr.raw(), libc::F_GETFL)?;
+                Ok(Self::Split {
+                    stdout: NativeRelayDestination::with_status_flags(stdout, stdout_flags)?,
+                    stderr: NativeRelayDestination::with_status_flags(stderr, stderr_flags)?,
+                })
+            }
         }
     }
 }
@@ -4225,13 +6275,15 @@ impl NativeRelaySink {
 impl NonBlockingRelaySink for NativeRelaySink {
     fn try_write(&mut self, request: RelayWriteRequest<'_>) -> Result<RelayWriteOutcome, String> {
         match self {
-            Self::Shared { relay, worker } if request.relay == *relay => worker.try_write(&request),
+            Self::Shared { relay, destination } if request.relay == *relay => {
+                destination.try_write(request.bytes)
+            }
             Self::Shared { .. } => Err(format!("unknown shared native relay {}", request.relay.0)),
             Self::Split { stdout, .. } if request.relay == NATIVE_STDOUT_RELAY => {
-                stdout.try_write(&request)
+                stdout.try_write(request.bytes)
             }
             Self::Split { stderr, .. } if request.relay == NATIVE_STDERR_RELAY => {
-                stderr.try_write(&request)
+                stderr.try_write(request.bytes)
             }
             Self::Split { .. } => Err(format!("unknown native relay {}", request.relay.0)),
         }
@@ -4239,7 +6291,7 @@ impl NonBlockingRelaySink for NativeRelaySink {
 
     fn flush(&mut self) -> Result<(), String> {
         match self {
-            Self::Shared { worker, .. } => worker.finish(),
+            Self::Shared { destination, .. } => destination.finish(),
             Self::Split { stdout, stderr } => {
                 let stdout = stdout.finish();
                 let stderr = stderr.finish();
@@ -4284,6 +6336,31 @@ impl CapturedInput {
 
     const fn accepted_bytes(&self) -> u64 {
         self.accepted_bytes
+    }
+
+    fn pending_bytes(&self) -> Result<usize, String> {
+        let mut kernel_bytes: libc::c_int = 0;
+        // SAFETY: FIONREAD writes one c_int to the supplied live pointer and
+        // does not consume bytes from the nonblocking relay descriptor.
+        if unsafe {
+            libc::ioctl(
+                self.descriptor.raw(),
+                libc::FIONREAD,
+                &mut kernel_bytes as *mut libc::c_int,
+            )
+        } != 0
+        {
+            return Err(format!(
+                "failed to count unread captured output bytes: {}",
+                io::Error::last_os_error()
+            ));
+        }
+        let kernel_bytes = usize::try_from(kernel_bytes)
+            .map_err(|_| "captured output byte count was negative".to_string())?;
+        self.pending
+            .len()
+            .checked_add(kernel_bytes)
+            .ok_or_else(|| "captured output byte count exhausted usize".to_string())
     }
 
     fn note_accepted(&mut self, amount: usize) -> Result<(), String> {
@@ -4453,10 +6530,19 @@ impl CapturedInputs {
         }
     }
 
-    fn pending_bytes(&self) -> (usize, usize) {
+    fn pending_bytes(&self) -> Result<(usize, usize), String> {
         match self {
-            Self::Shared { output } => (output.pending.len(), 0),
-            Self::Split { stdout, stderr } => (stdout.pending.len(), stderr.pending.len()),
+            Self::Shared { output } => Ok((output.pending_bytes()?, 0)),
+            Self::Split { stdout, stderr } => {
+                Ok((stdout.pending_bytes()?, stderr.pending_bytes()?))
+            }
+        }
+    }
+
+    fn open_streams(&self) -> (bool, bool) {
+        match self {
+            Self::Shared { output } => (!output.eof, false),
+            Self::Split { stdout, stderr } => (!stdout.eof, !stderr.eof),
         }
     }
 
@@ -4468,12 +6554,120 @@ impl CapturedInputs {
     }
 }
 
+enum FileProgramBrokerCommand {
+    Diagnostic {
+        text: String,
+        state: Arc<std::sync::atomic::AtomicU8>,
+        reply: mpsc::SyncSender<bool>,
+    },
+    Shutdown,
+    ForceFinish {
+        reply: mpsc::SyncSender<Result<FileProgramExecutionReport, String>>,
+    },
+}
+
+const FILE_DIAGNOSTIC_PENDING: u8 = 0;
+const FILE_DIAGNOSTIC_CLAIMED: u8 = 1;
+const FILE_DIAGNOSTIC_CANCELLED: u8 = 2;
+const FILE_DIAGNOSTIC_ACCEPTED: u8 = 3;
+const FILE_DIAGNOSTIC_REFUSED: u8 = 4;
+const FILE_DIAGNOSTIC_BROKER_OWNED: u8 = 5;
+
+/// Session-authored diagnostic ingress owned by the file output broker. Unlike
+/// a detached standard-stream writer, this command is either accepted into the
+/// broker before the adapter can restore descriptors or synchronously refused
+/// so the caller can defer it until after restoration.
+/// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker
+#[derive(Clone)]
+pub(crate) struct FileProgramDiagnosticPort {
+    commands: mpsc::Sender<FileProgramBrokerCommand>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FileProgramDiagnosticDisposition {
+    Accepted,
+    Deferred,
+    BrokerOwned,
+}
+
+impl FileProgramDiagnosticPort {
+    pub(crate) fn diagnostic(
+        &self,
+        prefix: &str,
+        detail: &str,
+    ) -> FileProgramDiagnosticDisposition {
+        use FileProgramDiagnosticDisposition::{Accepted, BrokerOwned, Deferred};
+
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        let state = Arc::new(std::sync::atomic::AtomicU8::new(FILE_DIAGNOSTIC_PENDING));
+        if self
+            .commands
+            .send(FileProgramBrokerCommand::Diagnostic {
+                text: format!("{prefix}{detail}"),
+                state: state.clone(),
+                reply: reply_tx,
+            })
+            .is_err()
+        {
+            return Deferred;
+        }
+        match reply_rx.recv_timeout(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS)) {
+            Ok(true) => Accepted,
+            Ok(false) | Err(mpsc::RecvTimeoutError::Disconnected) => Deferred,
+            Err(mpsc::RecvTimeoutError::Timeout) => match state.compare_exchange(
+                FILE_DIAGNOSTIC_PENDING,
+                FILE_DIAGNOSTIC_CANCELLED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) | Err(FILE_DIAGNOSTIC_CANCELLED) | Err(FILE_DIAGNOSTIC_REFUSED) => Deferred,
+                Err(FILE_DIAGNOSTIC_ACCEPTED) => Accepted,
+                Err(FILE_DIAGNOSTIC_BROKER_OWNED) => BrokerOwned,
+                Err(FILE_DIAGNOSTIC_CLAIMED) => match state.compare_exchange(
+                    FILE_DIAGNOSTIC_CLAIMED,
+                    FILE_DIAGNOSTIC_BROKER_OWNED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) | Err(FILE_DIAGNOSTIC_BROKER_OWNED) => BrokerOwned,
+                    Err(FILE_DIAGNOSTIC_ACCEPTED) => Accepted,
+                    Err(FILE_DIAGNOSTIC_REFUSED) | Err(FILE_DIAGNOSTIC_CANCELLED) => Deferred,
+                    Err(_) => Deferred,
+                },
+                Err(_) => Deferred,
+            },
+        }
+    }
+}
+
+fn finish_file_diagnostic_claim(
+    state: &std::sync::atomic::AtomicU8,
+    accepted: bool,
+    broker_owned_failures: &mut usize,
+) {
+    let previous = state.swap(
+        if accepted {
+            FILE_DIAGNOSTIC_ACCEPTED
+        } else {
+            FILE_DIAGNOSTIC_REFUSED
+        },
+        Ordering::AcqRel,
+    );
+    debug_assert!(matches!(
+        previous,
+        FILE_DIAGNOSTIC_CLAIMED | FILE_DIAGNOSTIC_BROKER_OWNED
+    ));
+    if !accepted && previous == FILE_DIAGNOSTIC_BROKER_OWNED {
+        *broker_owned_failures = (*broker_owned_failures).saturating_add(1);
+    }
+}
+
 #[cfg(unix)]
 fn file_program_relay_loop(
     plan: SessionIoPlan,
     inputs: RelayInputDescriptors,
     sink: NativeRelaySink,
-    shutdown: mpsc::Receiver<()>,
+    commands: mpsc::Receiver<FileProgramBrokerCommand>,
 ) -> Result<FileProgramExecutionReport, String> {
     let mut broker =
         InProcessOutputBroker::new(sink, plan.broker_routes(), plan.broker_presentations())
@@ -4481,14 +6675,63 @@ fn file_program_relay_loop(
     let mut inputs = CapturedInputs::new(inputs);
     let mut receipts = Vec::new();
     let mut shutdown_deadline = None;
+    let mut force_finish_reply = None;
+    let mut broker_owned_diagnostic_failures = 0_usize;
 
     loop {
-        if shutdown_deadline.is_none() && shutdown.try_recv().is_ok() {
-            shutdown_deadline = Some(
-                Instant::now()
-                    .checked_add(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS))
-                    .unwrap_or_else(Instant::now),
-            );
+        match commands.try_recv() {
+            Ok(FileProgramBrokerCommand::Diagnostic { text, state, reply }) => {
+                if state
+                    .compare_exchange(
+                        FILE_DIAGNOSTIC_PENDING,
+                        FILE_DIAGNOSTIC_CLAIMED,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_err()
+                {
+                    let _ = reply.send(false);
+                    continue;
+                }
+                let accepted = broker
+                    .receive_control_line(&text, SessionStyle::Error)
+                    .map(|_| {
+                        broker.pump_available();
+                    })
+                    .is_ok();
+                finish_file_diagnostic_claim(
+                    state.as_ref(),
+                    accepted,
+                    &mut broker_owned_diagnostic_failures,
+                );
+                let _ = reply.send(accepted);
+            }
+            Ok(FileProgramBrokerCommand::Shutdown) | Err(mpsc::TryRecvError::Disconnected) => {
+                if shutdown_deadline.is_none() {
+                    shutdown_deadline = Some(
+                        Instant::now()
+                            .checked_add(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS))
+                            .unwrap_or_else(Instant::now),
+                    );
+                }
+            }
+            Ok(FileProgramBrokerCommand::ForceFinish { reply }) => {
+                if force_finish_reply.is_none() {
+                    force_finish_reply = Some(reply);
+                } else {
+                    let _ = reply.send(Err(
+                        "file output broker already has a forced-finish owner".to_string()
+                    ));
+                }
+                if shutdown_deadline.is_none() {
+                    shutdown_deadline = Some(
+                        Instant::now()
+                            .checked_add(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS))
+                            .unwrap_or_else(Instant::now),
+                    );
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
         }
         let mut progressed = broker.pump_available().progressed_relays != 0;
         progressed |= inputs.ingest(&mut broker, &mut receipts)?;
@@ -4507,16 +6750,40 @@ fn file_program_relay_loop(
     let finish_budget = shutdown_deadline
         .map(|deadline| deadline.saturating_duration_since(Instant::now()))
         .unwrap_or_else(|| Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS));
-    let loss = broker
-        .finish_with_budget(finish_budget)
-        .map_err(|error| error.to_string())?;
-    let (unaccepted_stdout_bytes, unaccepted_stderr_bytes) = inputs.pending_bytes();
-    Ok(FileProgramExecutionReport {
-        receipts,
-        loss,
-        unaccepted_stdout_bytes,
-        unaccepted_stderr_bytes,
-    })
+    let result = (|| {
+        let finish = broker
+            .finish_with_budget_report(finish_budget)
+            .map_err(|error| error.to_string())?;
+        let loss = finish.loss;
+        let (unaccepted_stdout_bytes, unaccepted_stderr_bytes) = inputs.pending_bytes()?;
+        let (stdout_input_open, stderr_input_open) = inputs.open_streams();
+        let loss_report_destinations = file_program_loss_report_destinations(
+            plan,
+            &loss,
+            unaccepted_stdout_bytes,
+            unaccepted_stderr_bytes,
+            stdout_input_open,
+            stderr_input_open,
+            broker_owned_diagnostic_failures,
+        );
+        Ok(FileProgramExecutionReport {
+            receipts,
+            loss,
+            unaccepted_stdout_bytes,
+            unaccepted_stderr_bytes,
+            stdout_input_open,
+            stderr_input_open,
+            stdio_handoff_stdout_unknown: false,
+            stdio_handoff_stderr_unknown: false,
+            broker_owned_diagnostic_failures,
+            finish_error: finish.flush_error,
+            loss_report_destinations,
+        })
+    })();
+    if let Some(reply) = force_finish_reply {
+        let _ = reply.send(result.clone());
+    }
+    result
 }
 
 #[cfg(unix)]
@@ -4525,13 +6792,9 @@ struct ActiveFileProgramCapture {
     lease: ExecutionAdapterLease,
     _descriptor_policy: SessionIo,
     _close_guard: crate::host::abi::TerminalSessionOutputCloseGuard,
-    restore_stdout: NativeFd,
-    restore_stderr: NativeFd,
-    stdout_descriptor_flags: i32,
-    stderr_descriptor_flags: i32,
-    shutdown: Option<mpsc::Sender<()>>,
+    descriptor_handoff: Arc<StandardDescriptorHandoff>,
+    commands: Option<mpsc::Sender<FileProgramBrokerCommand>>,
     relay: Option<thread::JoinHandle<Result<FileProgramExecutionReport, String>>>,
-    restored: bool,
     finished: bool,
 }
 
@@ -4539,6 +6802,7 @@ struct ActiveFileProgramCapture {
 impl ActiveFileProgramCapture {
     fn start(plan: SessionIoPlan) -> Result<Self, FileProgramAdapterError> {
         let close_guard = crate::host::abi::arm_terminal_session_output_close_guard()?;
+        let console_relay = arm_console_relay_for_capture()?;
         flush_process_stdio()?;
 
         let stdout_descriptor_flags = descriptor_flags(libc::STDOUT_FILENO, libc::F_GETFD)?;
@@ -4588,23 +6852,23 @@ impl ActiveFileProgramCapture {
 
         let sink = NativeRelaySink::new(plan.output_topology(), stdout_relay, stderr_relay)?;
 
-        if let Err(error) = duplicate_over(stdout_write.raw(), libc::STDOUT_FILENO) {
-            return Err(error.into());
-        }
         let stderr_write_descriptor = stderr_write
             .as_ref()
             .map_or(stdout_write.raw(), NativeFd::raw);
-        if let Err(error) = duplicate_over(stderr_write_descriptor, libc::STDERR_FILENO) {
-            let _ = duplicate_over(restore_stdout.raw(), libc::STDOUT_FILENO);
-            return Err(error.into());
-        }
-        drop(stdout_write);
-        drop(stderr_write);
+        console_relay.with_output_quiesced(|| -> io::Result<()> {
+            flush_process_stdio()?;
+            duplicate_over(stdout_write.raw(), libc::STDOUT_FILENO)?;
+            if let Err(error) = duplicate_over(stderr_write_descriptor, libc::STDERR_FILENO) {
+                let _ = duplicate_over(restore_stdout.raw(), libc::STDOUT_FILENO);
+                return Err(error);
+            }
+            Ok(())
+        })?;
 
-        let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        let (command_tx, command_rx) = mpsc::channel();
         let relay = match thread::Builder::new()
             .name("ibex-file-output-broker".to_string())
-            .spawn(move || file_program_relay_loop(plan, inputs, sink, shutdown_rx))
+            .spawn(move || file_program_relay_loop(plan, inputs, sink, command_rx))
         {
             Ok(relay) => relay,
             Err(error) => {
@@ -4613,66 +6877,83 @@ impl ActiveFileProgramCapture {
                 return Err(error.into());
             }
         };
+        let descriptor_handoff = Arc::new(StandardDescriptorHandoff::new(
+            StandardDescriptorHandoffConfig {
+                topology: plan.output_topology(),
+                console_relay,
+                restore_stdout,
+                restore_stderr,
+                stdout_descriptor_flags,
+                stderr_descriptor_flags,
+                stdout_capture: stdout_write,
+                stderr_capture: stderr_write,
+            },
+        ));
 
         Ok(Self {
             plan,
             lease: ExecutionAdapterLease,
             _descriptor_policy: descriptor_policy,
             _close_guard: close_guard,
-            restore_stdout,
-            restore_stderr,
-            stdout_descriptor_flags,
-            stderr_descriptor_flags,
-            shutdown: Some(shutdown_tx),
+            descriptor_handoff,
+            commands: Some(command_tx),
             relay: Some(relay),
-            restored: false,
             finished: false,
         })
     }
 
     fn restore_descriptors(&mut self) -> io::Result<()> {
-        if self.restored {
-            return Ok(());
+        self.descriptor_handoff
+            .finish()
+            .restore_error
+            .map_or(Ok(()), |error| Err(io::Error::other(error)))
+    }
+
+    fn diagnostic_port(&self) -> FileProgramDiagnosticPort {
+        FileProgramDiagnosticPort {
+            commands: self
+                .commands
+                .as_ref()
+                .expect("active file broker command lane")
+                .clone(),
         }
-        crate::host::abi::ex_host_console_flush(BROKER_FLUSH_BUDGET_MILLIS as u32);
-        let flush_result = flush_process_stdio();
-        let stdout_result = duplicate_over(self.restore_stdout.raw(), libc::STDOUT_FILENO)
-            .and_then(|()| {
-                set_descriptor_flag(
-                    libc::STDOUT_FILENO,
-                    libc::F_SETFD,
-                    self.stdout_descriptor_flags,
-                )
-            });
-        let stderr_result = duplicate_over(self.restore_stderr.raw(), libc::STDERR_FILENO)
-            .and_then(|()| {
-                set_descriptor_flag(
-                    libc::STDERR_FILENO,
-                    libc::F_SETFD,
-                    self.stderr_descriptor_flags,
-                )
-            });
-        self.restored = stdout_result.is_ok() && stderr_result.is_ok();
-        flush_result.and(stdout_result).and(stderr_result)
     }
 
     fn finish(&mut self) -> Result<FileProgramExecutionReport, FileProgramAdapterError> {
-        let restore_error = self.restore_descriptors().err();
-        if let Some(shutdown) = self.shutdown.take() {
-            let _ = shutdown.send(());
+        let handoff = self.descriptor_handoff.finish();
+        let restore_error = handoff.restore_error.clone().map(io::Error::other);
+        if let Some(commands) = self.commands.take() {
+            let _ = commands.send(FileProgramBrokerCommand::Shutdown);
         }
-        let relay_result = self
-            .relay
-            .take()
-            .ok_or_else(|| FileProgramAdapterError::Broker("relay already joined".into()))?
-            .join()
-            .map_err(|_| FileProgramAdapterError::RelayThreadPanicked)?
-            .map_err(FileProgramAdapterError::Broker);
-        if let Some(error) = restore_error {
-            return Err(error.into());
-        }
+        let relay_result = match self.relay.take() {
+            Some(relay) => match relay.join() {
+                Ok(result) => result.map_err(FileProgramAdapterError::Broker),
+                Err(_) => Err(FileProgramAdapterError::RelayThreadPanicked),
+            },
+            None => Err(FileProgramAdapterError::Broker(
+                "relay already joined".into(),
+            )),
+        };
+        let mut report = match relay_result {
+            Ok(report) => report,
+            Err(relay_error) => {
+                return Err(match restore_error {
+                    Some(restore_error) => FileProgramAdapterError::Broker(format!(
+                        "{relay_error}; descriptor restoration also failed: {restore_error}"
+                    )),
+                    None => relay_error,
+                })
+            }
+        };
+        report.merge_standard_descriptor_handoff(self.plan, &handoff.report);
         self.finished = true;
-        relay_result
+        if let Some(error) = restore_error {
+            return Err(FileProgramAdapterError::NativeWithReport {
+                error,
+                report: Box::new(report),
+            });
+        }
+        Ok(report)
     }
 }
 
@@ -4683,8 +6964,8 @@ impl Drop for ActiveFileProgramCapture {
             return;
         }
         let _ = self.restore_descriptors();
-        if let Some(shutdown) = self.shutdown.take() {
-            let _ = shutdown.send(());
+        if let Some(commands) = self.commands.take() {
+            let _ = commands.send(FileProgramBrokerCommand::Shutdown);
         }
         if let Some(relay) = self.relay.take() {
             let _ = relay.join();
@@ -5207,12 +7488,39 @@ impl Drop for WorkerOutputRelayReservation {
 
 #[cfg(unix)]
 struct SigpipeIgnoreGuard {
-    previous: libc::sigaction,
+    active: bool,
+}
+
+#[cfg(unix)]
+struct SigpipeIgnoreState {
+    depth: usize,
+    previous: Option<libc::sigaction>,
+}
+
+#[cfg(unix)]
+fn sigpipe_ignore_state() -> &'static Mutex<SigpipeIgnoreState> {
+    static STATE: std::sync::OnceLock<Mutex<SigpipeIgnoreState>> = std::sync::OnceLock::new();
+    STATE.get_or_init(|| {
+        Mutex::new(SigpipeIgnoreState {
+            depth: 0,
+            previous: None,
+        })
+    })
 }
 
 #[cfg(unix)]
 impl SigpipeIgnoreGuard {
     fn install() -> io::Result<Self> {
+        let mut state = sigpipe_ignore_state()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.depth != 0 {
+            state.depth = state
+                .depth
+                .checked_add(1)
+                .ok_or_else(|| io::Error::other("SIGPIPE ignore guard depth exhausted"))?;
+            return Ok(Self { active: true });
+        }
         let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
         action.sa_sigaction = libc::SIG_IGN;
         action.sa_flags = 0;
@@ -5223,16 +7531,31 @@ impl SigpipeIgnoreGuard {
         if unsafe { libc::sigaction(libc::SIGPIPE, &action, &mut previous) } != 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(Self { previous })
+        state.previous = Some(previous);
+        state.depth = 1;
+        Ok(Self { active: true })
     }
 }
 
 #[cfg(unix)]
 impl Drop for SigpipeIgnoreGuard {
     fn drop(&mut self) {
-        unsafe {
-            libc::sigaction(libc::SIGPIPE, &self.previous, std::ptr::null_mut());
+        if !self.active {
+            return;
         }
+        let mut state = sigpipe_ignore_state()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        debug_assert!(state.depth != 0);
+        state.depth = state.depth.saturating_sub(1);
+        if state.depth == 0 {
+            if let Some(previous) = state.previous.take() {
+                unsafe {
+                    libc::sigaction(libc::SIGPIPE, &previous, std::ptr::null_mut());
+                }
+            }
+        }
+        self.active = false;
     }
 }
 
@@ -5298,7 +7621,7 @@ pub struct WorkerOutputRelayAdapter {
     relay: Option<thread::JoinHandle<()>>,
     sigpipe: Option<SigpipeIgnoreGuard>,
     _close_guard: crate::host::abi::TerminalSessionOutputCloseGuard,
-    _console_relay_guard: crate::host::abi::AuthenticatedWorkerConsoleRelayGuard,
+    console_relay_guard: Option<crate::host::abi::AuthenticatedWorkerConsoleRelayGuard>,
     closed: bool,
 }
 
@@ -5462,7 +7785,7 @@ impl WorkerOutputRelayAdapter {
             relay: Some(relay),
             sigpipe: Some(sigpipe),
             _close_guard: close_guard,
-            _console_relay_guard: console_relay_guard,
+            console_relay_guard: Some(console_relay_guard),
             closed: false,
         })
     }
@@ -5479,15 +7802,30 @@ impl WorkerOutputRelayAdapter {
         &self.protected_descriptors
     }
 
+    /// Finish after the caller has proved no producer can issue another host
+    /// console record. The production endpoint uses `Drop` instead, retaining
+    /// SEALED state through worker-process exit when evaluator liveness is not
+    /// known.
     pub fn finish(mut self) -> io::Result<()> {
-        self.restore_and_stop()
+        let result = self.restore_and_stop();
+        self.console_relay_guard.take();
+        result
     }
 
     fn restore_and_stop(&mut self) -> io::Result<()> {
         if self.closed {
             return Ok(());
         }
-        crate::host::abi::ex_host_console_flush(BROKER_FLUSH_BUDGET_MILLIS as u32);
+        // Seal before either descriptor is restored. New console calls are
+        // refused, while an already accepted call owns a stable duplicate of
+        // the capture pipe and therefore cannot jump to the restored native
+        // descriptor during the bounded relay join.
+        // @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker
+        let console_relay_guard = self
+            .console_relay_guard
+            .as_ref()
+            .expect("active worker output relay retains its console guard");
+        let console_result = console_relay_guard.seal();
         let stdout_result = duplicate_over(self.restore_stdout.raw(), libc::STDOUT_FILENO)
             .and_then(|()| {
                 set_descriptor_flag(
@@ -5504,6 +7842,13 @@ impl WorkerOutputRelayAdapter {
                     self.stderr_descriptor_flags,
                 )
             });
+        // The worker relay follows the same universal exit ordering as the
+        // file and REPL adapters: restore both standard descriptors before a
+        // bounded host-console drain or any relay join can block.
+        // @ref LLP 0025#5-terminal-presentation-and-restoration
+        if stdout_result.is_ok() && stderr_result.is_ok() {
+            crate::host::abi::ex_host_console_flush(BROKER_FLUSH_BUDGET_MILLIS as u32);
+        }
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -5527,10 +7872,15 @@ impl WorkerOutputRelayAdapter {
             libc::F_SETFL,
             self.stderr_status_flags,
         );
+        // Capture a producer which raced the initial seal. SEALED ingress marks
+        // the epoch failed instead of writing to the restored descriptors.
+        let console_final_result = console_relay_guard.seal();
         self.sigpipe.take();
         WORKER_OUTPUT_RELAY_ACTIVE.store(false, Ordering::Release);
         self.closed = true;
-        stdout_result
+        console_result
+            .and(console_final_result)
+            .and(stdout_result)
             .and(stderr_result)
             .and(relay_result)
             .and(stdout_flags_result)
@@ -5542,6 +7892,13 @@ impl WorkerOutputRelayAdapter {
 impl Drop for WorkerOutputRelayAdapter {
     fn drop(&mut self) {
         let _ = self.restore_and_stop();
+        if let Some(console_relay_guard) = self.console_relay_guard.take() {
+            // A cooperative evaluator is deliberately not joined on the
+            // control-loop success path. Keep SEALED state alive until worker
+            // process exit so that producer can never fall back to restored
+            // native descriptors after this endpoint is gone.
+            std::mem::forget(console_relay_guard);
+        }
     }
 }
 
@@ -5588,6 +7945,39 @@ impl WorkerBarrierFailure {
     /// named output that the broker could not prove accepted before disposal.
     pub(crate) const fn is_output_loss(&self) -> bool {
         !matches!(self, Self::Unavailable { .. })
+    }
+
+    fn record_unavailable_relays(&self, plan: SessionIoPlan, unavailable: &mut BTreeSet<RelayId>) {
+        let routes = plan.broker_routes();
+        match self {
+            Self::DeadlineExceeded {
+                stdout_accepted,
+                stdout_cutoff,
+                stderr_accepted,
+                stderr_cutoff,
+            }
+            | Self::Abandoned {
+                stdout_accepted,
+                stdout_cutoff,
+                stderr_accepted,
+                stderr_cutoff,
+                ..
+            } => {
+                if stdout_accepted < stdout_cutoff {
+                    unavailable.insert(routes.program_stdout);
+                }
+                if stderr_accepted < stderr_cutoff {
+                    unavailable.insert(routes.program_stderr);
+                }
+            }
+            Self::EofBeforeCutoff { stream, .. } => {
+                unavailable.insert(match stream {
+                    ProgramStream::Stdout => routes.program_stdout,
+                    ProgramStream::Stderr => routes.program_stderr,
+                });
+            }
+            Self::Unavailable { .. } => {}
+        }
     }
 }
 
@@ -5692,10 +8082,10 @@ enum ReplBrokerCommand {
         reply: mpsc::SyncSender<Result<(), String>>,
     },
     Finish {
-        reply: mpsc::SyncSender<Result<BrokerLossAccounting, String>>,
+        reply: mpsc::SyncSender<Result<FileProgramExecutionReport, String>>,
     },
     ForceFinish {
-        reply: mpsc::SyncSender<()>,
+        reply: mpsc::SyncSender<Result<FileProgramExecutionReport, String>>,
     },
 }
 
@@ -5799,7 +8189,7 @@ impl ReplBrokerHandle {
         self.request_unit(|reply| ReplBrokerCommand::Clear { reply })
     }
 
-    fn finish(&self) -> Result<BrokerLossAccounting, String> {
+    fn finish(&self) -> Result<FileProgramExecutionReport, String> {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         self.commands
             .send(ReplBrokerCommand::Finish { reply: reply_tx })
@@ -5811,15 +8201,161 @@ impl ReplBrokerHandle {
 
     /// Emergency escalation path used only after the generated machine has
     /// selected a terminal outcome while the owner thread is still wedged.
-    fn force_finish(&self) {
+    fn force_finish(&self) -> Result<FileProgramExecutionReport, String> {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
-        if self
-            .commands
+        self.commands
             .send(ReplBrokerCommand::ForceFinish { reply: reply_tx })
-            .is_ok()
-        {
-            let _ = reply_rx.recv_timeout(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS));
+            .map_err(|_| "REPL output broker stopped".to_string())?;
+        reply_rx
+            .recv_timeout(Duration::from_millis(
+                BROKER_FLUSH_BUDGET_MILLIS
+                    .saturating_mul(2)
+                    .saturating_add(50),
+            ))
+            .map_err(|error| format!("REPL output broker force-finish timed out: {error}"))?
+    }
+}
+
+/// Complete the standard-descriptor FIFO handoff before forcing the REPL
+/// broker closed. Both ordinary-thread `_exit` paths use this single owner so
+/// fd restoration, buffered suffix accounting, and post-restore diagnostics
+/// cannot disagree.
+#[cfg(unix)]
+#[derive(Debug)]
+struct ForcedReplFinishOutcome {
+    report: Option<FileProgramExecutionReport>,
+    unreportable_output_loss: bool,
+    output_loss_reported: bool,
+}
+
+#[cfg(unix)]
+impl ForcedReplFinishOutcome {
+    const fn final_status(&self, settlement: InlineSettlement) -> i32 {
+        settlement.final_status(self.unreportable_output_loss)
+    }
+
+    fn final_status_with_console(
+        &self,
+        settlement: InlineSettlement,
+        console_status: io::Result<()>,
+    ) -> i32 {
+        let unreportable_console_loss = console_status.is_err() && !self.output_loss_reported;
+        settlement.final_status(self.unreportable_output_loss || unreportable_console_loss)
+    }
+}
+
+#[cfg(unix)]
+fn force_finish_repl_after_descriptor_handoff(
+    plan: SessionIoPlan,
+    descriptor_handoff: &StandardDescriptorHandoff,
+    broker: &ReplBrokerHandle,
+) -> ForcedReplFinishOutcome {
+    let handoff = descriptor_handoff.force_finish_bounded();
+    let mut unavailable = BTreeSet::new();
+    let mut details = Vec::new();
+    let mut unknown = false;
+    let mut completed_report = None;
+    match broker.force_finish() {
+        Ok(mut report) => {
+            report.merge_standard_descriptor_handoff(plan, &handoff.report);
+            collect_execution_report_loss(
+                plan,
+                &report,
+                "forced REPL broker close",
+                &mut unavailable,
+                &mut details,
+                &mut unknown,
+            );
+            completed_report = Some(report);
         }
+        Err(error) => {
+            unknown = true;
+            details.push(error);
+        }
+    }
+    if let Err(error) = descriptor_handoff.console_relay_status() {
+        unknown = true;
+        details.push(format!("sealed host-console output was refused: {error}"));
+        let routes = plan.broker_routes();
+        unavailable.insert(routes.program_stdout);
+        unavailable.insert(routes.program_stderr);
+    }
+    if let Some(error) = handoff.restore_error.as_ref() {
+        unknown = true;
+        details.push(format!("standard-descriptor restoration failed: {error}"));
+    }
+    let output_loss = unknown || !details.is_empty();
+    let reported = output_loss
+        && handoff.restore_error.is_none()
+        && report_output_loss_after_restore(plan, &unavailable, &details.join("; "));
+    ForcedReplFinishOutcome {
+        report: completed_report,
+        unreportable_output_loss: output_loss && !reported,
+        output_loss_reported: reported,
+    }
+}
+
+#[cfg(unix)]
+fn force_finish_file_after_descriptor_handoff(
+    plan: SessionIoPlan,
+    descriptor_handoff: &StandardDescriptorHandoff,
+    commands: &mpsc::Sender<FileProgramBrokerCommand>,
+) -> ForcedReplFinishOutcome {
+    let handoff = descriptor_handoff.force_finish_bounded();
+    let mut unavailable = BTreeSet::new();
+    let mut details = Vec::new();
+    let mut unknown = false;
+    let mut completed_report = None;
+    let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+    let broker_finish = commands
+        .send(FileProgramBrokerCommand::ForceFinish { reply: reply_tx })
+        .map_err(|_| "file output broker stopped before forced finish".to_string())
+        .and_then(|()| {
+            reply_rx
+                .recv_timeout(Duration::from_millis(
+                    BROKER_FLUSH_BUDGET_MILLIS
+                        .saturating_mul(2)
+                        .saturating_add(50),
+                ))
+                .map_err(|error| format!("file output broker force-finish timed out: {error}"))?
+        });
+    match broker_finish {
+        Ok(mut report) => {
+            report.merge_standard_descriptor_handoff(plan, &handoff.report);
+            collect_execution_report_loss(
+                plan,
+                &report,
+                "forced file-program broker close",
+                &mut unavailable,
+                &mut details,
+                &mut unknown,
+            );
+            completed_report = Some(report);
+        }
+        Err(error) => {
+            unknown = true;
+            details.push(error);
+        }
+    }
+    if let Err(error) = descriptor_handoff.console_relay_status() {
+        unknown = true;
+        details.push(format!("sealed host-console output was refused: {error}"));
+        let routes = plan.broker_routes();
+        unavailable.insert(routes.program_stdout);
+        unavailable.insert(routes.program_stderr);
+    }
+    if let Some(error) = handoff.restore_error.as_ref() {
+        unknown = true;
+        details.push(format!("standard-descriptor restoration failed: {error}"));
+    }
+    let output_loss = unknown || !details.is_empty();
+    let reported = output_loss
+        && handoff.restore_error.is_none()
+        && report_output_loss_after_restore(plan, &unavailable, &details.join("; "));
+    ForcedReplFinishOutcome {
+        report: completed_report,
+        unreportable_output_loss: output_loss && !reported,
+        output_loss_reported: reported,
     }
 }
 
@@ -6010,6 +8546,67 @@ fn begin_repl_display<W: NonBlockingRelaySink>(
 }
 
 #[cfg(unix)]
+fn finish_repl_broker_capture<W: NonBlockingRelaySink>(
+    plan: SessionIoPlan,
+    broker: &mut InProcessOutputBroker<W>,
+    inputs: &mut CapturedInputs,
+    worker_inputs: &mut Option<CapturedInputs>,
+) -> Result<FileProgramExecutionReport, String> {
+    let deadline = Instant::now()
+        .checked_add(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS))
+        .unwrap_or_else(Instant::now);
+    while Instant::now() < deadline {
+        let mut progress = broker.pump_available().progressed_relays != 0;
+        progress |= inputs.ingest(broker, &mut Vec::new())?;
+        if let Some(input) = worker_inputs.as_mut() {
+            progress |= input.ingest(broker, &mut Vec::new())?;
+        }
+        let worker_finished = worker_inputs.as_ref().is_none_or(CapturedInputs::finished);
+        if inputs.finished() && worker_finished {
+            break;
+        }
+        if !progress {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+    let (mut unaccepted_stdout_bytes, mut unaccepted_stderr_bytes) = inputs.pending_bytes()?;
+    let (mut stdout_input_open, mut stderr_input_open) = inputs.open_streams();
+    if let Some(worker_inputs) = worker_inputs.as_ref() {
+        let (worker_stdout, worker_stderr) = worker_inputs.pending_bytes()?;
+        let (worker_stdout_open, worker_stderr_open) = worker_inputs.open_streams();
+        unaccepted_stdout_bytes = unaccepted_stdout_bytes.saturating_add(worker_stdout);
+        unaccepted_stderr_bytes = unaccepted_stderr_bytes.saturating_add(worker_stderr);
+        stdout_input_open |= worker_stdout_open;
+        stderr_input_open |= worker_stderr_open;
+    }
+    let finish = broker
+        .finish_with_budget_report(deadline.saturating_duration_since(Instant::now()))
+        .map_err(|error| error.to_string())?;
+    let loss_report_destinations = file_program_loss_report_destinations(
+        plan,
+        &finish.loss,
+        unaccepted_stdout_bytes,
+        unaccepted_stderr_bytes,
+        stdout_input_open,
+        stderr_input_open,
+        0,
+    );
+    Ok(FileProgramExecutionReport {
+        receipts: Vec::new(),
+        loss: finish.loss,
+        unaccepted_stdout_bytes,
+        unaccepted_stderr_bytes,
+        stdout_input_open,
+        stderr_input_open,
+        stdio_handoff_stdout_unknown: false,
+        stdio_handoff_stderr_unknown: false,
+        broker_owned_diagnostic_failures: 0,
+        finish_error: finish.flush_error,
+        loss_report_destinations,
+    })
+}
+
+#[cfg(unix)]
 fn repl_broker_loop<W: NonBlockingRelaySink>(
     plan: SessionIoPlan,
     inputs: RelayInputDescriptors,
@@ -6070,11 +8667,10 @@ fn repl_broker_loop<W: NonBlockingRelaySink>(
         // Display completion is a polled state, never a broker-thread wait.
         // This keeps interrupt/control commands and ForceFinish serviceable
         // while a display destination is backpressured.
+        let local_inputs_drained = !inputs_progressed && inputs.pending_bytes()? == (0, 0);
         if let Some(display) = pending_display.take() {
             match display {
-                PendingReplDisplay::DrainLocal { wire, reply }
-                    if !inputs_progressed && inputs.pending_bytes() == (0, 0) =>
-                {
+                PendingReplDisplay::DrainLocal { wire, reply } if local_inputs_drained => {
                     pending_display = begin_repl_display(&mut broker, wire, reply);
                 }
                 PendingReplDisplay::DrainLocal { wire, reply } => {
@@ -6179,28 +8775,9 @@ fn repl_broker_loop<W: NonBlockingRelaySink>(
                 if let Some(display) = pending_display.take() {
                     display.refuse("REPL broker finished before display completion");
                 }
-                let deadline = Instant::now()
-                    .checked_add(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS))
-                    .unwrap_or_else(Instant::now);
-                while Instant::now() < deadline {
-                    let mut progress = broker.pump_available().progressed_relays != 0;
-                    progress |= inputs.ingest(&mut broker, &mut Vec::new())?;
-                    if let Some(input) = worker_inputs.as_mut() {
-                        progress |= input.ingest(&mut broker, &mut Vec::new())?;
-                    }
-                    let worker_finished =
-                        worker_inputs.as_ref().is_none_or(CapturedInputs::finished);
-                    if inputs.finished() && worker_finished {
-                        break;
-                    }
-                    if !progress {
-                        thread::sleep(Duration::from_millis(1));
-                    }
-                }
-                let loss = broker
-                    .finish_with_budget(deadline.saturating_duration_since(Instant::now()))
-                    .map_err(|error| error.to_string());
-                let _ = reply.send(loss);
+                let report =
+                    finish_repl_broker_capture(plan, &mut broker, &mut inputs, &mut worker_inputs);
+                let _ = reply.send(report);
                 return Ok(());
             }
             Ok(ReplBrokerCommand::ForceFinish { reply }) => {
@@ -6215,9 +8792,9 @@ fn repl_broker_loop<W: NonBlockingRelaySink>(
                 if let Some(display) = pending_display.take() {
                     display.refuse("REPL broker was force-finished before display completion");
                 }
-                let _ =
-                    broker.finish_with_budget(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS));
-                let _ = reply.send(());
+                let report =
+                    finish_repl_broker_capture(plan, &mut broker, &mut inputs, &mut worker_inputs);
+                let _ = reply.send(report);
                 return Ok(());
             }
             Err(mpsc::TryRecvError::Disconnected) => {
@@ -6233,7 +8810,7 @@ fn repl_broker_loop<W: NonBlockingRelaySink>(
                     display.refuse("REPL broker command lane disconnected");
                 }
                 let _ =
-                    broker.finish_with_budget(Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS));
+                    finish_repl_broker_capture(plan, &mut broker, &mut inputs, &mut worker_inputs);
                 return Ok(());
             }
             Err(mpsc::TryRecvError::Empty) => {}
@@ -6254,13 +8831,9 @@ struct ActiveReplCapture {
     terminal: Arc<Mutex<UnixTerminalLifecycle>>,
     session_signals: Option<UnixSessionSignalGuard>,
     _control_descriptor: NativeFd,
-    restore_stdout: NativeFd,
-    restore_stderr: NativeFd,
-    stdout_descriptor_flags: i32,
-    stderr_descriptor_flags: i32,
+    descriptor_handoff: Arc<StandardDescriptorHandoff>,
     broker: ReplBrokerHandle,
     broker_thread: Option<thread::JoinHandle<Result<(), String>>>,
-    descriptors_restored: bool,
     terminal_restored: bool,
     finished: bool,
 }
@@ -6274,6 +8847,7 @@ impl ActiveReplCapture {
         use std::os::fd::IntoRawFd as _;
 
         let close_guard = crate::host::abi::arm_terminal_session_output_close_guard()?;
+        let console_relay = arm_console_relay_for_capture()?;
         flush_process_stdio()?;
 
         let (worker_inputs, sequence_allocator) = match worker_relays {
@@ -6317,11 +8891,8 @@ impl ActiveReplCapture {
                 libc::STDERR_FILENO
             }
         })?;
-        let session_signals = if worker_inputs.is_some() {
-            Some(UnixSessionSignalGuard::install(
-                true,
-                captures_non_editor_interrupt(plan.presentation),
-            )?)
+        let session_signals = if worker_inputs.is_some() || plan.presentation.editor_control {
+            Some(UnixSessionSignalGuard::install(true, true)?)
         } else {
             None
         };
@@ -6372,16 +8943,18 @@ impl ActiveReplCapture {
         }
 
         let sink = NativeRelaySink::new(plan.output_topology(), stdout_relay, stderr_relay)?;
-        duplicate_over(stdout_write.raw(), libc::STDOUT_FILENO)?;
         let stderr_write_descriptor = stderr_write
             .as_ref()
             .map_or(stdout_write.raw(), NativeFd::raw);
-        if let Err(error) = duplicate_over(stderr_write_descriptor, libc::STDERR_FILENO) {
-            let _ = duplicate_over(restore_stdout.raw(), libc::STDOUT_FILENO);
-            return Err(error.into());
-        }
-        drop(stdout_write);
-        drop(stderr_write);
+        console_relay.with_output_quiesced(|| -> io::Result<()> {
+            flush_process_stdio()?;
+            duplicate_over(stdout_write.raw(), libc::STDOUT_FILENO)?;
+            if let Err(error) = duplicate_over(stderr_write_descriptor, libc::STDERR_FILENO) {
+                let _ = duplicate_over(restore_stdout.raw(), libc::STDOUT_FILENO);
+                return Err(error);
+            }
+            Ok(())
+        })?;
 
         let (command_tx, command_rx) = mpsc::channel();
         let broker_thread = match thread::Builder::new()
@@ -6411,6 +8984,18 @@ impl ActiveReplCapture {
             return Err(FileProgramAdapterError::Broker(error));
         }
         let terminal = Arc::new(Mutex::new(terminal));
+        let descriptor_handoff = Arc::new(StandardDescriptorHandoff::new(
+            StandardDescriptorHandoffConfig {
+                topology: plan.output_topology(),
+                console_relay,
+                restore_stdout,
+                restore_stderr,
+                stdout_descriptor_flags,
+                stderr_descriptor_flags,
+                stdout_capture: stdout_write,
+                stderr_capture: stderr_write,
+            },
+        ));
 
         Ok(Self {
             plan,
@@ -6420,15 +9005,11 @@ impl ActiveReplCapture {
             terminal,
             session_signals,
             _control_descriptor: control_descriptor,
-            restore_stdout,
-            restore_stderr,
-            stdout_descriptor_flags,
-            stderr_descriptor_flags,
+            descriptor_handoff,
             broker: ReplBrokerHandle {
                 commands: command_tx,
             },
             broker_thread: Some(broker_thread),
-            descriptors_restored: false,
             terminal_restored: false,
             finished: false,
         })
@@ -6447,6 +9028,15 @@ impl ActiveReplCapture {
         Ok(())
     }
 
+    /// Re-run restoration after the signal coordinator has joined. The first
+    /// restore makes cleanup safe to block on; this second pass closes the
+    /// race where an in-flight suspend transaction re-entered raw mode before
+    /// observing the shutdown request.
+    fn restore_terminal_after_signal_join(&mut self) -> io::Result<()> {
+        self.terminal_restored = false;
+        self.restore_terminal()
+    }
+
     fn take_session_signal_source(
         &mut self,
     ) -> io::Result<Option<(NativeFd, UnixSessionSignalHandle)>> {
@@ -6461,63 +9051,81 @@ impl ActiveReplCapture {
     }
 
     fn restore_descriptors(&mut self) -> io::Result<()> {
-        if self.descriptors_restored {
-            return Ok(());
-        }
-        crate::host::abi::ex_host_console_flush(BROKER_FLUSH_BUDGET_MILLIS as u32);
-        let flush_result = flush_process_stdio();
-        let stdout_result = duplicate_over(self.restore_stdout.raw(), libc::STDOUT_FILENO)
-            .and_then(|()| {
-                set_descriptor_flag(
-                    libc::STDOUT_FILENO,
-                    libc::F_SETFD,
-                    self.stdout_descriptor_flags,
-                )
-            });
-        let stderr_result = duplicate_over(self.restore_stderr.raw(), libc::STDERR_FILENO)
-            .and_then(|()| {
-                set_descriptor_flag(
-                    libc::STDERR_FILENO,
-                    libc::F_SETFD,
-                    self.stderr_descriptor_flags,
-                )
-            });
-        self.descriptors_restored = stdout_result.is_ok() && stderr_result.is_ok();
-        flush_result.and(stdout_result).and(stderr_result)
+        self.descriptor_handoff
+            .finish()
+            .restore_error
+            .map_or(Ok(()), |error| Err(io::Error::other(error)))
     }
 
-    fn finish_report(&mut self) -> Result<BrokerLossAccounting, FileProgramAdapterError> {
+    fn finish_report(&mut self) -> Result<FileProgramExecutionReport, FileProgramAdapterError> {
         // Restoration is deliberately complete before the broker's bounded
-        // finish may block on a destination.
-        self.restore_terminal()?;
-        self.restore_descriptors()?;
+        // finish may block on a destination. Attempt both restorations even if
+        // the first fails so a terminal error cannot suppress fd restoration.
+        let terminal_restore_error = self.restore_terminal().err();
+        let handoff = self.descriptor_handoff.finish();
+        let descriptor_restore_error = handoff.restore_error.clone().map(io::Error::other);
+        let restore_error = match (terminal_restore_error, descriptor_restore_error) {
+            (Some(terminal), Some(descriptors)) => Some(io::Error::other(format!(
+                "terminal restoration failed: {terminal}; standard-descriptor restoration failed: {descriptors}"
+            ))),
+            (Some(error), None) | (None, Some(error)) => Some(error),
+            (None, None) => None,
+        };
         let loss_result = self
             .broker
             .finish()
             .map_err(FileProgramAdapterError::Broker);
-        let join_result = self
-            .broker_thread
-            .take()
-            .ok_or_else(|| FileProgramAdapterError::Broker("broker already joined".into()))?
-            .join()
-            .map_err(|_| FileProgramAdapterError::RelayThreadPanicked)?
-            .map_err(FileProgramAdapterError::Broker);
+        let join_result = match self.broker_thread.take() {
+            Some(worker) => match worker.join() {
+                Ok(result) => result.map_err(FileProgramAdapterError::Broker),
+                Err(_) => Err(FileProgramAdapterError::RelayThreadPanicked),
+            },
+            None => Err(FileProgramAdapterError::Broker(
+                "broker already joined".into(),
+            )),
+        };
         self.finished = true;
-        let loss = loss_result?;
+        let mut report = loss_result?;
         join_result?;
-        Ok(loss)
+        report.merge_standard_descriptor_handoff(self.plan, &handoff.report);
+        match restore_error {
+            Some(error) => Err(FileProgramAdapterError::NativeWithReport {
+                error,
+                report: Box::new(report),
+            }),
+            None => Ok(report),
+        }
+    }
+}
+
+/// Final terminal restoration and SIGINT-disposition teardown are one ordered
+/// operation. A failed restore deliberately retains the scoped mediation so
+/// `ActiveReplCapture`'s drop-time retry still runs before the prior/default
+/// disposition can kill a process whose terminal may remain raw.
+#[cfg(unix)]
+trait TerminalSignalFinalizationPort {
+    fn restore_after_signal_join(&mut self) -> io::Result<()>;
+    fn disarm_session_signals(&mut self);
+}
+
+#[cfg(unix)]
+impl TerminalSignalFinalizationPort for ActiveReplCapture {
+    fn restore_after_signal_join(&mut self) -> io::Result<()> {
+        self.restore_terminal_after_signal_join()
     }
 
-    fn finish(&mut self) -> Result<(), FileProgramAdapterError> {
-        let loss = self.finish_report()?;
-        if loss.has_loss() {
-            return Err(FileProgramAdapterError::Broker(format!(
-                "REPL output was lost during bounded shutdown: {:?}",
-                loss.relays
-            )));
-        }
-        Ok(())
+    fn disarm_session_signals(&mut self) {
+        ActiveReplCapture::disarm_session_signals(self);
     }
+}
+
+#[cfg(unix)]
+fn restore_terminal_before_disarming_session_signals(
+    port: &mut impl TerminalSignalFinalizationPort,
+) -> io::Result<()> {
+    port.restore_after_signal_join()?;
+    port.disarm_session_signals();
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -6629,9 +9237,13 @@ impl NonEditorWorkerInterruptControl {
 #[cfg(unix)]
 struct UnixWorkerTerminalSignalPort {
     terminal: Arc<Mutex<UnixTerminalLifecycle>>,
+    finalizing: Arc<std::sync::atomic::AtomicBool>,
+    plan: SessionIoPlan,
     presentation: CapturedPresentation,
-    worker: crate::session_worker_runtime::WorkerTerminalControl,
+    worker: Option<crate::session_worker_runtime::WorkerTerminalControl>,
     non_editor_interrupt: Option<NonEditorWorkerInterruptControl>,
+    editor_interrupt: Option<ReplInterruptIngress>,
+    descriptor_handoff: Arc<StandardDescriptorHandoff>,
     broker: ReplBrokerHandle,
     prompt: Option<PromptWitness>,
 }
@@ -6642,6 +9254,9 @@ impl UnixWorkerTerminalSignalPort {
         if matches!(self.presentation.topology, PresentationTopology::Transcript) {
             return Ok(());
         }
+        let Some(worker) = self.worker.as_ref() else {
+            return Ok(());
+        };
         let descriptor = self
             .terminal
             .lock()
@@ -6649,10 +9264,25 @@ impl UnixWorkerTerminalSignalPort {
             .control_fd();
         let dimensions =
             terminal_dimensions_from_fd(descriptor).map_err(|error| error.to_string())?;
-        self.worker
+        worker
             .resize(dimensions.columns, dimensions.rows)
             .map_err(|error| format!("failed to relay authenticated terminal resize: {error:#}"))
     }
+}
+
+#[cfg(unix)]
+fn enter_with_terminal_finalization_gate<T>(
+    terminal: &Mutex<T>,
+    finalizing: &std::sync::atomic::AtomicBool,
+    enter: impl FnOnce(&mut T) -> Result<(), String>,
+) -> Result<(), String> {
+    let mut terminal = terminal
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if finalizing.load(Ordering::Acquire) {
+        return Err("terminal session is finalizing".to_string());
+    }
+    enter(&mut terminal)
 }
 
 #[cfg(unix)]
@@ -6665,9 +9295,11 @@ impl TerminalSuspensionTransactionPort for UnixWorkerTerminalSignalPort {
     }
 
     fn stop_worker_group(&mut self) -> Result<(), String> {
-        self.worker
-            .suspend()
-            .map_err(|error| format!("failed to stop worker process group: {error:#}"))
+        self.worker.as_ref().map_or(Ok(()), |worker| {
+            worker
+                .suspend()
+                .map_err(|error| format!("failed to stop worker process group: {error:#}"))
+        })
     }
 
     fn stop_supervisor(&mut self) -> Result<(), String> {
@@ -6696,16 +9328,19 @@ impl TerminalSuspensionTransactionPort for UnixWorkerTerminalSignalPort {
     }
 
     fn enter_terminal(&mut self) -> Result<(), String> {
-        self.terminal
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .enter_session(self.presentation)
+        enter_with_terminal_finalization_gate(
+            self.terminal.as_ref(),
+            self.finalizing.as_ref(),
+            |terminal| terminal.enter_session(self.presentation),
+        )
     }
 
     fn continue_worker_group(&mut self) -> Result<(), String> {
-        self.worker
-            .resume()
-            .map_err(|error| format!("failed to continue worker process group: {error:#}"))
+        self.worker.as_ref().map_or(Ok(()), |worker| {
+            worker
+                .resume()
+                .map_err(|error| format!("failed to continue worker process group: {error:#}"))
+        })
     }
 
     fn refresh_dimensions(&mut self) -> Result<(), String> {
@@ -6751,7 +9386,11 @@ impl NonEditorInterruptCleanupPort for UnixWorkerTerminalSignalPort {
     }
 
     fn force_finish_broker(&mut self) {
-        self.broker.force_finish();
+        let _ = force_finish_repl_after_descriptor_handoff(
+            self.plan,
+            self.descriptor_handoff.as_ref(),
+            &self.broker,
+        );
     }
 }
 
@@ -6761,15 +9400,110 @@ impl NonEditorInterruptCleanupPort for UnixWorkerTerminalSignalPort {
 /// @ref LLP 0025#1-modes-descriptors-and-topology
 #[cfg(unix)]
 fn execute_non_editor_interrupt_cleanup(port: &mut impl NonEditorInterruptCleanupPort) {
-    let _ = port.request_exact_cancellation();
     let _ = port.restore_for_interrupt();
+    let _ = port.request_exact_cancellation();
     let _ = port.terminate_interrupted_worker();
     port.force_finish_broker();
 }
 
 #[cfg(unix)]
+trait ProcessControlSignalCleanupPort {
+    fn restore_for_process_signal(&mut self) -> Result<(), String>;
+    fn terminate_worker_for_process_signal(&mut self) -> Result<(), String>;
+    fn force_finish_broker_for_process_signal(&mut self);
+}
+
+#[cfg(unix)]
+impl ProcessControlSignalCleanupPort for UnixWorkerTerminalSignalPort {
+    fn restore_for_process_signal(&mut self) -> Result<(), String> {
+        self.terminal
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .restore_session()
+    }
+
+    fn terminate_worker_for_process_signal(&mut self) -> Result<(), String> {
+        if let Some(interrupt) = self.non_editor_interrupt.as_ref() {
+            return interrupt.terminate_worker();
+        }
+        if let Some(interrupt) = self.editor_interrupt.as_ref() {
+            interrupt.controller.terminate_worker_for_escape();
+        }
+        Ok(())
+    }
+
+    fn force_finish_broker_for_process_signal(&mut self) {
+        let _ = force_finish_repl_after_descriptor_handoff(
+            self.plan,
+            self.descriptor_handoff.as_ref(),
+            &self.broker,
+        );
+    }
+}
+
+/// Complete every catchable process-control signal on the ordinary supervisor
+/// lane. Restoration is first; the bounded broker close then flushes accepted
+/// bytes and accounts for any loss; only afterward is the worker released and
+/// the process allowed to take its signal disposition.
+/// @ref LLP 0025#5-terminal-presentation-and-restoration
+/// @ref LLP 0025#8-exit-and-lifecycle
+#[cfg(unix)]
+fn execute_process_control_signal_cleanup(port: &mut impl ProcessControlSignalCleanupPort) {
+    let _ = port.restore_for_process_signal();
+    port.force_finish_broker_for_process_signal();
+    let _ = port.terminate_worker_for_process_signal();
+}
+
+#[cfg(unix)]
+unsafe fn exit_after_process_control_signal(event: SessionSignalEvent) -> ! {
+    let signal = match event {
+        SessionSignalEvent::Terminate => libc::SIGTERM,
+        SessionSignalEvent::Hangup => libc::SIGHUP,
+        SessionSignalEvent::Quit => libc::SIGQUIT,
+        _ => {
+            // SAFETY: this is an unrecoverable internal dispatch mismatch on a
+            // process-termination path.
+            unsafe { libc::_exit(EXIT_STATUS_ENGINE_FAULT) }
+        }
+    };
+    if signal != libc::SIGQUIT {
+        // SAFETY: cleanup has completed on an ordinary supervisor thread and
+        // `_exit` is the final process-wide action.
+        unsafe { libc::_exit(128_i32.saturating_add(signal)) }
+    }
+
+    // SIGQUIT must retain signal rather than ordinary-exit semantics. Install
+    // the default disposition, unblock it on this coordinator thread, and
+    // raise it synchronously so waiters observe WIFSIGNALED(SIGQUIT) and the OS
+    // retains its normal core-dump policy.
+    let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+    action.sa_sigaction = libc::SIG_DFL;
+    action.sa_flags = 0;
+    let mut unblocked: libc::sigset_t = unsafe { std::mem::zeroed() };
+    if unsafe { libc::sigemptyset(&mut action.sa_mask) } == 0
+        && unsafe { libc::sigaction(signal, &action, std::ptr::null_mut()) } == 0
+        && unsafe { libc::sigemptyset(&mut unblocked) } == 0
+        && unsafe { libc::sigaddset(&mut unblocked, signal) } == 0
+        && unsafe { libc::pthread_sigmask(libc::SIG_UNBLOCK, &unblocked, std::ptr::null_mut()) }
+            == 0
+    {
+        // SAFETY: SIGQUIT now has its default unblocked disposition on this
+        // thread. With the default action `raise` does not return.
+        unsafe {
+            libc::raise(signal);
+        }
+    }
+    // If disposition restoration or re-raise failed, retain the specified
+    // shell-style status rather than returning to a partially torn-down Rust
+    // process. Successful SIGQUIT never reaches this fallback.
+    unsafe { libc::_exit(128_i32.saturating_add(signal)) }
+}
+
+#[cfg(unix)]
 struct WorkerTerminalSignalCoordinator {
     handle: UnixSessionSignalHandle,
+    finalizing: Arc<std::sync::atomic::AtomicBool>,
+    terminal: Arc<Mutex<UnixTerminalLifecycle>>,
     thread: Option<thread::JoinHandle<()>>,
 }
 
@@ -6778,11 +9512,13 @@ impl WorkerTerminalSignalCoordinator {
     fn spawn(
         receiver: NativeFd,
         handle: UnixSessionSignalHandle,
+        finalizing: Arc<std::sync::atomic::AtomicBool>,
         mut port: UnixWorkerTerminalSignalPort,
     ) -> io::Result<Self> {
+        let terminal = port.terminal.clone();
         let signal_thread = thread::Builder::new()
             .name("ibex-terminal-signals".to_string())
-            .spawn(move || loop {
+            .spawn(move || 'signal_loop: loop {
                 let mut poll_descriptor = libc::pollfd {
                     fd: receiver.raw(),
                     events: libc::POLLIN,
@@ -6809,19 +9545,50 @@ impl WorkerTerminalSignalCoordinator {
                     }
                     break;
                 }
-                let mut pending = SESSION_SIGNAL_PENDING.swap(0, Ordering::AcqRel);
+                let batch = take_session_signal_batch();
+                let mut pending = batch.pending;
+                for event in batch.events {
+                    match event {
+                        SessionSignalEvent::None => break,
+                        SessionSignalEvent::Shutdown => break 'signal_loop,
+                        SessionSignalEvent::Interrupt => {
+                            if let Some(interrupt) = port.editor_interrupt.as_ref() {
+                                if interrupt.dispatch_observed_interrupt() {
+                                    return;
+                                }
+                            } else {
+                                execute_non_editor_interrupt_cleanup(&mut port);
+                                // SAFETY: SIGINT was reduced to an ordered
+                                // self-pipe event; this ordinary coordinator
+                                // thread has completed bounded cleanup.
+                                unsafe {
+                                    libc::_exit(EXIT_STATUS_INTERRUPT);
+                                }
+                            }
+                        }
+                        SessionSignalEvent::Terminate
+                        | SessionSignalEvent::Hangup
+                        | SessionSignalEvent::Quit => {
+                            port.finalizing.store(true, Ordering::Release);
+                            execute_process_control_signal_cleanup(&mut port);
+                            // SAFETY: the event is one of the three matched
+                            // process-control signals and ordinary cleanup has
+                            // completed. SIGQUIT re-raises its default action.
+                            unsafe { exit_after_process_control_signal(event) }
+                        }
+                    }
+                }
+                // Every termination-relevant wake appends an ordered event.
+                // These bit checks are defensive for a saturated/corrupt batch;
+                // three queued interrupt events already exhaust the generated
+                // escape bound, while any other queued event is terminal sooner.
                 if pending & SESSION_SIGNAL_SHUTDOWN != 0 {
                     break;
                 }
-                if pending & SESSION_SIGNAL_INTERRUPT != 0 {
-                    execute_non_editor_interrupt_cleanup(&mut port);
-                    // SAFETY: SIGINT was reduced to a self-pipe bit by the
-                    // signal handler; this ordinary coordinator thread has
-                    // now completed bounded worker and broker cleanup.
-                    unsafe {
-                        libc::_exit(EXIT_STATUS_INTERRUPT);
-                    }
-                }
+                pending &= !(SESSION_SIGNAL_INTERRUPT
+                    | SESSION_SIGNAL_TERMINATE
+                    | SESSION_SIGNAL_HANGUP
+                    | SESSION_SIGNAL_QUIT);
                 if pending & SESSION_SIGNAL_SUSPEND != 0 {
                     if let Err(error) = execute_terminal_suspension_transaction(&mut port) {
                         port.broker
@@ -6843,6 +9610,8 @@ impl WorkerTerminalSignalCoordinator {
             })?;
         Ok(Self {
             handle,
+            finalizing,
+            terminal,
             thread: Some(signal_thread),
         })
     }
@@ -6852,11 +9621,18 @@ impl WorkerTerminalSignalCoordinator {
     }
 
     fn request_shutdown(&self) {
+        // The packed event CAS is the primary-cause linearization point shared
+        // with the signal handler. Publish it before closing the suspension
+        // re-entry gate so a SIGINT cannot be ordered ahead of an owner
+        // shutdown that already initiated termination. The caller performs no
+        // restoration until this method returns, and the final post-join
+        // restore closes any already-running suspension transaction.
         self.handle.request_shutdown();
+        self.finalizing.store(true, Ordering::Release);
     }
 
     fn finish(mut self) -> io::Result<()> {
-        self.handle.request_shutdown();
+        self.request_shutdown();
         self.thread
             .take()
             .expect("terminal signal coordinator thread is present")
@@ -6871,8 +9647,18 @@ impl Drop for WorkerTerminalSignalCoordinator {
         let Some(thread) = self.thread.take() else {
             return;
         };
-        self.handle.request_shutdown();
+        self.request_shutdown();
+        let _ = self
+            .terminal
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .restore_session();
         let _ = thread.join();
+        let _ = self
+            .terminal
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .restore_session();
     }
 }
 
@@ -6882,18 +9668,32 @@ fn start_worker_terminal_signal_coordinator(
     worker: Option<crate::session_worker_runtime::WorkerTerminalControl>,
     prompt: Option<PromptWitness>,
     non_editor_interrupt: Option<NonEditorWorkerInterruptControl>,
+    editor_interrupt: Option<ReplInterruptIngress>,
 ) -> anyhow::Result<Option<WorkerTerminalSignalCoordinator>> {
     anyhow::ensure!(
-        non_editor_interrupt.is_some() == !active.plan.presentation.editor_control,
+        non_editor_interrupt.is_some() != active.plan.presentation.editor_control,
         "worker non-editor interrupt authority disagrees with captured presentation"
     );
-    match (active.session_signals.is_some(), worker) {
-        (true, Some(worker)) => {
+    anyhow::ensure!(
+        editor_interrupt.is_some() == active.plan.presentation.editor_control,
+        "editor interrupt ingress disagrees with captured presentation"
+    );
+    match active.session_signals.is_some() {
+        true => {
+            anyhow::ensure!(
+                worker.is_some() || editor_interrupt.is_some(),
+                "terminal signal source has neither worker nor editor authority"
+            );
+            let finalizing = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let port = UnixWorkerTerminalSignalPort {
                 terminal: active.terminal.clone(),
+                finalizing: finalizing.clone(),
+                plan: active.plan,
                 presentation: active.plan.presentation,
                 worker,
                 non_editor_interrupt,
+                editor_interrupt,
+                descriptor_handoff: active.descriptor_handoff.clone(),
                 broker: active.broker.clone(),
                 prompt,
             };
@@ -6905,20 +9705,24 @@ fn start_worker_terminal_signal_coordinator(
             let (receiver, handle) = active
                 .take_session_signal_source()?
                 .expect("active worker signal guard retains its source");
-            match WorkerTerminalSignalCoordinator::spawn(receiver, handle, port) {
+            match WorkerTerminalSignalCoordinator::spawn(receiver, handle, finalizing, port) {
                 Ok(coordinator) => Ok(Some(coordinator)),
                 Err(error) => {
-                    // No coordinator owns the reader, so restore the prior
-                    // dispositions before returning through adapter cleanup.
-                    active.disarm_session_signals();
+                    // The capture is still terminal-active. Retain the scoped
+                    // dispositions so its drop path restores cooked mode before
+                    // returning the prior/default handlers. The failed spawn
+                    // has already dropped the unowned receiver.
                     Err(error.into())
                 }
             }
         }
-        (false, None) => Ok(None),
-        _ => anyhow::bail!(
-            "worker terminal signal source and authenticated control authority disagree"
-        ),
+        false => {
+            anyhow::ensure!(
+                worker.is_none() && editor_interrupt.is_none(),
+                "worker/editor authority exists without a terminal signal source"
+            );
+            Ok(None)
+        }
     }
 }
 
@@ -6932,6 +9736,16 @@ struct ReplInterruptEvent {
 }
 
 #[cfg(unix)]
+fn forced_repl_interrupt_settlement(event: ReplInterruptEvent) -> InlineSettlement {
+    let status = event.terminal_status.unwrap_or(EXIT_STATUS_INTERRUPT);
+    if event.successful_termination {
+        InlineSettlement::Successful(status)
+    } else {
+        InlineSettlement::Fixed(status)
+    }
+}
+
+#[cfg(unix)]
 #[derive(Debug)]
 enum ReplInputEvent {
     Byte {
@@ -6939,8 +9753,479 @@ enum ReplInputEvent {
         observed_prompt: Option<PromptCycle>,
     },
     Interrupt(ReplInterruptEvent),
+    InputBacklogExhausted,
+    InputBacklogBoundary {
+        generation: u64,
+    },
     Eof,
     Error(String),
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug)]
+struct ReplInputByte {
+    byte: u8,
+    observed_prompt: Option<PromptCycle>,
+}
+
+#[cfg(unix)]
+const REPL_INPUT_PRIORITY_CAPACITY: usize = 8;
+#[cfg(unix)]
+fn repl_input_backlog_diagnostic() -> String {
+    format!(
+        "repl-input-backlog-exhausted: queued {NOTICE_INPUT_DISCARDED} through the next input boundary"
+    )
+}
+
+#[cfg(unix)]
+#[derive(Default)]
+struct ReplInputBacklogInner {
+    active: bool,
+    notice_delivered: bool,
+    boundary_seen: bool,
+    boundary_delivered: bool,
+    boundary_generation: u64,
+    recovered: VecDeque<ReplInputByte>,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplBacklogInputDisposition {
+    Forward,
+    Buffered,
+    Discarded,
+}
+
+/// A coalesced, durable side lane for backlog control plus one bounded
+/// post-boundary handoff. `Notify` wakes an idle consumer without consuming the
+/// state. The handoff lets the raw scanner preserve successor input immediately
+/// after the resynchronization boundary instead of continuing to discard until
+/// the editor happens to acknowledge the notice.
+#[cfg(unix)]
+struct ReplInputBacklogState {
+    state: Mutex<ReplInputBacklogInner>,
+    changed: tokio::sync::Notify,
+    recovery_capacity: usize,
+}
+
+#[cfg(unix)]
+impl Default for ReplInputBacklogState {
+    fn default() -> Self {
+        Self::with_recovery_capacity(ibex_runtime::session_constants::MAX_INPUT_BYTES)
+    }
+}
+
+#[cfg(unix)]
+impl ReplInputBacklogState {
+    fn with_recovery_capacity(recovery_capacity: usize) -> Self {
+        Self {
+            state: Mutex::new(ReplInputBacklogInner::default()),
+            changed: tokio::sync::Notify::new(),
+            recovery_capacity,
+        }
+    }
+
+    fn begin(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !state.active {
+            state.active = true;
+            state.notice_delivered = false;
+            state.boundary_seen = false;
+            state.boundary_delivered = false;
+            state.recovered.clear();
+            drop(state);
+            self.changed.notify_one();
+        }
+    }
+
+    fn route_ordinary_input(
+        &self,
+        input: ReplInputByte,
+        pasted: bool,
+    ) -> ReplBacklogInputDisposition {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !state.active {
+            return ReplBacklogInputDisposition::Forward;
+        }
+
+        let boundary = is_input_resynchronization_boundary(pasted, input.byte);
+        if !state.boundary_seen {
+            if boundary {
+                mark_repl_backlog_boundary(&mut state);
+                drop(state);
+                self.changed.notify_one();
+            }
+            return ReplBacklogInputDisposition::Discarded;
+        }
+
+        // `recovery_capacity` bounds source payload bytes. One outside-paste
+        // delimiter is framing, so a maximum-size valid record can still be
+        // handed off intact rather than being reclassified as backlog loss.
+        if state.recovered.len() < self.recovery_capacity
+            || (state.recovered.len() == self.recovery_capacity && boundary)
+        {
+            state.recovered.push_back(input);
+            return ReplBacklogInputDisposition::Buffered;
+        }
+
+        // The bounded successor handoff itself exhausted before the editor
+        // acknowledged it. Reject that whole captured generation and seek a
+        // new outside-paste boundary; a stale boundary event cannot resume it
+        // because the event carries the previous generation.
+        state.recovered.clear();
+        state.boundary_seen = false;
+        state.boundary_delivered = false;
+        if boundary {
+            mark_repl_backlog_boundary(&mut state);
+            drop(state);
+            self.changed.notify_one();
+        }
+        ReplBacklogInputDisposition::Discarded
+    }
+
+    fn is_active(&self) -> bool {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .active
+    }
+
+    fn take_pending_event(&self) -> Option<ReplInputEvent> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !state.active {
+            return None;
+        }
+        if !state.notice_delivered {
+            state.notice_delivered = true;
+            return Some(ReplInputEvent::InputBacklogExhausted);
+        }
+        if state.boundary_seen && !state.boundary_delivered {
+            state.boundary_delivered = true;
+            return Some(ReplInputEvent::InputBacklogBoundary {
+                generation: state.boundary_generation,
+            });
+        }
+        None
+    }
+
+    fn take_recovered_and_resume(&self, generation: u64) -> Option<VecDeque<ReplInputByte>> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !state.active || !state.boundary_seen || state.boundary_generation != generation {
+            return None;
+        }
+        let recovered = std::mem::take(&mut state.recovered);
+        state.active = false;
+        state.notice_delivered = false;
+        state.boundary_seen = false;
+        state.boundary_delivered = false;
+        Some(recovered)
+    }
+
+    fn invalidate_recovered_generation(&self) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !state.active {
+            return;
+        }
+        state.recovered.clear();
+        state.boundary_seen = false;
+        state.boundary_delivered = false;
+    }
+
+    #[cfg(test)]
+    fn recovered_len(&self) -> usize {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .recovered
+            .len()
+    }
+}
+
+#[cfg(unix)]
+fn mark_repl_backlog_boundary(state: &mut ReplInputBacklogInner) {
+    state.boundary_generation = state.boundary_generation.wrapping_add(1);
+    state.boundary_seen = true;
+    state.boundary_delivered = false;
+}
+
+/// Two bounded lanes keep ordinary typed-ahead bytes from consuming memory
+/// without limit while interrupts retain an independent priority path.
+#[cfg(unix)]
+struct ReplInputPort {
+    priority: tokio::sync::mpsc::Receiver<ReplInputEvent>,
+    bytes: tokio::sync::mpsc::Receiver<ReplInputByte>,
+    backlog: Arc<ReplInputBacklogState>,
+    recovered: VecDeque<ReplInputByte>,
+    priority_closed: bool,
+    bytes_closed: bool,
+}
+
+#[cfg(unix)]
+impl ReplInputPort {
+    async fn recv(&mut self) -> Option<ReplInputEvent> {
+        loop {
+            if !self.priority_closed {
+                match self.priority.try_recv() {
+                    Ok(event) => return Some(event),
+                    Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
+                    Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                        self.priority_closed = true;
+                    }
+                }
+            }
+            if let Some(event) = self.backlog.take_pending_event() {
+                return Some(event);
+            }
+            if let Some(byte) = self.recovered.pop_front() {
+                return Some(ReplInputEvent::Byte {
+                    byte: byte.byte,
+                    observed_prompt: byte.observed_prompt,
+                });
+            }
+            if self.priority_closed && self.bytes_closed {
+                return None;
+            }
+            tokio::select! {
+                biased;
+                event = self.priority.recv(), if !self.priority_closed => {
+                    match event {
+                        Some(event) => return Some(event),
+                        None => self.priority_closed = true,
+                    }
+                }
+                () = self.backlog.changed.notified() => {}
+                byte = self.bytes.recv(), if !self.bytes_closed => {
+                    match byte {
+                        Some(byte) => return Some(ReplInputEvent::Byte {
+                            byte: byte.byte,
+                            observed_prompt: byte.observed_prompt,
+                        }),
+                        None => self.bytes_closed = true,
+                    }
+                }
+            }
+        }
+    }
+
+    fn discard_buffered_bytes(&mut self) {
+        self.recovered.clear();
+        while self.bytes.try_recv().is_ok() {}
+    }
+
+    fn discard_buffered_bytes_after_interrupt(&mut self) {
+        self.discard_buffered_bytes();
+        // If a backlog boundary was already observed, its successor handoff is
+        // typed-ahead relative to this interrupt. Invalidate that generation
+        // and require a new physical boundary so no pre-interrupt prefix can
+        // reappear after the buffer-discard decision.
+        self.backlog.invalidate_recovered_generation();
+    }
+
+    fn resume_after_backlog_exhaustion(&mut self, generation: u64) -> bool {
+        let Some(recovered) = self.backlog.take_recovered_and_resume(generation) else {
+            return false;
+        };
+        self.recovered = recovered;
+        true
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplInputForwardDisposition {
+    Forwarded,
+    BacklogExhausted,
+    Closed,
+}
+
+#[cfg(unix)]
+/// @ref LLP 0025#5-terminal-presentation-and-restoration — ordinary-lane
+/// occupancy is backlog exhaustion; only decoded submission length proves a
+/// per-record overflow.
+fn try_forward_repl_input_byte(
+    bytes: &tokio::sync::mpsc::Sender<ReplInputByte>,
+    input: ReplInputByte,
+) -> ReplInputForwardDisposition {
+    match bytes.try_send(input) {
+        Ok(()) => ReplInputForwardDisposition::Forwarded,
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            ReplInputForwardDisposition::BacklogExhausted
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            ReplInputForwardDisposition::Closed
+        }
+    }
+}
+
+#[cfg(unix)]
+const COMPLETION_JOB_CAPACITY: usize = 1;
+
+#[cfg(unix)]
+type CompletionQueryEvaluator = dyn Fn(&crate::repl::session::StaticCompletionSnapshot, &str, usize) -> Vec<String>
+    + Send
+    + Sync
+    + 'static;
+
+#[cfg(unix)]
+struct CompletionJob {
+    request_id: u64,
+    input_generation: u64,
+    line: String,
+    snapshot: crate::repl::session::StaticCompletionSnapshot,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CompletionQueueError {
+    Full,
+    Disconnected,
+}
+
+#[cfg(unix)]
+#[derive(Debug)]
+enum CompletionWorkerEvent {
+    Began {
+        request_id: u64,
+        input_generation: u64,
+        target_id: u64,
+        acknowledgement: mpsc::SyncSender<bool>,
+    },
+    Finished {
+        request_id: u64,
+        input_generation: u64,
+        target_id: u64,
+        candidates: Vec<String>,
+    },
+}
+
+/// Exactly one completion worker and one queued job/result per interactive
+/// session. The worker receives an authority-free snapshot; it cannot evaluate
+/// JavaScript, import, inspect the filesystem, or reach the armed Host.
+/// @ref LLP 0022#9-completion-and-hints
+/// @ref LLP 0025#5-terminal-presentation-and-restoration
+#[cfg(unix)]
+struct AsyncCompletionProducer {
+    jobs: Option<mpsc::SyncSender<CompletionJob>>,
+    events: tokio::sync::mpsc::Receiver<CompletionWorkerEvent>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+
+#[cfg(unix)]
+impl AsyncCompletionProducer {
+    fn production() -> io::Result<Self> {
+        Self::spawn(Arc::new(|snapshot, line, cursor| {
+            snapshot.candidates(line, cursor)
+        }))
+    }
+
+    fn spawn(evaluator: Arc<CompletionQueryEvaluator>) -> io::Result<Self> {
+        let (jobs_tx, jobs_rx) = mpsc::sync_channel::<CompletionJob>(COMPLETION_JOB_CAPACITY);
+        let (events_tx, events_rx) = tokio::sync::mpsc::channel(COMPLETION_JOB_CAPACITY);
+        let worker = thread::Builder::new()
+            .name("ibex-repl-completion".to_owned())
+            .spawn(move || {
+                while let Ok(job) = jobs_rx.recv() {
+                    // Request and target ids are distinct typed identities even
+                    // though this one-worker v1 projection can use the same
+                    // monotonic integer for both.
+                    let target_id = job.request_id;
+                    let (acknowledgement, acknowledged) = mpsc::sync_channel(1);
+                    if events_tx
+                        .blocking_send(CompletionWorkerEvent::Began {
+                            request_id: job.request_id,
+                            input_generation: job.input_generation,
+                            target_id,
+                            acknowledgement,
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                    if acknowledged.recv() != Ok(true) {
+                        continue;
+                    }
+                    let candidates = evaluator(&job.snapshot, &job.line, job.line.len());
+                    if events_tx
+                        .blocking_send(CompletionWorkerEvent::Finished {
+                            request_id: job.request_id,
+                            input_generation: job.input_generation,
+                            target_id,
+                            candidates,
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            })?;
+        Ok(Self {
+            jobs: Some(jobs_tx),
+            events: events_rx,
+            worker: Some(worker),
+        })
+    }
+
+    fn try_queue(&self, job: CompletionJob) -> Result<(), CompletionQueueError> {
+        self.jobs
+            .as_ref()
+            .ok_or(CompletionQueueError::Disconnected)?
+            .try_send(job)
+            .map_err(|error| match error {
+                mpsc::TrySendError::Full(_) => CompletionQueueError::Full,
+                mpsc::TrySendError::Disconnected(_) => CompletionQueueError::Disconnected,
+            })
+    }
+
+    async fn recv(&mut self) -> Option<CompletionWorkerEvent> {
+        self.events.recv().await
+    }
+}
+
+#[cfg(unix)]
+impl Drop for AsyncCompletionProducer {
+    fn drop(&mut self) {
+        self.jobs.take();
+        // A production query is finite static lookup. Do not turn cleanup into
+        // an unbounded join if a test-owned evaluator deliberately wedges: the
+        // generated two-interrupt escape restores the terminal and ends the
+        // process independently of this advisory thread.
+        if self
+            .worker
+            .as_ref()
+            .is_some_and(thread::JoinHandle::is_finished)
+        {
+            let _ = self.worker.take().expect("checked worker").join();
+        }
+    }
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProductionCompletionState {
+    Queued {
+        request_id: u64,
+        input_generation: u64,
+    },
+    Executing {
+        request_id: u64,
+        input_generation: u64,
+        target_id: u64,
+    },
 }
 
 #[cfg(unix)]
@@ -6951,6 +10236,9 @@ struct ReplInterruptState {
     promise: generated::PromiseClass,
     cause: Option<generated::TerminationCause>,
     ended: bool,
+    input_generation: u64,
+    next_completion_request_id: u64,
+    completion: Option<ProductionCompletionState>,
 }
 
 #[cfg(unix)]
@@ -6959,6 +10247,8 @@ struct ReplInterruptController {
     state: Arc<Mutex<ReplInterruptState>>,
     cancellation: crate::repl::ReplCancellationPort,
     lifecycle: ibex_runtime::session_lifecycle::SessionLifecyclePort,
+    plan: SessionIoPlan,
+    descriptor_handoff: Arc<StandardDescriptorHandoff>,
     broker: ReplBrokerHandle,
 }
 
@@ -6967,6 +10257,8 @@ impl ReplInterruptController {
     fn new(
         cancellation: crate::repl::ReplCancellationPort,
         lifecycle: ibex_runtime::session_lifecycle::SessionLifecyclePort,
+        plan: SessionIoPlan,
+        descriptor_handoff: Arc<StandardDescriptorHandoff>,
         broker: ReplBrokerHandle,
     ) -> Self {
         Self {
@@ -6977,9 +10269,14 @@ impl ReplInterruptController {
                 promise: generated::PromiseClass::None,
                 cause: None,
                 ended: false,
+                input_generation: 0,
+                next_completion_request_id: 0,
+                completion: None,
             })),
             cancellation,
             lifecycle,
+            plan,
+            descriptor_handoff,
             broker,
         }
     }
@@ -7000,6 +10297,101 @@ impl ReplInterruptController {
         state.promise = generated::PromiseClass::None;
     }
 
+    fn note_buffer_changed(&self, buffer_is_empty: bool, continuation: bool) -> Result<(), String> {
+        let mut state = self.lock();
+        state.input_generation = state
+            .input_generation
+            .checked_add(1)
+            .ok_or_else(|| "REPL input generation exhausted".to_owned())?;
+        state.phase = if continuation {
+            generated::EditorPhase::Continuation
+        } else if buffer_is_empty {
+            generated::EditorPhase::Idle
+        } else {
+            generated::EditorPhase::Editing
+        };
+        Ok(())
+    }
+
+    fn abandon_completion_for_submission(&self) -> Result<(), String> {
+        let mut state = self.lock();
+        if state.completion.take().is_some() {
+            state.input_generation = state
+                .input_generation
+                .checked_add(1)
+                .ok_or_else(|| "REPL input generation exhausted".to_owned())?;
+        }
+        Ok(())
+    }
+
+    fn queue_completion(&self) -> Result<(u64, u64), String> {
+        let mut state = self.lock();
+        if state.completion.is_some() {
+            return Err("a completion query is already live".to_owned());
+        }
+        let request_id = state
+            .next_completion_request_id
+            .checked_add(1)
+            .ok_or_else(|| "completion request id exhausted".to_owned())?;
+        state.next_completion_request_id = request_id;
+        let input_generation = state.input_generation;
+        state.completion = Some(ProductionCompletionState::Queued {
+            request_id,
+            input_generation,
+        });
+        Ok((request_id, input_generation))
+    }
+
+    fn completion_queue_failed(&self, request_id: u64) {
+        let mut state = self.lock();
+        if matches!(
+            state.completion,
+            Some(ProductionCompletionState::Queued {
+                request_id: queued,
+                ..
+            }) if queued == request_id
+        ) {
+            state.completion = None;
+        }
+    }
+
+    fn begin_completion(&self, request_id: u64, input_generation: u64, target_id: u64) -> bool {
+        let mut state = self.lock();
+        if state.completion
+            != Some(ProductionCompletionState::Queued {
+                request_id,
+                input_generation,
+            })
+        {
+            return false;
+        }
+        state.completion = Some(ProductionCompletionState::Executing {
+            request_id,
+            input_generation,
+            target_id,
+        });
+        true
+    }
+
+    fn finish_completion(&self, request_id: u64, input_generation: u64, target_id: u64) -> bool {
+        let mut state = self.lock();
+        if state.completion
+            != Some(ProductionCompletionState::Executing {
+                request_id,
+                input_generation,
+                target_id,
+            })
+        {
+            return false;
+        }
+        state.completion = None;
+        state.input_generation == input_generation && state.cause.is_none()
+    }
+
+    fn completion_live(&self) -> bool {
+        self.lock().completion.is_some()
+    }
+
     fn latch_cause(&self, status: i32) {
         self.lock().cause = Some(generated::TerminationCause { status });
     }
@@ -7012,6 +10404,16 @@ impl ReplInterruptController {
         let _ = self.cancellation.terminate_worker_for_interrupt();
     }
 
+    fn force_finish_after_descriptor_handoff(&self, settlement: InlineSettlement) -> ! {
+        let finish = force_finish_repl_after_descriptor_handoff(
+            self.plan,
+            self.descriptor_handoff.as_ref(),
+            &self.broker,
+        );
+        self.descriptor_handoff
+            .exit_after_forced_finish(finish, settlement)
+    }
+
     fn dispatch(&self) -> Result<(ReplInterruptEvent, bool), String> {
         use ibex_runtime::session_lifecycle::{LifecycleGetDisposition, LifecyclePrincipal};
 
@@ -7022,19 +10424,39 @@ impl ReplInterruptController {
         };
         let mut state = self.lock();
         let phase_at_dispatch = state.phase;
-        let executing = live_work
-            .executing
-            .map(|(id, kind)| generated::ExecutingUnit {
+        let completion_executing = match state.completion {
+            Some(ProductionCompletionState::Executing { target_id, .. }) => Some(target_id),
+            _ => None,
+        };
+        if completion_executing.is_some() && live_work.executing.is_some() {
+            return Err(
+                "completion and engine work were simultaneously marked executing".to_owned(),
+            );
+        }
+        let executing = completion_executing
+            .map(|id| generated::ExecutingUnit {
                 id,
-                kind: generated_interrupt_work_kind(kind),
+                kind: generated::WorkKind::Completion,
+            })
+            .or_else(|| {
+                live_work
+                    .executing
+                    .map(|(id, kind)| generated::ExecutingUnit {
+                        id,
+                        kind: generated_interrupt_work_kind(kind),
+                    })
             });
+        let completion_queued = match state.completion {
+            Some(ProductionCompletionState::Queued { request_id, .. }) => Some(request_id),
+            _ => None,
+        };
         let decision = generated::dispatch_interrupt(generated::InterruptState {
             phase: state.phase,
             pending_submission: state.pending_submission,
             executing,
             suspended_ids: &live_work.suspended_ids,
             due_schedules: &live_work.due_schedules,
-            completion_queued: None,
+            completion_queued,
             escape_credit: state.escape_credit,
             promise: state.promise,
             cause: state.cause,
@@ -7049,6 +10471,20 @@ impl ReplInterruptController {
         }
         if decision.buffer == generated::BufferAction::DiscardInvalidate {
             state.phase = generated::EditorPhase::Idle;
+        }
+        if matches!(
+            decision.buffer,
+            generated::BufferAction::PreserveInvalidate
+                | generated::BufferAction::DiscardInvalidate
+        ) || decision.abandon_completion
+        {
+            state.input_generation = state
+                .input_generation
+                .checked_add(1)
+                .ok_or_else(|| "REPL input generation exhausted".to_owned())?;
+        }
+        if decision.abandon_completion {
+            state.completion = None;
         }
         match decision.submission {
             generated::SubmissionAction::Unchanged => {}
@@ -7067,7 +10503,10 @@ impl ReplInterruptController {
                 .interrupt_notice(interrupt_notice(decision.notice));
         }
 
-        if let Some(target) = decision.cancel_target {
+        if let Some(target) = decision
+            .cancel_target
+            .filter(|target| Some(*target) != completion_executing)
+        {
             match self.cancellation.request_exact(target) {
                 crate::engine::AuthenticatedCancellationStatus::Accepted
                 | crate::engine::AuthenticatedCancellationStatus::StaleTarget => {}
@@ -7108,6 +10547,75 @@ impl ReplInterruptController {
     }
 }
 
+/// A single serialized ingress for terminal bytes and external SIGINT. The
+/// generated state transition, notice/cancellation side effects, and priority
+/// event publication stay ordered even when the raw reader and signal
+/// coordinator observe interrupts concurrently.
+#[cfg(unix)]
+#[derive(Clone)]
+struct ReplInterruptIngress {
+    controller: ReplInterruptController,
+    priority: tokio::sync::mpsc::Sender<ReplInputEvent>,
+    dispatch: Arc<Mutex<()>>,
+}
+
+#[cfg(unix)]
+impl ReplInterruptIngress {
+    fn new(
+        controller: ReplInterruptController,
+    ) -> (Self, tokio::sync::mpsc::Receiver<ReplInputEvent>) {
+        let (priority, receiver) = tokio::sync::mpsc::channel(REPL_INPUT_PRIORITY_CAPACITY);
+        (
+            Self {
+                controller,
+                priority,
+                dispatch: Arc::new(Mutex::new(())),
+            },
+            receiver,
+        )
+    }
+
+    /// Returns true once this source must stop dispatching: either a terminal
+    /// decision was published or the editor consumer has gone away. Forced
+    /// escalation never returns.
+    fn dispatch_observed_interrupt(&self) -> bool {
+        let _dispatch = self
+            .dispatch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match self.controller.dispatch() {
+            Ok((event, force_exit)) => {
+                let terminal = event.terminal_status.is_some();
+                let settlement = forced_repl_interrupt_settlement(event);
+                if force_exit {
+                    // SAFETY: this ordinary supervisor thread restores termios
+                    // plus the cosmetic terminal state before worker termination
+                    // and broker flush. The fatal-handler lane intentionally
+                    // limits itself to termios so it cannot block on a TTY write.
+                    unsafe {
+                        SIGNAL_RESTORE_STATE.restore_from_ordinary_escape();
+                    }
+                    self.controller.terminate_worker_for_escape();
+                    self.controller
+                        .force_finish_after_descriptor_handoff(settlement);
+                }
+                if self
+                    .priority
+                    .blocking_send(ReplInputEvent::Interrupt(event))
+                    .is_err()
+                {
+                    return true;
+                }
+                terminal
+            }
+            Err(error) => {
+                let _ = self.priority.blocking_send(ReplInputEvent::Error(error));
+                true
+            }
+        }
+    }
+}
+
 #[cfg(unix)]
 fn generated_interrupt_work_kind(kind: crate::repl::ReplInterruptWorkKind) -> generated::WorkKind {
     match kind {
@@ -7129,10 +10637,14 @@ fn interrupt_requires_engine_independent_exit(
 #[cfg(unix)]
 fn spawn_repl_input_reader(
     witness: PromptWitness,
-    interrupt: ReplInterruptController,
+    interrupt: ReplInterruptIngress,
+    priority_rx: tokio::sync::mpsc::Receiver<ReplInputEvent>,
     terminal_signals: Option<UnixSessionSignalHandle>,
-) -> io::Result<tokio::sync::mpsc::UnboundedReceiver<ReplInputEvent>> {
-    let (events_tx, events_rx) = tokio::sync::mpsc::unbounded_channel();
+) -> io::Result<ReplInputPort> {
+    let (bytes_tx, bytes_rx) =
+        tokio::sync::mpsc::channel(ibex_runtime::session_constants::MAX_INPUT_BYTES);
+    let backlog = Arc::new(ReplInputBacklogState::default());
+    let reader_backlog = Arc::clone(&backlog);
     thread::Builder::new()
         .name("ibex-repl-input".to_string())
         .spawn(move || {
@@ -7142,74 +10654,121 @@ fn spawn_repl_input_reader(
             loop {
                 match input.read(&mut byte) {
                     Ok(0) => {
-                        let _ = events_tx.send(ReplInputEvent::Eof);
+                        let _ = interrupt.priority.blocking_send(ReplInputEvent::Eof);
                         break;
                     }
                     Ok(_) => {
                         let pasted = paste_signals.feed(byte[0]);
-                        if !pasted && is_generated_interrupt_byte(byte[0]) {
-                            match interrupt.dispatch() {
-                                Ok((event, force_exit)) => {
-                                    let status = event.terminal_status;
-                                    if events_tx.send(ReplInputEvent::Interrupt(event)).is_err() {
-                                        break;
-                                    }
-                                    if force_exit {
-                                        // SAFETY: this is the generated machine's
-                                        // terminal escalation path. Restoration
-                                        // must precede the broker's bounded flush
-                                        // because its destination may be stalled.
-                                        unsafe {
-                                            SIGNAL_RESTORE_STATE.restore_from_signal();
-                                        }
-                                        // The input/supervisor thread owns the
-                                        // engine-independent escape. Kill the exact
-                                        // worker before flushing its relays; never
-                                        // let `_exit` orphan a stuck evaluator.
-                                        interrupt.terminate_worker_for_escape();
-                                        interrupt.broker.force_finish();
-                                        // SAFETY: restoration and the bounded
-                                        // broker flush have completed (or timed
-                                        // out), so no process cleanup remains.
-                                        unsafe {
-                                            libc::_exit(status.unwrap_or(EXIT_STATUS_INTERRUPT));
-                                        }
-                                    }
-                                }
-                                Err(error) => {
-                                    let _ = events_tx.send(ReplInputEvent::Error(error));
-                                    break;
-                                }
+                        if is_raw_repl_interrupt(pasted, byte[0]) {
+                            if interrupt.dispatch_observed_interrupt() {
+                                break;
                             }
                             continue;
                         }
-                        if !pasted
+                        let suspend = !pasted
                             && matches!(
                                 crate::repl_surface::keybinding_for_bytes(&byte)
                                     .map(|binding| binding.action),
                                 Some(crate::repl_surface::KeybindingAction::SuspendTransaction)
-                            )
-                            && terminal_signals.is_some()
-                        {
-                            terminal_signals
-                                .expect("guarded terminal signal handle")
-                                .request_suspend();
+                            );
+                        if let (true, Some(terminal_signals)) = (suspend, terminal_signals) {
+                            terminal_signals.request_suspend();
                             continue;
                         }
-                        let _ = events_tx.send(ReplInputEvent::Byte {
+                        let typed = ReplInputByte {
                             byte: byte[0],
                             observed_prompt: witness.observe(),
-                        });
+                        };
+                        // Control classification stays ahead of this state:
+                        // while ordinary bytes are discarded, Ctrl+C and
+                        // Ctrl+Z still reach their independent owners. Once a
+                        // valid boundary is observed, a separate bounded
+                        // handoff preserves successor bytes even if the editor
+                        // has not acknowledged the loss yet.
+                        match reader_backlog.route_ordinary_input(typed, pasted) {
+                            ReplBacklogInputDisposition::Forward => {}
+                            ReplBacklogInputDisposition::Buffered
+                            | ReplBacklogInputDisposition::Discarded => continue,
+                        }
+                        match try_forward_repl_input_byte(&bytes_tx, typed) {
+                            ReplInputForwardDisposition::Forwarded => {}
+                            ReplInputForwardDisposition::BacklogExhausted => {
+                                reader_backlog.begin();
+                                let disposition =
+                                    reader_backlog.route_ordinary_input(typed, pasted);
+                                debug_assert_ne!(disposition, ReplBacklogInputDisposition::Forward);
+                            }
+                            ReplInputForwardDisposition::Closed => break,
+                        }
                     }
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        let mut descriptor = libc::pollfd {
+                            fd: libc::STDIN_FILENO,
+                            events: libc::POLLIN,
+                            revents: 0,
+                        };
+                        // Descriptor capture uses nonblocking standard fds. The
+                        // dedicated reader waits in poll rather than reporting an
+                        // empty PTY as an input failure.
+                        // SAFETY: descriptor names fd 0 and poll receives one
+                        // initialized pollfd.
+                        let ready = unsafe { libc::poll(&mut descriptor, 1, -1) };
+                        if ready > 0
+                            || (ready < 0
+                                && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted)
+                        {
+                            continue;
+                        }
+                        let failure = if ready == 0 {
+                            error
+                        } else {
+                            io::Error::last_os_error()
+                        };
+                        let _ = interrupt
+                            .priority
+                            .blocking_send(ReplInputEvent::Error(failure.to_string()));
+                        break;
+                    }
                     Err(error) => {
-                        let _ = events_tx.send(ReplInputEvent::Error(error.to_string()));
+                        let _ = interrupt
+                            .priority
+                            .blocking_send(ReplInputEvent::Error(error.to_string()));
                         break;
                     }
                 }
             }
         })?;
-    Ok(events_rx)
+    Ok(ReplInputPort {
+        priority: priority_rx,
+        bytes: bytes_rx,
+        backlog,
+        recovered: VecDeque::new(),
+        priority_closed: false,
+        bytes_closed: false,
+    })
+}
+
+#[cfg(unix)]
+fn is_input_resynchronization_boundary(pasted: bool, byte: u8) -> bool {
+    !pasted && matches!(byte, b'\r' | b'\n')
+}
+
+#[cfg(unix)]
+fn record_repl_input_backlog_exhaustion(backlog: &ReplInputBacklogState, pasted: bool, byte: u8) {
+    backlog.begin();
+    let _ = backlog.route_ordinary_input(
+        ReplInputByte {
+            byte,
+            observed_prompt: None,
+        },
+        pasted,
+    );
+}
+
+#[cfg(unix)]
+fn is_raw_repl_interrupt(pasted: bool, byte: u8) -> bool {
+    !pasted && is_generated_interrupt_byte(byte)
 }
 
 /// Mirrors only the bracketed-paste boundary needed by the input thread's
@@ -7252,10 +10811,22 @@ impl RawBracketedPasteSignalGate {
 #[cfg(unix)]
 async fn run_repl_unix(
     plan: SessionIoPlan,
+    session: crate::repl::ReplEvaluationSession,
+    driver: crate::repl::session::ReplDriver,
+    history: crate::history::HistorySession,
+    worker_relays: Option<crate::session_worker::WorkerRelays>,
+) -> anyhow::Result<i32> {
+    run_repl_unix_with_completion(plan, session, driver, history, worker_relays, None).await
+}
+
+#[cfg(unix)]
+async fn run_repl_unix_with_completion(
+    plan: SessionIoPlan,
     mut session: crate::repl::ReplEvaluationSession,
     mut driver: crate::repl::session::ReplDriver,
     history: crate::history::HistorySession,
     worker_relays: Option<crate::session_worker::WorkerRelays>,
+    completion_evaluator: Option<Arc<CompletionQueryEvaluator>>,
 ) -> anyhow::Result<i32> {
     use anyhow::Context as _;
 
@@ -7275,9 +10846,28 @@ async fn run_repl_unix(
 
     let mut active = ActiveReplCapture::start(plan, worker_relays)
         .context("failed to construct the REPL terminal/output adapter")?;
+    // Keep this between the capture and coordinator declarations: on panic the
+    // coordinator restores/joins, this guard stops the worker producer, and
+    // only then does the capture drain and close its broker.
+    let mut producer_unwind = WorkerProducerUnwindGuard::new(session.worker_runtime_control());
     let prompt_witness = (plan.presentation.editor_control
         && plan.route.mode == ArmedExecutionMode::Interactive)
         .then(PromptWitness::default);
+    let broker = active.broker.clone();
+    let (editor_interrupt, editor_priority) =
+        if plan.presentation.editor_control && plan.route.mode == ArmedExecutionMode::Interactive {
+            let controller = ReplInterruptController::new(
+                session.cancellation_port(),
+                session.session_lifecycle(),
+                plan,
+                active.descriptor_handoff.clone(),
+                broker.clone(),
+            );
+            let (interrupt, priority) = ReplInterruptIngress::new(controller);
+            (Some(interrupt), Some(priority))
+        } else {
+            (None, None)
+        };
     let non_editor_interrupt = (!plan.presentation.editor_control)
         .then(|| NonEditorWorkerInterruptControl::Repl(session.cancellation_port()));
     let mut terminal_signals = start_worker_terminal_signal_coordinator(
@@ -7285,25 +10875,35 @@ async fn run_repl_unix(
         session.worker_terminal_control(),
         prompt_witness.clone(),
         non_editor_interrupt,
+        editor_interrupt.clone(),
     )
     .context("failed to start the REPL terminal signal coordinator")?;
     let terminal_signal_handle = terminal_signals
         .as_ref()
         .map(WorkerTerminalSignalCoordinator::handle);
-    let readiness = mint_execution_adapter_ready(&mut active.lease, plan.route);
-    execution_adapter_status_with_readiness(plan, Some(&readiness)).map_err(anyhow::Error::from)?;
-    let broker = active.broker.clone();
-    let result =
+    let mut settlement_damage = SecondarySettlementDamage::default();
+    let result = {
+        let readiness = mint_execution_adapter_ready(&mut active.lease, plan.route);
+        execution_adapter_status_with_readiness(plan, Some(&readiness))
+            .map_err(anyhow::Error::from)?;
         if plan.presentation.editor_control && plan.route.mode == ArmedExecutionMode::Interactive {
             run_interactive_repl(
                 &mut session,
                 &mut driver,
-                broker,
-                active.terminal.clone(),
-                plan.presentation,
-                prompt_witness.expect("interactive REPL has a prompt witness"),
-                terminal_signal_handle,
-                history,
+                InteractiveReplContext {
+                    broker,
+                    terminal: active.terminal.clone(),
+                    presentation: plan.presentation,
+                    witness: prompt_witness.expect("interactive REPL has a prompt witness"),
+                    terminal_signals: terminal_signal_handle,
+                    interrupt_ingress: editor_interrupt
+                        .expect("interactive REPL has interrupt ingress"),
+                    priority: editor_priority
+                        .expect("interactive REPL has interrupt priority lane"),
+                    history,
+                    completion_evaluator,
+                },
+                &mut settlement_damage,
             )
             .await
         } else {
@@ -7311,16 +10911,16 @@ async fn run_repl_unix(
             // immutable presentation lacks an editor. Dropping it here keeps
             // transcript/program routes entirely outside history behavior.
             drop(history);
-            run_plain_repl(&mut session, &mut driver, broker).await
-        };
-    drop(readiness);
+            run_plain_repl(&mut session, &mut driver, broker, &mut settlement_damage).await
+        }
+    };
     // Restoration is the first exit-side action. Only after cooked mode is
     // back may a lifecycle cutoff block on a stalled program destination or
     // the supervisor dispose a parked/stuck evaluator.
     if let Some(signals) = terminal_signals.as_ref() {
         signals.request_shutdown();
     }
-    let restore = active
+    let initial_restore = active
         .restore_terminal()
         .context("failed to restore the REPL terminal before worker disposal");
     let signal_finish = match terminal_signals.take() {
@@ -7329,30 +10929,116 @@ async fn run_repl_unix(
             .context("failed to finish the REPL terminal signal coordinator"),
         None => Ok(()),
     };
-    active.disarm_session_signals();
-    let mut unreportable_output_loss = false;
-    for barrier in [
+    let restore = restore_terminal_before_disarming_session_signals(&mut active)
+        .context("failed to make final REPL terminal restoration");
+    let descriptor_restore = active
+        .restore_descriptors()
+        .context("failed to restore the REPL standard descriptors before worker disposal");
+    let mut unavailable_loss_relays = BTreeSet::new();
+    let mut output_loss_details = Vec::new();
+    let mut cleanup_details = Vec::new();
+    let mut unknown_output_loss = false;
+    for (stdout_cutoff, stderr_cutoff) in [
         session.take_worker_outcome_barrier(),
         session.take_worker_lifecycle_barrier(),
-    ] {
-        if let Some((stdout_cutoff, stderr_cutoff)) = barrier {
-            if let Err(error) = active.broker.worker_barrier(stdout_cutoff, stderr_cutoff) {
-                unreportable_output_loss |= error.is_output_loss();
-                let _ = active
-                    .broker
-                    .diagnostic(&format!("worker output barrier failed: {error}"));
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Err(error) = active.broker.worker_barrier(stdout_cutoff, stderr_cutoff) {
+            settlement_damage.record_worker_barrier(
+                "REPL worker output barrier failed after the cause was fixed",
+                error,
+            );
+        }
+    }
+    if let Err(error) = restore {
+        cleanup_details.push(format!("REPL terminal restoration failed: {error:#}"));
+    }
+    if let Err(error) = initial_restore {
+        cleanup_details.push(format!(
+            "initial REPL terminal restoration failed: {error:#}"
+        ));
+    }
+    if let Err(error) = signal_finish {
+        cleanup_details.push(format!("REPL signal cleanup failed: {error:#}"));
+    }
+    if let Err(error) = descriptor_restore {
+        cleanup_details.push(format!("REPL descriptor restoration failed: {error:#}"));
+    }
+    let mut worker_reaped = false;
+    if let Err(error) = session.quiesce_worker_preserving_lifecycle() {
+        cleanup_details.push(format!("REPL worker quiescence failed: {error:#}"));
+        match session.dispose_worker_preserving_lifecycle() {
+            Ok(()) => worker_reaped = true,
+            Err(dispose_error) => {
+                unknown_output_loss = true;
+                cleanup_details.push(format!(
+                    "REPL worker fallback disposal failed: {dispose_error:#}"
+                ));
             }
         }
     }
-    let _restore_error = restore.err();
-    let _signal_error = signal_finish.err();
-    let _dispose_error = session.dispose_worker_preserving_lifecycle().err();
+    producer_unwind.disarm();
     match active.finish_report() {
-        Ok(loss) => unreportable_output_loss |= loss.has_loss(),
-        Err(_) => unreportable_output_loss = true,
+        Ok(report) => collect_execution_report_loss(
+            plan,
+            &report,
+            "bounded REPL broker close",
+            &mut unavailable_loss_relays,
+            &mut output_loss_details,
+            &mut unknown_output_loss,
+        ),
+        Err(FileProgramAdapterError::NativeWithReport { error, report }) => {
+            cleanup_details.push(format!("REPL adapter restoration failed: {error}"));
+            collect_execution_report_loss(
+                plan,
+                &report,
+                "bounded REPL broker close",
+                &mut unavailable_loss_relays,
+                &mut output_loss_details,
+                &mut unknown_output_loss,
+            );
+        }
+        Err(FileProgramAdapterError::Broker(error)) => {
+            unknown_output_loss = true;
+            output_loss_details.push(format!("bounded REPL broker cleanup failed: {error}"));
+        }
+        Err(FileProgramAdapterError::RelayThreadPanicked) => {
+            unknown_output_loss = true;
+            output_loss_details.push("bounded REPL broker thread panicked".to_owned());
+        }
+        Err(FileProgramAdapterError::Gate(error)) => {
+            cleanup_details.push(format!("REPL adapter cleanup gate failed: {error}"));
+        }
+        Err(FileProgramAdapterError::Native(error)) => {
+            cleanup_details.push(format!("REPL adapter cleanup failed: {error}"));
+        }
+    }
+    if !worker_reaped {
+        if let Err(error) = session.dispose_worker_preserving_lifecycle() {
+            cleanup_details.push(format!("REPL worker disposal failed: {error:#}"));
+        }
+    }
+    settlement_damage.apply(
+        plan,
+        &mut unavailable_loss_relays,
+        &mut output_loss_details,
+        &mut unknown_output_loss,
+    );
+    let output_loss = unknown_output_loss || !output_loss_details.is_empty();
+    let mut diagnostic_details = output_loss_details;
+    diagnostic_details.extend(cleanup_details.iter().cloned());
+    let diagnostic = diagnostic_details.join("; ");
+    let reported = output_loss
+        && report_output_loss_after_restore(plan, &unavailable_loss_relays, &diagnostic);
+    if !output_loss && !cleanup_details.is_empty() {
+        let _ =
+            report_output_loss_after_restore(plan, &BTreeSet::new(), &cleanup_details.join("; "));
     }
     match result {
-        Ok(settlement) => Ok(settlement.final_status(unreportable_output_loss)),
+        Ok(settlement) => Ok(settlement.final_status(output_loss && !reported)),
+        Err(error) if output_loss && !reported => Err(error.context(diagnostic)),
         Err(error) => Err(error),
     }
 }
@@ -7411,6 +11097,7 @@ async fn run_plain_repl(
     session: &mut crate::repl::ReplEvaluationSession,
     driver: &mut crate::repl::session::ReplDriver,
     broker: ReplBrokerHandle,
+    damage: &mut SecondarySettlementDamage,
 ) -> anyhow::Result<InlineSettlement> {
     let lifecycle = session.session_lifecycle();
     let mut input = io::BufReader::new(io::stdin());
@@ -7419,7 +11106,7 @@ async fn run_plain_repl(
         match read_bounded_transcript_record(&mut input, &mut record)? {
             TranscriptRecordRead::Eof => {
                 let step = driver.finish_transcript();
-                if let Some(settlement) = render_repl_step(session, &broker, step).await? {
+                if let Some(settlement) = render_repl_step(session, &broker, step, damage).await? {
                     return Ok(settlement);
                 }
                 break;
@@ -7460,7 +11147,7 @@ async fn run_plain_repl(
             }
         };
         let step = driver.submit_line(session, line).await;
-        if let Some(settlement) = render_repl_step(session, &broker, step).await? {
+        if let Some(settlement) = render_repl_step(session, &broker, step, damage).await? {
             return Ok(settlement);
         }
         if let Some(request) = lifecycle.take_pending_request() {
@@ -7472,27 +11159,45 @@ async fn run_plain_repl(
                 if let Some(request) = lifecycle.take_pending_request() {
                     return Ok(InlineSettlement::Successful(request.status));
                 }
-                broker
-                    .session_line(
+                damage.record_broker_result(
+                    "plain-REPL engine-fault diagnostic was not delivered",
+                    broker.session_line(
                         &format!("engine fault: ready-work checkpoint failed: {error:#}"),
                         SessionStyle::Error,
-                    )
-                    .map_err(anyhow::Error::msg)?;
+                    ),
+                );
                 return Ok(InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT));
             }
         };
+        let cooperative = lifecycle.take_pending_request();
         if let Some((stdout_cutoff, stderr_cutoff)) = session.take_worker_outcome_barrier() {
-            broker
-                .worker_barrier(stdout_cutoff, stderr_cutoff)
-                .map_err(anyhow::Error::new)?;
+            if let Err(error) = broker.worker_barrier(stdout_cutoff, stderr_cutoff) {
+                if cooperative.is_some() {
+                    damage.record_worker_barrier(
+                        "plain-REPL ready-work barrier failed after cooperative exit",
+                        error,
+                    );
+                } else {
+                    return Err(anyhow::Error::new(error));
+                }
+            }
         }
         for error in failures {
-            broker
-                .session_line(
-                    &format!("asynchronous task failed: {error:#}"),
-                    SessionStyle::Error,
-                )
-                .map_err(anyhow::Error::msg)?;
+            let diagnostic = broker.session_line(
+                &format!("asynchronous task failed: {error:#}"),
+                SessionStyle::Error,
+            );
+            if cooperative.is_some() {
+                damage.record_broker_result(
+                    "plain-REPL asynchronous-failure diagnostic was not delivered after cooperative exit",
+                    diagnostic,
+                );
+            } else {
+                diagnostic.map_err(anyhow::Error::msg)?;
+            }
+        }
+        if let Some(request) = cooperative {
+            return Ok(InlineSettlement::Successful(request.status));
         }
     }
     if let Some(request) = lifecycle.take_pending_request() {
@@ -7519,6 +11224,82 @@ struct BracketedPasteDecoder {
 enum DecodedEditorByte {
     Key(u8),
     Data(Vec<u8>),
+}
+
+#[cfg(unix)]
+struct ReducedEditorInput {
+    decoded: Option<DecodedEditorByte>,
+    resets_interrupt_run: bool,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InteractiveInputAdmission {
+    Accept,
+    RejectWholeRecord,
+    IgnoreUntilBoundary,
+    Resynchronize,
+}
+
+#[cfg(unix)]
+fn interactive_input_admission(
+    rejecting: bool,
+    accepted_bytes: usize,
+    incoming_bytes: usize,
+    submission_boundary: bool,
+) -> InteractiveInputAdmission {
+    if rejecting {
+        return if submission_boundary {
+            InteractiveInputAdmission::Resynchronize
+        } else {
+            InteractiveInputAdmission::IgnoreUntilBoundary
+        };
+    }
+    if accepted_bytes.saturating_add(incoming_bytes)
+        > ibex_runtime::session_constants::MAX_INPUT_BYTES
+    {
+        InteractiveInputAdmission::RejectWholeRecord
+    } else {
+        InteractiveInputAdmission::Accept
+    }
+}
+
+/// Stateful record reducer shared by the live editor loop and bounded-channel
+/// fixtures. It is the sole place that mutates accepted source storage for the
+/// per-submission limit: rejection clears the whole record, and only a
+/// decoded outside-paste boundary ends the discard state.
+/// @ref LLP 0025#12-constants
+#[cfg(unix)]
+fn apply_interactive_record_input(
+    rejecting: &mut bool,
+    buffer: &mut Vec<u8>,
+    incoming: &[u8],
+    submission_boundary: bool,
+) -> InteractiveInputAdmission {
+    let admission = interactive_input_admission(
+        *rejecting,
+        buffer.len(),
+        incoming.len(),
+        submission_boundary,
+    );
+    match admission {
+        InteractiveInputAdmission::Accept => buffer.extend_from_slice(incoming),
+        InteractiveInputAdmission::RejectWholeRecord => {
+            *rejecting = true;
+            buffer.clear();
+        }
+        InteractiveInputAdmission::Resynchronize => *rejecting = false,
+        InteractiveInputAdmission::IgnoreUntilBoundary => {}
+    }
+    admission
+}
+
+#[cfg(unix)]
+fn has_live_prompt_provenance(
+    observed_prompt: Option<PromptCycle>,
+    prompt_cycle: PromptCycle,
+) -> bool {
+    observed_prompt == Some(prompt_cycle)
 }
 
 #[cfg(unix)]
@@ -7556,27 +11337,80 @@ impl BracketedPasteDecoder {
 }
 
 #[cfg(unix)]
-async fn run_interactive_repl(
-    session: &mut crate::repl::ReplEvaluationSession,
-    driver: &mut crate::repl::session::ReplDriver,
+/// Reduce one byte after the raw reader has given bracketed-paste state the
+/// first chance to make interrupt-looking payload inert. Every byte consumed
+/// by the editor at a live prompt resets the generated interrupt run; only an
+/// actual outside-paste interrupt key is excluded.
+/// @ref LLP 0025#6-interruption-and-cancellation
+fn reduce_interactive_editor_input(
+    decoder: &mut BracketedPasteDecoder,
+    input: ReplInputByte,
+    prompt_cycle: PromptCycle,
+) -> ReducedEditorInput {
+    let decoded = decoder.feed(input.byte);
+    let counts_as_editor_input = match decoded.as_ref() {
+        Some(DecodedEditorByte::Key(key)) => generated_counts_as_editor_input(*key),
+        Some(DecodedEditorByte::Data(bytes)) => !bytes.is_empty(),
+        // Partial and unsupported terminal escape sequences are still
+        // operator interaction even though they do not become source bytes.
+        None => true,
+    };
+    ReducedEditorInput {
+        resets_interrupt_run: counts_as_editor_input
+            && has_live_prompt_provenance(input.observed_prompt, prompt_cycle),
+        decoded,
+    }
+}
+
+#[cfg(unix)]
+struct InteractiveReplContext {
     broker: ReplBrokerHandle,
     terminal: Arc<Mutex<UnixTerminalLifecycle>>,
     presentation: CapturedPresentation,
     witness: PromptWitness,
     terminal_signals: Option<UnixSessionSignalHandle>,
-    mut history: crate::history::HistorySession,
+    interrupt_ingress: ReplInterruptIngress,
+    priority: tokio::sync::mpsc::Receiver<ReplInputEvent>,
+    history: crate::history::HistorySession,
+    completion_evaluator: Option<Arc<CompletionQueryEvaluator>>,
+}
+
+#[cfg(unix)]
+async fn run_interactive_repl(
+    session: &mut crate::repl::ReplEvaluationSession,
+    driver: &mut crate::repl::session::ReplDriver,
+    context: InteractiveReplContext,
+    damage: &mut SecondarySettlementDamage,
 ) -> anyhow::Result<InlineSettlement> {
+    let InteractiveReplContext {
+        broker,
+        terminal,
+        presentation,
+        witness,
+        terminal_signals,
+        interrupt_ingress,
+        priority,
+        mut history,
+        completion_evaluator,
+    } = context;
     let lifecycle = session.session_lifecycle();
-    let interrupt = ReplInterruptController::new(
-        session.cancellation_port(),
-        lifecycle.clone(),
-        broker.clone(),
-    );
-    let mut input = spawn_repl_input_reader(witness.clone(), interrupt.clone(), terminal_signals)?;
+    let interrupt = interrupt_ingress.controller.clone();
+    let mut input = spawn_repl_input_reader(
+        witness.clone(),
+        interrupt_ingress,
+        priority,
+        terminal_signals,
+    )?;
+    let mut completion = match completion_evaluator {
+        Some(evaluator) => AsyncCompletionProducer::spawn(evaluator)?,
+        None => AsyncCompletionProducer::production()?,
+    };
     let mut prompt_cycle = PromptCycle(1);
     let mut buffer = Vec::new();
     let mut paste = BracketedPasteDecoder::default();
     let mut history_search = ReverseHistorySearch::default();
+    let mut rejecting_oversize_input = false;
+    let mut discarding_backlogged_input = false;
 
     for line in [
         format!("Ibex v{} (Hermes)", env!("CARGO_PKG_VERSION")),
@@ -7598,7 +11432,53 @@ async fn run_interactive_repl(
     loop {
         let event = tokio::select! {
             event = input.recv() => event,
-            () = session.wait_for_pending_tasks() => {
+            completion_event = completion.recv() => {
+                let Some(completion_event) = completion_event else {
+                    anyhow::bail!("bounded completion producer stopped unexpectedly");
+                };
+                match completion_event {
+                    CompletionWorkerEvent::Began {
+                        request_id,
+                        input_generation,
+                        target_id,
+                        acknowledgement,
+                    } => {
+                        let began =
+                            interrupt.begin_completion(request_id, input_generation, target_id);
+                        let _ = acknowledgement.send(began);
+                    }
+                    CompletionWorkerEvent::Finished {
+                        request_id,
+                        input_generation,
+                        target_id,
+                        candidates,
+                    } => {
+                        if interrupt.finish_completion(
+                            request_id,
+                            input_generation,
+                            target_id,
+                        ) {
+                            let changed = apply_static_completion(
+                                &mut buffer,
+                                candidates,
+                                &broker,
+                                &witness,
+                                prompt_cycle,
+                            )?;
+                            if changed {
+                                interrupt
+                                    .note_buffer_changed(
+                                        buffer.is_empty(),
+                                        driver.is_continuation(),
+                                    )
+                                    .map_err(anyhow::Error::msg)?;
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            () = session.wait_for_pending_tasks(), if !interrupt.completion_live() => {
                 let failures = match session.drive_ready_tasks().await {
                     Ok(failures) => failures,
                     Err(error) => {
@@ -7606,28 +11486,47 @@ async fn run_interactive_repl(
                             interrupt.latch_cause(request.status);
                             return Ok(InlineSettlement::Successful(request.status));
                         }
-                        broker.session_line(
-                            &format!("engine fault: ready-work checkpoint failed: {error:#}"),
-                            SessionStyle::Error,
-                        ).map_err(anyhow::Error::msg)?;
                         interrupt.latch_cause(EXIT_STATUS_ENGINE_FAULT);
+                        damage.record_broker_result(
+                            "interactive-REPL engine-fault diagnostic was not delivered",
+                            broker.session_line(
+                                &format!("engine fault: ready-work checkpoint failed: {error:#}"),
+                                SessionStyle::Error,
+                            ),
+                        );
                         return Ok(InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT));
                     }
                 };
+                let cooperative = lifecycle.take_pending_request();
                 if let Some((stdout_cutoff, stderr_cutoff)) =
                     session.take_worker_outcome_barrier()
                 {
-                    broker
-                        .worker_barrier(stdout_cutoff, stderr_cutoff)
-                        .map_err(anyhow::Error::new)?;
+                    if let Err(error) = broker.worker_barrier(stdout_cutoff, stderr_cutoff) {
+                        if cooperative.is_some() {
+                            damage.record_worker_barrier(
+                                "interactive-REPL ready-work barrier failed after cooperative exit",
+                                error,
+                            );
+                        } else {
+                            return Err(anyhow::Error::new(error));
+                        }
+                    }
                 }
                 for error in failures {
-                    broker.session_line(
+                    let diagnostic = broker.session_line(
                         &format!("asynchronous task failed: {error:#}"),
                         SessionStyle::Error,
-                    ).map_err(anyhow::Error::msg)?;
+                    );
+                    if cooperative.is_some() {
+                        damage.record_broker_result(
+                            "interactive-REPL asynchronous-failure diagnostic was not delivered after cooperative exit",
+                            diagnostic,
+                        );
+                    } else {
+                        diagnostic.map_err(anyhow::Error::msg)?;
+                    }
                 }
-                if let Some(request) = lifecycle.take_pending_request() {
+                if let Some(request) = cooperative {
                     interrupt.latch_cause(request.status);
                     return Ok(InlineSettlement::Successful(request.status));
                 }
@@ -7639,6 +11538,40 @@ async fn run_interactive_repl(
         };
         match event {
             ReplInputEvent::Error(error) => anyhow::bail!("REPL input reader failed: {error}"),
+            ReplInputEvent::InputBacklogExhausted => {
+                input.discard_buffered_bytes();
+                paste = BracketedPasteDecoder::default();
+                history_search.reset();
+                // Backlog exhaustion is the earlier, truthful loss cause; do
+                // not later reinterpret it as a per-record size violation.
+                rejecting_oversize_input = false;
+                discard_backlogged_interactive_input(
+                    &mut discarding_backlogged_input,
+                    &mut buffer,
+                    driver,
+                    &interrupt,
+                    &broker,
+                    &witness,
+                    prompt_cycle,
+                )?;
+            }
+            ReplInputEvent::InputBacklogBoundary { generation } => {
+                // A second handoff overflow may invalidate a boundary after
+                // its event was selected but before this consumer runs. Only
+                // the matching generation may republish the prompt.
+                if input.resume_after_backlog_exhaustion(generation) && discarding_backlogged_input
+                {
+                    discarding_backlogged_input = false;
+                    interrupt.set_phase(
+                        generated::EditorPhase::Idle,
+                        generated::PendingSubmission::None,
+                    );
+                    prompt_cycle = PromptCycle(prompt_cycle.0.saturating_add(1));
+                    witness
+                        .publish_prompt(prompt_cycle, &buffer, &broker)
+                        .map_err(anyhow::Error::msg)?;
+                }
+            }
             ReplInputEvent::Eof => {
                 if buffer.is_empty() {
                     return Ok(InlineSettlement::Successful(operator_exit_status(session)?));
@@ -7646,12 +11579,23 @@ async fn run_interactive_repl(
             }
             ReplInputEvent::Interrupt(event) => {
                 if event.discard_buffer {
+                    let awaiting_physical_boundary =
+                        rejecting_oversize_input || discarding_backlogged_input;
+                    input.discard_buffered_bytes_after_interrupt();
                     buffer.clear();
                     driver.abandon_continuation();
-                    prompt_cycle = PromptCycle(prompt_cycle.0.saturating_add(1));
-                    witness
-                        .publish_prompt(prompt_cycle, &buffer, &broker)
-                        .map_err(anyhow::Error::msg)?;
+                    if awaiting_physical_boundary {
+                        interrupt.set_phase(
+                            generated::EditorPhase::Editing,
+                            generated::PendingSubmission::None,
+                        );
+                        hide_prompt_for_rejected_input(&witness, prompt_cycle);
+                    } else {
+                        prompt_cycle = PromptCycle(prompt_cycle.0.saturating_add(1));
+                        witness
+                            .publish_prompt(prompt_cycle, &buffer, &broker)
+                            .map_err(anyhow::Error::msg)?;
+                    }
                 }
                 if event.discard_submission {
                     // The exact native cancellation has already been issued by
@@ -7671,35 +11615,84 @@ async fn run_interactive_repl(
                 byte,
                 observed_prompt,
             } => {
-                let Some(decoded) = paste.feed(byte) else {
+                if discarding_backlogged_input {
+                    continue;
+                }
+                let reduced = reduce_interactive_editor_input(
+                    &mut paste,
+                    ReplInputByte {
+                        byte,
+                        observed_prompt,
+                    },
+                    prompt_cycle,
+                );
+                if reduced.resets_interrupt_run {
+                    interrupt.note_fresh_editor_input();
+                }
+                let Some(decoded) = reduced.decoded else {
                     continue;
                 };
                 match decoded {
                     DecodedEditorByte::Data(bytes) => {
                         history_search.reset();
-                        if buffer.len().saturating_add(bytes.len())
-                            > ibex_runtime::session_constants::MAX_INPUT_BYTES
-                        {
-                            broker
-                                .session_line(
-                                    "repl-input-too-large: input exceeds the 1 MiB session limit",
-                                    SessionStyle::Error,
-                                )
-                                .map_err(anyhow::Error::msg)?;
-                        } else {
-                            buffer.extend_from_slice(&bytes);
-                            witness
-                                .publish_prompt(prompt_cycle, &buffer, &broker)
-                                .map_err(anyhow::Error::msg)?;
+                        match apply_interactive_record_input(
+                            &mut rejecting_oversize_input,
+                            &mut buffer,
+                            &bytes,
+                            false,
+                        ) {
+                            InteractiveInputAdmission::IgnoreUntilBoundary => continue,
+                            InteractiveInputAdmission::RejectWholeRecord => {
+                                reject_oversize_interactive_input(
+                                    &mut buffer,
+                                    driver,
+                                    &interrupt,
+                                    &broker,
+                                    &witness,
+                                    &mut prompt_cycle,
+                                )?
+                            }
+                            InteractiveInputAdmission::Accept => {
+                                interrupt
+                                    .note_buffer_changed(
+                                        buffer.is_empty(),
+                                        driver.is_continuation(),
+                                    )
+                                    .map_err(anyhow::Error::msg)?;
+                                witness
+                                    .publish_prompt(prompt_cycle, &buffer, &broker)
+                                    .map_err(anyhow::Error::msg)?;
+                            }
+                            InteractiveInputAdmission::Resynchronize => {
+                                unreachable!("paste data is not a submission boundary")
+                            }
                         }
                     }
                     DecodedEditorByte::Key(key) => {
-                        let fresh = observed_prompt == Some(prompt_cycle);
-                        if fresh && generated_counts_as_editor_input(key) {
-                            interrupt.note_fresh_editor_input();
+                        if rejecting_oversize_input {
+                            if apply_interactive_record_input(
+                                &mut rejecting_oversize_input,
+                                &mut buffer,
+                                &[],
+                                matches!(key, b'\r' | b'\n'),
+                            ) == InteractiveInputAdmission::Resynchronize
+                            {
+                                interrupt.set_phase(
+                                    generated::EditorPhase::Idle,
+                                    generated::PendingSubmission::None,
+                                );
+                                prompt_cycle = PromptCycle(prompt_cycle.0.saturating_add(1));
+                                witness
+                                    .publish_prompt(prompt_cycle, &buffer, &broker)
+                                    .map_err(anyhow::Error::msg)?;
+                            }
+                            continue;
                         }
                         if matches!(key, b'\r' | b'\n') {
                             history_search.reset();
+                            interrupt
+                                .abandon_completion_for_submission()
+                                .map_err(anyhow::Error::msg)?;
                             witness.publish(prompt_cycle, false);
                             broker.boundary().map_err(anyhow::Error::msg)?;
                             let submitted = std::mem::take(&mut buffer);
@@ -7734,7 +11727,7 @@ async fn run_interactive_repl(
                                 .await;
                             report_history_append(&broker, history_disposition)?;
                             if let Some(settlement) =
-                                render_repl_step(session, &broker, step).await?
+                                render_repl_step(session, &broker, step, damage).await?
                             {
                                 interrupt.latch_cause(settlement.status());
                                 return Ok(settlement);
@@ -7755,7 +11748,16 @@ async fn run_interactive_repl(
                                 .map_err(anyhow::Error::msg)?;
                         } else if matches!(key, 0x08 | 0x7f) {
                             history_search.reset();
+                            let previous_length = buffer.len();
                             pop_last_utf8_unit(&mut buffer);
+                            if buffer.len() != previous_length {
+                                interrupt
+                                    .note_buffer_changed(
+                                        buffer.is_empty(),
+                                        driver.is_continuation(),
+                                    )
+                                    .map_err(anyhow::Error::msg)?;
+                            }
                             witness
                                 .publish_prompt(prompt_cycle, &buffer, &broker)
                                 .map_err(anyhow::Error::msg)?;
@@ -7766,12 +11768,11 @@ async fn run_interactive_repl(
                             match binding.action {
                                 KeybindingAction::BoundedAsynchronousCompletion => {
                                     history_search.reset();
-                                    complete_static_input(
+                                    queue_static_completion(
                                         driver,
-                                        &mut buffer,
-                                        &broker,
-                                        &witness,
-                                        prompt_cycle,
+                                        &buffer,
+                                        &interrupt,
+                                        &completion,
                                     )?;
                                 }
                                 KeybindingAction::OrderlyEofOrDeleteForward => {
@@ -7783,6 +11784,7 @@ async fn run_interactive_repl(
                                     }
                                 }
                                 KeybindingAction::ReverseHistorySearch => {
+                                    let previous = buffer.clone();
                                     reverse_history_search(
                                         &history,
                                         &mut history_search,
@@ -7791,6 +11793,14 @@ async fn run_interactive_repl(
                                         &witness,
                                         prompt_cycle,
                                     )?;
+                                    if buffer != previous {
+                                        interrupt
+                                            .note_buffer_changed(
+                                                buffer.is_empty(),
+                                                driver.is_continuation(),
+                                            )
+                                            .map_err(anyhow::Error::msg)?;
+                                    }
                                 }
                                 KeybindingAction::SuspendTransaction => {
                                     history_search.reset();
@@ -7811,12 +11821,40 @@ async fn run_interactive_repl(
                             }
                         } else if key >= 0x20 {
                             history_search.reset();
-                            if buffer.len() < ibex_runtime::session_constants::MAX_INPUT_BYTES {
-                                buffer.push(key);
+                            match apply_interactive_record_input(
+                                &mut rejecting_oversize_input,
+                                &mut buffer,
+                                &[key],
+                                false,
+                            ) {
+                                InteractiveInputAdmission::Accept => {
+                                    interrupt
+                                        .note_buffer_changed(
+                                            buffer.is_empty(),
+                                            driver.is_continuation(),
+                                        )
+                                        .map_err(anyhow::Error::msg)?;
+                                    witness
+                                        .publish_prompt(prompt_cycle, &buffer, &broker)
+                                        .map_err(anyhow::Error::msg)?;
+                                }
+                                InteractiveInputAdmission::RejectWholeRecord => {
+                                    reject_oversize_interactive_input(
+                                        &mut buffer,
+                                        driver,
+                                        &interrupt,
+                                        &broker,
+                                        &witness,
+                                        &mut prompt_cycle,
+                                    )?;
+                                }
+                                InteractiveInputAdmission::IgnoreUntilBoundary
+                                | InteractiveInputAdmission::Resynchronize => {
+                                    unreachable!(
+                                        "the oversize state is handled before printable input"
+                                    )
+                                }
                             }
-                            witness
-                                .publish_prompt(prompt_cycle, &buffer, &broker)
-                                .map_err(anyhow::Error::msg)?;
                         }
                     }
                 }
@@ -7886,32 +11924,155 @@ fn report_history_append(
 }
 
 #[cfg(unix)]
+/// @ref LLP 0025#5-terminal-presentation-and-restoration — editor backspace
+/// removes one UTF-8 scalar and malformed input must not crash the session.
 fn pop_last_utf8_unit(buffer: &mut Vec<u8>) {
-    if buffer.pop().is_none() {
+    if buffer.is_empty() {
         return;
     }
-    while buffer
-        .last()
-        .is_some_and(|byte| byte & 0b1100_0000 == 0b1000_0000)
-    {
-        buffer.pop();
+
+    // A valid UTF-8 scalar is at most four bytes. Validate only the suffix so
+    // malformed earlier input does not prevent a complete final scalar from
+    // being removed. If the suffix is malformed or incomplete, discard one
+    // byte: repeated backspace always makes progress without guessing a
+    // character boundary that the bytes do not establish.
+    let suffix_start = buffer.len().saturating_sub(4);
+    for start in suffix_start..buffer.len() {
+        let Ok(suffix) = std::str::from_utf8(&buffer[start..]) else {
+            continue;
+        };
+        let mut chars = suffix.chars();
+        if chars.next().is_some() && chars.next().is_none() {
+            buffer.truncate(start);
+            return;
+        }
     }
+    buffer.pop();
 }
 
 #[cfg(unix)]
-fn complete_static_input(
-    driver: &crate::repl::session::ReplDriver,
+fn reject_oversize_interactive_input(
     buffer: &mut Vec<u8>,
+    driver: &mut crate::repl::session::ReplDriver,
+    interrupt: &ReplInterruptController,
+    broker: &ReplBrokerHandle,
+    witness: &PromptWitness,
+    prompt_cycle: &mut PromptCycle,
+) -> anyhow::Result<()> {
+    buffer.clear();
+    driver.abandon_continuation();
+    interrupt
+        .abandon_completion_for_submission()
+        .and_then(|()| interrupt.note_buffer_changed(true, false))
+        .map_err(anyhow::Error::msg)?;
+    // An oversize record remains an editing record until the next physical
+    // CR/LF outside paste resynchronizes it. Treating the cleared storage as an
+    // idle prompt, including after a buffer-discard interrupt, would let a
+    // truncated suffix execute.
+    interrupt.set_phase(
+        generated::EditorPhase::Editing,
+        generated::PendingSubmission::None,
+    );
+    hide_prompt_for_rejected_input(witness, *prompt_cycle);
+    broker.boundary().map_err(anyhow::Error::msg)?;
+    broker
+        .session_line(
+            &format!(
+                "repl-input-too-large: input exceeds the 1 MiB session limit; {NOTICE_INPUT_DISCARDED}"
+            ),
+            SessionStyle::Error,
+        )
+        .map_err(anyhow::Error::msg)
+}
+
+#[cfg(unix)]
+fn discard_backlogged_interactive_input(
+    discarding: &mut bool,
+    buffer: &mut Vec<u8>,
+    driver: &mut crate::repl::session::ReplDriver,
+    interrupt: &ReplInterruptController,
     broker: &ReplBrokerHandle,
     witness: &PromptWitness,
     prompt_cycle: PromptCycle,
 ) -> anyhow::Result<()> {
+    if *discarding {
+        return Ok(());
+    }
+    *discarding = true;
+    buffer.clear();
+    driver.abandon_continuation();
+    interrupt
+        .abandon_completion_for_submission()
+        .and_then(|()| interrupt.note_buffer_changed(true, false))
+        .map_err(anyhow::Error::msg)?;
+    interrupt.set_phase(
+        generated::EditorPhase::Editing,
+        generated::PendingSubmission::None,
+    );
+    hide_prompt_for_rejected_input(witness, prompt_cycle);
+    broker.boundary().map_err(anyhow::Error::msg)?;
+    broker
+        .session_line(&repl_input_backlog_diagnostic(), SessionStyle::Error)
+        .map_err(anyhow::Error::msg)
+}
+
+#[cfg(unix)]
+fn hide_prompt_for_rejected_input(witness: &PromptWitness, prompt_cycle: PromptCycle) {
+    witness.publish(prompt_cycle, false);
+}
+
+#[cfg(unix)]
+fn queue_static_completion(
+    driver: &crate::repl::session::ReplDriver,
+    buffer: &[u8],
+    interrupt: &ReplInterruptController,
+    completion: &AsyncCompletionProducer,
+) -> anyhow::Result<()> {
     let Ok(line) = std::str::from_utf8(buffer) else {
         return Ok(());
     };
-    let candidates = driver.completion_candidates(line, line.len());
+    if interrupt.completion_live() {
+        return Ok(());
+    }
+    let (request_id, input_generation) =
+        interrupt.queue_completion().map_err(anyhow::Error::msg)?;
+    let job = CompletionJob {
+        request_id,
+        input_generation,
+        line: line.to_owned(),
+        snapshot: driver.completion_snapshot(),
+    };
+    if let Err(error) = completion.try_queue(job) {
+        interrupt.completion_queue_failed(request_id);
+        match error {
+            // An abandoned request can still occupy the single producer slot
+            // until its Begin event is refused. Completion is advisory, so a
+            // Tab during that bounded drain is a no-op rather than a fatal
+            // terminal-session error.
+            CompletionQueueError::Full => return Ok(()),
+            CompletionQueueError::Disconnected => {
+                anyhow::bail!("bounded completion producer disconnected")
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn apply_static_completion(
+    buffer: &mut Vec<u8>,
+    candidates: Vec<String>,
+    broker: &ReplBrokerHandle,
+    witness: &PromptWitness,
+    prompt_cycle: PromptCycle,
+) -> anyhow::Result<bool> {
+    let Ok(line) = std::str::from_utf8(buffer) else {
+        return Ok(false);
+    };
+    let mut changed = false;
     if candidates.len() == 1 && candidates[0].starts_with(line) {
         buffer.extend_from_slice(&candidates[0].as_bytes()[line.len()..]);
+        changed = true;
         witness
             .publish_prompt(prompt_cycle, buffer, broker)
             .map_err(anyhow::Error::msg)?;
@@ -7925,7 +12086,7 @@ fn complete_static_input(
             .publish_prompt(prompt_cycle, buffer, broker)
             .map_err(anyhow::Error::msg)?;
     }
-    Ok(())
+    Ok(changed)
 }
 
 #[cfg(unix)]
@@ -7974,22 +12135,30 @@ async fn render_repl_step(
     session: &mut crate::repl::ReplEvaluationSession,
     broker: &ReplBrokerHandle,
     step: crate::repl::session::ReplStep,
+    damage: &mut SecondarySettlementDamage,
 ) -> anyhow::Result<Option<InlineSettlement>> {
     use crate::repl::session::ReplStep;
     if let Some((stdout_cutoff, stderr_cutoff)) = session.take_worker_outcome_barrier() {
-        broker
-            .worker_barrier(stdout_cutoff, stderr_cutoff)
-            .map_err(anyhow::Error::new)?;
+        if let Err(error) = broker.worker_barrier(stdout_cutoff, stderr_cutoff) {
+            if repl_step_primary_settlement(&step).is_some() {
+                damage.record_worker_barrier(
+                    "REPL outcome barrier failed after the primary cause was fixed",
+                    error,
+                );
+            } else {
+                return Err(anyhow::Error::new(error));
+            }
+        }
     }
     match step {
         ReplStep::Idle | ReplStep::Continuation => Ok(None),
         ReplStep::Evaluation { result, .. } | ReplStep::Loaded { result } => {
-            render_authenticated_evaluation(session, broker, result).await
+            render_authenticated_evaluation(session, broker, result, damage).await
         }
         ReplStep::TimedEvaluation {
             result, elapsed, ..
         } => {
-            let status = render_authenticated_evaluation(session, broker, result).await?;
+            let status = render_authenticated_evaluation(session, broker, result, damage).await?;
             if status.is_none() {
                 broker
                     .session_line(
@@ -8050,42 +12219,73 @@ async fn render_repl_step(
 }
 
 #[cfg(unix)]
+fn repl_step_primary_settlement(step: &crate::repl::session::ReplStep) -> Option<InlineSettlement> {
+    use crate::repl::session::ReplStep;
+    use crate::repl::ReplEvaluation;
+
+    let result = match step {
+        ReplStep::Evaluation { result, .. }
+        | ReplStep::TimedEvaluation { result, .. }
+        | ReplStep::Loaded { result } => result,
+        _ => return None,
+    };
+    match result {
+        Err(error) if error.is_engine_fault() => {
+            Some(InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT))
+        }
+        Ok(ReplEvaluation::Lifecycle(status)) => Some(InlineSettlement::Successful(*status)),
+        _ => None,
+    }
+}
+
+#[cfg(unix)]
 async fn render_authenticated_evaluation(
     session: &mut crate::repl::ReplEvaluationSession,
     broker: &ReplBrokerHandle,
     result: std::result::Result<crate::repl::ReplEvaluation, crate::runtime::ReplEvaluationFailure>,
+    damage: &mut SecondarySettlementDamage,
 ) -> anyhow::Result<Option<InlineSettlement>> {
     use crate::repl::{ReplDisplay, ReplEvaluation};
     match result {
         Err(error) => {
             let is_engine_fault = error.is_engine_fault();
-            broker
-                .session_line(
-                    &format!(
-                        "{}: {error:#}",
-                        if is_engine_fault {
-                            "engine fault"
-                        } else {
-                            "evaluation refused"
-                        }
-                    ),
-                    SessionStyle::Error,
-                )
-                .map_err(anyhow::Error::msg)?;
-            Ok(is_engine_fault.then_some(InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)))
+            let diagnostic = broker.session_line(
+                &format!(
+                    "{}: {error:#}",
+                    if is_engine_fault {
+                        "engine fault"
+                    } else {
+                        "evaluation refused"
+                    }
+                ),
+                SessionStyle::Error,
+            );
+            if is_engine_fault {
+                damage.record_broker_result(
+                    "REPL engine-fault diagnostic was not delivered",
+                    diagnostic,
+                );
+                Ok(Some(InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)))
+            } else {
+                diagnostic.map_err(anyhow::Error::msg)?;
+                Ok(None)
+            }
         }
         Ok(ReplEvaluation::Empty | ReplEvaluation::Cancelled) => Ok(None),
         Ok(ReplEvaluation::Lifecycle(status)) => {
             if let Some((stdout_cutoff, stderr_cutoff)) = session.take_worker_lifecycle_barrier() {
-                broker
-                    .worker_barrier(stdout_cutoff, stderr_cutoff)
-                    .map_err(anyhow::Error::new)?;
+                if let Err(error) = broker.worker_barrier(stdout_cutoff, stderr_cutoff) {
+                    damage.record_worker_barrier(
+                        "REPL lifecycle output barrier failed after cause was fixed",
+                        error,
+                    );
+                }
             }
             Ok(Some(InlineSettlement::Successful(status)))
         }
         Ok(ReplEvaluation::Throw(thrown)) => {
             broker
-                .session_line(&thrown.value.text, SessionStyle::Error)
+                .session_line(&thrown.value.diagnostic_text(), SessionStyle::Error)
                 .map_err(anyhow::Error::msg)?;
             if let Some(message) = thrown.metadata.message() {
                 broker
@@ -8129,7 +12329,7 @@ async fn render_authenticated_evaluation(
                 ReplDisplay::Local(display) => encode_authenticated_display(&display),
                 ReplDisplay::Worker(wire) => Ok(wire),
             };
-            let (local_disposition, display_error) = match encoded {
+            let (local_disposition, mut display_error) = match encoded {
                 Ok(wire) => match broker.display(wire, worker_barrier) {
                     Ok(disposition) => (disposition, None),
                     Err(error) => (DisplayDisposition::WriteFailed, Some(error)),
@@ -8139,6 +12339,7 @@ async fn render_authenticated_evaluation(
                     Some(ReplDisplayFailure::Broker(error.to_string())),
                 ),
             };
+            let lifecycle = session.session_lifecycle();
             if let Some(receipt) = receipt {
                 let engine_disposition = match local_disposition {
                     DisplayDisposition::Displayed => crate::engine::DisplayDisposition::Displayed,
@@ -8147,16 +12348,43 @@ async fn render_authenticated_evaluation(
                         crate::engine::DisplayDisposition::WriteFailed
                     }
                 };
-                if let Err(error) = session
+                // A lifecycle request can arrive while a worker is settling the
+                // display acknowledgement. Observe both sides of that await so
+                // a later acknowledgement error remains cleanup damage.
+                let mut cooperative = lifecycle.take_pending_request();
+                let acknowledgement_error = session
                     .acknowledge_display(receipt, engine_disposition)
                     .await
-                {
-                    broker
-                        .session_line(
+                    .err();
+                cooperative = cooperative.or_else(|| lifecycle.take_pending_request());
+                if let Some(request) = cooperative {
+                    if let Some(error) = display_error.take() {
+                        record_repl_display_damage_after_settlement(broker, error, damage);
+                    }
+                    if let Some(error) = acknowledgement_error {
+                        damage.record_broker_result(
+                            "REPL display-cleanup diagnostic was not delivered",
+                            broker.session_line(
+                                &format!(
+                                    "display acknowledgement failed after cooperative exit: {error:#}"
+                                ),
+                                SessionStyle::Error,
+                            ),
+                        );
+                    }
+                    return Ok(Some(InlineSettlement::Successful(request.status)));
+                }
+                if let Some(error) = acknowledgement_error {
+                    if let Some(display_error) = display_error.take() {
+                        record_repl_display_damage_after_settlement(broker, display_error, damage);
+                    }
+                    damage.record_broker_result(
+                        "REPL display-acknowledgement diagnostic was not delivered",
+                        broker.session_line(
                             &format!("engine fault: display acknowledgement failed: {error:#}"),
                             SessionStyle::Error,
-                        )
-                        .map_err(anyhow::Error::msg)?;
+                        ),
+                    );
                     return Ok(Some(InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)));
                 }
                 if let Some((stdout_cutoff, stderr_cutoff)) = session.take_worker_outcome_barrier()
@@ -8166,16 +12394,75 @@ async fn render_authenticated_evaluation(
                         .map_err(anyhow::Error::new)?;
                 }
             }
-            if let Some(error) = display_error {
-                broker
-                    .session_line(&format!("display fallback: {error}"), SessionStyle::Error)
-                    .map_err(anyhow::Error::msg)?;
-            } else {
-                broker.boundary().map_err(anyhow::Error::msg)?;
-            }
-            Ok(None)
+            finish_repl_value_presentation(&lifecycle, broker, display_error, damage)
         }
     }
+}
+
+#[cfg(unix)]
+fn finish_repl_value_presentation(
+    lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+    broker: &ReplBrokerHandle,
+    display_error: Option<ReplDisplayFailure>,
+    damage: &mut SecondarySettlementDamage,
+) -> anyhow::Result<Option<InlineSettlement>> {
+    let cooperative_before_boundary = lifecycle.take_pending_request();
+    match display_error {
+        Some(error) => {
+            let detail = error.to_string();
+            if let ReplDisplayFailure::WorkerBarrier(barrier) = error {
+                damage.record_worker_barrier(
+                    "REPL display output barrier failed while settling the result",
+                    barrier,
+                );
+            }
+            let diagnostic =
+                broker.session_line(&format!("display fallback: {detail}"), SessionStyle::Error);
+            let cooperative =
+                cooperative_before_boundary.or_else(|| lifecycle.take_pending_request());
+            if let Some(request) = cooperative {
+                damage.record_broker_result(
+                    "REPL display-failure diagnostic was not delivered after cooperative exit",
+                    diagnostic,
+                );
+                return Ok(Some(InlineSettlement::Successful(request.status)));
+            }
+            diagnostic.map_err(anyhow::Error::msg)?;
+        }
+        None => {
+            let boundary = broker.boundary();
+            let cooperative =
+                cooperative_before_boundary.or_else(|| lifecycle.take_pending_request());
+            if let Some(request) = cooperative {
+                damage.record_broker_result(
+                    "REPL result boundary was not delivered after cooperative exit",
+                    boundary,
+                );
+                return Ok(Some(InlineSettlement::Successful(request.status)));
+            }
+            boundary.map_err(anyhow::Error::msg)?;
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(unix)]
+fn record_repl_display_damage_after_settlement(
+    broker: &ReplBrokerHandle,
+    error: ReplDisplayFailure,
+    damage: &mut SecondarySettlementDamage,
+) {
+    let detail = error.to_string();
+    if let ReplDisplayFailure::WorkerBarrier(barrier) = error {
+        damage.record_worker_barrier(
+            "REPL display output barrier failed after the primary cause was fixed",
+            barrier,
+        );
+    }
+    damage.record_broker_result(
+        "REPL display-failure diagnostic was not delivered after settlement",
+        broker.session_line(&format!("display fallback: {detail}"), SessionStyle::Error),
+    );
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -9073,12 +13360,10 @@ where
             .cancellations
             .insert(request.request_id, CancellationRecord { request, status });
         debug_assert!(replaced.is_none());
-        if status == CancellationStatus::Failed {
-            if self.state.cause.is_none() {
-                self.latch_cause(TerminationKind::Fault, EXIT_STATUS_ENGINE_FAULT);
-                self.run_cleanup(TerminationMode::Begin)?;
-                return Ok(true);
-            }
+        if status == CancellationStatus::Failed && self.state.cause.is_none() {
+            self.latch_cause(TerminationKind::Fault, EXIT_STATUS_ENGINE_FAULT);
+            self.run_cleanup(TerminationMode::Begin)?;
+            return Ok(true);
         }
         Ok(false)
     }
@@ -9284,6 +13569,109 @@ mod tests {
     use std::time::Duration;
 
     #[cfg(unix)]
+    struct ProducerTeardownProbe {
+        events: Arc<Mutex<Vec<&'static str>>>,
+        fail_quiesce: bool,
+    }
+
+    #[cfg(unix)]
+    impl WorkerProducerTeardownControl for ProducerTeardownProbe {
+        fn quiesce_preserving_lifecycle(&self) -> anyhow::Result<()> {
+            self.events.lock().unwrap().push("quiesce");
+            if self.fail_quiesce {
+                anyhow::bail!("fixture quiescence failure");
+            }
+            Ok(())
+        }
+
+        fn dispose_preserving_lifecycle(&self) -> anyhow::Result<()> {
+            self.events.lock().unwrap().push("dispose");
+            Ok(())
+        }
+    }
+
+    #[cfg(unix)]
+    struct TeardownDropProbe {
+        event: &'static str,
+        events: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    #[cfg(unix)]
+    impl Drop for TeardownDropProbe {
+        fn drop(&mut self) {
+            self.events.lock().unwrap().push(self.event);
+        }
+    }
+
+    #[cfg(unix)]
+    const PANIC_FUTURE_STDOUT_DROP_MARKER: &[u8] = b"panic-future-stdout-drop\n";
+    #[cfg(unix)]
+    const PANIC_FUTURE_STDERR_DROP_MARKER: &[u8] = b"panic-future-stderr-drop\n";
+
+    #[cfg(unix)]
+    fn descriptors_have_same_identity(left: i32, right: i32) -> bool {
+        let mut left_status = std::mem::MaybeUninit::<libc::stat>::uninit();
+        let mut right_status = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: both output descriptors and both stat destinations are live
+        // for these read-only identity queries.
+        if unsafe { libc::fstat(left, left_status.as_mut_ptr()) } != 0
+            || unsafe { libc::fstat(right, right_status.as_mut_ptr()) } != 0
+        {
+            return false;
+        }
+        // SAFETY: both successful fstat calls initialized their destinations.
+        let left_status = unsafe { left_status.assume_init() };
+        let right_status = unsafe { right_status.assume_init() };
+        left_status.st_dev == right_status.st_dev && left_status.st_ino == right_status.st_ino
+    }
+
+    #[cfg(unix)]
+    struct PanickingFileExecutionFuture {
+        original_stdout: NativeFd,
+        original_stderr: NativeFd,
+        observed_restoration: Arc<AtomicBool>,
+    }
+
+    #[cfg(unix)]
+    impl Future for PanickingFileExecutionFuture {
+        type Output = ();
+
+        fn poll(
+            self: std::pin::Pin<&mut Self>,
+            _context: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Self::Output> {
+            panic!("fixture evaluator panic");
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for PanickingFileExecutionFuture {
+        fn drop(&mut self) {
+            let restored =
+                descriptors_have_same_identity(libc::STDOUT_FILENO, self.original_stdout.raw())
+                    && descriptors_have_same_identity(
+                        libc::STDERR_FILENO,
+                        self.original_stderr.raw(),
+                    );
+            self.observed_restoration.store(restored, Ordering::Release);
+            // SAFETY: the test process keeps its original output descriptors
+            // open; fixed markers make the destructor's destination visible.
+            unsafe {
+                libc::write(
+                    libc::STDOUT_FILENO,
+                    PANIC_FUTURE_STDOUT_DROP_MARKER.as_ptr().cast(),
+                    PANIC_FUTURE_STDOUT_DROP_MARKER.len(),
+                );
+                libc::write(
+                    libc::STDERR_FILENO,
+                    PANIC_FUTURE_STDERR_DROP_MARKER.as_ptr().cast(),
+                    PANIC_FUTURE_STDERR_DROP_MARKER.len(),
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
     struct SuspensionTransactionHarness {
         events: Vec<&'static str>,
         fail_at: Option<&'static str>,
@@ -9343,6 +13731,221 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    struct TerminalSignalFinalizationHarness {
+        events: Vec<&'static str>,
+        fail_restore: bool,
+    }
+
+    #[cfg(unix)]
+    impl TerminalSignalFinalizationPort for TerminalSignalFinalizationHarness {
+        fn restore_after_signal_join(&mut self) -> io::Result<()> {
+            self.events.push("restore");
+            if self.fail_restore {
+                Err(io::Error::other("fixture restoration failure"))
+            } else {
+                Ok(())
+            }
+        }
+
+        fn disarm_session_signals(&mut self) {
+            self.events.push("disarm");
+        }
+    }
+
+    // @ref LLP 0025#5-terminal-presentation-and-restoration
+    #[cfg(unix)]
+    #[test]
+    fn final_terminal_restore_precedes_signal_disarm_and_failure_retains_mediation() {
+        let mut successful = TerminalSignalFinalizationHarness {
+            events: Vec::new(),
+            fail_restore: false,
+        };
+        restore_terminal_before_disarming_session_signals(&mut successful).unwrap();
+        assert_eq!(successful.events, ["restore", "disarm"]);
+
+        let mut failed = TerminalSignalFinalizationHarness {
+            events: Vec::new(),
+            fail_restore: true,
+        };
+        assert!(restore_terminal_before_disarming_session_signals(&mut failed).is_err());
+        assert_eq!(failed.events, ["restore"]);
+    }
+
+    // @ref LLP 0025#5-terminal-presentation-and-restoration
+    #[cfg(unix)]
+    #[test]
+    fn session_signal_guard_restores_prior_and_rejects_reinstallation() {
+        const CHILD: &str = "IBEX_TEST_SESSION_ONE_SHOT_SIGNAL_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let mut ignored: libc::sigaction = unsafe { std::mem::zeroed() };
+            ignored.sa_sigaction = libc::SIG_IGN;
+            assert_eq!(unsafe { libc::sigemptyset(&mut ignored.sa_mask) }, 0);
+            assert_eq!(
+                unsafe { libc::sigaction(libc::SIGINT, &ignored, std::ptr::null_mut()) },
+                0
+            );
+
+            let mut signals = UnixSessionSignalGuard::install(false, true).unwrap();
+            let (coordinator_source, _) = signals.take_source().unwrap();
+            drop(coordinator_source);
+            drop(signals);
+
+            let mut restored: libc::sigaction = unsafe { std::mem::zeroed() };
+            assert_eq!(
+                unsafe { libc::sigaction(libc::SIGINT, std::ptr::null(), &mut restored) },
+                0
+            );
+            assert_eq!(restored.sa_sigaction, libc::SIG_IGN);
+            let reinstall = UnixSessionSignalGuard::install(false, true);
+            assert!(matches!(
+                reinstall,
+                Err(ref error) if error.kind() == io::ErrorKind::AlreadyExists
+            ));
+            std::process::exit(0);
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "terminal_session::tests::session_signal_guard_restores_prior_and_rejects_reinstallation",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "one-shot session signal child failed\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // @ref LLP 0025#5-terminal-presentation-and-restoration
+    #[cfg(unix)]
+    #[test]
+    fn failed_terminal_restore_retains_safe_sigint_mediation() {
+        const CHILD: &str = "IBEX_TEST_FAILED_TERMINAL_RESTORE_SIGNAL_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            use std::os::fd::{FromRawFd, OwnedFd};
+
+            let mut master = -1;
+            let mut slave = -1;
+            // SAFETY: openpty initializes both descriptor slots on success.
+            assert_eq!(
+                unsafe {
+                    libc::openpty(
+                        &mut master,
+                        &mut slave,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    )
+                },
+                0
+            );
+            // SAFETY: openpty returned a fresh owned master descriptor.
+            let _master = unsafe { OwnedFd::from_raw_fd(master) };
+            let mut signals = UnixSessionSignalGuard::install(false, true).unwrap();
+            let (coordinator_source, _) = signals.take_source().unwrap();
+            drop(coordinator_source);
+
+            let mut terminal = UnixTerminalLifecycle::new(slave, slave);
+            terminal
+                .enter_session(CapturedPresentation::interactive_plain())
+                .unwrap();
+            // Force every terminal-lifecycle retry to fail. The scoped signal
+            // guards must then keep their dispositions and the session guard's
+            // read keepalive instead of returning inherited/default actions.
+            assert_eq!(unsafe { libc::close(slave) }, 0);
+            drop(terminal);
+            drop(signals);
+
+            let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+            assert_eq!(
+                unsafe { libc::sigaction(libc::SIGINT, std::ptr::null(), &mut action) },
+                0
+            );
+            assert_eq!(
+                action.sa_sigaction,
+                terminal_session_signal_handler as *const () as usize
+            );
+            assert_eq!(
+                unsafe { libc::sigaction(libc::SIGTERM, std::ptr::null(), &mut action) },
+                0
+            );
+            assert_eq!(
+                action.sa_sigaction,
+                terminal_session_signal_handler as *const () as usize
+            );
+            let writer = SESSION_SIGNAL_WRITE_FD.load(Ordering::Acquire);
+            assert!(writer >= 0);
+            let byte = [SESSION_SIGNAL_INTERRUPT];
+            assert_eq!(
+                unsafe { libc::write(writer, byte.as_ptr().cast(), byte.len()) },
+                1,
+                "retained signal writer lost its post-coordinator read keepalive"
+            );
+            std::process::exit(0);
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "terminal_session::tests::failed_terminal_restore_retains_safe_sigint_mediation",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "restore-failure signal child failed\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    // @ref LLP 0025#5-terminal-presentation-and-restoration
+    #[cfg(unix)]
+    #[test]
+    fn signal_restore_lane_omits_potentially_blocking_cosmetic_writes() {
+        let (read, write) = native_pipe().unwrap();
+        let state = SignalRestoreState::new();
+        // SAFETY: termios is a plain C structure; the invalid input descriptor
+        // makes tcsetattr fail immediately while the control pipe observes
+        // whether either restoration lane attempted cosmetic output.
+        let original: libc::termios = unsafe { std::mem::zeroed() };
+        state.prepare(-1, write.raw(), original).unwrap();
+
+        // SAFETY: the local state is armed and remains alive for the call.
+        unsafe {
+            state.restore_from_signal();
+        }
+        let mut bytes = [0_u8; 32];
+        // SAFETY: read is a live nonblocking pipe descriptor and bytes is writable.
+        let amount = unsafe { libc::read(read.raw(), bytes.as_mut_ptr().cast(), bytes.len()) };
+        assert_eq!(amount, -1);
+        assert_eq!(io::Error::last_os_error().kind(), io::ErrorKind::WouldBlock);
+
+        // The ordinary supervisor lane still performs the complete cosmetic
+        // restoration before its bounded cleanup and process exit.
+        unsafe {
+            state.restore_from_ordinary_escape();
+        }
+        let amount = unsafe { libc::read(read.raw(), bytes.as_mut_ptr().cast(), bytes.len()) };
+        assert_eq!(
+            amount as usize,
+            ANSI_RESET.len() + SIGNAL_CURSOR_SHOW_BYTES.len()
+        );
+        assert_eq!(
+            &bytes[..amount as usize],
+            [ANSI_RESET.as_bytes(), SIGNAL_CURSOR_SHOW_BYTES].concat()
+        );
+        state.disarm_without_restore();
+    }
+
     // @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
     #[cfg(unix)]
     #[test]
@@ -9388,6 +13991,122 @@ mod tests {
         assert!(!port.events.contains(&"raw"));
     }
 
+    // @ref LLP 0025#5-terminal-presentation-and-restoration
+    #[cfg(unix)]
+    #[test]
+    fn worker_panic_teardown_restores_then_quiesces_then_drains_before_session_drop() {
+        for (fail_quiesce, expected) in [
+            (false, vec!["signals", "quiesce", "capture", "session"]),
+            (
+                true,
+                vec!["signals", "quiesce", "dispose", "capture", "session"],
+            ),
+        ] {
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe({
+                let events = events.clone();
+                move || {
+                    runtime.block_on(async move {
+                        // This is the production declaration order: the
+                        // owning session predates active capture; the guard is
+                        // immediately after capture; the coordinator is later.
+                        let _session = TeardownDropProbe {
+                            event: "session",
+                            events: events.clone(),
+                        };
+                        let _capture = TeardownDropProbe {
+                            event: "capture",
+                            events: events.clone(),
+                        };
+                        let _producer_unwind =
+                            WorkerProducerUnwindGuard::new(Some(ProducerTeardownProbe {
+                                events: events.clone(),
+                                fail_quiesce,
+                            }));
+                        let _signals = TeardownDropProbe {
+                            event: "signals",
+                            events,
+                        };
+                        tokio::task::yield_now().await;
+                        panic!("fixture session panic");
+                    })
+                }
+            }));
+            assert!(panic.is_err());
+            assert_eq!(*events.lock().unwrap(), expected);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_finalization_gate_totally_orders_reentry_and_restore() {
+        let terminal = Arc::new(Mutex::new(false));
+        let finalizing = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let start = Arc::new(std::sync::Barrier::new(2));
+        let held = terminal.lock().unwrap();
+        let refused = {
+            let terminal = terminal.clone();
+            let finalizing = finalizing.clone();
+            let start = start.clone();
+            thread::spawn(move || {
+                start.wait();
+                enter_with_terminal_finalization_gate(
+                    terminal.as_ref(),
+                    finalizing.as_ref(),
+                    |active| {
+                        *active = true;
+                        Ok(())
+                    },
+                )
+            })
+        };
+        start.wait();
+        finalizing.store(true, Ordering::Release);
+        drop(held);
+        assert_eq!(
+            refused.join().unwrap(),
+            Err("terminal session is finalizing".to_string())
+        );
+        assert!(!*terminal.lock().unwrap());
+
+        let terminal = Arc::new(Mutex::new(false));
+        let finalizing = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let entered = Arc::new(std::sync::Barrier::new(2));
+        let release = Arc::new(std::sync::Barrier::new(2));
+        let in_flight = {
+            let terminal = terminal.clone();
+            let finalizing = finalizing.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            thread::spawn(move || {
+                enter_with_terminal_finalization_gate(
+                    terminal.as_ref(),
+                    finalizing.as_ref(),
+                    |active| {
+                        *active = true;
+                        entered.wait();
+                        release.wait();
+                        Ok(())
+                    },
+                )
+            })
+        };
+        entered.wait();
+        finalizing.store(true, Ordering::Release);
+        let restore = {
+            let terminal = terminal.clone();
+            thread::spawn(move || *terminal.lock().unwrap() = false)
+        };
+        release.wait();
+        in_flight.join().unwrap().unwrap();
+        restore.join().unwrap();
+        assert!(!*terminal.lock().unwrap());
+    }
+
     #[cfg(unix)]
     #[test]
     fn bracketed_paste_keeps_interrupt_and_suspend_bytes_inert() {
@@ -9397,11 +14116,554 @@ mod tests {
         }
         assert!(gate.feed(PROMPT_INTERRUPT_BYTE));
         assert!(gate.feed(0x1a));
+        assert!(gate.feed(b'\n'));
         for byte in b"\x1b[201~" {
             assert!(gate.feed(*byte));
         }
         assert!(!gate.feed(PROMPT_INTERRUPT_BYTE));
         assert!(!gate.feed(0x1a));
+        assert!(!gate.feed(b'\n'));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn many_small_records_exhaust_backlog_without_becoming_input_too_large() {
+        const CAPACITY: usize = 64;
+        let (bytes_tx, _bytes_rx) = tokio::sync::mpsc::channel(CAPACITY);
+        let cycle = Some(PromptCycle(1));
+
+        // Thirty-two individually tiny records fill this deliberately small
+        // fixture lane. Occupancy says nothing about any record's size.
+        for _ in 0..(CAPACITY / 2) {
+            for byte in [b'x', b'\n'] {
+                assert_eq!(
+                    try_forward_repl_input_byte(
+                        &bytes_tx,
+                        ReplInputByte {
+                            byte,
+                            observed_prompt: cycle,
+                        },
+                    ),
+                    ReplInputForwardDisposition::Forwarded
+                );
+            }
+        }
+
+        assert_eq!(
+            try_forward_repl_input_byte(
+                &bytes_tx,
+                ReplInputByte {
+                    byte: b'y',
+                    observed_prompt: cycle,
+                },
+            ),
+            ReplInputForwardDisposition::BacklogExhausted
+        );
+        let diagnostic = repl_input_backlog_diagnostic();
+        assert!(diagnostic.starts_with("repl-input-backlog-exhausted:"));
+        assert!(!diagnostic.contains("repl-input-too-large"));
+
+        // Backlog state is consulted only after raw control classification in
+        // production. A following Ctrl+C therefore still selects dispatch,
+        // even though another ordinary byte would be discarded.
+        let mut paste = RawBracketedPasteSignalGate::default();
+        assert!(is_raw_repl_interrupt(
+            paste.feed(PROMPT_INTERRUPT_BYTE),
+            PROMPT_INTERRUPT_BYTE
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backlog_notice_and_boundary_survive_a_full_priority_lane_without_more_input() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (priority_tx, priority) = tokio::sync::mpsc::channel(1);
+            let (_bytes_tx, bytes) = tokio::sync::mpsc::channel(1);
+            priority_tx
+                .try_send(ReplInputEvent::Error("preexisting-priority-event".into()))
+                .unwrap();
+            let backlog = Arc::new(ReplInputBacklogState::default());
+            let mut port = ReplInputPort {
+                priority,
+                bytes,
+                backlog: Arc::clone(&backlog),
+                recovered: VecDeque::new(),
+                priority_closed: false,
+                bytes_closed: false,
+            };
+
+            // Both publications occur while the ordinary priority channel is
+            // full, and then the producer goes completely quiet. Durable state
+            // must retain their order independently of Notify coalescing.
+            backlog.begin();
+            assert_eq!(
+                backlog.route_ordinary_input(
+                    ReplInputByte {
+                        byte: b'\n',
+                        observed_prompt: None,
+                    },
+                    false,
+                ),
+                ReplBacklogInputDisposition::Discarded
+            );
+            assert!(matches!(
+                port.recv().await,
+                Some(ReplInputEvent::Error(error)) if error == "preexisting-priority-event"
+            ));
+            assert!(matches!(
+                port.recv().await,
+                Some(ReplInputEvent::InputBacklogExhausted)
+            ));
+            let generation = match port.recv().await {
+                Some(ReplInputEvent::InputBacklogBoundary { generation }) => generation,
+                other => panic!("expected retained backlog boundary, got {other:?}"),
+            };
+            assert!(port.resume_after_backlog_exhaustion(generation));
+            assert!(!backlog.is_active());
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backlog_exhaustion_on_newline_retains_that_boundary_without_more_input() {
+        let (bytes_tx, _bytes_rx) = tokio::sync::mpsc::channel(1);
+        assert_eq!(
+            try_forward_repl_input_byte(
+                &bytes_tx,
+                ReplInputByte {
+                    byte: b'x',
+                    observed_prompt: Some(PromptCycle(1)),
+                },
+            ),
+            ReplInputForwardDisposition::Forwarded
+        );
+        assert_eq!(
+            try_forward_repl_input_byte(
+                &bytes_tx,
+                ReplInputByte {
+                    byte: b'\n',
+                    observed_prompt: Some(PromptCycle(1)),
+                },
+            ),
+            ReplInputForwardDisposition::BacklogExhausted
+        );
+
+        let backlog = ReplInputBacklogState::default();
+        record_repl_input_backlog_exhaustion(&backlog, false, b'\n');
+        assert!(matches!(
+            backlog.take_pending_event(),
+            Some(ReplInputEvent::InputBacklogExhausted)
+        ));
+        assert!(matches!(
+            backlog.take_pending_event(),
+            Some(ReplInputEvent::InputBacklogBoundary { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backlog_handoff_preserves_fresh_successor_before_consumer_acknowledgement() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (_priority_tx, priority) = tokio::sync::mpsc::channel(1);
+            let (bytes_tx, bytes) = tokio::sync::mpsc::channel(1);
+            let backlog = Arc::new(ReplInputBacklogState::with_recovery_capacity(8));
+            let mut port = ReplInputPort {
+                priority,
+                bytes,
+                backlog: Arc::clone(&backlog),
+                recovered: VecDeque::new(),
+                priority_closed: false,
+                bytes_closed: false,
+            };
+            let prompt = Some(PromptCycle(17));
+
+            // Leave the only ordinary slot full and do not poll the consumer.
+            assert_eq!(
+                try_forward_repl_input_byte(
+                    &bytes_tx,
+                    ReplInputByte {
+                        byte: b'x',
+                        observed_prompt: prompt,
+                    },
+                ),
+                ReplInputForwardDisposition::Forwarded
+            );
+            let overflow = ReplInputByte {
+                byte: b'y',
+                observed_prompt: prompt,
+            };
+            assert_eq!(
+                try_forward_repl_input_byte(&bytes_tx, overflow),
+                ReplInputForwardDisposition::BacklogExhausted
+            );
+            backlog.begin();
+            assert_eq!(
+                backlog.route_ordinary_input(overflow, false),
+                ReplBacklogInputDisposition::Discarded
+            );
+            assert_eq!(
+                backlog.route_ordinary_input(
+                    ReplInputByte {
+                        byte: b'\n',
+                        observed_prompt: prompt,
+                    },
+                    false,
+                ),
+                ReplBacklogInputDisposition::Discarded
+            );
+
+            // The consumer is still stalled and its ordinary lane is still
+            // full, but the bounded post-boundary handoff retains this fresh
+            // record instead of extending the discard window past the newline.
+            for byte in b"next\n" {
+                assert_eq!(
+                    backlog.route_ordinary_input(
+                        ReplInputByte {
+                            byte: *byte,
+                            observed_prompt: prompt,
+                        },
+                        false,
+                    ),
+                    ReplBacklogInputDisposition::Buffered
+                );
+            }
+            assert_eq!(backlog.recovered_len(), 5);
+
+            assert!(matches!(
+                port.recv().await,
+                Some(ReplInputEvent::InputBacklogExhausted)
+            ));
+            port.discard_buffered_bytes();
+            let generation = match port.recv().await {
+                Some(ReplInputEvent::InputBacklogBoundary { generation }) => generation,
+                other => panic!("expected backlog boundary, got {other:?}"),
+            };
+            assert!(port.resume_after_backlog_exhaustion(generation));
+
+            let mut recovered = Vec::new();
+            for _ in 0..5 {
+                match port.recv().await {
+                    Some(ReplInputEvent::Byte {
+                        byte,
+                        observed_prompt,
+                    }) => {
+                        assert_eq!(observed_prompt, prompt);
+                        recovered.push(byte);
+                    }
+                    other => panic!("expected recovered successor byte, got {other:?}"),
+                }
+            }
+            assert_eq!(recovered, b"next\n");
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backlog_handoff_is_bounded_and_stale_boundary_cannot_release_a_prefix() {
+        let backlog = ReplInputBacklogState::with_recovery_capacity(3);
+        let input = |byte| ReplInputByte {
+            byte,
+            observed_prompt: Some(PromptCycle(4)),
+        };
+        backlog.begin();
+        assert_eq!(
+            backlog.route_ordinary_input(input(b'\n'), false),
+            ReplBacklogInputDisposition::Discarded
+        );
+        assert!(matches!(
+            backlog.take_pending_event(),
+            Some(ReplInputEvent::InputBacklogExhausted)
+        ));
+        let stale_generation = match backlog.take_pending_event() {
+            Some(ReplInputEvent::InputBacklogBoundary { generation }) => generation,
+            other => panic!("expected first boundary, got {other:?}"),
+        };
+        for byte in b"abc" {
+            assert_eq!(
+                backlog.route_ordinary_input(input(*byte), false),
+                ReplBacklogInputDisposition::Buffered
+            );
+        }
+        assert_eq!(backlog.recovered_len(), 3);
+
+        // The fourth byte cannot grow the handoff. It invalidates and clears
+        // the entire prefix, and the already-selected boundary cannot release
+        // those truncated bytes.
+        assert_eq!(
+            backlog.route_ordinary_input(input(b'd'), false),
+            ReplBacklogInputDisposition::Discarded
+        );
+        assert_eq!(backlog.recovered_len(), 0);
+        assert!(backlog
+            .take_recovered_and_resume(stale_generation)
+            .is_none());
+
+        assert_eq!(
+            backlog.route_ordinary_input(input(b'\n'), false),
+            ReplBacklogInputDisposition::Discarded
+        );
+        assert_eq!(
+            backlog.route_ordinary_input(input(b'z'), false),
+            ReplBacklogInputDisposition::Buffered
+        );
+        let fresh_generation = match backlog.take_pending_event() {
+            Some(ReplInputEvent::InputBacklogBoundary { generation }) => generation,
+            other => panic!("expected replacement boundary, got {other:?}"),
+        };
+        let recovered = backlog
+            .take_recovered_and_resume(fresh_generation)
+            .expect("replacement boundary is current");
+        assert_eq!(
+            recovered
+                .into_iter()
+                .map(|input| input.byte)
+                .collect::<Vec<_>>(),
+            b"z"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bracketed_paste_data_uses_arrival_prompt_provenance_for_interrupt_reset() {
+        fn reduced_payload(
+            observed_prompt: Option<PromptCycle>,
+            prompt: PromptCycle,
+        ) -> (Vec<Vec<u8>>, Vec<bool>) {
+            let mut decoder = BracketedPasteDecoder::default();
+            let mut payload = Vec::new();
+            let mut resets = Vec::new();
+            for byte in b"\x1b[200~\xc3\xa9\x1b[201~" {
+                let reduced = reduce_interactive_editor_input(
+                    &mut decoder,
+                    ReplInputByte {
+                        byte: *byte,
+                        observed_prompt,
+                    },
+                    prompt,
+                );
+                resets.push(reduced.resets_interrupt_run);
+                if let Some(DecodedEditorByte::Data(bytes)) = reduced.decoded {
+                    payload.push(bytes);
+                }
+            }
+            (payload, resets)
+        }
+
+        let prompt = PromptCycle(9);
+        let (payload, fresh_resets) = reduced_payload(Some(prompt), prompt);
+        assert_eq!(payload.concat(), "é".as_bytes());
+        assert!(fresh_resets.into_iter().all(std::convert::identity));
+        let (typed_ahead_payload, typed_ahead_resets) = reduced_payload(None, prompt);
+        assert_eq!(typed_ahead_payload.concat(), "é".as_bytes());
+        assert!(!typed_ahead_resets.into_iter().any(std::convert::identity));
+
+        // The state-machine port observes the same provenance rule: accepted
+        // fresh data ends the interrupt run, while data typed without a live
+        // prompt remains typed-ahead even after it is later drained.
+        let mut fresh = harness([]);
+        fresh.supervisor.handle_interrupt().unwrap();
+        assert_eq!(fresh.supervisor.state().escape_credit, 1);
+        assert_eq!(fresh.supervisor.state().promise, PromiseClass::Orderly);
+        let fresh_cycle = fresh.supervisor.state().prompt_cycle;
+        for byte in payload.concat() {
+            fresh
+                .supervisor
+                .handle_editor_event(EditorInputEvent::Byte {
+                    byte,
+                    observed_prompt: Some(fresh_cycle),
+                })
+                .unwrap();
+        }
+        assert_eq!(fresh.supervisor.state().escape_credit, 0);
+        assert_eq!(fresh.supervisor.state().promise, PromiseClass::None);
+
+        let mut typed_ahead = harness([]);
+        typed_ahead.supervisor.handle_interrupt().unwrap();
+        for byte in payload.concat() {
+            typed_ahead
+                .supervisor
+                .handle_editor_event(EditorInputEvent::Byte {
+                    byte,
+                    observed_prompt: None,
+                })
+                .unwrap();
+        }
+        typed_ahead.supervisor.drain_typed_ahead().unwrap();
+        assert_eq!(typed_ahead.supervisor.state().buffer, "é".as_bytes());
+        assert_eq!(typed_ahead.supervisor.state().escape_credit, 1);
+        assert_eq!(
+            typed_ahead.supervisor.state().promise,
+            PromiseClass::Orderly
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backspace_after_promised_completion_interrupt_starts_a_fresh_run() {
+        for backspace in [0x08, 0x7f] {
+            let mut completion = harness([CancellationStatus::Pending]);
+            for byte in b"foo." {
+                type_byte(&mut completion.supervisor, *byte);
+            }
+            completion
+                .supervisor
+                .queue_completion(CompletionRequestId(1))
+                .unwrap();
+            completion
+                .supervisor
+                .begin_completion(CompletionRequestId(1), TargetId(32))
+                .unwrap();
+            let first = completion.supervisor.handle_interrupt().unwrap();
+            assert!(!first.terminal);
+            assert_eq!(
+                completion.supervisor.state().promise,
+                PromiseClass::Interrupt130
+            );
+
+            let cycle = completion.supervisor.state().prompt_cycle;
+            let mut decoder = BracketedPasteDecoder::default();
+            let reduced = reduce_interactive_editor_input(
+                &mut decoder,
+                ReplInputByte {
+                    byte: backspace,
+                    observed_prompt: Some(cycle),
+                },
+                cycle,
+            );
+            assert!(reduced.resets_interrupt_run);
+            let mut production_buffer = b"foo.".to_vec();
+            match reduced.decoded {
+                Some(DecodedEditorByte::Key(key)) if key == backspace => {
+                    pop_last_utf8_unit(&mut production_buffer)
+                }
+                _ => panic!("backspace did not reach the production key reducer"),
+            }
+            assert_eq!(production_buffer, b"foo");
+
+            // The generated-machine adapter consumes the same classifier. The
+            // promised exit is cleared, so the next interrupt is another first
+            // press rather than a terminal second press.
+            type_byte(&mut completion.supervisor, backspace);
+            assert_eq!(completion.supervisor.state().escape_credit, 0);
+            assert_eq!(completion.supervisor.state().promise, PromiseClass::None);
+            assert_eq!(
+                completion
+                    .supervisor
+                    .finish_completion(CompletionRequestId(1), TargetId(32))
+                    .unwrap(),
+                CompletionDisposition::Abandoned
+            );
+            assert!(!completion.supervisor.handle_interrupt().unwrap().terminal);
+
+            // Even an empty-buffer backspace is consumed operator interaction,
+            // so it clears an idle-prompt promise too.
+            let mut empty = harness([]);
+            empty.supervisor.handle_interrupt().unwrap();
+            assert_eq!(empty.supervisor.state().promise, PromiseClass::Orderly);
+            type_byte(&mut empty.supervisor, backspace);
+            assert_eq!(empty.supervisor.state().escape_credit, 0);
+            assert_eq!(empty.supervisor.state().promise, PromiseClass::None);
+            assert!(!empty.supervisor.handle_interrupt().unwrap().terminal);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_escape_input_resets_a_promise_and_pasted_interrupt_stays_data() {
+        let mut harness = harness([]);
+        harness.supervisor.handle_interrupt().unwrap();
+        assert_eq!(harness.supervisor.state().promise, PromiseClass::Orderly);
+        let cycle = harness.supervisor.state().prompt_cycle;
+
+        let mut decoder = BracketedPasteDecoder::default();
+        for byte in b"\x1b[A" {
+            let reduced = reduce_interactive_editor_input(
+                &mut decoder,
+                ReplInputByte {
+                    byte: *byte,
+                    observed_prompt: Some(cycle),
+                },
+                cycle,
+            );
+            assert!(reduced.resets_interrupt_run);
+            assert!(reduced.decoded.is_none());
+        }
+        type_byte(&mut harness.supervisor, 0x1b);
+        assert_eq!(harness.supervisor.state().escape_credit, 0);
+        assert_eq!(harness.supervisor.state().promise, PromiseClass::None);
+        assert!(!harness.supervisor.handle_interrupt().unwrap().terminal);
+
+        let mut raw_gate = RawBracketedPasteSignalGate::default();
+        let mut paste_decoder = BracketedPasteDecoder::default();
+        for byte in b"\x1b[200~" {
+            assert!(!raw_gate.feed(*byte));
+            let _ = reduce_interactive_editor_input(
+                &mut paste_decoder,
+                ReplInputByte {
+                    byte: *byte,
+                    observed_prompt: Some(cycle),
+                },
+                cycle,
+            );
+        }
+        let pasted = raw_gate.feed(PROMPT_INTERRUPT_BYTE);
+        assert!(pasted);
+        assert!(!is_raw_repl_interrupt(pasted, PROMPT_INTERRUPT_BYTE));
+        let reduced = reduce_interactive_editor_input(
+            &mut paste_decoder,
+            ReplInputByte {
+                byte: PROMPT_INTERRUPT_BYTE,
+                observed_prompt: Some(cycle),
+            },
+            cycle,
+        );
+        assert!(reduced.resets_interrupt_run);
+        assert!(matches!(
+            reduced.decoded,
+            Some(DecodedEditorByte::Data(bytes)) if bytes == [PROMPT_INTERRUPT_BYTE]
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backspace_removes_one_complete_final_utf8_scalar() {
+        for (input, expected) in [
+            ("a".as_bytes(), "".as_bytes()),
+            ("aé".as_bytes(), "a".as_bytes()),
+            ("a🦀".as_bytes(), "a".as_bytes()),
+            ("e\u{301}".as_bytes(), "e".as_bytes()),
+        ] {
+            let mut buffer = input.to_vec();
+            pop_last_utf8_unit(&mut buffer);
+            assert_eq!(buffer, expected, "input={input:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn backspace_makes_safe_progress_on_malformed_or_incomplete_utf8() {
+        let mut malformed_prefix = vec![0xff, 0xc3, 0xa9];
+        pop_last_utf8_unit(&mut malformed_prefix);
+        assert_eq!(malformed_prefix, vec![0xff]);
+
+        for (input, expected) in [
+            (vec![b'a', 0xc3], vec![b'a']),
+            (vec![0xe2, 0x82], vec![0xe2]),
+            (vec![0xc3, 0xa9, 0x80], vec![0xc3, 0xa9]),
+            (vec![0x80], Vec::new()),
+        ] {
+            let mut buffer = input;
+            pop_last_utf8_unit(&mut buffer);
+            assert_eq!(buffer, expected);
+        }
     }
 
     #[cfg(unix)]
@@ -9428,6 +14690,226 @@ mod tests {
             read_bounded_transcript_record(&mut input, &mut record).unwrap(),
             TranscriptRecordRead::Eof
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn oversize_interactive_record_never_submits_its_truncated_prefix() {
+        let bound = ibex_runtime::session_constants::MAX_INPUT_BYTES;
+        let mut accepted = 0_usize;
+        let mut rejecting = false;
+        for index in 0..=bound {
+            let decision = interactive_input_admission(rejecting, accepted, 1, false);
+            if index < bound {
+                assert_eq!(decision, InteractiveInputAdmission::Accept);
+                accepted += 1;
+            } else {
+                assert_eq!(decision, InteractiveInputAdmission::RejectWholeRecord);
+                rejecting = true;
+                accepted = 0;
+            }
+        }
+        assert!(rejecting, "byte 1,048,577 rejects the whole record");
+        // Once any byte exceeds the bound, neither a would-be executable suffix
+        // nor a newline inside bracketed paste becomes accepted source or a
+        // resynchronization boundary.
+        assert_eq!(
+            interactive_input_admission(rejecting, accepted, b"; process.exit(99)".len(), false),
+            InteractiveInputAdmission::IgnoreUntilBoundary
+        );
+        assert_eq!(
+            interactive_input_admission(rejecting, accepted, 1, false),
+            InteractiveInputAdmission::IgnoreUntilBoundary
+        );
+        assert_eq!(
+            interactive_input_admission(rejecting, accepted, 0, true),
+            InteractiveInputAdmission::Resynchronize
+        );
+        // Only a subsequent fresh record can be admitted.
+        assert_eq!(
+            interactive_input_admission(false, 0, b"1 + 1".len(), false),
+            InteractiveInputAdmission::Accept
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_editor_port_rejects_exact_oversize_record_and_accepts_fresh_successor() {
+        const MALICIOUS_SUFFIX: &[u8] = b"; process.exit(99)";
+        const FRESH_RECORD: &[u8] = b"2 + 2";
+
+        let (input_tx, input_rx) = mpsc::sync_channel::<ReplInputByte>(64);
+        let producer = thread::spawn(move || {
+            let send = |byte| {
+                input_tx
+                    .send(ReplInputByte {
+                        byte,
+                        observed_prompt: Some(PromptCycle(1)),
+                    })
+                    .unwrap();
+            };
+            for _ in 0..=ibex_runtime::session_constants::MAX_INPUT_BYTES {
+                send(b'x');
+            }
+            for byte in MALICIOUS_SUFFIX {
+                send(*byte);
+            }
+            // A pasted newline is data, not the physical resynchronization
+            // boundary. Only the newline after the end marker ends rejection.
+            for byte in b"\x1b[200~\n\x1b[201~\n" {
+                send(*byte);
+            }
+            for byte in FRESH_RECORD.iter().copied().chain(std::iter::once(b'\n')) {
+                send(byte);
+            }
+        });
+
+        let mut paste = BracketedPasteDecoder::default();
+        let mut rejecting = false;
+        let mut buffer = Vec::new();
+        let mut rejected_records = 0_usize;
+        let mut submitted = Vec::<Vec<u8>>::new();
+        for input in input_rx {
+            let Some(decoded) = paste.feed(input.byte) else {
+                continue;
+            };
+            let admission = match decoded {
+                DecodedEditorByte::Data(bytes) => {
+                    apply_interactive_record_input(&mut rejecting, &mut buffer, &bytes, false)
+                }
+                DecodedEditorByte::Key(b'\r' | b'\n') => {
+                    let admission =
+                        apply_interactive_record_input(&mut rejecting, &mut buffer, &[], true);
+                    if admission == InteractiveInputAdmission::Accept {
+                        submitted.push(std::mem::take(&mut buffer));
+                    }
+                    admission
+                }
+                DecodedEditorByte::Key(key) if key >= 0x20 && key != 0x7f => {
+                    apply_interactive_record_input(&mut rejecting, &mut buffer, &[key], false)
+                }
+                DecodedEditorByte::Key(_) => continue,
+            };
+            if admission == InteractiveInputAdmission::RejectWholeRecord {
+                rejected_records += 1;
+            }
+        }
+        producer.join().unwrap();
+
+        assert_eq!(rejected_records, 1);
+        assert_eq!(submitted, [FRESH_RECORD.to_vec()]);
+        assert!(submitted.iter().all(|source| !source
+            .windows(MALICIOUS_SUFFIX.len())
+            .any(|w| w == MALICIOUS_SUFFIX)));
+        assert!(!rejecting);
+        assert!(buffer.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejected_interactive_record_hides_prompt_until_fresh_boundary() {
+        let witness = PromptWitness::default();
+        let rejected_cycle = PromptCycle(7);
+        witness.publish(rejected_cycle, true);
+        assert_eq!(witness.observe(), Some(rejected_cycle));
+
+        hide_prompt_for_rejected_input(&witness, rejected_cycle);
+        assert_eq!(
+            witness.observe(),
+            None,
+            "a discarded prefix must not advertise an executable empty prompt"
+        );
+
+        let fresh_cycle = PromptCycle(8);
+        witness.publish(fresh_cycle, true);
+        assert_eq!(witness.observe(), Some(fresh_cycle));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn captured_input_loss_count_includes_unread_kernel_pipe_bytes() {
+        let (read, write) = native_pipe().unwrap();
+        let kernel_bytes = b"still buffered in the kernel";
+        // SAFETY: write owns a live pipe descriptor and kernel_bytes remains
+        // valid for the duration of this small blocking write.
+        assert_eq!(
+            unsafe {
+                libc::write(
+                    write.raw(),
+                    kernel_bytes.as_ptr().cast(),
+                    kernel_bytes.len(),
+                )
+            },
+            kernel_bytes.len() as isize
+        );
+        let mut input = CapturedInput::new(read, ProgramStream::Stdout);
+        input.pending.extend_from_slice(b"userspace");
+        assert_eq!(
+            input.pending_bytes().unwrap(),
+            kernel_bytes.len() + b"userspace".len()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_diagnostic_timeout_cancels_unclaimed_command_without_late_delivery() {
+        let (commands, command_rx) = mpsc::channel();
+        let port = FileProgramDiagnosticPort { commands };
+        let caller = thread::spawn(move || port.diagnostic("prefix: ", "detail"));
+        let FileProgramBrokerCommand::Diagnostic { state, reply, .. } = command_rx.recv().unwrap()
+        else {
+            panic!("expected diagnostic command")
+        };
+        thread::sleep(
+            Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS) + Duration::from_millis(25),
+        );
+        assert_eq!(
+            caller.join().unwrap(),
+            FileProgramDiagnosticDisposition::Deferred
+        );
+        assert_eq!(state.load(Ordering::Acquire), FILE_DIAGNOSTIC_CANCELLED);
+        assert!(state
+            .compare_exchange(
+                FILE_DIAGNOSTIC_PENDING,
+                FILE_DIAGNOSTIC_CLAIMED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err());
+        drop(reply);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_diagnostic_claim_at_timeout_returns_broker_ownership_without_waiting() {
+        let (commands, command_rx) = mpsc::channel();
+        let port = FileProgramDiagnosticPort { commands };
+        let caller = thread::spawn(move || port.diagnostic("prefix: ", "detail"));
+        let FileProgramBrokerCommand::Diagnostic { state, reply, .. } = command_rx.recv().unwrap()
+        else {
+            panic!("expected diagnostic command")
+        };
+        state
+            .compare_exchange(
+                FILE_DIAGNOSTIC_PENDING,
+                FILE_DIAGNOSTIC_CLAIMED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .unwrap();
+        thread::sleep(
+            Duration::from_millis(BROKER_FLUSH_BUDGET_MILLIS) + Duration::from_millis(25),
+        );
+        assert_eq!(
+            caller.join().unwrap(),
+            FileProgramDiagnosticDisposition::BrokerOwned
+        );
+        assert_eq!(state.load(Ordering::Acquire), FILE_DIAGNOSTIC_BROKER_OWNED);
+        let mut broker_owned_failures = 0;
+        finish_file_diagnostic_claim(state.as_ref(), false, &mut broker_owned_failures);
+        assert_eq!(state.load(Ordering::Acquire), FILE_DIAGNOSTIC_REFUSED);
+        assert_eq!(broker_owned_failures, 1);
+        drop(reply);
     }
 
     #[cfg(unix)]
@@ -9800,6 +15282,119 @@ mod tests {
         );
     }
 
+    // @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker
+    #[cfg(unix)]
+    #[test]
+    fn worker_restore_seals_racing_console_output_before_restoring_stdio() {
+        const CHILD_ENV: &str = "IBEX_TEST_WORKER_RESTORE_CONSOLE_RACE_CHILD";
+        const LATE_MARKER: &[u8] = b"worker-console-after-restore-must-not-bypass";
+
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let original_stdout = NativeFd::duplicate(libc::STDOUT_FILENO).unwrap();
+            let adapter = WorkerOutputRelayAdapter::install(OutputDestinationTopology::Shared {
+                destination: NativeOutputDestination::Stdout,
+            })
+            .unwrap();
+            // Keep the capture source open after fd 1/fd 2 restoration so the
+            // relay join exposes a deterministic post-restore/pre-drop window.
+            let capture_alias = NativeFd::duplicate(libc::STDOUT_FILENO).unwrap();
+            let finisher = thread::spawn(move || adapter.finish());
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while !descriptors_have_same_identity(libc::STDOUT_FILENO, original_stdout.raw()) {
+                assert!(
+                    Instant::now() < deadline,
+                    "worker adapter did not restore stdout before bounded relay join"
+                );
+                thread::sleep(Duration::from_millis(1));
+            }
+
+            // SAFETY: the marker remains live for this synchronous call. The
+            // sealed epoch records this refused attempt instead of writing it
+            // through the already restored fd 1.
+            unsafe {
+                crate::host::abi::ex_host_console_log_bytes(
+                    0,
+                    LATE_MARKER.as_ptr(),
+                    LATE_MARKER.len(),
+                );
+            }
+            drop(capture_alias);
+            let finish = finisher.join().unwrap();
+            assert!(
+                finish.is_err(),
+                "the post-seal console attempt was not reflected as output loss"
+            );
+            return;
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "terminal_session::tests::worker_restore_seals_racing_console_output_before_restoring_stdio",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "worker console-race child failed\nstdout: {:?}\nstderr: {:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(
+            !output
+                .stdout
+                .windows(LATE_MARKER.len())
+                .any(|window| window == LATE_MARKER),
+            "post-seal console record bypassed the worker relay"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn implicit_worker_drop_keeps_console_sealed_until_process_exit() {
+        const CHILD_ENV: &str = "IBEX_TEST_WORKER_DROP_RETAINS_CONSOLE_SEAL_CHILD";
+        const LATE_MARKER: &[u8] = b"worker-console-after-endpoint-drop-must-not-bypass";
+
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let adapter = WorkerOutputRelayAdapter::install(OutputDestinationTopology::Shared {
+                destination: NativeOutputDestination::Stdout,
+            })
+            .unwrap();
+            drop(adapter);
+            // SAFETY: the marker remains live for this synchronous call.
+            unsafe {
+                crate::host::abi::ex_host_console_log_bytes(
+                    0,
+                    LATE_MARKER.as_ptr(),
+                    LATE_MARKER.len(),
+                );
+            }
+            return;
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "terminal_session::tests::implicit_worker_drop_keeps_console_sealed_until_process_exit",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "implicit worker-drop child failed\nstdout: {:?}\nstderr: {:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(!output
+            .stdout
+            .windows(LATE_MARKER.len())
+            .any(|window| window == LATE_MARKER));
+    }
+
     #[cfg(unix)]
     #[test]
     fn shared_worker_adapter_has_one_ofd_counter_and_exact_cross_stream_order() {
@@ -10169,9 +15764,396 @@ mod tests {
             Err(ExecutionAdapterGap::StructuredFileEvaluationUnavailable)
         );
         assert_eq!(
-            legacy_rustyline_adapter_status(),
-            Err(EditorAdapterGap::SynchronousCompletionBlocksInterruptInput)
+            production_editor_adapter_status(),
+            EditorAdapterStatus::BoundedAsynchronousCompletion
         );
+    }
+
+    #[cfg(unix)]
+    enum InlineAsyncCollectionProbe {
+        Fail(&'static str),
+        Failures(Vec<crate::engine::AuthenticatedAsyncFailure>),
+    }
+
+    #[cfg(unix)]
+    struct InlineSettlementProbeEngine {
+        collections: Mutex<VecDeque<InlineAsyncCollectionProbe>>,
+    }
+
+    #[cfg(unix)]
+    impl InlineSettlementProbeEngine {
+        fn new(collections: Vec<InlineAsyncCollectionProbe>) -> Self {
+            Self {
+                collections: Mutex::new(collections.into()),
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[async_trait::async_trait]
+    impl crate::engine::Engine for InlineSettlementProbeEngine {
+        fn name(&self) -> &str {
+            "inline-settlement-probe"
+        }
+
+        fn version(&self) -> anyhow::Result<String> {
+            Ok("test".to_owned())
+        }
+
+        async fn load_runtime(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn eval(&self, _code: &str) -> anyhow::Result<Option<String>> {
+            Ok(None)
+        }
+
+        async fn take_authenticated_async_failures(
+            &self,
+        ) -> anyhow::Result<Vec<crate::engine::AuthenticatedAsyncFailure>> {
+            match self.collections.lock().unwrap().pop_front() {
+                Some(InlineAsyncCollectionProbe::Fail(message)) => Err(anyhow::anyhow!(message)),
+                Some(InlineAsyncCollectionProbe::Failures(failures)) => Ok(failures),
+                None => Ok(Vec::new()),
+            }
+        }
+
+        async fn run_file(&self, _path: &str) -> anyhow::Result<Option<String>> {
+            Ok(None)
+        }
+
+        async fn start_inspector(&self, _host: &str, _port: u16) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn stop_inspector(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn supports_feature(&self, _feature: crate::engine::EngineFeature) -> bool {
+            false
+        }
+    }
+
+    #[cfg(unix)]
+    fn inline_settlement_probe_broker() -> (
+        ReplBrokerHandle,
+        Arc<Mutex<Vec<String>>>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let (commands, receiver) = mpsc::channel();
+        let diagnostics = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&diagnostics);
+        let worker = thread::spawn(move || {
+            while let Ok(command) = receiver.recv() {
+                match command {
+                    ReplBrokerCommand::Diagnostic { text, reply } => {
+                        recorded.lock().unwrap().push(text);
+                        let _ = reply.send(Ok(()));
+                    }
+                    ReplBrokerCommand::Boundary { reply } => {
+                        let _ = reply.send(Ok(()));
+                    }
+                    _ => panic!("inline settlement probe received an unexpected broker command"),
+                }
+            }
+        });
+        (ReplBrokerHandle { commands }, diagnostics, worker)
+    }
+
+    #[cfg(unix)]
+    async fn run_inline_settlement_probe(
+        engine: &InlineSettlementProbeEngine,
+        lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+        evaluation: std::result::Result<
+            crate::engine::AuthenticatedEvaluation,
+            crate::runtime::AuthenticatedEvaluationFailure,
+        >,
+    ) -> (InlineSettlement, String) {
+        let (broker, diagnostics, worker) = inline_settlement_probe_broker();
+        let mut damage = SecondarySettlementDamage::default();
+        let settlement = settle_authenticated_inline_evaluation(
+            engine,
+            lifecycle,
+            &broker,
+            evaluation,
+            InlineResultPresentation::Suppress,
+            &mut damage,
+        )
+        .await;
+        drop(broker);
+        worker.join().unwrap();
+        let diagnostics = diagnostics.lock().unwrap().join("\n");
+        (settlement, diagnostics)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn worker_program_broker_damage_does_not_replace_a_fixed_cause() {
+        use crate::session_worker_runtime::RemoteProgramOutcome;
+
+        let (commands, receiver) = mpsc::channel();
+        drop(receiver);
+        let broker = ReplBrokerHandle { commands };
+        let mut damage = SecondarySettlementDamage::default();
+        let settlement = settle_remote_program_outcome(
+            &broker,
+            RemoteProgramOutcome::EngineFault {
+                detail: b"primary engine failure".to_vec(),
+                stdout_cutoff: 0,
+                stderr_cutoff: 0,
+            },
+            &mut damage,
+        );
+
+        assert_eq!(
+            settlement,
+            InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
+        );
+        assert_eq!(damage.output.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hostile_worker_program_throw_is_engine_fault_without_raw_echo() {
+        use crate::session_worker_runtime::RemoteProgramOutcome;
+
+        let (broker, diagnostics, worker) = inline_settlement_probe_broker();
+        let mut damage = SecondarySettlementDamage::default();
+        let settlement = settle_remote_program_outcome(
+            &broker,
+            RemoteProgramOutcome::Throw {
+                detail: br#"{"hostile":"do-not-echo"}"#.to_vec(),
+                stdout_cutoff: 0,
+                stderr_cutoff: 0,
+            },
+            &mut damage,
+        );
+        drop(broker);
+        worker.join().unwrap();
+        let diagnostics = diagnostics.lock().unwrap().join("\n");
+        assert_eq!(
+            settlement,
+            InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
+        );
+        assert!(diagnostics.contains("violated safe-text invariants"));
+        assert!(!diagnostics.contains("do-not-echo"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lifecycle_completion_boundary_damage_stays_secondary() {
+        use ibex_runtime::session_lifecycle::SessionLifecyclePort;
+
+        let (commands, receiver) = mpsc::channel();
+        drop(receiver);
+        let broker = ReplBrokerHandle { commands };
+        let mut damage = SecondarySettlementDamage::default();
+        let settlement = finish_successful_inline(
+            &SessionLifecyclePort::default(),
+            &broker,
+            Some(43),
+            &mut damage,
+        );
+
+        assert_eq!(settlement, InlineSettlement::Successful(43));
+        assert_eq!(damage.output.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lifecycle_accepted_during_inline_release_survives_cleanup_failure() {
+        use ibex_runtime::session_lifecycle::{
+            LifecyclePrincipal, LifecycleRequestDisposition, SessionLifecyclePort,
+        };
+
+        let lifecycle = SessionLifecyclePort::default();
+        let cooperative_status_before_release = lifecycle
+            .take_pending_request()
+            .map(|request| request.status);
+        assert!(cooperative_status_before_release.is_none());
+        assert!(matches!(
+            lifecycle.request_exit(LifecyclePrincipal::Root, 37),
+            LifecycleRequestDisposition::Accepted { .. }
+        ));
+
+        let (broker, diagnostics, worker) = inline_settlement_probe_broker();
+        let mut damage = SecondarySettlementDamage::default();
+        let settlement = settle_suppressed_inline_release(
+            &lifecycle,
+            &broker,
+            cooperative_status_before_release,
+            Some(anyhow::anyhow!("release failed after lifecycle commit")),
+            &mut damage,
+        );
+        drop(broker);
+        worker.join().unwrap();
+
+        assert_eq!(settlement, InlineSettlement::Successful(37));
+        assert!(damage.output.is_empty());
+        assert!(diagnostics
+            .lock()
+            .unwrap()
+            .join("\n")
+            .contains("release failed after lifecycle commit"));
+        assert!(!lifecycle.has_pending_request());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repl_outcome_barrier_classifies_primary_causes_before_cleanup() {
+        use crate::repl::session::ReplStep;
+        use crate::repl::ReplEvaluation;
+
+        let engine_fault = ReplStep::Evaluation {
+            source: "fixture".to_owned(),
+            result: Err(crate::runtime::ReplEvaluationFailure::EngineFault(
+                anyhow::anyhow!("primary REPL engine fault"),
+            )),
+        };
+        assert_eq!(
+            repl_step_primary_settlement(&engine_fault),
+            Some(InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT))
+        );
+
+        let lifecycle = ReplStep::Loaded {
+            result: Ok(ReplEvaluation::Lifecycle(29)),
+        };
+        assert_eq!(
+            repl_step_primary_settlement(&lifecycle),
+            Some(InlineSettlement::Successful(29))
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn authenticated_inline_lifecycle_requires_matching_supervisor_record() {
+        use crate::engine::AuthenticatedEvaluation;
+        use ibex_runtime::session_lifecycle::{
+            LifecyclePrincipal, LifecycleRequestDisposition, SessionLifecyclePort,
+        };
+
+        let missing = SessionLifecyclePort::default();
+        let engine =
+            InlineSettlementProbeEngine::new(vec![
+                InlineAsyncCollectionProbe::Failures(Vec::new()),
+            ]);
+        let (settlement, diagnostic) = run_inline_settlement_probe(
+            &engine,
+            &missing,
+            Ok(AuthenticatedEvaluation::Lifecycle(7)),
+        )
+        .await;
+        assert_eq!(
+            settlement,
+            InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
+        );
+        assert!(diagnostic.contains("had no pending supervisor record"));
+
+        let mismatch = SessionLifecyclePort::default();
+        assert!(matches!(
+            mismatch.request_exit(LifecyclePrincipal::Root, 9),
+            LifecycleRequestDisposition::Accepted { .. }
+        ));
+        let engine =
+            InlineSettlementProbeEngine::new(vec![
+                InlineAsyncCollectionProbe::Failures(Vec::new()),
+            ]);
+        let (settlement, diagnostic) = run_inline_settlement_probe(
+            &engine,
+            &mismatch,
+            Ok(AuthenticatedEvaluation::Lifecycle(7)),
+        )
+        .await;
+        assert_eq!(
+            settlement,
+            InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT)
+        );
+        assert!(diagnostic.contains("evaluation 7"));
+        assert!(diagnostic.contains("supervisor 9"));
+        assert!(!mismatch.has_pending_request());
+
+        let matching = SessionLifecyclePort::default();
+        assert!(matches!(
+            matching.request_exit(LifecyclePrincipal::Root, 11),
+            LifecycleRequestDisposition::Accepted { .. }
+        ));
+        let engine =
+            InlineSettlementProbeEngine::new(vec![
+                InlineAsyncCollectionProbe::Failures(Vec::new()),
+            ]);
+        let (settlement, diagnostic) = run_inline_settlement_probe(
+            &engine,
+            &matching,
+            Ok(AuthenticatedEvaluation::Lifecycle(11)),
+        )
+        .await;
+        assert_eq!(settlement, InlineSettlement::Successful(11));
+        assert!(diagnostic.is_empty());
+        assert!(!matching.has_pending_request());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn authenticated_inline_collection_fault_and_pre_receipt_loss_are_engine_faults() {
+        use crate::engine::{AuthenticatedAsyncFailure, AuthenticatedEvaluation};
+        use ibex_runtime::session_lifecycle::SessionLifecyclePort;
+
+        for (engine, expected_detail) in [
+            (
+                InlineSettlementProbeEngine::new(vec![InlineAsyncCollectionProbe::Fail(
+                    "initial collector unavailable",
+                )]),
+                "initial collector unavailable",
+            ),
+            (
+                InlineSettlementProbeEngine::new(vec![
+                    InlineAsyncCollectionProbe::Failures(Vec::new()),
+                    InlineAsyncCollectionProbe::Fail("post-drain collector unavailable"),
+                ]),
+                "post-drain collector unavailable",
+            ),
+            (
+                InlineSettlementProbeEngine::new(vec![InlineAsyncCollectionProbe::Failures(vec![
+                    AuthenticatedAsyncFailure::PreReceiptLoss { count: 3 },
+                ])]),
+                "lost 3 asynchronous failure event(s) before receipt",
+            ),
+            (
+                InlineSettlementProbeEngine::new(vec![
+                    InlineAsyncCollectionProbe::Failures(Vec::new()),
+                    InlineAsyncCollectionProbe::Failures(vec![
+                        AuthenticatedAsyncFailure::PreReceiptLoss { count: 5 },
+                    ]),
+                ]),
+                "lost 5 asynchronous failure event(s) before receipt",
+            ),
+        ] {
+            let (settlement, diagnostic) = run_inline_settlement_probe(
+                &engine,
+                &SessionLifecyclePort::default(),
+                Ok(AuthenticatedEvaluation::Empty),
+            )
+            .await;
+            assert_eq!(
+                settlement,
+                InlineSettlement::Fixed(EXIT_STATUS_ENGINE_FAULT),
+                "{expected_detail}"
+            );
+            assert!(diagnostic.contains(expected_detail), "{diagnostic}");
+        }
+
+        let engine = InlineSettlementProbeEngine::new(vec![InlineAsyncCollectionProbe::Fail(
+            "collector failed after cancellation",
+        )]);
+        let (settlement, diagnostic) = run_inline_settlement_probe(
+            &engine,
+            &SessionLifecyclePort::default(),
+            Ok(AuthenticatedEvaluation::Cancelled),
+        )
+        .await;
+        assert_eq!(settlement, InlineSettlement::Fixed(EXIT_STATUS_INTERRUPT));
+        assert!(diagnostic.contains("collector failed after cancellation"));
     }
 
     #[cfg(unix)]
@@ -10233,10 +16215,366 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn forced_repl_finish_propagates_successful_vs_fixed_status_precedence() {
+        let unreportable = ForcedReplFinishOutcome {
+            report: None,
+            unreportable_output_loss: true,
+            output_loss_reported: false,
+        };
+        assert_eq!(
+            unreportable.final_status(InlineSettlement::Successful(0)),
+            EXIT_STATUS_BROKEN_PIPE
+        );
+        assert_eq!(
+            unreportable.final_status(forced_repl_interrupt_settlement(ReplInterruptEvent {
+                terminal_status: Some(37),
+                successful_termination: true,
+                discard_buffer: false,
+                discard_submission: false,
+            })),
+            EXIT_STATUS_BROKEN_PIPE
+        );
+        assert_eq!(
+            unreportable.final_status(forced_repl_interrupt_settlement(ReplInterruptEvent {
+                terminal_status: Some(EXIT_STATUS_INTERRUPT),
+                successful_termination: false,
+                discard_buffer: false,
+                discard_submission: false,
+            })),
+            EXIT_STATUS_INTERRUPT
+        );
+
+        let reportable = ForcedReplFinishOutcome {
+            report: None,
+            unreportable_output_loss: false,
+            output_loss_reported: true,
+        };
+        assert_eq!(
+            reportable.final_status(InlineSettlement::Successful(37)),
+            37
+        );
+        assert_eq!(
+            reportable.final_status_with_console(
+                InlineSettlement::Successful(37),
+                Err(io::Error::other("late console loss")),
+            ),
+            37,
+            "an already reported loss remains reportable at the final console cutoff"
+        );
+        let no_prior_loss = ForcedReplFinishOutcome {
+            report: None,
+            unreportable_output_loss: false,
+            output_loss_reported: false,
+        };
+        assert_eq!(
+            no_prior_loss.final_status_with_console(
+                InlineSettlement::Successful(37),
+                Err(io::Error::other("late console loss")),
+            ),
+            EXIT_STATUS_BROKEN_PIPE
+        );
+        assert_eq!(
+            no_prior_loss.final_status_with_console(
+                InlineSettlement::Fixed(EXIT_STATUS_INTERRUPT),
+                Err(io::Error::other("late console loss")),
+            ),
+            EXIT_STATUS_INTERRUPT
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_native_diagnostic_has_no_late_writer_and_caps_hostile_rendering() {
+        let hostile = "\x1b".repeat(NATIVE_DIAGNOSTIC_MAX_BYTES * 8);
+        let rendered = render_bounded_native_diagnostic("\x1berror:\n", &hostile);
+        assert!(rendered.starts_with(b"\\u{001b}error:\\u{000a}"));
+        assert!(rendered.len() <= NATIVE_DIAGNOSTIC_MAX_BYTES);
+        assert!(rendered.ends_with(b"...[truncated]\n"));
+
+        let (first_read, first_write) = native_pipe().unwrap();
+        let write_flags = descriptor_flags(first_write.raw(), libc::F_GETFL).unwrap();
+        set_descriptor_flag(
+            first_write.raw(),
+            libc::F_SETFL,
+            write_flags | libc::O_NONBLOCK,
+        )
+        .unwrap();
+        let filler = [b'x'; 4096];
+        let mut filled = 0_usize;
+        loop {
+            // SAFETY: the pipe and filler buffer are live.
+            let written =
+                unsafe { libc::write(first_write.raw(), filler.as_ptr().cast(), filler.len()) };
+            if written > 0 {
+                filled += written as usize;
+                continue;
+            }
+            assert_eq!(io::Error::last_os_error().kind(), io::ErrorKind::WouldBlock);
+            break;
+        }
+        assert!(!write_bounded_native_diagnostic(
+            first_write.raw(),
+            b"one diagnostic\n",
+            Duration::from_millis(5),
+        ));
+
+        let (second_read, second_write) = native_pipe().unwrap();
+        assert!(write_bounded_native_diagnostic(
+            second_write.raw(),
+            b"one diagnostic\n",
+            Duration::from_millis(20),
+        ));
+        let mut delivered = [0_u8; 15];
+        // SAFETY: second_read and delivered are live.
+        assert_eq!(
+            unsafe {
+                libc::read(
+                    second_read.raw(),
+                    delivered.as_mut_ptr().cast(),
+                    delivered.len(),
+                )
+            },
+            delivered.len() as isize
+        );
+        assert_eq!(&delivered, b"one diagnostic\n");
+
+        let mut drained = 0_usize;
+        let mut buffer = [0_u8; 4096];
+        while drained < filled {
+            // SAFETY: first_read and buffer are live.
+            let amount =
+                unsafe { libc::read(first_read.raw(), buffer.as_mut_ptr().cast(), buffer.len()) };
+            assert!(amount > 0);
+            drained += amount as usize;
+        }
+        thread::sleep(Duration::from_millis(20));
+        // SAFETY: an empty nonblocking pipe returns EAGAIN; a detached writer
+        // would make this read positive after the destination was unblocked.
+        assert_eq!(
+            unsafe { libc::read(first_read.raw(), buffer.as_mut_ptr().cast(), buffer.len()) },
+            -1
+        );
+        assert_eq!(io::Error::last_os_error().kind(), io::ErrorKind::WouldBlock);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_native_diagnostic_turns_default_sigpipe_into_typed_failure() {
+        const SENTINEL: &str = "IBEX_TEST_BOUNDED_NATIVE_DIAGNOSTIC_SIGPIPE_CHILD";
+        if std::env::var_os(SENTINEL).is_some() {
+            // SAFETY: this subprocess is dedicated to proving that the writer
+            // locally blocks SIGPIPE even when the process disposition is the
+            // terminating default.
+            assert_ne!(
+                unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) },
+                libc::SIG_ERR
+            );
+            let (read, write) = native_pipe().unwrap();
+            drop(read);
+            assert!(!write_bounded_native_diagnostic(
+                write.raw(),
+                b"broken destination\n",
+                Duration::from_millis(20),
+            ));
+            return;
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("terminal_session::tests::bounded_native_diagnostic_turns_default_sigpipe_into_typed_failure")
+            .env(SENTINEL, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "diagnostic child terminated: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_stdio_handoff_suffix_reports_exact_partial_prefix_without_late_writer() {
+        let (read, write) = native_pipe().unwrap();
+        make_nonblocking(write.raw()).unwrap();
+        let filler = [b'f'; 4096];
+        let mut filled = 0_usize;
+        loop {
+            // SAFETY: the pipe and filler buffer are live.
+            let amount = unsafe { libc::write(write.raw(), filler.as_ptr().cast(), filler.len()) };
+            if amount > 0 {
+                filled += amount as usize;
+                continue;
+            }
+            assert_eq!(io::Error::last_os_error().kind(), io::ErrorKind::WouldBlock);
+            break;
+        }
+        // SAFETY: fpathconf only queries the live pipe descriptor.
+        let pipe_buf = unsafe { libc::fpathconf(write.raw(), libc::_PC_PIPE_BUF) };
+        assert!(pipe_buf > 0);
+        let room = usize::try_from(pipe_buf).unwrap().saturating_mul(2);
+        assert!(filled > room);
+        let mut removed = 0_usize;
+        let mut scratch = [0_u8; 4096];
+        while removed < room {
+            // SAFETY: the nonblocking pipe and scratch buffer are live.
+            let amount = unsafe {
+                libc::read(
+                    read.raw(),
+                    scratch.as_mut_ptr().cast(),
+                    (room - removed).min(scratch.len()),
+                )
+            };
+            assert!(amount > 0);
+            removed += amount as usize;
+        }
+
+        let payload = vec![b's'; NATIVE_DIAGNOSTIC_MAX_BYTES];
+        let accepted = write_bounded_capture_suffix(write.raw(), &payload, Instant::now());
+        assert!(accepted < payload.len());
+
+        let mut observed = Vec::new();
+        loop {
+            // SAFETY: the nonblocking pipe and scratch buffer are live.
+            let amount =
+                unsafe { libc::read(read.raw(), scratch.as_mut_ptr().cast(), scratch.len()) };
+            if amount > 0 {
+                observed.extend_from_slice(&scratch[..amount as usize]);
+                continue;
+            }
+            assert_eq!(amount, -1);
+            assert_eq!(io::Error::last_os_error().kind(), io::ErrorKind::WouldBlock);
+            break;
+        }
+        let retained_fill = filled - room;
+        assert_eq!(observed.len(), retained_fill + accepted);
+        assert_eq!(&observed[..retained_fill], vec![b'f'; retained_fill]);
+        assert_eq!(&observed[retained_fill..], &payload[..accepted]);
+
+        thread::sleep(Duration::from_millis(20));
+        // SAFETY: a late/detached suffix writer would make this read positive.
+        assert_eq!(
+            unsafe { libc::read(read.raw(), scratch.as_mut_ptr().cast(), scratch.len()) },
+            -1
+        );
+        assert_eq!(io::Error::last_os_error().kind(), io::ErrorKind::WouldBlock);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_program_loss_is_reportable_only_on_an_unaffected_destination() {
+        let split = SessionIoPlan::for_cli(
+            &parsed_cli(&["ibex", "app.ts"]),
+            terminal_facts(false, false, false),
+            false,
+        )
+        .unwrap();
+        let stdout_loss = BrokerLossAccounting {
+            forced_close_epoch: 1,
+            forced_close_sequence: 2,
+            relays: vec![RelayLoss {
+                relay: NATIVE_STDOUT_RELAY,
+                program_bytes: 1,
+                session_bytes: 0,
+                program_frames: 1,
+                session_frames: 0,
+                control_frames: 0,
+            }],
+        };
+        assert_eq!(
+            file_program_loss_report_destination(split, &stdout_loss, 0, 0),
+            Some(NativeOutputDestination::Stderr)
+        );
+
+        let stderr_loss = BrokerLossAccounting {
+            forced_close_epoch: 1,
+            forced_close_sequence: 3,
+            relays: vec![RelayLoss {
+                relay: NATIVE_STDERR_RELAY,
+                program_bytes: 1,
+                session_bytes: 0,
+                program_frames: 1,
+                session_frames: 0,
+                control_frames: 0,
+            }],
+        };
+        assert_eq!(
+            file_program_loss_report_destination(split, &stderr_loss, 0, 0),
+            Some(NativeOutputDestination::Stdout)
+        );
+        assert_eq!(
+            file_program_loss_report_destination(
+                split,
+                &BrokerLossAccounting {
+                    forced_close_epoch: 1,
+                    forced_close_sequence: 4,
+                    relays: Vec::new(),
+                },
+                1,
+                0,
+            ),
+            Some(NativeOutputDestination::Stderr)
+        );
+
+        let both_loss = BrokerLossAccounting {
+            forced_close_epoch: 1,
+            forced_close_sequence: 5,
+            relays: vec![
+                stdout_loss.relays[0].clone(),
+                RelayLoss {
+                    relay: NATIVE_STDERR_RELAY,
+                    program_bytes: 1,
+                    session_bytes: 0,
+                    program_frames: 1,
+                    session_frames: 0,
+                    control_frames: 0,
+                },
+            ],
+        };
+        assert_eq!(
+            file_program_loss_report_destination(split, &both_loss, 0, 0),
+            None
+        );
+
+        let shared = SessionIoPlan::for_cli(
+            &parsed_cli(&["ibex", "app.ts"]),
+            terminal_facts(false, true, true),
+            false,
+        )
+        .unwrap();
+        assert!(matches!(
+            shared.output_topology(),
+            OutputDestinationTopology::Shared { .. }
+        ));
+        assert_eq!(
+            file_program_loss_report_destination(shared, &stdout_loss, 0, 0),
+            None
+        );
+
+        let control_only = BrokerLossAccounting {
+            forced_close_epoch: 1,
+            forced_close_sequence: 6,
+            relays: vec![RelayLoss {
+                relay: NATIVE_STDERR_RELAY,
+                program_bytes: 0,
+                session_bytes: 0,
+                program_frames: 0,
+                session_frames: 0,
+                control_frames: 1,
+            }],
+        };
+        assert!(control_only.has_loss());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn file_program_adapter_captures_both_streams_and_scopes_native_close_guard() {
         const CHILD_ENV: &str = "IBEX_TEST_FILE_PROGRAM_ADAPTER_CHILD";
         const STDOUT_MARKER: &[u8] = b"\0file-stdout\x1b[31m";
         const STDERR_MARKER: &[u8] = b"\0file-stderr\x1b[32m";
+        const BUFFERED_STDOUT_MARKER: &str = "buffered-stdio-handoff-marker";
+        const HOST_CONSOLE_MARKER: &[u8] = b"host-console-handoff-marker";
+        const DIAGNOSTIC_MARKER: &[u8] = b"file-diagnostic: hostile\\u{001b}[31m";
 
         if std::env::var_os(CHILD_ENV).is_some() {
             let plan = SessionIoPlan::for_cli(
@@ -10261,7 +16599,11 @@ mod tests {
                 .build()
                 .unwrap();
             let ((), report) = runtime
-                .block_on(adapter.run(async {
+                .block_on(adapter.run_with_diagnostics(|diagnostics| async move {
+                    assert_eq!(
+                        diagnostics.diagnostic("file-diagnostic: ", "hostile\x1b[31m"),
+                        FileProgramDiagnosticDisposition::Accepted
+                    );
                     assert_eq!(
                         crate::host::abi::ex_host_terminal_session_close_is_noop(0),
                         0
@@ -10296,8 +16638,22 @@ mod tests {
                         },
                         STDERR_MARKER.len() as isize
                     );
+                    // `--nocapture` makes this the real process stdout. With
+                    // no newline or explicit flush, the adapter's final staged
+                    // handoff owns the buffered suffix.
+                    print!("{BUFFERED_STDOUT_MARKER}");
+                    // SAFETY: the marker is a live length-bearing buffer for
+                    // the duration of this synchronous host-console call.
+                    unsafe {
+                        crate::host::abi::ex_host_console_log_bytes(
+                            0,
+                            HOST_CONSOLE_MARKER.as_ptr(),
+                            HOST_CONSOLE_MARKER.len(),
+                        );
+                    }
                 }))
                 .unwrap();
+            let report = report.expect("file-program adapter cleanup");
             assert!(!report.has_loss(), "unexpected loss: {report:?}");
             assert!(report
                 .receipts()
@@ -10310,7 +16666,9 @@ mod tests {
                     .filter(|receipt| receipt.relay == NATIVE_STDOUT_RELAY)
                     .map(|receipt| receipt.bytes)
                     .sum::<usize>()
-                    >= STDOUT_MARKER.len()
+                    > STDOUT_MARKER.len()
+                        + BUFFERED_STDOUT_MARKER.len()
+                        + HOST_CONSOLE_MARKER.len()
             );
             assert!(
                 report
@@ -10375,12 +16733,344 @@ mod tests {
         );
         assert_eq!(
             output
+                .stdout
+                .windows(BUFFERED_STDOUT_MARKER.len())
+                .filter(|window| *window == BUFFERED_STDOUT_MARKER.as_bytes())
+                .count(),
+            1
+        );
+        assert_eq!(
+            output
+                .stdout
+                .windows(HOST_CONSOLE_MARKER.len())
+                .filter(|window| *window == HOST_CONSOLE_MARKER)
+                .count(),
+            1
+        );
+        assert_eq!(
+            output
                 .stderr
                 .windows(STDERR_MARKER.len())
                 .filter(|window| *window == STDERR_MARKER)
                 .count(),
             1
         );
+        assert_eq!(
+            output
+                .stderr
+                .windows(DIAGNOSTIC_MARKER.len())
+                .filter(|window| *window == DIAGNOSTIC_MARKER)
+                .count(),
+            1
+        );
+    }
+
+    // @ref LLP 0025#5-terminal-presentation-and-restoration
+    #[cfg(unix)]
+    #[test]
+    fn file_program_adapter_restores_before_dropping_a_panicking_execution_future() {
+        const CHILD_ENV: &str = "IBEX_TEST_FILE_PROGRAM_PANIC_DROP_CHILD";
+
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let original_stdout = NativeFd::duplicate(libc::STDOUT_FILENO).unwrap();
+            let original_stderr = NativeFd::duplicate(libc::STDERR_FILENO).unwrap();
+            let observed_restoration = Arc::new(AtomicBool::new(false));
+            let plan = SessionIoPlan::for_cli(
+                &parsed_cli(&["ibex", "app.ts"]),
+                terminal_facts(false, false, false),
+                false,
+            )
+            .unwrap();
+            let adapter = FileProgramExecutionAdapter::new(plan).unwrap();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.block_on(adapter.run(PanickingFileExecutionFuture {
+                    original_stdout,
+                    original_stderr,
+                    observed_restoration: observed_restoration.clone(),
+                }))
+            }));
+
+            assert!(panic.is_err(), "fixture evaluator panic must resume");
+            assert!(
+                observed_restoration.load(Ordering::Acquire),
+                "execution future dropped before fd 1/fd 2 restoration"
+            );
+            return;
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "terminal_session::tests::file_program_adapter_restores_before_dropping_a_panicking_execution_future",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "child failed\nstdout: {:?}\nstderr: {:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert_eq!(
+            output
+                .stdout
+                .windows(PANIC_FUTURE_STDOUT_DROP_MARKER.len())
+                .filter(|window| *window == PANIC_FUTURE_STDOUT_DROP_MARKER)
+                .count(),
+            1
+        );
+        assert_eq!(
+            output
+                .stderr
+                .windows(PANIC_FUTURE_STDERR_DROP_MARKER.len())
+                .filter(|window| *window == PANIC_FUTURE_STDERR_DROP_MARKER)
+                .count(),
+            1
+        );
+    }
+
+    /// Real-process coverage of the two in-process terminate-tier routes. The
+    /// child uses a complete authenticated observer snapshot rather than
+    /// fabricating a production target advertisement, then wedges the actual
+    /// Hermes engine in `while (true) {}` after publishing a brokered marker.
+    /// @ref LLP 0025#1-modes-descriptors-and-topology
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[test]
+    fn direct_engine_execution_sigint_flushes_and_exits_130_without_engine_cooperation() {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+        use std::io::Read as _;
+        use std::os::unix::process::ExitStatusExt as _;
+        use std::process::{Command, Stdio};
+
+        const CHILD: &str = "IBEX_TEST_DIRECT_EXECUTION_SIGINT_CHILD";
+        const PROJECT: &str = "IBEX_TEST_DIRECT_EXECUTION_SIGINT_PROJECT";
+
+        if let Some(route) = std::env::var_os(CHILD) {
+            let route = route.to_string_lossy();
+            let project = std::path::PathBuf::from(
+                std::env::var_os(PROJECT).expect("direct SIGINT child project"),
+            );
+            let (entry_kind, identity, mode) = match route.as_ref() {
+                "eval" => (
+                    ArmedEntryKind::Eval,
+                    "ibex:eval",
+                    ArmedExecutionMode::OneShot,
+                ),
+                "file" => (
+                    ArmedEntryKind::File,
+                    "file:///project/entry.cjs",
+                    ArmedExecutionMode::Program,
+                ),
+                other => panic!("unknown direct SIGINT fixture route {other}"),
+            };
+            let runtime = crate::runtime::tests::session_conformance_direct_runtime(
+                &project, entry_kind, identity, mode,
+            )
+            .expect("construct direct SIGINT observer runtime");
+            let tokio = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("direct SIGINT Tokio runtime");
+            let returned = tokio.block_on(async {
+                runtime.load_runtime().await?;
+                if route == "eval" {
+                    run_authenticated_inline_execution_adapter(
+                        &runtime,
+                        b"console.log('DIRECT-SIGINT-READY-eval'); while (true) {}".to_vec(),
+                        InlineResultPresentation::Suppress,
+                    )
+                    .await
+                    .map(|_| ())
+                } else {
+                    let plan = runtime
+                        .session_io_plan()
+                        .expect("file observer runtime has a session plan");
+                    let adapter = FileProgramExecutionAdapter::new(plan)?;
+                    let returned = adapter
+                        .run_with_diagnostics_and_interrupt(
+                            |diagnostics, cancellation| async move {
+                                cancellation.register(runtime.engine()).map_err(|_| {
+                                    anyhow::anyhow!(
+                                        "file observer interrupt engine was already registered"
+                                    )
+                                })?;
+                                anyhow::ensure!(
+                                    diagnostics.diagnostic("", "DIRECT-SIGINT-READY-file")
+                                        != FileProgramDiagnosticDisposition::Deferred,
+                                    "file observer readiness diagnostic was refused"
+                                );
+                                runtime.run_authenticated_file_program(&[]).await
+                            },
+                        )
+                        .await?;
+                    anyhow::bail!("file wedge returned unexpectedly: {returned:?}")
+                }
+            });
+            panic!("wedged direct execution returned before SIGINT: {returned:?}");
+        }
+
+        let project = tempfile::tempdir().expect("direct SIGINT project");
+        std::fs::write(
+            project.path().join("package.json"),
+            "{\"name\":\"direct-sigint\",\"private\":true,\"type\":\"module\"}\n",
+        )
+        .expect("direct SIGINT package manifest");
+        std::fs::write(project.path().join("entry.cjs"), "while (true) {}\n")
+            .expect("direct SIGINT file entry");
+
+        for route in ["eval", "file"] {
+            let marker = format!("DIRECT-SIGINT-READY-{route}");
+            let mut command = Command::new(std::env::current_exe().expect("test executable"));
+            command
+                .args([
+                    "--exact",
+                    "terminal_session::tests::direct_engine_execution_sigint_flushes_and_exits_130_without_engine_cooperation",
+                    "--nocapture",
+                ])
+                .env(CHILD, route)
+                .env(PROJECT, project.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let mut child = command.spawn().expect("spawn direct SIGINT fixture");
+            let pid = child.id() as i32;
+            let mut stdout = child.stdout.take().expect("direct SIGINT stdout");
+            let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+            let stdout_ready = ready_tx.clone();
+            let stdout_expected = marker.clone();
+            let stdout_thread = thread::spawn(move || {
+                let mut output = Vec::new();
+                let mut buffer = [0_u8; 4096];
+                let mut announced = false;
+                loop {
+                    match stdout.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(amount) => {
+                            output.extend_from_slice(&buffer[..amount]);
+                            if !announced
+                                && output
+                                    .windows(stdout_expected.len())
+                                    .any(|window| window == stdout_expected.as_bytes())
+                            {
+                                announced = true;
+                                let _ = stdout_ready.try_send(());
+                            }
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(_) => break,
+                    }
+                }
+                output
+            });
+            let mut stderr = child.stderr.take().expect("direct SIGINT stderr");
+            let stderr_expected = marker.clone();
+            let stderr_thread = thread::spawn(move || {
+                let mut output = Vec::new();
+                let mut buffer = [0_u8; 4096];
+                let mut announced = false;
+                loop {
+                    match stderr.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(amount) => {
+                            output.extend_from_slice(&buffer[..amount]);
+                            if !announced
+                                && output
+                                    .windows(stderr_expected.len())
+                                    .any(|window| window == stderr_expected.as_bytes())
+                            {
+                                announced = true;
+                                let _ = ready_tx.try_send(());
+                            }
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(_) => break,
+                    }
+                }
+                output
+            });
+
+            if let Err(error) = ready_rx.recv_timeout(Duration::from_secs(90)) {
+                let status = match child.try_wait().expect("poll failed direct SIGINT child") {
+                    Some(status) => status,
+                    None => {
+                        let _ = child.kill();
+                        child.wait().expect("reap failed direct SIGINT child")
+                    }
+                };
+                let stdout = stdout_thread
+                    .join()
+                    .expect("join failed direct SIGINT stdout");
+                let stderr = stderr_thread
+                    .join()
+                    .expect("join failed direct SIGINT stderr");
+                panic!(
+                    "{route} did not enter Hermes wedge: {error}; status={status}; stdout={}; stderr={}",
+                    String::from_utf8_lossy(&stdout),
+                    String::from_utf8_lossy(&stderr),
+                );
+            }
+            thread::sleep(Duration::from_millis(100));
+            if let Some(status) = child.try_wait().expect("poll ready direct SIGINT child") {
+                let stdout = stdout_thread
+                    .join()
+                    .expect("join early direct SIGINT stdout");
+                let stderr = stderr_thread
+                    .join()
+                    .expect("join early direct SIGINT stderr");
+                panic!(
+                    "{route} returned after readiness instead of remaining in Hermes: status={status}; stdout={}; stderr={}",
+                    String::from_utf8_lossy(&stdout),
+                    String::from_utf8_lossy(&stderr),
+                );
+            }
+            // SAFETY: pid names the live child synchronized by its brokered
+            // readiness marker.
+            assert_eq!(unsafe { libc::kill(pid, libc::SIGINT) }, 0);
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let status = loop {
+                if let Some(status) = child.try_wait().expect("poll direct SIGINT child") {
+                    break status;
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("{route} did not terminate within the interrupt bound");
+                }
+                thread::sleep(Duration::from_millis(10));
+            };
+            let stdout = stdout_thread.join().expect("join direct SIGINT stdout");
+            let stderr = stderr_thread.join().expect("join direct SIGINT stderr");
+            assert_eq!(
+                status.code(),
+                Some(EXIT_STATUS_INTERRUPT),
+                "{route} status; stdout={} stderr={}",
+                String::from_utf8_lossy(&stdout),
+                String::from_utf8_lossy(&stderr)
+            );
+            assert_eq!(
+                status.signal(),
+                None,
+                "{route} died by kernel default SIGINT"
+            );
+            let marker_count = stdout
+                .windows(marker.len())
+                .filter(|window| *window == marker.as_bytes())
+                .count()
+                + stderr
+                    .windows(marker.len())
+                    .filter(|window| *window == marker.as_bytes())
+                    .count();
+            assert_eq!(
+                marker_count, 1,
+                "{route} broker did not preserve the pre-interrupt marker"
+            );
+        }
     }
 
     #[test]
@@ -10632,6 +17322,466 @@ mod tests {
         );
     }
 
+    /// Adapter-level PTY conformance while production target advertisement is
+    /// still independently blocked. The child uses a complete authenticated
+    /// observer fixture and the exact production terminal/editor loop; only its
+    /// completion evaluator is replaced through an explicit test-owned seam.
+    /// @ref LLP 0025#acceptance-criteria
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[test]
+    fn authenticated_interactive_adapter_consumes_ctrl_c_during_wedged_completion() {
+        assert_authenticated_interactive_interrupts_wedged_completion(
+            PtyInterruptStimulus::RawByte,
+            "terminal_session::tests::authenticated_interactive_adapter_consumes_ctrl_c_during_wedged_completion",
+        );
+    }
+
+    /// External SIGINT follows the same generated promise/credit path as a raw
+    /// Ctrl+C byte; only kernel-level coalescing differs.
+    /// @ref LLP 0025#6-interruption-and-cancellation
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[test]
+    fn authenticated_interactive_adapter_routes_external_sigint_during_wedged_completion() {
+        assert_authenticated_interactive_interrupts_wedged_completion(
+            PtyInterruptStimulus::ExternalSigint,
+            "terminal_session::tests::authenticated_interactive_adapter_routes_external_sigint_during_wedged_completion",
+        );
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[derive(Clone, Copy)]
+    enum PtyInterruptStimulus {
+        RawByte,
+        ExternalSigint,
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn assert_authenticated_interactive_interrupts_wedged_completion(
+        stimulus: PtyInterruptStimulus,
+        test_name: &str,
+    ) {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::process::CommandExt as _;
+        use std::process::{Command, Stdio};
+
+        const CHILD: &str = "IBEX_TEST_ASYNC_COMPLETION_PTY_CHILD";
+        const PROJECT: &str = "IBEX_TEST_ASYNC_COMPLETION_PTY_PROJECT";
+        const STARTED: &str = "IBEX_TEST_ASYNC_COMPLETION_PTY_STARTED";
+
+        if std::env::var_os(CHILD).is_some() {
+            let project = std::path::PathBuf::from(
+                std::env::var_os(PROJECT).expect("PTY child project path"),
+            );
+            let started = std::path::PathBuf::from(
+                std::env::var_os(STARTED).expect("PTY child start marker path"),
+            );
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("PTY child Tokio runtime");
+            let status = runtime
+                .block_on(run_authenticated_interactive_pty_fixture(project, started))
+                .expect("authenticated interactive PTY fixture");
+            let finished = std::path::PathBuf::from(
+                std::env::var_os(STARTED).expect("PTY child start marker path"),
+            )
+            .with_extension("adapter-finished");
+            let release = finished.with_extension("parent-release");
+            std::fs::write(&finished, b"restored\n").expect("publish restored adapter marker");
+            wait_for_file(&release, Duration::from_secs(10));
+            // The production adapter has already restored the terminal and
+            // completed its bounded broker cleanup. Exiting with its status lets
+            // the parent assert the actual two-press disposition.
+            std::process::exit(status);
+        }
+
+        let project = tempfile::tempdir().expect("PTY project");
+        std::fs::write(
+            project.path().join("package.json"),
+            "{\"name\":\"async-completion-pty\",\"private\":true,\"type\":\"module\"}\n",
+        )
+        .expect("PTY package manifest");
+        let started = project.path().join("completion-started");
+        let finished = started.with_extension("adapter-finished");
+        let release = finished.with_extension("parent-release");
+
+        let mut master = -1;
+        let mut slave = -1;
+        // SAFETY: openpty initializes both descriptors on success; ownership is
+        // transferred immediately below.
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master,
+                    &mut slave,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                )
+            },
+            0
+        );
+        // SAFETY: openpty returned fresh owned descriptors.
+        let master = unsafe { OwnedFd::from_raw_fd(master) };
+        // SAFETY: openpty returned fresh owned descriptors.
+        let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        let before = read_pty_termios(slave.as_raw_fd());
+
+        let duplicate_slave = || {
+            // SAFETY: the live PTY slave can be duplicated for one child stdio
+            // slot, and a successful dup returns fresh ownership.
+            let descriptor = unsafe { libc::dup(slave.as_raw_fd()) };
+            assert!(
+                descriptor >= 0,
+                "dup PTY slave: {}",
+                io::Error::last_os_error()
+            );
+            // SAFETY: successful dup returned a new owned descriptor.
+            unsafe { OwnedFd::from_raw_fd(descriptor) }
+        };
+        let mut command = Command::new(std::env::current_exe().expect("test executable"));
+        command
+            .arg("--exact")
+            .arg(test_name)
+            .arg("--nocapture")
+            .env(CHILD, "1")
+            .env(PROJECT, project.path())
+            .env(STARTED, &started)
+            .stdin(Stdio::from(duplicate_slave()))
+            .stdout(Stdio::from(duplicate_slave()))
+            .stderr(Stdio::from(duplicate_slave()));
+        // SAFETY: the closure performs only async-signal-safe process/session
+        // setup between fork and exec. fd 0 already names the PTY slave.
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if libc::ioctl(libc::STDIN_FILENO, libc::TIOCSCTTY as _, 0) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().expect("spawn PTY fixture child");
+        let flags = descriptor_flags(master.as_raw_fd(), libc::F_GETFL).unwrap();
+        set_descriptor_flag(master.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK).unwrap();
+
+        let mut output = Vec::new();
+        wait_for_pty_output(
+            master.as_raw_fd(),
+            &mut output,
+            PROMPT_DEFAULT_TEXT.as_bytes(),
+            Duration::from_secs(60),
+        );
+        if let Some(status) = child.try_wait().expect("probe PTY child after prompt") {
+            drain_pty(master.as_raw_fd(), &mut output);
+            panic!(
+                "PTY child exited {status} before input; output={}",
+                String::from_utf8_lossy(&output)
+            );
+        }
+        thread::sleep(Duration::from_millis(100));
+        drain_pty(master.as_raw_fd(), &mut output);
+        if let Some(status) = child.try_wait().expect("probe settled PTY child") {
+            panic!(
+                "PTY child exited {status} before input; output={}",
+                String::from_utf8_lossy(&output)
+            );
+        }
+        write_pty_bytes(master.as_raw_fd(), b"foo.\t");
+        wait_for_file(&started, Duration::from_secs(10));
+
+        let raw = read_pty_termios(slave.as_raw_fd());
+        let editor_flags = (libc::ICANON | libc::ECHO | libc::ISIG) as libc::tcflag_t;
+        assert_eq!(
+            raw.c_lflag & editor_flags,
+            0,
+            "PTY was not raw with ISIG off"
+        );
+
+        send_pty_interrupt(stimulus, &child, master.as_raw_fd());
+        wait_for_pty_output(
+            master.as_raw_fd(),
+            &mut output,
+            b"cancelling completion",
+            Duration::from_secs(10),
+        );
+        let notice = find_bytes(&output, b"cancelling completion")
+            .expect("completion-specific interrupt notice");
+        wait_for_pty_output_after(
+            master.as_raw_fd(),
+            &mut output,
+            b"foo.",
+            notice,
+            Duration::from_secs(10),
+        );
+        assert!(
+            child.try_wait().expect("probe PTY child").is_none(),
+            "first interrupt ended the adapter instead of preserving/redrawing the buffer"
+        );
+        assert!(
+            !output.windows(2).any(|window| window == b"^C"),
+            "raw interrupt byte leaked as caret output"
+        );
+
+        send_pty_interrupt(stimulus, &child, master.as_raw_fd());
+        wait_for_file(&finished, Duration::from_secs(10));
+        let restored = read_pty_termios(slave.as_raw_fd());
+        assert_pty_termios_restored(&before, &restored);
+        std::fs::write(&release, b"observed\n").expect("release restored PTY child");
+        let status = wait_for_child(
+            &mut child,
+            master.as_raw_fd(),
+            &mut output,
+            Duration::from_secs(10),
+        );
+        assert_eq!(status.code(), Some(EXIT_STATUS_INTERRUPT));
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    async fn run_authenticated_interactive_pty_fixture(
+        project: std::path::PathBuf,
+        started: std::path::PathBuf,
+    ) -> anyhow::Result<i32> {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        let (_host, engine, ingress) =
+            crate::runtime::tests::session_conformance_repl_parts_for_mode(
+                &project,
+                ArmedExecutionMode::Interactive,
+            )?;
+        engine.load_runtime().await?;
+        let session = crate::repl::ReplEvaluationSession::Local { engine, ingress };
+        let driver = crate::repl::session::ReplDriver::new(ArmedExecutionMode::Interactive)?;
+        let history = crate::history::HistorySession::open(
+            crate::history::HistoryPlatformCapture::capture(
+                crate::cli::HistoryMode::Off,
+                true,
+                true,
+            )
+            .bind_authenticated_project_root(None),
+        );
+        let plan = SessionIoPlan {
+            route: SelectedExecutionRoute {
+                entry_kind: ArmedEntryKind::Repl,
+                mode: ArmedExecutionMode::Interactive,
+            },
+            terminal_facts: NativeTerminalFacts {
+                stdin_is_tty: true,
+                stdout_is_tty: true,
+                stderr_is_tty: true,
+            },
+            presentation: CapturedPresentation {
+                topology: PresentationTopology::StdoutTty,
+                session_ansi: true,
+                editor_control: true,
+            },
+        };
+        let evaluator: Arc<CompletionQueryEvaluator> = Arc::new(move |_, _, _| {
+            std::fs::write(&started, b"executing\n")
+                .expect("publish test-owned completion wedge marker");
+            loop {
+                thread::park();
+            }
+        });
+        run_repl_unix_with_completion(plan, session, driver, history, None, Some(evaluator)).await
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn read_pty_termios(descriptor: i32) -> libc::termios {
+        let mut value = std::mem::MaybeUninit::<libc::termios>::uninit();
+        // SAFETY: the destination has room for termios and descriptor is a live
+        // PTY slave retained by the parent fixture.
+        assert_eq!(
+            unsafe { libc::tcgetattr(descriptor, value.as_mut_ptr()) },
+            0
+        );
+        // SAFETY: tcgetattr succeeded.
+        unsafe { value.assume_init() }
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn assert_pty_termios_restored(before: &libc::termios, restored: &libc::termios) {
+        assert_eq!(restored.c_iflag, before.c_iflag, "PTY input flags changed");
+        assert_eq!(restored.c_oflag, before.c_oflag, "PTY output flags changed");
+        assert_eq!(
+            restored.c_cflag, before.c_cflag,
+            "PTY control flags changed"
+        );
+        // The line discipline may raise PENDIN itself when TCSANOW restores
+        // canonical input while bytes are crossing the PTY. It is a transient
+        // queue-status bit, not editor configuration; every configurable local
+        // flag still has to match the pre-session snapshot exactly.
+        assert_eq!(
+            restored.c_lflag & !libc::PENDIN,
+            before.c_lflag & !libc::PENDIN,
+            "PTY local flags changed"
+        );
+        assert_eq!(restored.c_cc, before.c_cc, "PTY control bytes changed");
+        // SAFETY: both values are initialized termios snapshots.
+        assert_eq!(
+            unsafe { libc::cfgetispeed(restored) },
+            unsafe { libc::cfgetispeed(before) },
+            "PTY input speed changed"
+        );
+        // SAFETY: both values are initialized termios snapshots.
+        assert_eq!(
+            unsafe { libc::cfgetospeed(restored) },
+            unsafe { libc::cfgetospeed(before) },
+            "PTY output speed changed"
+        );
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn send_pty_interrupt(
+        stimulus: PtyInterruptStimulus,
+        child: &std::process::Child,
+        master: i32,
+    ) {
+        match stimulus {
+            PtyInterruptStimulus::RawByte => {
+                write_pty_bytes(master, &[PROMPT_INTERRUPT_BYTE]);
+            }
+            PtyInterruptStimulus::ExternalSigint => {
+                let pid = child.id() as i32;
+                // SAFETY: the PTY fixture child is live and synchronized by the
+                // acknowledged completion-started marker.
+                assert_eq!(unsafe { libc::kill(pid, libc::SIGINT) }, 0);
+            }
+        }
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn write_pty_bytes(descriptor: i32, mut bytes: &[u8]) {
+        while !bytes.is_empty() {
+            // SAFETY: descriptor is live and bytes names initialized memory.
+            let written = unsafe { libc::write(descriptor, bytes.as_ptr().cast(), bytes.len()) };
+            if written < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                if error.kind() == io::ErrorKind::WouldBlock {
+                    let mut poll = libc::pollfd {
+                        fd: descriptor,
+                        events: libc::POLLOUT,
+                        revents: 0,
+                    };
+                    // SAFETY: poll names one initialized live descriptor.
+                    assert!(
+                        unsafe { libc::poll(&mut poll, 1, 1_000) } > 0,
+                        "timed out writing PTY: {error}"
+                    );
+                    continue;
+                }
+                panic!("write PTY: {error}");
+            }
+            assert!(written > 0, "PTY write made no progress");
+            bytes = &bytes[written as usize..];
+        }
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn drain_pty(descriptor: i32, output: &mut Vec<u8>) {
+        let mut buffer = [0_u8; 4096];
+        loop {
+            // SAFETY: descriptor is live and buffer is writable.
+            let read = unsafe { libc::read(descriptor, buffer.as_mut_ptr().cast(), buffer.len()) };
+            if read > 0 {
+                output.extend_from_slice(&buffer[..read as usize]);
+                continue;
+            }
+            if read == 0 {
+                return;
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            if error.kind() == io::ErrorKind::WouldBlock || error.raw_os_error() == Some(libc::EIO)
+            {
+                return;
+            }
+            panic!("read PTY: {error}");
+        }
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn wait_for_pty_output(
+        descriptor: i32,
+        output: &mut Vec<u8>,
+        needle: &[u8],
+        timeout: Duration,
+    ) {
+        wait_for_pty_output_after(descriptor, output, needle, 0, timeout);
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn wait_for_pty_output_after(
+        descriptor: i32,
+        output: &mut Vec<u8>,
+        needle: &[u8],
+        after: usize,
+        timeout: Duration,
+    ) {
+        let deadline = Instant::now() + timeout;
+        loop {
+            drain_pty(descriptor, output);
+            if after <= output.len() && find_bytes(&output[after..], needle).is_some() {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for PTY bytes {:?}; output={}",
+                String::from_utf8_lossy(needle),
+                String::from_utf8_lossy(output)
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn wait_for_file(path: &std::path::Path, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        while !path.is_file() {
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for test-owned completion marker"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn wait_for_child(
+        child: &mut std::process::Child,
+        descriptor: i32,
+        output: &mut Vec<u8>,
+        timeout: Duration,
+    ) -> std::process::ExitStatus {
+        let deadline = Instant::now() + timeout;
+        loop {
+            drain_pty(descriptor, output);
+            if let Some(status) = child.try_wait().expect("wait for PTY child") {
+                return status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "PTY child did not terminate in time; output={}",
+                String::from_utf8_lossy(output)
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     const STDOUT_RELAY: RelayId = RelayId(1);
     const STDERR_RELAY: RelayId = RelayId(2);
 
@@ -10656,6 +17806,7 @@ mod tests {
     struct FakeRelaySink {
         modes: BTreeMap<RelayId, FakeWriteMode>,
         writes: Vec<FakePhysicalWrite>,
+        flush_error: bool,
     }
 
     impl FakeRelaySink {
@@ -10669,6 +17820,10 @@ mod tests {
                 .filter(|write| write.relay == relay)
                 .flat_map(|write| write.bytes.iter().copied())
                 .collect()
+        }
+
+        fn fail_flush(&mut self) {
+            self.flush_error = true;
         }
     }
 
@@ -10697,6 +17852,14 @@ mod tests {
                     });
                     Ok(RelayWriteOutcome::Written(written))
                 }
+            }
+        }
+
+        fn flush(&mut self) -> Result<(), String> {
+            if self.flush_error {
+                Err("deliberate flush failure".to_owned())
+            } else {
+                Ok(())
             }
         }
     }
@@ -10885,7 +18048,7 @@ mod tests {
         }
 
         fn force_finish(&mut self) {
-            self.broker.force_finish();
+            let _ = self.broker.force_finish();
             self.join();
         }
     }
@@ -10894,10 +18057,207 @@ mod tests {
     impl Drop for ReplBrokerLoopHarness {
         fn drop(&mut self) {
             if self.broker_thread.is_some() {
-                self.broker.force_finish();
+                let _ = self.broker.force_finish();
                 self.join();
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repl_force_finish_drains_unread_bytes_and_marks_live_writers_unknown() {
+        let mut harness = ReplBrokerLoopHarness::transcript();
+        harness
+            .sink
+            .set_mode(NATIVE_STDOUT_RELAY, FakeWriteMode::Paused);
+        let bytes = b"unread worker output at forced finish";
+        // SAFETY: the harness retains a live worker pipe and bytes is valid.
+        assert_eq!(
+            unsafe {
+                libc::write(
+                    harness.worker_stdout_write.as_ref().unwrap().raw(),
+                    bytes.as_ptr().cast(),
+                    bytes.len(),
+                )
+            },
+            bytes.len() as isize
+        );
+
+        let report = harness.broker.force_finish().unwrap();
+        harness.join();
+        assert!(report.has_loss());
+        assert_eq!(report.input_streams_open(), (true, true));
+        assert_eq!(
+            report
+                .loss()
+                .relays
+                .iter()
+                .map(|relay| relay.program_bytes)
+                .sum::<usize>(),
+            bytes.len()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repl_force_finish_restores_and_closes_local_inputs_without_stdio_waits() {
+        const CHILD_ENV: &str = "IBEX_TEST_REPL_FORCE_FINISH_STDIO_HANDOFF_CHILD";
+        const LATE_CONSOLE_MARKER: &[u8] = b"late-host-console-marker-must-not-escape";
+
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let plan = SessionIoPlan::for_cli(
+                &parsed_cli(&["ibex", "repl"]),
+                terminal_facts(false, false, false),
+                false,
+            )
+            .unwrap();
+            let mut active = ActiveReplCapture::start(plan, None).unwrap();
+            let forced = force_finish_repl_after_descriptor_handoff(
+                plan,
+                active.descriptor_handoff.as_ref(),
+                &active.broker,
+            );
+            let report = forced.report.expect("forced REPL broker report");
+            assert!(
+                report.has_loss(),
+                "bounded force handoff must conservatively account skipped buffered stdio: {report:?}"
+            );
+            assert_eq!(report.input_streams_open(), (false, false));
+            // SAFETY: the marker is a live length-bearing buffer. The sealed
+            // console relay must refuse it instead of writing after restore.
+            unsafe {
+                crate::host::abi::ex_host_console_log_bytes(
+                    0,
+                    LATE_CONSOLE_MARKER.as_ptr(),
+                    LATE_CONSOLE_MARKER.len(),
+                );
+            }
+            assert!(active.descriptor_handoff.console_relay_status().is_err());
+            active
+                .broker_thread
+                .take()
+                .unwrap()
+                .join()
+                .unwrap()
+                .unwrap();
+            active.finished = true;
+            return;
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "terminal_session::tests::repl_force_finish_restores_and_closes_local_inputs_without_stdio_waits",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "force-finish handoff child failed\nstdout: {:?}\nstderr: {:?}",
+            output.stdout,
+            output.stderr
+        );
+        assert!(!output
+            .stdout
+            .windows(LATE_CONSOLE_MARKER.len())
+            .any(|window| window == LATE_CONSOLE_MARKER));
+    }
+
+    // @ref LLP 0025#5-terminal-presentation-and-restoration
+    #[cfg(unix)]
+    #[test]
+    fn repl_force_finish_restores_while_another_thread_holds_stdout_lock() {
+        const CHILD_ENV: &str = "IBEX_TEST_REPL_FORCE_FINISH_STDOUT_LOCK_CHILD";
+
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let plan = SessionIoPlan::for_cli(
+                &parsed_cli(&["ibex", "repl"]),
+                terminal_facts(false, false, false),
+                false,
+            )
+            .unwrap();
+            let original_stdout = NativeFd::duplicate(libc::STDOUT_FILENO).unwrap();
+            let mut active = ActiveReplCapture::start(plan, None).unwrap();
+            let release = Arc::new(AtomicBool::new(false));
+            let holder_release = Arc::clone(&release);
+            let (locked_tx, locked_rx) = mpsc::sync_channel(1);
+            let holder = thread::spawn(move || {
+                let _stdout = io::stdout().lock();
+                locked_tx.send(()).unwrap();
+                while !holder_release.load(Ordering::Acquire) {
+                    thread::sleep(Duration::from_millis(1));
+                }
+            });
+            locked_rx.recv().unwrap();
+
+            let watchdog_release = Arc::clone(&release);
+            let (watchdog_cancel_tx, watchdog_cancel_rx) = mpsc::sync_channel(1);
+            let watchdog = thread::spawn(move || {
+                if watchdog_cancel_rx
+                    .recv_timeout(Duration::from_millis(
+                        BROKER_FLUSH_BUDGET_MILLIS
+                            .saturating_mul(4)
+                            .saturating_add(1_000),
+                    ))
+                    .is_err()
+                {
+                    watchdog_release.store(true, Ordering::Release);
+                }
+            });
+            let started = Instant::now();
+            let forced = force_finish_repl_after_descriptor_handoff(
+                plan,
+                active.descriptor_handoff.as_ref(),
+                &active.broker,
+            );
+            let elapsed = started.elapsed();
+            release.store(true, Ordering::Release);
+            let _ = watchdog_cancel_tx.send(());
+            holder.join().unwrap();
+            watchdog.join().unwrap();
+
+            assert!(
+                descriptors_have_same_identity(libc::STDOUT_FILENO, original_stdout.raw()),
+                "ForceFinish returned before restoring stdout"
+            );
+            assert!(
+                elapsed
+                    < Duration::from_millis(
+                        BROKER_FLUSH_BUDGET_MILLIS
+                            .saturating_mul(3)
+                            .saturating_add(250),
+                    ),
+                "ForceFinish waited on the Rust stdout lock for {elapsed:?}"
+            );
+            assert!(forced.report.expect("forced broker report").has_loss());
+            active
+                .broker_thread
+                .take()
+                .unwrap()
+                .join()
+                .unwrap()
+                .unwrap();
+            active.finished = true;
+            return;
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "terminal_session::tests::repl_force_finish_restores_while_another_thread_holds_stdout_lock",
+                "--nocapture",
+            ])
+            .env(CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "bounded ForceFinish child failed\nstdout: {:?}\nstderr: {:?}",
+            output.stdout,
+            output.stderr
+        );
     }
 
     #[cfg(unix)]
@@ -11623,6 +18983,25 @@ mod tests {
     }
 
     #[test]
+    fn stage1_truncation_is_a_typed_trusted_child_and_visible_in_diagnostics() {
+        let display = crate::engine::AuthenticatedDisplay {
+            kind: crate::engine::AuthenticatedDisplayKind::String,
+            text: "\"prefix\"".to_owned(),
+            truncated: true,
+        };
+        assert_eq!(display.diagnostic_text(), "\"prefix\" ...[truncated]");
+        let wire = encode_authenticated_display(&display).unwrap();
+        assert!(wire
+            .windows(2)
+            .any(|bytes| bytes == DISPLAY_NODE_TAG_TRUNCATION.to_le_bytes()));
+        let rendered = SafeSessionRenderer::render_tree(&wire, false);
+        assert_eq!(rendered.disposition, DisplayDisposition::Fallback);
+        assert!(String::from_utf8(rendered.bytes)
+            .unwrap()
+            .contains("...[truncated]"));
+    }
+
+    #[test]
     fn malformed_unknown_and_over_limit_trees_are_fallbacks() {
         let malformed = SafeSessionRenderer::render_tree(b"IBDX\x01", false);
         assert_eq!(malformed.disposition, DisplayDisposition::Fallback);
@@ -11777,6 +19156,195 @@ mod tests {
         ));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn native_relay_partial_pipe_write_accounts_suffix_and_stops_at_finish() {
+        const FILL_BYTE: u8 = 0xa5;
+
+        fn fill_until_would_block(descriptor: i32) -> usize {
+            let bytes = [FILL_BYTE; 16 * 1024];
+            let mut total = 0;
+            loop {
+                // SAFETY: descriptor is a live nonblocking pipe writer and
+                // bytes remains live for the duration of the write.
+                let written =
+                    unsafe { libc::write(descriptor, bytes.as_ptr().cast(), bytes.len()) };
+                if written > 0 {
+                    total += written as usize;
+                    continue;
+                }
+                assert_ne!(written, 0, "pipe fill returned a zero-byte write");
+                let error = io::Error::last_os_error();
+                match error.kind() {
+                    io::ErrorKind::Interrupted => continue,
+                    io::ErrorKind::WouldBlock => return total,
+                    _ => panic!("pipe fill failed: {error}"),
+                }
+            }
+        }
+
+        fn read_available(descriptor: i32, maximum: usize) -> Vec<u8> {
+            let mut result = Vec::new();
+            let mut bytes = [0_u8; 16 * 1024];
+            while result.len() < maximum {
+                let remaining = maximum - result.len();
+                // SAFETY: descriptor is a live nonblocking pipe reader and
+                // bytes is writable for the requested prefix.
+                let read = unsafe {
+                    libc::read(
+                        descriptor,
+                        bytes.as_mut_ptr().cast(),
+                        remaining.min(bytes.len()),
+                    )
+                };
+                if read > 0 {
+                    result.extend_from_slice(&bytes[..read as usize]);
+                    continue;
+                }
+                if read == 0 {
+                    return result;
+                }
+                let error = io::Error::last_os_error();
+                match error.kind() {
+                    io::ErrorKind::Interrupted => continue,
+                    io::ErrorKind::WouldBlock => return result,
+                    _ => panic!("pipe read failed: {error}"),
+                }
+            }
+            result
+        }
+
+        let (output_read, output_write) = native_pipe().unwrap();
+        let (_unused_read, unused_write) = native_pipe().unwrap();
+        let sink = NativeRelaySink::new(
+            OutputDestinationTopology::Shared {
+                destination: NativeOutputDestination::Stdout,
+            },
+            output_write,
+            unused_write,
+        )
+        .unwrap();
+        let destination_descriptor = match &sink {
+            NativeRelaySink::Shared { destination, .. } => destination.descriptor.raw(),
+            NativeRelaySink::Split { .. } => unreachable!("constructed a shared relay"),
+        };
+        assert_ne!(
+            descriptor_flags(destination_descriptor, libc::F_GETFL).unwrap() & libc::O_NONBLOCK,
+            0,
+            "the duplicated relay destination must be nonblocking"
+        );
+
+        let filled = fill_until_would_block(destination_descriptor);
+        // SAFETY: fpathconf queries a live pipe descriptor without mutating it.
+        let pipe_buf = unsafe { libc::fpathconf(destination_descriptor, libc::_PC_PIPE_BUF) };
+        assert!(pipe_buf > 0, "pipe did not report a positive PIPE_BUF");
+        let room = usize::try_from(pipe_buf).unwrap() * 2;
+        assert!(
+            filled > room,
+            "pipe capacity {filled} was too small to arrange a partial write"
+        );
+        let removed_fill = read_available(output_read.raw(), room);
+        assert_eq!(removed_fill, vec![FILL_BYTE; room]);
+
+        let frame: Vec<_> = (0..BROKER_QUEUE_BOUND_BYTES / 2)
+            .map(|index| (index % 251) as u8)
+            .collect();
+        let routes = BrokerRoutes {
+            program_stdout: NATIVE_STDOUT_RELAY,
+            program_stderr: NATIVE_STDOUT_RELAY,
+            session: NATIVE_STDOUT_RELAY,
+            control: NATIVE_STDOUT_RELAY,
+        };
+        let mut broker = InProcessOutputBroker::new(
+            sink,
+            routes,
+            [(
+                NATIVE_STDOUT_RELAY,
+                RelayPresentation {
+                    session_ansi: false,
+                    editor_control: false,
+                },
+            )],
+        )
+        .unwrap();
+        broker
+            .receive_program(ProgramStream::Stdout, &frame)
+            .unwrap();
+        let pump = broker.pump_all_once();
+        assert_eq!(pump.progressed_relays, 1, "expected one partial write");
+
+        let report = broker
+            .finish_with_budget_report(Duration::ZERO)
+            .expect("forced close should preserve exact native-relay loss");
+        assert_eq!(report.flush_error, None);
+        assert_eq!(
+            descriptor_flags(destination_descriptor, libc::F_GETFL).unwrap() & libc::O_NONBLOCK,
+            0,
+            "finish must restore the destination's shared open-file flags"
+        );
+
+        let observed = read_available(output_read.raw(), usize::MAX);
+        let retained_fill = filled - room;
+        assert_eq!(
+            observed[..retained_fill],
+            vec![FILL_BYTE; retained_fill],
+            "the existing pipe prefix changed"
+        );
+        let delivered = &observed[retained_fill..];
+        assert!(
+            !delivered.is_empty() && delivered.len() < frame.len(),
+            "test did not produce a partial frame: {} of {} bytes",
+            delivered.len(),
+            frame.len()
+        );
+        assert_eq!(delivered, &frame[..delivered.len()]);
+
+        let stdout_loss = report
+            .loss
+            .relays
+            .iter()
+            .find(|loss| loss.relay == NATIVE_STDOUT_RELAY)
+            .unwrap();
+        assert_eq!(stdout_loss.program_frames, 1);
+        assert_eq!(stdout_loss.program_bytes, frame.len() - delivered.len());
+
+        // Draining the pipe makes room that used to wake the detached writer.
+        // Once finish returns, no such writer may produce another byte.
+        thread::sleep(Duration::from_millis(50));
+        assert!(
+            read_available(output_read.raw(), usize::MAX).is_empty(),
+            "native relay wrote bytes after broker finish"
+        );
+    }
+
+    #[test]
+    fn typed_finish_retains_loss_when_the_final_sink_flush_fails() {
+        let mut broker = concrete_broker(1024);
+        broker
+            .sink_mut()
+            .set_mode(STDOUT_RELAY, FakeWriteMode::Paused);
+        broker
+            .receive_program(ProgramStream::Stdout, b"pending")
+            .unwrap();
+        broker.sink_mut().fail_flush();
+
+        let report = broker
+            .finish_with_budget_report(Duration::ZERO)
+            .expect("forced close remains typed despite the flush failure");
+        assert_eq!(
+            report.flush_error.as_deref(),
+            Some("deliberate flush failure")
+        );
+        assert!(report.loss.has_loss());
+        let stdout = report
+            .loss
+            .relays
+            .iter()
+            .find(|loss| loss.relay == STDOUT_RELAY)
+            .unwrap();
+        assert_eq!(stdout.program_bytes, b"pending".len());
+    }
+
     #[test]
     fn captured_color_predicate_has_the_specified_precedence() {
         let base = CapturedColorFacts {
@@ -11902,24 +19470,115 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn production_non_editor_routes_capture_sigint_for_the_ordinary_cleanup_lane() {
-        let transcript = CapturedPresentation {
-            topology: PresentationTopology::Transcript,
-            session_ansi: false,
-            editor_control: false,
-        };
-        assert!(captures_non_editor_interrupt(transcript));
-        assert!(!captures_non_editor_interrupt(
-            CapturedPresentation::interactive_plain()
-        ));
+    fn production_routes_split_ordinary_and_forced_signal_lanes() {
+        for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT] {
+            assert!(!TERMINAL_FATAL_SIGNALS.contains(&signal));
+        }
+        assert_eq!(
+            TERMINAL_FATAL_SIGNALS,
+            [
+                libc::SIGABRT,
+                libc::SIGSEGV,
+                libc::SIGBUS,
+                libc::SIGILL,
+                libc::SIGFPE,
+            ]
+        );
         assert_eq!(session_signal_bits(libc::SIGINT), SESSION_SIGNAL_INTERRUPT);
         assert_eq!(session_signal_bits(libc::SIGTSTP), SESSION_SIGNAL_SUSPEND);
         assert_eq!(session_signal_bits(libc::SIGWINCH), SESSION_SIGNAL_RESIZE);
+        assert_eq!(session_signal_bits(libc::SIGTERM), SESSION_SIGNAL_TERMINATE);
+        assert_eq!(session_signal_bits(libc::SIGHUP), SESSION_SIGNAL_HANGUP);
+        assert_eq!(session_signal_bits(libc::SIGQUIT), SESSION_SIGNAL_QUIT);
+        assert_eq!(
+            session_signal_event(libc::SIGTERM),
+            SessionSignalEvent::Terminate
+        );
+        assert_eq!(
+            session_signal_event(libc::SIGHUP),
+            SessionSignalEvent::Hangup
+        );
+        assert_eq!(
+            session_signal_event(libc::SIGQUIT),
+            SessionSignalEvent::Quit
+        );
+    }
+
+    // @ref LLP 0025#8-exit-and-lifecycle — the first observed termination
+    // event is the primary cause; an owner shutdown cannot jump a queued SIGINT.
+    #[cfg(unix)]
+    #[test]
+    fn ordered_signal_batch_linearizes_sigint_against_owner_shutdown() {
+        let interrupt_first =
+            append_session_signal_event(0, SESSION_SIGNAL_INTERRUPT, SessionSignalEvent::Interrupt);
+        let interrupt_first = append_session_signal_event(
+            interrupt_first,
+            SESSION_SIGNAL_SHUTDOWN,
+            SessionSignalEvent::Shutdown,
+        );
+        assert_eq!(
+            decode_session_signal_batch(interrupt_first),
+            SessionSignalBatch {
+                pending: SESSION_SIGNAL_INTERRUPT | SESSION_SIGNAL_SHUTDOWN,
+                events: [
+                    SessionSignalEvent::Interrupt,
+                    SessionSignalEvent::Shutdown,
+                    SessionSignalEvent::None,
+                ],
+            }
+        );
+
+        let shutdown_first =
+            append_session_signal_event(0, SESSION_SIGNAL_SHUTDOWN, SessionSignalEvent::Shutdown);
+        let shutdown_first = append_session_signal_event(
+            shutdown_first,
+            SESSION_SIGNAL_INTERRUPT,
+            SessionSignalEvent::Interrupt,
+        );
+        assert_eq!(
+            decode_session_signal_batch(shutdown_first).events,
+            [
+                SessionSignalEvent::Shutdown,
+                SessionSignalEvent::Interrupt,
+                SessionSignalEvent::None,
+            ]
+        );
+    }
+
+    // Three slots are sufficient by construction: LLP 0025's generated machine
+    // makes the third uninterrupted SIGINT terminal, and every other queued
+    // event is terminal on its first dispatch.
+    #[cfg(unix)]
+    #[test]
+    fn ordered_signal_batch_retains_the_three_interrupt_escape_bound() {
+        let mut state = 0;
+        for _ in 0..SESSION_SIGNAL_EVENT_SLOTS {
+            state = append_session_signal_event(
+                state,
+                SESSION_SIGNAL_INTERRUPT,
+                SessionSignalEvent::Interrupt,
+            );
+        }
+        state = append_session_signal_event(
+            state,
+            SESSION_SIGNAL_TERMINATE,
+            SessionSignalEvent::Terminate,
+        );
+        let batch = decode_session_signal_batch(state);
+        assert_eq!(
+            batch.events,
+            [
+                SessionSignalEvent::Interrupt,
+                SessionSignalEvent::Interrupt,
+                SessionSignalEvent::Interrupt,
+            ]
+        );
+        assert_ne!(batch.pending & SESSION_SIGNAL_TERMINATE, 0);
     }
 
     #[cfg(unix)]
     #[test]
-    fn production_non_editor_interrupt_orders_exact_cancel_restore_kill_and_flush() {
+    fn production_non_editor_interrupt_restores_before_bounded_cancel_kill_and_flush() {
         #[derive(Default)]
         struct CleanupProbe {
             calls: Vec<&'static str>,
@@ -11948,7 +19607,7 @@ mod tests {
 
         let mut probe = CleanupProbe::default();
         execute_non_editor_interrupt_cleanup(&mut probe);
-        assert_eq!(probe.calls, ["cancel", "restore", "terminate", "flush"]);
+        assert_eq!(probe.calls, ["restore", "cancel", "terminate", "flush"]);
 
         struct FailedCancelProbe(CleanupProbe);
         impl NonEditorInterruptCleanupPort for FailedCancelProbe {
@@ -11976,9 +19635,104 @@ mod tests {
         execute_non_editor_interrupt_cleanup(&mut failed);
         assert_eq!(
             failed.0.calls,
-            ["cancel", "restore", "terminate", "flush"],
+            ["restore", "cancel", "terminate", "flush"],
             "a failed exact request must not defeat the bounded escape"
         );
+    }
+
+    // @ref LLP 0025#8-exit-and-lifecycle
+    #[cfg(unix)]
+    #[test]
+    fn process_control_signal_cleanup_restores_then_flushes_before_worker_release() {
+        #[derive(Default)]
+        struct CleanupProbe {
+            calls: Vec<&'static str>,
+            fail_restore: bool,
+            fail_terminate: bool,
+        }
+
+        impl ProcessControlSignalCleanupPort for CleanupProbe {
+            fn restore_for_process_signal(&mut self) -> Result<(), String> {
+                self.calls.push("restore");
+                if self.fail_restore {
+                    Err("fixture restoration failure".to_owned())
+                } else {
+                    Ok(())
+                }
+            }
+
+            fn terminate_worker_for_process_signal(&mut self) -> Result<(), String> {
+                self.calls.push("terminate");
+                if self.fail_terminate {
+                    Err("fixture worker termination failure".to_owned())
+                } else {
+                    Ok(())
+                }
+            }
+
+            fn force_finish_broker_for_process_signal(&mut self) {
+                self.calls.push("flush");
+            }
+        }
+
+        let mut successful = CleanupProbe::default();
+        execute_process_control_signal_cleanup(&mut successful);
+        assert_eq!(successful.calls, ["restore", "flush", "terminate"]);
+
+        let mut failed = CleanupProbe {
+            fail_restore: true,
+            fail_terminate: true,
+            ..CleanupProbe::default()
+        };
+        execute_process_control_signal_cleanup(&mut failed);
+        assert_eq!(
+            failed.calls,
+            ["restore", "flush", "terminate"],
+            "cleanup failures must not suppress later release steps"
+        );
+    }
+
+    // @ref LLP 0025#8-exit-and-lifecycle — TERM/HUP retain their specified
+    // statuses; QUIT restores and then terminates through the default signal.
+    #[cfg(unix)]
+    #[test]
+    fn process_control_signal_dispositions_are_observable() {
+        use std::os::unix::process::ExitStatusExt as _;
+
+        const CHILD: &str = "IBEX_TEST_PROCESS_CONTROL_SIGNAL_DISPOSITION";
+        if let Some(signal) = std::env::var_os(CHILD) {
+            let event = match signal.to_string_lossy().as_ref() {
+                "term" => SessionSignalEvent::Terminate,
+                "hup" => SessionSignalEvent::Hangup,
+                "quit" => SessionSignalEvent::Quit,
+                other => panic!("unknown process-control fixture signal {other}"),
+            };
+            // SAFETY: the isolated child has no live runtime resources and this
+            // helper is specifically the final action under test.
+            unsafe { exit_after_process_control_signal(event) }
+        }
+
+        for (name, expected_code, expected_signal) in [
+            ("term", Some(128 + libc::SIGTERM), None),
+            ("hup", Some(128 + libc::SIGHUP), None),
+            ("quit", None, Some(libc::SIGQUIT)),
+        ] {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "terminal_session::tests::process_control_signal_dispositions_are_observable",
+                    "--nocapture",
+                ])
+                .env(CHILD, name)
+                .status()
+                .unwrap();
+            assert_eq!(status.code(), expected_code, "wrong exit code for {name}");
+            assert_eq!(
+                status.signal(),
+                expected_signal,
+                "wrong terminating signal for {name}"
+            );
+        }
     }
 
     // @ref LLP 0025#acceptance-criteria — schedule (a), tight callback
@@ -12508,49 +20262,11 @@ mod tests {
         assert!(harness.supervisor.state().buffer.is_empty());
     }
 
-    struct ChannelReader {
-        bytes: mpsc::Receiver<Option<u8>>,
-    }
-
-    impl Read for ChannelReader {
-        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
-            match self.bytes.recv() {
-                Ok(Some(byte)) => {
-                    output[0] = byte;
-                    Ok(1)
-                }
-                Ok(None) | Err(_) => Ok(0),
-            }
-        }
-    }
-
     #[test]
-    fn editor_reader_delivers_interrupt_while_completion_is_blocked_elsewhere() {
-        let witness = PromptWitness::default();
-        witness.publish(PromptCycle(1), true);
-        let (byte_tx, byte_rx) = mpsc::channel();
-        let editor = spawn_editor_reader(ChannelReader { bytes: byte_rx }, witness).unwrap();
-
-        let (completion_release_tx, completion_release_rx) = mpsc::channel();
-        let (completion_started_tx, completion_started_rx) = mpsc::channel();
-        let completion = thread::spawn(move || {
-            completion_started_tx.send(()).unwrap();
-            completion_release_rx.recv().unwrap();
-        });
-        completion_started_rx.recv().unwrap();
-
-        byte_tx.send(Some(0x03)).unwrap();
+    fn production_editor_reports_bounded_asynchronous_completion() {
         assert_eq!(
-            editor.recv_timeout(Duration::from_secs(1)).unwrap(),
-            EditorInputEvent::Interrupt
-        );
-        completion_release_tx.send(()).unwrap();
-        byte_tx.send(None).unwrap();
-        completion.join().unwrap();
-        editor.join_reader().unwrap();
-        assert_eq!(
-            legacy_rustyline_adapter_status(),
-            Err(EditorAdapterGap::SynchronousCompletionBlocksInterruptInput)
+            production_editor_adapter_status(),
+            EditorAdapterStatus::BoundedAsynchronousCompletion
         );
     }
 

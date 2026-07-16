@@ -19,41 +19,20 @@ import {
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 
 const EXPECTED_RESIDUAL_FAMILIES = [
-  "__exactHostNavigator.[[dynamic-table:host-navigator-properties]]",
   "global:Buffer.[[dynamic-table:inherited-uint8-array-6128693053-properties]]",
-  "global:Bun.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-  "global:Bun.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
-  "global:Exact.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-  "global:Exact.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
   "global:Float16Array.[[dynamic-table:inherited-uint16-array-90265aa4ff-properties]]",
-  "global:Intl.[[dynamic-table:host-intl-properties]]",
   "global:SharedArrayBuffer.prototype.[[dynamic-table:call-result-6409897f6685-properties]]",
   "global:[[dynamic-table:native-global-name]]",
-  "global:process.[[dynamic-table:channel-handle-key]]",
-  "global:process.[[dynamic-table:exact-channel-handle-key]]",
-  "global:process.[[dynamic-table:host-process-own-properties]]",
-  "global:process.[[dynamic-table:host-process-prototype-properties]]",
-  "global:process.[[dynamic-table:k-channel-handle]]",
   "global:process.env.[[dynamic-table:env-obj-properties]]",
-  "global:process.once.[[dynamic-table:call-result-621e9ebb69c5-properties]]",
-  "global:process.prependOnceListener.[[dynamic-table:call-result-f0b2d7f38e0a-properties]]",
 ].sort();
 
 const DOWNGRADED_SAMPLE_FAMILIES = Object.freeze({
   "global:Buffer.[[dynamic-table:inherited-uint8-array-6128693053-properties]]":
     "inherited-base-membership-unclosed",
-  "global:Bun.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]":
-    "iife-result-membership-unclosed",
-  "global:Exact.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]":
-    "iife-result-membership-unclosed",
   "global:Float16Array.[[dynamic-table:inherited-uint16-array-90265aa4ff-properties]]":
     "inherited-base-membership-unclosed",
   "global:SharedArrayBuffer.prototype.[[dynamic-table:call-result-6409897f6685-properties]]":
     "prototype-base-membership-unclosed",
-  "global:process.once.[[dynamic-table:call-result-621e9ebb69c5-properties]]":
-    "returned-wrapper-membership-unclosed",
-  "global:process.prependOnceListener.[[dynamic-table:call-result-f0b2d7f38e0a-properties]]":
-    "returned-wrapper-membership-unclosed",
 });
 
 async function loadReviewedRows() {
@@ -87,7 +66,7 @@ async function loadReviewedRows() {
 const loadedRows = loadReviewedRows();
 
 describe("dynamic-global exhaustive-output review", () => {
-  test("keeps all 18 source-bound families residual and authors no sample probes", async () => {
+  test("keeps all five source-bound residual families and authors no sample probes", async () => {
     expect(DYNAMIC_GLOBAL_OUTPUT_COVERED_FAMILIES).toEqual([]);
     expect(DYNAMIC_GLOBAL_OUTPUT_RESIDUAL_FAMILIES).toEqual(
       EXPECTED_RESIDUAL_FAMILIES,
@@ -95,7 +74,7 @@ describe("dynamic-global exhaustive-output review", () => {
     expect(dynamicGlobalOutputCatalogBindings()).toEqual([]);
 
     const rows = await loadedRows;
-    expect(rows).toHaveLength(18);
+    expect(rows).toHaveLength(5);
     for (const { familyName, surface, coverageEdge } of rows) {
       expect(surface).toMatchObject({
         kind: "native-op",
@@ -165,19 +144,12 @@ describe("dynamic-global exhaustive-output review", () => {
 
   test("requires finite concrete accounts without enumerating ambient proxies or marker spellings", () => {
     const reviewed = reviewedDynamicGlobalOutputFamilies();
-    expect(reviewed).toHaveLength(18);
+    expect(reviewed).toHaveLength(5);
     expect(reviewed.every(({ status }) => status === "residual")).toBe(true);
     expect(reviewed.some((row) => Object.hasOwn(row, "operation"))).toBe(false);
     expect(reviewed.some((row) => Object.hasOwn(row, "catalog"))).toBe(false);
 
-    const ambientKinds = new Set([
-      "environment-proxy",
-      "host-object-overlay",
-      "intl-proxy",
-      "process-environment-object",
-      "process-host-own-overlay",
-      "process-host-prototype-overlay",
-    ]);
+    const ambientKinds = new Set(["process-environment-object"]);
     for (const row of reviewed.filter(({ familyKind }) =>
       ambientKinds.has(familyKind),
     )) {
@@ -187,10 +159,8 @@ describe("dynamic-global exhaustive-output review", () => {
       );
     }
 
-    for (const row of reviewed.filter(({ familyKind }) =>
-      new Set(["ipc-owner-key-marker", "native-global-writer-marker"]).has(
-        familyKind,
-      ),
+    for (const row of reviewed.filter(
+      ({ familyKind }) => familyKind === "native-global-writer-marker",
     )) {
       expect(row.reasonCode).toMatch(/marker-not-value/u);
       expect(row.requiredIntegration.join(" ")).toMatch(
@@ -206,10 +176,10 @@ describe("dynamic-global exhaustive-output review", () => {
         familyName ===
         "global:Buffer.[[dynamic-table:inherited-uint8-array-6128693053-properties]]",
     );
-    const cryptoRow = rows.find(
+    const sharedArrayBufferRow = rows.find(
       ({ familyName }) =>
         familyName ===
-        "global:Bun.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
+        "global:SharedArrayBuffer.prototype.[[dynamic-table:call-result-6409897f6685-properties]]",
     );
 
     expect(() =>
@@ -223,11 +193,11 @@ describe("dynamic-global exhaustive-output review", () => {
     ).toThrow(/source binding drift/u);
     expect(() =>
       dynamicGlobalOutputResidual({
-        ...cryptoRow,
+        ...sharedArrayBufferRow,
         surface: {
-          ...cryptoRow.surface,
+          ...sharedArrayBufferRow.surface,
           metadata: {
-            ...cryptoRow.surface.metadata,
+            ...sharedArrayBufferRow.surface.metadata,
             dynamicNamespaceEvidence: "sha256-drift",
           },
         },

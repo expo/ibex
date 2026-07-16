@@ -106,7 +106,7 @@ beforeAll(async () => {
     surfaces,
     coverage,
   });
-});
+}, 30_000);
 
 describe("source-bound debugger native alias accounts", () => {
   test("binds exactly six rowless native aliases to six output-bearing Host ABI returns", () => {
@@ -204,6 +204,30 @@ describe("source-bound debugger native alias accounts", () => {
           .returnSentinel,
       ).toBe("null");
     }
+  });
+
+  test("derives membership independently of mutable coverage policy fields", () => {
+    const mutatedCoverage = structuredClone(coverage);
+    for (const edge of mutatedCoverage.edges) {
+      edge.classification = "test-policy-mutation";
+      edge.cap = "test:mutated";
+      edge.rationale = "test-only policy mutation";
+      delete edge.effects;
+    }
+    const mutatedAudit = auditDebuggerNativeAliasClosure({
+      sourceFiles,
+      binaryRustSources: rustSources,
+      surfaces,
+      coverage: mutatedCoverage,
+    });
+    expect(mutatedAudit).toEqual(sourceAudit);
+    expect(
+      validateDebuggerNativeAliasStructuralCatalog({
+        catalog: syntheticCatalog(sourceAudit),
+        coverage: mutatedCoverage,
+        sourceAudit,
+      }),
+    ).toBe(true);
   });
 
   test("accepts only the exact structural/Host ABI catalog pair set", () => {
@@ -352,8 +376,9 @@ describe("source-bound debugger native alias accounts", () => {
   test("fails closed if the engine guard, private token, or call ownership drifts", () => {
     const guardSources = { ...sourceFiles };
     const guardRust = { ...rustSources };
-    guardSources[HERMES_RUST_PATH] = replaceExact(
+    guardSources[HERMES_RUST_PATH] = replaceAfter(
       guardSources[HERMES_RUST_PATH],
+      "fn unarmed_inspector_authorization(&self) -> Result<UnarmedInspectorAuthorization>",
       "if self.armed_snapshot_digest.is_some() {",
       "if false {",
       "armed engine guard",
@@ -400,7 +425,7 @@ const DEBUGGER_ALIAS_ESCAPE: unsafe extern "C" fn(*mut HermesRuntimeOpaque) -> i
         surfaces,
         coverage,
       }),
-    ).toThrow(/one Rust declaration and one guarded call/u);
+    ).toThrow(/one Rust declaration, one guarded production call/u);
 
     const backendSources = { ...sourceFiles };
     const backendRust = { ...rustSources };

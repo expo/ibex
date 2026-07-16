@@ -34,6 +34,7 @@ import {
   outputShapeCatalogKeyDigest,
   validateOutputDispositionEvidence,
   validateOutputDispositionJoin,
+  validateTrackedOutputDispositionEvidenceSentinel,
 } from "./capsec-output-dispositions.mjs";
 import { validateIngressObligationDataset } from "./capsec-ingress-obligations.mjs";
 
@@ -3408,6 +3409,7 @@ export function loadAndValidateContract() {
     outputDispositionEvidence,
     "output disposition evidence",
   );
+  validateTrackedOutputDispositionEvidenceSentinel(outputDispositionEvidence);
   validateWith(
     ajv,
     SCHEMA_IDS.outputShapeCatalog,
@@ -3940,6 +3942,35 @@ export function loadAndValidateContract() {
             `${label} closed edge ${edge.id} must name a deny-only definition`,
           );
         }
+        if (edge.logicalBranches !== undefined) {
+          const branchIds = edge.logicalBranches.map((branch) => branch.id);
+          assertUnique(
+            branchIds,
+            `${label} edge ${edge.id} closed no-effect branches`,
+          );
+          assertSorted(
+            branchIds,
+            `${label} edge ${edge.id} closed no-effect branches`,
+          );
+          const conditionKeys = edge.logicalBranches.map((branch) => {
+            const conditions = branch.when.map((condition) =>
+              canonicalJson([condition.fact, condition.equals]),
+            );
+            assertUnique(
+              conditions,
+              `${label} edge ${edge.id} branch ${branch.id} conditions`,
+            );
+            assertSorted(
+              conditions,
+              `${label} edge ${edge.id} branch ${branch.id} conditions`,
+            );
+            return canonicalJson(branch.when);
+          });
+          assertUnique(
+            conditionKeys,
+            `${label} edge ${edge.id} closed no-effect branch conditions`,
+          );
+        }
       }
     });
     return ids;
@@ -4036,6 +4067,8 @@ export function loadAndValidateContract() {
       advertisement.sourceRevision !== attestation.sourceRevision ||
       advertisement.sourceTreeDigest !== attestation.sourceTreeDigest ||
       advertisement.engine.binaryDigest !== attestation.engineBinaryDigest ||
+      advertisement.outputDispositionEvidenceRawContentDigest !==
+        attestation.outputDispositionEvidenceRawContentDigest ||
       advertisement.engine.targetArchitecture !==
         advertisement.target.triple.split("-")[0] ||
       canonicalJson(advertisement.engine.structuralFeatures) !==

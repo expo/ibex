@@ -8,6 +8,10 @@
 
 import { getRuntimeVersion, runtimeInfo } from '../bootstrap';
 import {
+  isBootstrapCompatibilityControlFixed,
+  readBootstrapCompatibilityControl,
+} from '../core/host-inputs';
+import {
   BUN_COMPAT_VERSION,
   RELEASE_NAME,
   RUNTIME_VERSIONS,
@@ -17,6 +21,7 @@ import {
 declare global {
   var __exactGetEnv: ((name: string) => string | undefined) | undefined;
   var __exactGetAllEnv: (() => Record<string, string>) | undefined;
+  var __exactSetEnv: ((name: string, value: string | undefined) => void) | undefined;
   var __exactGetCwd: (() => string) | undefined;
   var __exactSetCwd: ((path: string) => void) | undefined;
   var __exactArgv: string[] | undefined;
@@ -77,6 +82,18 @@ const _nativeLifecycleExit:
   | undefined =
   typeof (globalThis as any).__exactExit === 'function'
     ? (globalThis as any).__exactExit.bind(globalThis)
+    : undefined;
+// Cwd bridges are also sealed after the trusted bundle loads. Retain their
+// function identities in this facade so every later read/mutation still
+// reaches the typed native gate instead of falling back to cached JS state.
+// @ref LLP 0023#54-facades-cannot-subvert-it
+const _nativeGetCwd: (() => string) | undefined =
+  typeof (globalThis as any).__exactGetCwd === 'function'
+    ? (globalThis as any).__exactGetCwd.bind(globalThis)
+    : undefined;
+const _nativeSetCwd: ((path: string) => void) | undefined =
+  typeof (globalThis as any).__exactSetCwd === 'function'
+    ? (globalThis as any).__exactSetCwd.bind(globalThis)
     : undefined;
 const _nativeArch: string | undefined =
   typeof (globalThis as any).process?.arch === 'string'
@@ -555,15 +572,16 @@ function _resolveCwd(path: string): string {
 }
 
 function _readNativeCwd(): string | null {
-  if (typeof __exactGetCwd !== 'function') {
+  if (!_nativeGetCwd) {
     return null;
   }
-  try {
-    const value = __exactGetCwd();
-    if (typeof value === 'string' && value.length > 0) {
-      return _normalizeCwdPath(value);
-    }
-  } catch (_err) {}
+  // The native read is the typed path:cwd-observe gate. Never turn a denial
+  // into a successful disclosure of the last cached value.
+  // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+  const value = _nativeGetCwd();
+  if (typeof value === 'string' && value.length > 0) {
+    return _normalizeCwdPath(value);
+  }
   return null;
 }
 
@@ -574,22 +592,24 @@ function _coerceChdirError(err: unknown, origArg: string): Error & { code?: stri
     ENOENT: 2,
     ENOTDIR: 20,
   };
-  // Use native cwd if available, fall back to _processCwd
-  const currentCwd = (typeof __exactGetCwd === 'function' ? __exactGetCwd() : null) || _processCwd;
+  // Error mapping must not perform a second, independently gated cwd read.
+  // `origArg` is caller-supplied and therefore safe diagnostic material even
+  // when path:cwd-observe is denied.
+  // @ref LLP 0023#54-facades-cannot-subvert-it
   if (err && typeof err === 'object' && typeof (err as any).message === 'string') {
     const message = (err as any).message as string;
     const lower = message.toLowerCase();
     let code: string | undefined;
     if (lower.includes('no such file') || lower.includes('does not exist')) {
       code = 'ENOENT';
-    } else if (lower.includes('permission denied')) {
+    } else if (lower.includes('permission denied') || lower.startsWith('eacces:')) {
       code = 'EACCES';
     } else if (lower.includes('not a directory')) {
       code = 'ENOTDIR';
     }
     if (code) {
       const codeStr: Record<string, string> = { ENOENT: 'no such file or directory', EACCES: 'permission denied', ENOTDIR: 'not a directory' };
-      const errMsg = `${code}: ${codeStr[code] || message}, chdir '${currentCwd}' -> '${origArg}'`;
+      const errMsg = `${code}: ${codeStr[code] || message}, chdir '${origArg}'`;
       const mapped = new Error(errMsg) as Error & { code?: string; errno?: number; syscall?: string; path?: string; dest?: string };
       mapped.code = code;
       const errno = fallbackErrorMap[code];
@@ -597,7 +617,7 @@ function _coerceChdirError(err: unknown, origArg: string): Error & { code?: stri
         mapped.errno = -errno;
       }
       mapped.syscall = 'chdir';
-      mapped.path = currentCwd;
+      mapped.path = origArg;
       mapped.dest = origArg;
       return mapped;
     }
@@ -605,7 +625,7 @@ function _coerceChdirError(err: unknown, origArg: string): Error & { code?: stri
   const fallback = new Error('process.chdir failed') as Error & { code?: string; errno?: number; syscall?: string; path?: string; dest?: string };
   fallback.code = 'EINVAL';
   fallback.syscall = 'chdir';
-  fallback.path = currentCwd;
+  fallback.path = origArg;
   fallback.dest = origArg;
   return fallback;
 }
@@ -900,15 +920,16 @@ function createProcessVersions(): ProcessVersions {
   return versions;
 }
 
-/// True when the named opt-in compat mode is active (set by the ibex CLI's
-/// `--compat` flag via globalThis.__exactCompatModes, or the
-/// EXACT_COMPAT_BUN env contract used by child spawns).
+/// True when the named opt-in compat mode is active. Armed runtimes consume
+/// only the captured, digest-bound projection; the environment fallback is
+/// retained solely for unarmed diagnostic/fixture runtimes.
+/// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
 function isCompatModeEnabled(mode: string): boolean {
   try {
     const g = globalThis as any;
-    const modes = g.__exactCompatModes;
-    if (Array.isArray(modes) && modes.indexOf(mode) !== -1) return true;
     if (mode === 'bun') {
+      if (readBootstrapCompatibilityControl('EXACT_COMPAT_BUN') === '1') return true;
+      if (isBootstrapCompatibilityControlFixed('EXACT_COMPAT_BUN')) return false;
       const env = g.__exactHostEnv ?? g.process?.env;
       if (env && env.EXACT_COMPAT_BUN === '1') return true;
     }
@@ -921,6 +942,8 @@ function isCompatModeEnabled(mode: string): boolean {
 function isCompatFixtureMode(): boolean {
   try {
     const g = globalThis as any;
+    if (readBootstrapCompatibilityControl('EXACT_COMPAT_TEST') === '1') return true;
+    if (isBootstrapCompatibilityControlFixed('EXACT_COMPAT_TEST')) return false;
     const env = g.__exactHostEnv ?? g.process?.env;
     return !!(env && env.EXACT_COMPAT_TEST);
   } catch (_) {
@@ -1097,7 +1120,9 @@ function _makeProcessStream(
           if (!stream._decoder) {
             stream._decoder = new TextDecoder(stream._encoding === 'utf8' ? 'utf-8' : stream._encoding);
           }
-          return stream._decoder.decode(bytes || new Uint8Array(0), { stream: !flush });
+          return stream._decoder.decode(bytes || new Uint8Array(0), {
+            stream: !flush,
+          });
         } catch {
           stream._decoder = null;
         }
@@ -1306,13 +1331,15 @@ export interface HrtimeFunction {
  * Create a Proxy-based env object that reads from native
  */
 export function createEnvProxy(): Record<string, string | undefined> {
-  // Seeded JS defaults commonly expected by npm packages. Both the native env
-  // and explicit JS writes take precedence over these, so the native layer can
-  // still promote NODE_ENV to 'production' for release builds while a
-  // `process.env.NODE_ENV = ...` assignment from user code also sticks.
-  const jsEnv: Record<string, string | undefined> = {
-    NODE_ENV: 'development',
-  };
+  // The armed bridge is captured before root-global sealing and stores state
+  // in the current native principal's overlay. Its presence also means there
+  // is deliberately no shared JavaScript default environment.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  const setPrincipalOverlay = typeof __exactSetEnv === 'function' ? __exactSetEnv : null;
+  // Unarmed compatibility hosts retain the historical JS default. Armed
+  // runtimes start from an explicitly empty digest-bound base and expose only
+  // values written to the current native principal's overlay.
+  const jsEnv: Record<string, string | undefined> = setPrincipalOverlay ? {} : { NODE_ENV: 'development' };
   // Keys explicitly written on the JS side. Tracking these separately from the
   // seeded defaults lets a write win over a native value (native never wins
   // back over an explicit `process.env.X = ...`).
@@ -1363,8 +1390,9 @@ export function createEnvProxy(): Record<string, string | undefined> {
     return refreshNativeCache()[key];
   }
 
-  // Resolve a key with correct precedence: a JS delete hides everything, then an
-  // explicit JS write wins over native, then native wins over a seeded default.
+  // On unarmed compatibility hosts, a JS delete hides everything, an explicit
+  // JS write wins over native, and native wins over the seeded default. Armed
+  // calls have no JS state and resolve entirely through the native overlay.
   function resolveValue(key: string): string | undefined {
     if (jsDeleted.has(key)) {
       return undefined;
@@ -1399,6 +1427,13 @@ export function createEnvProxy(): Record<string, string | undefined> {
         return undefined;
       }
 
+      // Trusted builtin compatibility code uses this non-enumerable virtual
+      // marker to preserve the canonical proxy instead of wrapping/replacing
+      // it with a module-local environment object.
+      if (prop === '__exactEnvProxy') {
+        return true as any;
+      }
+
       // Special handling for toJSON
       if (prop === 'toJSON') {
         return () => collectAll();
@@ -1419,6 +1454,11 @@ export function createEnvProxy(): Record<string, string | undefined> {
         return true;
       }
       const normalized = String(value);
+      if (setPrincipalOverlay) {
+        setPrincipalOverlay(key, normalized);
+        if (nativeCache) nativeCache[key] = normalized;
+        return true;
+      }
       target[key] = normalized;
       // Mark as an explicit JS write so it wins over native, and clear any prior
       // tombstone so re-setting a deleted key brings it back.
@@ -1440,6 +1480,11 @@ export function createEnvProxy(): Record<string, string | undefined> {
         return true;
       }
       const key = prop as string;
+      if (setPrincipalOverlay && key.length !== 0) {
+        setPrincipalOverlay(key, undefined);
+        if (nativeCache) delete nativeCache[key];
+        return true;
+      }
       delete target[key];
       // Drop the override flag and record a tombstone so the native value stays
       // hidden until the key is written again.
@@ -1496,6 +1541,17 @@ export function createEnvProxy(): Record<string, string | undefined> {
         configurable: true,
       };
     },
+
+    // The shared facade must remain structurally usable by every principal.
+    // Refuse global target hardening/prototype mutation that one package could
+    // otherwise use to deny service or alter another package's view.
+    preventExtensions(): boolean {
+      return false;
+    },
+
+    setPrototypeOf(): boolean {
+      return false;
+    },
   });
 }
 
@@ -1506,8 +1562,8 @@ class Process {
   private _maxListeners = 10;
   /**
    * Environment variables.
-   * Reads from native layer with fallback to JS-set values.
-   * NODE_ENV defaults to 'development' (native layer sets 'production' for release builds).
+   * Armed access is caller-sensitive and mediated by the native principal
+   * overlay; unarmed compatibility hosts retain the historical JS fallback.
    */
   readonly env: Record<string, string | undefined> = createEnvProxy();
 
@@ -1950,12 +2006,9 @@ class Process {
 
   /**
    * Returns the current working directory.
-   * In mobile context, this is the app's documents directory.
-   */
+  * In mobile context, this is the app's documents directory.
+  */
   cwd(): string {
-    if (_processCwd && _processCwd !== '/') {
-      return _processCwd;
-    }
     const nativeCwd = _readNativeCwd();
     if (nativeCwd) {
       _processCwd = nativeCwd;
@@ -1978,7 +2031,7 @@ class Process {
     }
 
     const resolvedPath = _resolveCwd(_directory);
-    if (typeof __exactSetCwd !== 'function') {
+    if (!_nativeSetCwd) {
       if (typeof (globalThis as any).__exactAccess === 'function') {
         try {
           (globalThis as any).__exactAccess(resolvedPath, 0);
@@ -1991,7 +2044,7 @@ class Process {
     }
 
     try {
-      __exactSetCwd(resolvedPath);
+      _nativeSetCwd(resolvedPath);
       _processCwd = resolvedPath;
     } catch (e) {
       throw _coerceChdirError(e, _directory);
@@ -2092,7 +2145,13 @@ class Process {
   /**
    * Memory usage (approximate, not accurate on mobile).
    */
-  memoryUsage(): { rss: number; heapTotal: number; heapUsed: number; external: number; arrayBuffers: number } {
+  memoryUsage(): {
+    rss: number;
+    heapTotal: number;
+    heapUsed: number;
+    external: number;
+    arrayBuffers: number;
+  } {
     const exactGlobal = globalThis as any;
     const nativeHeapInfo =
       typeof exactGlobal.__exactGetHeapInfo === 'function'
@@ -2161,7 +2220,10 @@ class Process {
   /**
    * CPU usage (not available on mobile, returns zeros).
    */
-  cpuUsage(prevValue?: { user: number; system: number }): { user: number; system: number } {
+  cpuUsage(prevValue?: { user: number; system: number }): {
+    user: number;
+    system: number;
+  } {
     if (prevValue !== undefined) {
       if (typeof prevValue !== 'object' || prevValue === null || Array.isArray(prevValue)) {
         const e: any = new TypeError(`The "prevValue" argument must be of type object. Received type ${typeof prevValue} (${String(prevValue)})`);
@@ -2733,7 +2795,9 @@ function makeUnknownCredentialError(kind: 'user' | 'group', value: string): Erro
 }
 
 function makeCredentialPermissionError(): Error & { code: string } {
-  const err = new Error('EPERM, Operation not permitted') as Error & { code: string };
+  const err = new Error('EPERM, Operation not permitted') as Error & {
+    code: string;
+  };
   err.code = 'EPERM';
   return err;
 }
@@ -2792,7 +2856,9 @@ function normalizeSignal(signal?: string | number): number {
     }
     const numeric = signalMap[signal];
     if (numeric === undefined) {
-      const err = new TypeError(`Unknown signal: ${signal}`) as TypeError & { code: string };
+      const err = new TypeError(`Unknown signal: ${signal}`) as TypeError & {
+        code: string;
+      };
       err.code = 'ERR_UNKNOWN_SIGNAL';
       throw err;
     }

@@ -686,16 +686,18 @@ fn lower_checked_source_with_module_meta(
                 declarations,
                 &annex_b_plan,
                 &analysis.outline.static_imports,
-                analysis.outline.top_level_await,
-                strict,
-                syntax_request.goal,
-                source_label,
-                is_main,
-                virtual_path,
-                matches!(
-                    syntax_request.dialect,
-                    ParserDialect::JavaScriptJsx | ParserDialect::TypeScriptJsx
-                ),
+                ProgramLoweringOptions {
+                    asynchronous: analysis.outline.top_level_await,
+                    strict,
+                    source_goal: syntax_request.goal,
+                    source_label,
+                    is_main,
+                    virtual_path,
+                    is_jsx: matches!(
+                        syntax_request.dialect,
+                        ParserDialect::JavaScriptJsx | ParserDialect::TypeScriptJsx
+                    ),
+                },
             )
         })
     })
@@ -751,6 +753,16 @@ impl swc_ecma_visit::Visit for DynamicCodeVisitor {
     }
 }
 
+struct ProgramLoweringOptions<'a> {
+    asynchronous: bool,
+    strict: bool,
+    source_goal: SourceGoal,
+    source_label: &'a str,
+    is_main: bool,
+    virtual_path: Option<&'a str>,
+    is_jsx: bool,
+}
+
 fn lower_parsed_program(
     source_map: Lrc<SourceMap>,
     comments: SingleThreadedComments,
@@ -758,14 +770,17 @@ fn lower_parsed_program(
     declarations: Vec<LoweredDeclaration>,
     annex_b_plan: &AnnexBPlan,
     static_imports: &[StaticImport],
-    asynchronous: bool,
-    strict: bool,
-    source_goal: SourceGoal,
-    source_label: &str,
-    is_main: bool,
-    virtual_path: Option<&str>,
-    is_jsx: bool,
+    options: ProgramLoweringOptions<'_>,
 ) -> Result<LoweredSessionProgram, SessionLoweringError> {
+    let ProgramLoweringOptions {
+        asynchronous,
+        strict,
+        source_goal,
+        source_label,
+        is_main,
+        virtual_path,
+        is_jsx,
+    } = options;
     let unresolved_mark = Mark::new();
     let top_level_mark = Mark::new();
     let unresolved_ctxt = SyntaxContext::empty().apply_mark(unresolved_mark);
@@ -1469,6 +1484,72 @@ impl StatementLowering {
         })
     }
 
+    fn protect_finalizer_completion(&self, finalizer: &mut BlockStmt, lowered: Vec<Stmt>) {
+        let saved_has = Ident::new_private("__ibex_finally_completion_has".into(), DUMMY_SP);
+        let saved_value = Ident::new_private("__ibex_finally_completion_value".into(), DUMMY_SP);
+        let snapshot = Stmt::Decl(Decl::Var(Box::new(VarDecl {
+            span: DUMMY_SP,
+            ctxt: SyntaxContext::empty(),
+            kind: VarDeclKind::Let,
+            declare: false,
+            decls: vec![
+                VarDeclarator {
+                    span: DUMMY_SP,
+                    name: Pat::Ident(BindingIdent {
+                        id: saved_has.clone(),
+                        type_ann: None,
+                    }),
+                    init: Some(Box::new(ident_expr(&self.completion_has))),
+                    definite: false,
+                },
+                VarDeclarator {
+                    span: DUMMY_SP,
+                    name: Pat::Ident(BindingIdent {
+                        id: saved_value.clone(),
+                        type_ann: None,
+                    }),
+                    init: Some(Box::new(ident_expr(&self.completion_value))),
+                    definite: false,
+                },
+            ],
+        })));
+        let restore_value = Self::execution_statement(Expr::Assign(AssignExpr {
+            span: DUMMY_SP,
+            op: AssignOp::Assign,
+            left: ident_target(&self.completion_value),
+            right: Box::new(ident_expr(&saved_value)),
+        }));
+        let restore_has = Self::execution_statement(Expr::Assign(AssignExpr {
+            span: DUMMY_SP,
+            op: AssignOp::Assign,
+            left: ident_target(&self.completion_has),
+            right: Box::new(ident_expr(&saved_has)),
+        }));
+
+        // A normal Finally clause's value is discarded, while an abrupt
+        // break/continue receives the try/catch completion through UpdateEmpty.
+        // Restore in a nested finally so both paths recover the incoming
+        // accumulator; a thrown value still propagates through the JS outcome.
+        // @ref LLP 0024#77-deviations-and-the-four-gates-that-prove-them
+        finalizer.stmts = vec![
+            snapshot,
+            Stmt::Try(Box::new(TryStmt {
+                span: DUMMY_SP,
+                block: BlockStmt {
+                    span: DUMMY_SP,
+                    ctxt: SyntaxContext::empty(),
+                    stmts: lowered,
+                },
+                handler: None,
+                finalizer: Some(BlockStmt {
+                    span: DUMMY_SP,
+                    ctxt: SyntaxContext::empty(),
+                    stmts: vec![restore_value, restore_has],
+                }),
+            })),
+        ];
+    }
+
     fn lower_root(&mut self, statements: Vec<Stmt>) -> Result<Vec<Stmt>, SessionLoweringError> {
         let directive_count = statements
             .iter()
@@ -1594,8 +1675,9 @@ impl StatementLowering {
                         self.lower_statement_list(std::mem::take(&mut handler.body.stmts), false)?;
                 }
                 if let Some(finalizer) = &mut statement.finalizer {
-                    finalizer.stmts =
+                    let lowered =
                         self.lower_statement_list(std::mem::take(&mut finalizer.stmts), false)?;
+                    self.protect_finalizer_completion(finalizer, lowered);
                 }
                 vec![Stmt::Try(statement)]
             }
@@ -2046,6 +2128,21 @@ mod tests {
         assert!(emitted.source().contains("reference(\"arguments\""));
         assert!(!emitted.source().contains("globalThis.__ibex"));
         assert!(matches!(body.stmts.last(), Some(Stmt::Return(_))));
+    }
+
+    #[test]
+    fn finally_restores_the_incoming_completion_on_normal_and_abrupt_paths() {
+        let emitted = lower("done: try { 1; } finally { 2; break done; }").unwrap();
+        let source = emitted.source();
+        assert!(source.contains("__ibex_finally_completion_has"), "{source}");
+        assert!(
+            source.contains("__ibex_finally_completion_value"),
+            "{source}"
+        );
+        assert!(
+            source.matches("finally").count() >= 2,
+            "the synthetic nested finally must restore even across break: {source}"
+        );
     }
 
     #[test]

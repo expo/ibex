@@ -11,7 +11,6 @@ import {
   CLOSED_CONTROL_OUTPUT_INVOCATION_SCHEMA,
   CLOSED_CONTROL_OUTPUT_TIMEOUT_MILLISECONDS,
 } from "./capsec-closed-control-output-templates.mjs";
-import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 
 const CLOSED_CONTROL_POLICY_RATIONALES = Object.freeze({
@@ -51,7 +50,7 @@ function forbiddenResultKeys(value, pathPrefix = "invocation") {
 }
 
 describe("closed-control output templates", () => {
-  test("authors the exact 137 closed output routes without result expectations", async () => {
+  test("authors the exact 136 closed output routes without result expectations", async () => {
     const inventory = await discoverRepositorySurfaces(repoRoot);
     const coverage = JSON.parse(
       fs.readFileSync(
@@ -87,11 +86,11 @@ describe("closed-control output templates", () => {
     );
     expect(counts).toEqual({
       "cli-control": 114,
-      "startup-environment": 21,
+      "startup-environment": 20,
       "loader-executable-file": 2,
     });
     expect(new Set(invocations.map((row) => row.coverageEdgeId)).size).toBe(
-      137,
+      136,
     );
     for (const invocation of invocations) {
       expect(invocation.invocationSchema).toBe(
@@ -139,7 +138,7 @@ describe("closed-control output templates", () => {
     ).toBeNull();
   });
 
-  test("pins the exact source-derived closed controls to actual throw outcomes", async () => {
+  test("keeps source-derived closed controls as exact structural-only accounts", async () => {
     const inventory = await discoverRepositorySurfaces(repoRoot);
     const coverage = JSON.parse(
       fs.readFileSync(
@@ -162,7 +161,10 @@ describe("closed-control output templates", () => {
     const live = new Map(
       inventory.surfaces.map((surface) => [surface.observedKey, surface]),
     );
-    const expected = new Map();
+    const accounts = new Map(
+      catalog.surfaceAccounts.map((account) => [account.surfaceId, account]),
+    );
+    const expectedSurfaceIds = new Set();
     for (const coverageEdge of coverage.edges) {
       const surface = live.get(
         `${coverageEdge.surface.kind}:${coverageEdge.surface.name}`,
@@ -182,33 +184,20 @@ describe("closed-control output templates", () => {
           row.key.output === "[[return]]" &&
           row.key.sourceKind === surface.kind,
       );
-      expect(catalogRows).toHaveLength(1);
-      const normalizedValue =
-        invocation.operation.kind === "loader-executable-file"
-          ? "ERR_IBEX_MODULE_RESOLUTION"
-          : "throw-without-code";
-      const row = {
-        key: catalogRows[0].key,
-        disposition: "closed",
-        expectation: { outcome: "throw", normalizedValue },
-        rationale: CLOSED_CONTROL_POLICY_RATIONALES[invocation.operation.kind],
-      };
-      expected.set(canonicalOutputDispositionKey(row.key), row);
+      expect(catalogRows).toHaveLength(0);
+      expect(accounts.get(invocation.coverageEdgeId)).toMatchObject({
+        surfaceId: invocation.coverageEdgeId,
+        status: "structural-only",
+        outputKinds: [],
+      });
+      expectedSurfaceIds.add(invocation.coverageEdgeId);
     }
 
     const rationales = new Set(Object.values(CLOSED_CONTROL_POLICY_RATIONALES));
-    const actual = policy.overrides.filter((row) =>
+    const staleValueOverrides = policy.overrides.filter((row) =>
       rationales.has(row.rationale),
     );
-    expect(expected.size).toBe(137);
-    expect(actual).toHaveLength(137);
-    expect(
-      actual
-        .map((row) => canonicalOutputDispositionKey(row.key))
-        .sort(),
-    ).toEqual([...expected.keys()].sort());
-    for (const row of actual) {
-      expect(row).toEqual(expected.get(canonicalOutputDispositionKey(row.key)));
-    }
+    expect(expectedSurfaceIds.size).toBe(136);
+    expect(staleValueOverrides).toEqual([]);
   }, 60_000);
 });

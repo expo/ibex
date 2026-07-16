@@ -647,11 +647,12 @@ describe("source-bound global callable recipes", () => {
       Object.entries(Object.groupBy(recipes, (recipe) => recipe.route.operation))
         .map(([kind, rows]) => [kind, rows.length]),
     );
-    expect(recipes).toHaveLength(659);
+    expect(recipes).toHaveLength(880);
     expect(counts).toEqual({
-      call: 628,
-      construct: 27,
+      call: 633,
+      construct: 9,
       get: 4,
+      unexercisable: 234,
     });
   }, 30_000);
 });

@@ -28,7 +28,7 @@
 # detached_deputy_read_is_contained_but_app_wrapped_read_works.
 #
 diff --git a/include/hermes/VM/CapabilityAttribution.h b/include/hermes/VM/CapabilityAttribution.h
-index e571e81..b583c2a 100644
+index e571e8184c99d0d3f34c396e4e5d839936a2114a..c458a9dc031c295ff88b9a7b7510a41d48392427 100644
 --- a/include/hermes/VM/CapabilityAttribution.h
 +++ b/include/hermes/VM/CapabilityAttribution.h
 @@ -27,9 +27,22 @@ namespace vm {
@@ -58,7 +58,7 @@ index e571e81..b583c2a 100644
  
  /// \return the compartment global of the nearest user JS frame's Domain, or
 diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
-index 582316c76..09c8b2129 100644
+index 81b1aa353ed65a3189eb69e57e2b9f517405284f..9cd710ab181c1755e4ed041c2d5cda45a2fe0094 100644
 --- a/lib/VM/CapabilityAttribution.cpp
 +++ b/lib/VM/CapabilityAttribution.cpp
 @@ -35,10 +35,14 @@ namespace vm {
@@ -88,7 +88,7 @@ index 582316c76..09c8b2129 100644
  
  // @ref LLP 0013#mechanism-2 — the compartment global of the nearest user JS
 diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
-index 1cadc9340..98c12dbf0 100644
+index f4fe9910ac50f6376390cae4567d81563eb7bd3b..7593533e0ad0a5722a35a4fb91fe8384508e5811 100644
 --- a/lib/VM/Runtime.cpp
 +++ b/lib/VM/Runtime.cpp
 @@ -1304,6 +1304,15 @@ Handle<JSObject> Runtime::runInternalJavaScript() {

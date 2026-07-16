@@ -108,6 +108,10 @@
     getVirtualCwd: __privGetVirtualCwd,
     setVirtualCwd: __privSetVirtualCwd
   });
+  var __privUrlFacadeBridges = __privObjectFreeze({
+    sharedRuntimeBundle: __privSharedRuntimeBundlePlanned,
+    getVirtualCwd: __privGetVirtualCwd
+  });
   var __privRuntimeGlobalOwnership = __privObjectFreeze({
     sharedRuntimeBundle: __privSharedRuntimeBundlePlanned
   });
@@ -499,7 +503,9 @@
       if (!__privSetCompartmentFor) {
         throw new Error('Cannot bind package Domain without the native compartment binder');
       }
-      __privSetCompartmentFor(fn, compartment);
+      if (__privSetCompartmentFor(fn, compartment) !== true) {
+        throw new Error('Native package Domain compartment binding failed closed');
+      }
     }
     return fn;
   }
@@ -2619,11 +2625,7 @@
       }
     },
     'internal/child_process': (function() {
-      var kChannelHandle = globalThis.__exactKChannelHandleKey;
-      if (kChannelHandle === undefined) {
-        kChannelHandle = '__exactKChannelHandle';
-        globalThis.__exactKChannelHandleKey = kChannelHandle;
-      }
+      var kChannelHandle = '__exactKChannelHandle';
       function getValidStdio(stdio, sync) {
         if (typeof stdio === 'string') {
           if (stdio !== 'ignore' && stdio !== 'pipe' && stdio !== 'inherit' && stdio !== 'overlapped') {
@@ -5611,8 +5613,15 @@
   // (principal, specifier) decisions keyed by the frame-derived principal, so
   // the steady state is one native call + a hash hit, while denials always run
   // the full path and keep their audit entries. (ENG-22644)
-  function checkImportGate(specifier, requesterHint) {
-    if (!__privCheckImport || typeof specifier !== 'string') return;
+  function checkImportGate(specifier, requesterHint, authenticatedTargetSourceId) {
+    if (typeof specifier !== 'string') return;
+    var cacheHit = typeof authenticatedTargetSourceId === 'string';
+    if (!__privCheckImport) {
+      if (cacheHit) {
+        throw new Error('Authenticated module cache-hit gate is unavailable');
+      }
+      return;
+    }
     // On the frame-attribution engine the native check re-derives the requesting
     // principal from the executing frame and IGNORES this hint. On an unpatched
     // engine (no EXACT_HAVE_FRAME_ATTRIBUTION) it falls back to the passed id, so
@@ -5623,7 +5632,11 @@
     // module context and pass 0 there — but those paths were already ungated on
     // unpatched builds, so this is no regression. (ENG-22618 review)
     var hint = typeof requesterHint === 'number' ? requesterHint : 0;
-    if (!__privCheckImport(hint, specifier)) {
+    if (!__privCheckImport(
+      hint,
+      specifier,
+      cacheHit ? authenticatedTargetSourceId : undefined
+    )) {
       var error = new Error(
         "Import denied: '" + specifier + "' is not permitted for this package (LLP 0013 import policy)");
       // This is the same public semantic class emitted when the authenticated
@@ -5659,29 +5672,45 @@
   // referrers and absolute requests are cwd-independent.
   // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
   var __authenticatedResolutionMemo = Object.create(null);
-  function authenticatedResolutionRouteKey(specifier, referrer, resolverMode) {
+  function authenticatedResolutionContext(specifier, referrer, resolverMode) {
     if (!__armedResolverCapture || typeof specifier !== 'string' ||
         typeof referrer !== 'string') {
       return null;
     }
     var baseIdentity = referrer;
+    var nativeReferrer = referrer;
     if (baseIdentity.length === 0 && specifier.charAt(0) === '.') {
-      if (!__privGetVirtualCwd) return null;
-      try {
-        var cwd = __privGetVirtualCwd();
-        if (typeof cwd !== 'string' ||
-            (cwd !== '/project' && cwd.indexOf('/project/') !== 0) ||
-            cwd.indexOf('\0') !== -1) {
-          return null;
-        }
-        baseIdentity = 'cwd:' + cwd;
-      } catch (_cwdIdentityError) {
-        return null;
+      if (!__privGetVirtualCwd) {
+        throw new Error('Authenticated relative resolution requires a virtual cwd');
       }
+      // This is both the cache identity and the typed cwd-observe gate. A
+      // denial must abort before native resolution; falling back to the host
+      // process cwd would disclose/execute outside the authenticated base.
+      // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+      var cwd = __privGetVirtualCwd();
+      if (typeof cwd !== 'string' ||
+          (cwd !== '/project' && cwd.indexOf('/project/') !== 0) ||
+          cwd.indexOf('\0') !== -1) {
+        throw new Error('Authenticated virtual cwd is invalid');
+      }
+      baseIdentity = 'cwd:' + cwd;
+      // Native resolution interprets a referrer as a file. Give it a sealed,
+      // synthetic filename beneath the observed virtual directory; Rust
+      // re-derives and authenticates the backing binding from this versioned
+      // virtual record before any filesystem probe. The filename is never
+      // opened and never becomes public output.
+      // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+      nativeReferrer = __privJsonStringify({
+        schema: 'ibex/virtual-referrer/1',
+        virtualPath: cwd + '/.ibex-cwd-resolution-base.js'
+      });
     } else if (baseIdentity.length === 0) {
       baseIdentity = 'authenticated-root';
     }
-    return __privJsonStringify([resolverMode, baseIdentity, specifier]);
+    return {
+      routeKey: __privJsonStringify([resolverMode, baseIdentity, specifier]),
+      nativeReferrer: nativeReferrer
+    };
   }
   function builtinCacheKeyFor(id, source) {
     var memo = __builtinCanonicalByAlias[id];
@@ -5742,7 +5771,8 @@
   function privateBridgesForBuiltin(kind, id) {
     if (kind !== 'builtin') return undefined;
     var normalized = normalizeSpecifier(id);
-    if (normalized === 'url' || normalized === 'perf_hooks') {
+    if (normalized === 'url') return __privUrlFacadeBridges;
+    if (normalized === 'perf_hooks') {
       return __privRuntimeGlobalOwnership;
     }
     if (!__armedResolverCapture) return undefined;
@@ -5759,7 +5789,8 @@
     manifestBuiltinInternal,
     authenticatedRecord,
     structuredStaticGraph,
-    structuredDirectEntry
+    structuredDirectEntry,
+    authenticatedCacheAuthorization
   ) {
     __exactPinProcessStreams();
 
@@ -5897,27 +5928,46 @@
     var resolverMode = manifestBuiltinInternal
       ? 'manifest-builtin'
       : (useStructuredRootResolver ? 'session-root' : 'module');
-    var authenticatedRouteKey = authenticatedRecord === undefined
-      ? authenticatedResolutionRouteKey(resolvedSpecifier, referrer || '', resolverMode)
+    var __usesCacheAuthorization = authenticatedCacheAuthorization &&
+      authenticatedRecord === undefined &&
+      authenticatedCacheAuthorization.resolverMode === resolverMode &&
+      authenticatedCacheAuthorization.specifier === resolvedSpecifier &&
+      authenticatedCacheAuthorization.referrer === (referrer || '') &&
+      typeof authenticatedCacheAuthorization.routeKey === 'string' &&
+      typeof authenticatedCacheAuthorization.nativeReferrer === 'string';
+    var authenticatedResolution = authenticatedRecord === undefined
+      ? (__usesCacheAuthorization
+          ? {
+              routeKey: authenticatedCacheAuthorization.routeKey,
+              nativeReferrer: authenticatedCacheAuthorization.nativeReferrer
+            }
+          : authenticatedResolutionContext(resolvedSpecifier, referrer || '', resolverMode))
       : null;
+    var authenticatedRouteKey = authenticatedResolution === null
+      ? null
+      : authenticatedResolution.routeKey;
     if (authenticatedRouteKey !== null) {
       var memoizedRoute = __authenticatedResolutionMemo[authenticatedRouteKey];
       var memoizedModule = memoizedRoute && cache[memoizedRoute.cacheKey];
       if (memoizedModule) {
-        // Preserve the resolved-target import gate on the no-lookup path. Its
-        // native implementation re-derives the live frame principal, so this
-        // is authorization memoization only for identity, never for authority.
-        if (__privCheckImport && isPathSpecifier(resolvedSpecifier) &&
-            memoizedRoute.targetPackage) {
+        // The route identity is reusable, but its authority is not. Re-check
+        // the current frame against the cached SourceId's exact defining
+        // principal on every hit. Native ignores the JS hint on armed engines,
+        // validates the opaque SourceId canonically, and compares package
+        // locators exactly; this therefore closes leaked-require, package-to-
+        // root, and same-name/different-locator reuse without a filesystem
+        // lookup. @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+        var __memoPreauthorized = __usesCacheAuthorization &&
+          authenticatedCacheAuthorization.routeKey === authenticatedRouteKey &&
+          authenticatedCacheAuthorization.cacheKey === memoizedRoute.cacheKey;
+        if (!__memoPreauthorized) {
           var __memoRequester = (parent && typeof parent.__exactPackageId === 'number')
-            ? parent.__exactPackageId : null;
-          if (__memoRequester === null ||
-              __memoRequester !== memoizedRoute.targetPrincipal) {
-            checkImportGate(
-              memoizedRoute.targetPackage,
-              __memoRequester === null ? undefined : __memoRequester
-            );
-          }
+            ? parent.__exactPackageId : undefined;
+          checkImportGate(
+            resolvedSpecifier,
+            __memoRequester,
+            memoizedRoute.cacheKey
+          );
         }
         return memoizedModule.exports;
       }
@@ -5936,7 +5986,12 @@
       if (typeof resolver !== 'function') {
         throw new Error("Module resolver is unavailable");
       }
-      const json = resolver(resolvedSpecifier, referrer || "");
+      const json = resolver(
+        resolvedSpecifier,
+        authenticatedResolution === null
+          ? (referrer || "")
+          : authenticatedResolution.nativeReferrer
+      );
       if (!json) {
         throw new Error("Module not found: " + specifier);
       }
@@ -6060,16 +6115,8 @@
           ? record.sourceId
           : legacyId));
     if (authenticatedFileRecord && authenticatedRouteKey !== null) {
-      var memoTargetPackage = isPathSpecifier(resolvedSpecifier)
-        ? packageNameForRecord(record, parent)
-        : null;
-      var memoTargetPrincipal = memoTargetPackage
-        ? packagePrincipalFor(record, parent)
-        : null;
       __authenticatedResolutionMemo[authenticatedRouteKey] = {
-        cacheKey: cacheKey,
-        targetPackage: memoTargetPackage,
-        targetPrincipal: memoTargetPrincipal
+        cacheKey: cacheKey
       };
     }
     var moduleId = idToModuleId(cacheKey);
@@ -6317,6 +6364,12 @@
     };
     localRequire.resolve = function(specifier) {
       rejectRuntimeLoaderOptions(arguments.length);
+      if (!manifestBuiltinEvaluationActive) {
+        checkImportGate(
+          specifier,
+          isManifestBuiltinRecord ? __noUserPrincipal : module && module.__exactPackageId
+        );
+      }
       if (authenticatedDirectEntry && structuredDirectEntry !== undefined) {
         return __exactResolveSessionPath(specifier, resolutionReferrer || "");
       }
@@ -7056,7 +7109,18 @@
     if (typeof resolveMeta !== 'function') {
       throw new Error('Module resolver is unavailable');
     }
-    return __exactResolvedPath(specifier, resolveMeta(specifier, referrer || ""));
+    var resolution = authenticatedResolutionContext(
+      specifier,
+      referrer || "",
+      'module'
+    );
+    return __exactResolvedPath(
+      specifier,
+      resolveMeta(
+        specifier,
+        resolution === null ? (referrer || "") : resolution.nativeReferrer
+      )
+    );
   }
   // An authenticated direct CommonJS entry owns a C-only LogicalPath
   // credential rather than a public ResolverLogicalPath handle. Its
@@ -7078,6 +7142,12 @@
   }
   globalThis.require.resolve = function(specifier) {
     rejectRuntimeLoaderOptions(arguments.length);
+    // Resolution is itself an existence oracle. Apply the caller-principal
+    // import edge before the metadata-only native resolver can probe a package;
+    // path spellings are re-authorized against the exact resolved principal by
+    // the native post-resolution gate.
+    // @ref LLP 0023#72-the-structured-result-and-its-error-classes
+    checkImportGate(specifier);
     return __exactResolvePath(specifier, "");
   };
   globalThis.require.resolve.paths = function(specifier) {
@@ -7297,8 +7367,43 @@
     // on the stack. Surface a denial as a rejected promise per import()
     // semantics rather than a synchronous throw. (ENG-22629)
     var gateError = null;
+    var authenticatedCacheAuthorization = null;
     try {
       checkImportGate(specifier);
+      var __normalizedImportSpecifier = typeof specifier === 'string'
+        ? stripViteImportQuery(specifier)
+        : specifier;
+      // Route-memo authority is synchronous for every authenticated file
+      // route, including bare packages. The later Promise callback has no
+      // requesting frame and may consume only this exact route/key grant.
+      var __importResolution = authenticatedResolutionContext(
+        __normalizedImportSpecifier,
+        referrer,
+        'module'
+      );
+      var __importRouteKey = __importResolution === null
+        ? null
+        : __importResolution.routeKey;
+      var __importRoute = __importRouteKey !== null
+        ? __authenticatedResolutionMemo[__importRouteKey]
+        : null;
+      if (__importRoute && cache[__importRoute.cacheKey]) {
+        checkImportGate(
+          __normalizedImportSpecifier,
+          parent && parent.__exactPackageId,
+          __importRoute.cacheKey
+        );
+        authenticatedCacheAuthorization = {
+          resolverMode: 'module',
+          specifier: __normalizedImportSpecifier,
+          referrer: referrer,
+          routeKey: __importRouteKey,
+          nativeReferrer: __importResolution.nativeReferrer,
+          cacheKey: __importRoute.cacheKey
+        };
+      } else if (__importRoute && __importRouteKey !== null) {
+        delete __authenticatedResolutionMemo[__importRouteKey];
+      }
       // A relative/absolute dynamic import can resolve to a DIFFERENT package
       // (`import('../sibling')`), which the raw-specifier gate above can't see.
       // The resolved-target gate in load() runs inside the microtask below where
@@ -7306,38 +7411,30 @@
       // unregistered sentinel and allow), so resolve + gate the target package's
       // name SYNCHRONOUSLY here while the requester frame is still on the stack.
       // (ENG-22637 review pass2)
-      if (isPathSpecifier(specifier)) {
+      if (isPathSpecifier(specifier) && !authenticatedCacheAuthorization) {
         var __itp = null;
+        // Keep cwd attribution synchronous with the importing frame. In
+        // particular, do not fold a typed cwd denial into the ordinary
+        // "pre-resolution failed; let load retry" compatibility path.
         try {
-          var __normalizedImportSpecifier = stripViteImportQuery(specifier);
-          var __importRouteKey = authenticatedResolutionRouteKey(
+          // This resolution only needs the target's package metadata, so use
+          // the metadata-only bridge (ENG-23007) when available — the full
+          // resolver would read + transpile + JSON-escape the module body a
+          // second time on the JS thread for every relative/absolute dynamic
+          // import, just for load() to redo it in the microtask (ENG-23481 #10).
+          var __iresolve = __privModuleResolveMeta || __privModuleResolve;
+          if (typeof __iresolve !== 'function') {
+            throw new Error('Module resolver is unavailable');
+          }
+          var __irj = __iresolve(
             __normalizedImportSpecifier,
-            referrer,
-            'module'
+            __importResolution === null
+              ? referrer
+              : __importResolution.nativeReferrer
           );
-          var __importRoute = __importRouteKey !== null
-            ? __authenticatedResolutionMemo[__importRouteKey]
-            : null;
-          if (__importRoute && cache[__importRoute.cacheKey]) {
-            __itp = __importRoute.targetPackage;
-          } else {
-            if (__importRoute && __importRouteKey !== null) {
-              delete __authenticatedResolutionMemo[__importRouteKey];
-            }
-            // This resolution only needs the target's package metadata, so use
-            // the metadata-only bridge (ENG-23007) when available — the full
-            // resolver would read + transpile + JSON-escape the module body a
-            // second time on the JS thread for every relative/absolute dynamic
-            // import, just for load() to redo it in the microtask (ENG-23481 #10).
-            var __iresolve = __privModuleResolveMeta || __privModuleResolve;
-            if (typeof __iresolve !== 'function') {
-              throw new Error('Module resolver is unavailable');
-            }
-            var __irj = __iresolve(__normalizedImportSpecifier, referrer);
-            if (__irj) {
-              var __irec = JSON.parse(__irj);
-              if (!__irec.error) __itp = packageNameForRecord(__irec, parent);
-            }
+          if (__irj) {
+            var __irec = JSON.parse(__irj);
+            if (!__irec.error) __itp = packageNameForRecord(__irec, parent);
           }
         } catch (e) { __itp = null; } // resolution failure: let load() surface it
         var __irp = parent && parent.__exactPackageName
@@ -7348,7 +7445,16 @@
     } catch (e) { gateError = e; }
     return Promise.resolve().then(function() {
       if (gateError) throw gateError;
-      var module = load(specifier, referrer, parent);
+      var module = load(
+        specifier,
+        referrer,
+        parent,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        authenticatedCacheAuthorization
+      );
       // Wrap CommonJS modules to look like ESM: { default: module, ...module }
       // This allows: const mod = await import('foo'); mod.default or mod.something
       if (module && !module.__esModule) {

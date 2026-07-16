@@ -42,7 +42,7 @@ struct RouteAlternative {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum PublicSurfaceProbe {
-    EffectBuiltin(EffectBuiltinPublicSurfaceProbe),
+    EffectBuiltin(Box<EffectBuiltinPublicSurfaceProbe>),
     Other {
         #[serde(flatten)]
         _fields: BTreeMap<String, serde_json::Value>,
@@ -191,10 +191,7 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
         .collect()
 }
 
-fn invocation_script(
-    invocation: &BuiltinInvocation,
-    arguments: &[serde_json::Value],
-) -> String {
+fn invocation_script(invocation: &BuiltinInvocation, arguments: &[serde_json::Value]) -> String {
     format!(
         "JSON.stringify((function(){{var m={};var e={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});return {{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
         serde_json::to_string(&invocation.module_specifier).expect("serialize builtin module"),
@@ -465,11 +462,7 @@ fn validate_observation(
             );
         }
         let public_denial = recipe.scenario == "deny";
-        let expected_outcome = if public_denial {
-            "deny"
-        } else {
-            "allow"
-        };
+        let expected_outcome = if public_denial { "deny" } else { "allow" };
         assert_eq!(decision["evidence"]["outcome"], expected_outcome);
         let decisive = decision["evidence"]["evidence"]
             .as_array()
@@ -480,16 +473,15 @@ fn validate_observation(
             "{}: builtin decision must have one decisive authority row",
             recipe.fixture_id
         );
-        let (expected_stratum, expected_reason, expected_source_prefix) =
-            if public_denial {
-                (
-                    "principal-denial",
-                    "principal-denial",
-                    "principal.000000.denial.",
-                )
-            } else {
-                ("static-floor", "static-floor", "principal.000000.floor.")
-            };
+        let (expected_stratum, expected_reason, expected_source_prefix) = if public_denial {
+            (
+                "principal-denial",
+                "principal-denial",
+                "principal.000000.denial.",
+            )
+        } else {
+            ("static-floor", "static-floor", "principal.000000.floor.")
+        };
         assert_eq!(decisive[0]["stratum"], expected_stratum);
         assert_eq!(decisive[0]["reason"], expected_reason);
         assert_eq!(
@@ -644,9 +636,11 @@ async fn execute_isolated_recipe(
     );
     let prepared = prepare_invocation(invocation);
     let module_specifier = invocation.module_specifier.clone();
-    let denials = (recipe.scenario == "deny")
-        .then(|| authority.clone())
-        .unwrap_or_default();
+    let denials = if recipe.scenario == "deny" {
+        authority.clone()
+    } else {
+        Vec::new()
+    };
     let (host, digest) = build_armed_test_host_control(
         prepared.project_root(),
         false,
@@ -661,8 +655,7 @@ async fn execute_isolated_recipe(
             snapshot["principals"][0]["imports"]["builtins"] =
                 serde_json::json!([module_specifier]);
             if !denials.is_empty() {
-                snapshot["principals"][0]["denials"] =
-                    serde_json::Value::Array(denials);
+                snapshot["principals"][0]["denials"] = serde_json::Value::Array(denials);
             }
         },
     );
@@ -709,19 +702,11 @@ async fn capsec_public_builtin_recipe_batch() {
     let mut executions = Vec::with_capacity(recipes.len());
     for recipe in &recipes {
         executions.push(
-            execute_isolated_recipe(
-                recipe,
-                &terminal_by_edge,
-                &identity_before.binary_digest,
-            )
-            .await,
+            execute_isolated_recipe(recipe, &terminal_by_edge, &identity_before.binary_digest)
+                .await,
         );
     }
-    executions.sort_by(|left, right| {
-        left["fixtureId"]
-            .as_str()
-            .cmp(&right["fixtureId"].as_str())
-    });
+    executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     assert_eq!(executions.len(), recipes.len());
     let identity_after = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes after builtin public recipes");
@@ -741,6 +726,8 @@ async fn capsec_public_builtin_recipe_batch() {
         .expect("create owned builtin public evidence artifact");
     serde_json::to_writer_pretty(&mut output, &artifact)
         .expect("serialize builtin public evidence artifact");
-    output.write_all(b"\n").expect("finish builtin public evidence");
+    output
+        .write_all(b"\n")
+        .expect("finish builtin public evidence");
     output.sync_all().expect("sync builtin public evidence");
 }

@@ -77,6 +77,7 @@
 #include <spawn.h>
 #if defined(__linux__)
 #include <sys/epoll.h>
+#include <sys/sysmacros.h>
 #elif defined(__APPLE__)
 #include <sys/event.h>
 #include <sys/time.h>
@@ -254,9 +255,19 @@ extern "C" void ex_host_console_log(int32_t level, const char* message);
 
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
 thread_local std::string g_injected_armed_startup_failure_stage;
+thread_local std::string g_injected_diagnostic_startup_failure_stage;
 thread_local std::string g_injected_root_global_disposition_key;
 thread_local uint32_t g_injected_root_global_getter_calls = 0;
 thread_local std::string g_root_global_disposition_last_failure;
+thread_local uint32_t
+    g_injected_structured_value_handle_allocation_failures = 0;
+thread_local uint32_t
+    g_injected_structured_safe_metadata_capture_allocation_failures = 0;
+thread_local uint32_t
+    g_injected_structured_safe_metadata_copy_allocation_failures = 0;
+std::mutex g_destroyed_structured_value_handle_counts_mutex;
+std::unordered_map<uint64_t, uint64_t>
+    g_destroyed_structured_value_handle_counts;
 // Test-only proof that one Exact completion capability traversed the resolver,
 // callback queue, and runtime delivery exactly once. Ordinary artifacts do not
 // compile this observer, and it cannot authorize or complete an operation.
@@ -267,6 +278,11 @@ std::atomic<uint64_t> g_exact_host_completion_callbacks_delivered{0};
 
 extern "C" void ibex_test_set_armed_startup_failure_stage(const char* stage) {
   g_injected_armed_startup_failure_stage = stage ? stage : "";
+}
+
+extern "C" void ibex_test_set_diagnostic_startup_failure_stage(
+    const char* stage) {
+  g_injected_diagnostic_startup_failure_stage = stage ? stage : "";
 }
 
 extern "C" void ibex_test_set_root_global_disposition_key(const char* key) {
@@ -280,6 +296,36 @@ extern "C" uint32_t ibex_test_root_global_disposition_getter_calls() {
 
 extern "C" const char* ibex_test_root_global_disposition_last_failure() {
   return g_root_global_disposition_last_failure.c_str();
+}
+
+extern "C" void
+ibex_test_fail_next_structured_value_handle_allocation() {
+  g_injected_structured_value_handle_allocation_failures = 1;
+}
+
+extern "C" void
+ibex_test_fail_next_structured_safe_metadata_capture_allocation() {
+  g_injected_structured_safe_metadata_capture_allocation_failures = 1;
+}
+
+extern "C" void
+ibex_test_fail_next_structured_safe_metadata_copy_allocation() {
+  g_injected_structured_safe_metadata_copy_allocation_failures = 1;
+}
+
+extern "C" uint64_t
+ibex_test_take_destroyed_structured_value_handle_count(
+    uint64_t runtimeNonce) {
+  std::lock_guard<std::mutex> lock(
+      g_destroyed_structured_value_handle_counts_mutex);
+  auto found =
+      g_destroyed_structured_value_handle_counts.find(runtimeNonce);
+  if (found == g_destroyed_structured_value_handle_counts.end()) {
+    return std::numeric_limits<uint64_t>::max();
+  }
+  const uint64_t count = found->second;
+  g_destroyed_structured_value_handle_counts.erase(found);
+  return count;
 }
 
 extern "C" void ibex_test_reset_exact_host_completion_observer() {
@@ -319,6 +365,21 @@ void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage) {
 #endif
 }
 
+void requireDiagnosticStartupStage(
+    ExactHermesRuntime* handle,
+    const char* stage) {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  if (handle != nullptr && !handle->armed && stage != nullptr &&
+      g_injected_diagnostic_startup_failure_stage == stage) {
+    throw std::runtime_error(
+        std::string("injected diagnostic startup failure at ") + stage);
+  }
+#else
+  (void)handle;
+  (void)stage;
+#endif
+}
+
 void reportStartupFailure(ExactHermesRuntime* handle,
                           const char* stage,
                           const std::string& detail) {
@@ -339,7 +400,9 @@ extern "C" void ex_host_console_flush(uint32_t timeout_ms);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_is_armed(void);
 extern "C" char* ex_host_armed_endowments(void);
-extern "C" int32_t ex_host_authorize_typed_fs_stack(
+extern "C" uint32_t ex_host_armed_bootstrap_compatibility_flags(void);
+extern "C" uint32_t ex_host_authorize_typed_fs_stack(
+    uint64_t runtime_nonce,
     uint64_t module_id,
     const uint64_t* module_ids,
     size_t module_ids_len,
@@ -439,13 +502,16 @@ const char* errnoSymbol(int32_t value) {
     facebook::jsi::Runtime& runtime,
     uint32_t result,
     int32_t hostErrno,
-    const char* operation) {
+    const char* operation,
+    const std::string& path = "") {
   const char* code = "ERR_IBEX_VFS";
   const char* detail = "virtual filesystem operation failed";
+  int32_t compatibleErrno = EINVAL;
   switch (result) {
     case 1:
       code = "EPERM";
       detail = "closed filesystem operation";
+      compatibleErrno = EPERM;
       break;
     case 2:
       code = "ERR_IBEX_STALE_SESSION";
@@ -470,14 +536,17 @@ const char* errnoSymbol(int32_t value) {
     case 7:
       code = "EACCES";
       detail = "filesystem policy denied";
+      compatibleErrno = EACCES;
       break;
     case 8:
       code = "ENOENT";
       detail = "no such file or directory";
+      compatibleErrno = ENOENT;
       break;
     case 9:
       code = "ELOOP";
       detail = "too many symbolic links";
+      compatibleErrno = ELOOP;
       break;
     case 10:
       code = "ERR_IBEX_UNMAPPABLE_LINK";
@@ -494,14 +563,28 @@ const char* errnoSymbol(int32_t value) {
     case 13:
       code = errnoSymbol(hostErrno);
       detail = hostErrno != 0 ? std::strerror(hostErrno) : "host filesystem failure";
+      compatibleErrno = hostErrno != 0 ? hostErrno : EIO;
       break;
     default:
       break;
   }
-  throw facebook::jsi::JSError(
-      runtime,
-      std::string(code) + ": " + (operation ? operation : "vfs") +
-          ": " + detail);
+  const std::string syscall = operation ? operation : "vfs";
+  std::string message = std::string(code) + ": " + syscall + ": " + detail;
+  if (!path.empty()) message += " '" + path + "'";
+  facebook::jsi::JSError jsError(runtime, message);
+  facebook::jsi::Value value(runtime, jsError.value());
+  auto object = value.asObject(runtime);
+  object.setProperty(
+      runtime, "code", facebook::jsi::String::createFromUtf8(runtime, code));
+  object.setProperty(runtime, "errno", facebook::jsi::Value(compatibleErrno));
+  object.setProperty(
+      runtime, "syscall",
+      facebook::jsi::String::createFromUtf8(runtime, syscall));
+  if (!path.empty()) {
+    object.setProperty(
+        runtime, "path", facebook::jsi::String::createFromUtf8(runtime, path));
+  }
+  throw facebook::jsi::JSError(runtime, std::move(value));
 }
 
 }  // namespace
@@ -527,7 +610,7 @@ ExactResolvedVfsPath exactResolveVfsPath(
   if (result != 0) {
     if (backing != nullptr) ex_host_free_buffer(backing, backingLength);
     if (virtualPath != nullptr) ex_host_free_buffer(virtualPath, virtualLength);
-    throwVfsError(runtime, result, hostErrno, "resolve");
+    throwVfsError(runtime, result, hostErrno, "resolve", input);
   }
   return ExactResolvedVfsPath{
       takeVfsBytes(backing, backingLength),
@@ -594,7 +677,7 @@ std::string exactSetVfsCwd(
       &hostErrno);
   if (result != 0) {
     if (virtualPath != nullptr) ex_host_free_buffer(virtualPath, virtualLength);
-    throwVfsError(runtime, result, hostErrno, "chdir");
+    throwVfsError(runtime, result, hostErrno, "chdir", input);
   }
   return takeVfsBytes(virtualPath, virtualLength);
 }
@@ -1559,15 +1642,29 @@ void consumeStructuredTimerDue(
 bool mintStructuredValueHandle(
     ExactHermesRuntime* runtime,
     const facebook::jsi::Value& value,
-    ExHermesValueHandle* out) {
-  if (runtime->next_structured_value_handle_id == 0) return false;
-  const uint64_t id = runtime->next_structured_value_handle_id++;
-  auto rooted = std::make_unique<facebook::jsi::Value>(*runtime->runtime, value);
-  auto inserted = runtime->structured_value_handles.emplace(id, std::move(rooted));
-  if (!inserted.second) return false;
-  out->runtime_nonce = runtime->runtime_nonce;
-  out->handle_id = id;
-  return true;
+    ExHermesValueHandle* out) noexcept {
+  if (runtime == nullptr || out == nullptr) return false;
+  *out = ExHermesValueHandle{0, 0};
+  try {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+    if (g_injected_structured_value_handle_allocation_failures != 0) {
+      --g_injected_structured_value_handle_allocation_failures;
+      throw std::bad_alloc();
+    }
+#endif
+    if (runtime->next_structured_value_handle_id == 0) return false;
+    const uint64_t id = runtime->next_structured_value_handle_id++;
+    auto rooted =
+        std::make_unique<facebook::jsi::Value>(*runtime->runtime, value);
+    auto inserted =
+        runtime->structured_value_handles.emplace(id, std::move(rooted));
+    if (!inserted.second) return false;
+    out->runtime_nonce = runtime->runtime_nonce;
+    out->handle_id = id;
+    return true;
+  } catch (...) {
+    return false;
+  }
 }
 
 StructuredAsyncPrincipalStatus structuredAsyncPrincipalStatus(
@@ -1735,11 +1832,94 @@ void recordStructuredPendingPromiseRejectionDrop(
   runtime->structured_pending_promise_rejection_dropped++;
 }
 
+#ifdef HERMES_HAS_SAFE_THROW_METADATA
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+static_assert(
+    HERMES_SAFE_TEXT_MAX_BYTES == EX_HERMES_SAFE_TEXT_MAX_BYTES,
+    "Hermes and Ibex safe-text bounds must match");
+#endif
+
+uint32_t structuredErrorClass(
+    facebook::hermes::SafeJSErrorClass errorClass) {
+  using SafeClass = facebook::hermes::SafeJSErrorClass;
+  switch (errorClass) {
+    case SafeClass::Unclassified:
+      return EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    case SafeClass::Error:
+      return EX_HERMES_ERROR_CLASS_ERROR;
+    case SafeClass::AggregateError:
+      return EX_HERMES_ERROR_CLASS_AGGREGATE_ERROR;
+    case SafeClass::EvalError:
+      return EX_HERMES_ERROR_CLASS_EVAL_ERROR;
+    case SafeClass::RangeError:
+      return EX_HERMES_ERROR_CLASS_RANGE_ERROR;
+    case SafeClass::ReferenceError:
+      return EX_HERMES_ERROR_CLASS_REFERENCE_ERROR;
+    case SafeClass::SyntaxError:
+      return EX_HERMES_ERROR_CLASS_SYNTAX_ERROR;
+    case SafeClass::TypeError:
+      return EX_HERMES_ERROR_CLASS_TYPE_ERROR;
+    case SafeClass::URIError:
+      return EX_HERMES_ERROR_CLASS_URI_ERROR;
+    case SafeClass::TimeoutError:
+      return EX_HERMES_ERROR_CLASS_TIMEOUT_ERROR;
+    case SafeClass::QuitError:
+      return EX_HERMES_ERROR_CLASS_QUIT_ERROR;
+  }
+  return EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+}
+
+uint32_t structuredSafeMetadataFields(
+    const std::string& message,
+    const std::string& stack,
+    bool messageTruncated,
+    bool stackTruncated) {
+  uint32_t fields = 0;
+  if (!message.empty()) fields |= EX_HERMES_THROW_FIELD_MESSAGE;
+  if (!stack.empty()) fields |= EX_HERMES_THROW_FIELD_STACK;
+  if (messageTruncated) {
+    fields |= EX_HERMES_THROW_FIELD_MESSAGE |
+        EX_HERMES_THROW_FIELD_MESSAGE_TRUNCATED;
+  }
+  if (stackTruncated) {
+    fields |= EX_HERMES_THROW_FIELD_STACK |
+        EX_HERMES_THROW_FIELD_STACK_TRUNCATED;
+  }
+  return fields;
+}
+
+facebook::hermes::SafeJSErrorClass captureStructuredSafeMetadata(
+    facebook::hermes::HermesRuntime* runtime,
+    const facebook::jsi::Value& value,
+    std::string& message,
+    std::string& stack,
+    bool& messageTruncated,
+    bool& stackTruncated) {
+  message.clear();
+  stack.clear();
+  messageTruncated = false;
+  stackTruncated = false;
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+  return runtime->getSafeJSErrorMetadata(
+      value, message, stack, messageTruncated, stackTruncated);
+#else
+  // Older installed Hermes profiles exposed the original unbounded helper.
+  // Fail closed instead of materializing attacker-sized metadata; bounded
+  // profiles define HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA in the patched API.
+  (void)runtime;
+  (void)value;
+  return facebook::hermes::SafeJSErrorClass::Unclassified;
+#endif
+}
+#endif
+
 bool publishStructuredAsyncFailure(
     ExactHermesRuntime* runtime,
     const facebook::jsi::Value& value,
     const std::string* capturedMessage = nullptr,
-    const std::string* capturedStack = nullptr) {
+    const std::string* capturedStack = nullptr,
+    const uint32_t* capturedMetadataFields = nullptr,
+    const uint32_t* capturedErrorClass = nullptr) {
   if (!structuredWorkPublicationEnabled(runtime)) return false;
   if (runtime->runtime_thread != std::this_thread::get_id() ||
       runtime->structured_async_failure_failed) {
@@ -1765,18 +1945,64 @@ bool publishStructuredAsyncFailure(
     }
     std::string safeMessage;
     std::string safeStack;
+    uint32_t safeMetadataFields = 0;
+    uint32_t safeErrorClass = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
     if (capturedMessage != nullptr && capturedStack != nullptr) {
       safeMessage = *capturedMessage;
       safeStack = *capturedStack;
+      if (capturedMetadataFields != nullptr) {
+        safeMetadataFields = *capturedMetadataFields;
+      } else {
+        if (!safeMessage.empty()) {
+          safeMetadataFields |= EX_HERMES_THROW_FIELD_MESSAGE;
+        }
+        if (!safeStack.empty()) {
+          safeMetadataFields |= EX_HERMES_THROW_FIELD_STACK;
+        }
+      }
+      if (capturedErrorClass != nullptr) {
+        safeErrorClass = *capturedErrorClass;
+      } else {
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+        std::string ignoredMessage;
+        std::string ignoredStack;
+        bool ignoredMessageTruncated = false;
+        bool ignoredStackTruncated = false;
+        safeErrorClass = structuredErrorClass(
+            captureStructuredSafeMetadata(
+                runtime->runtime.get(),
+                value,
+                ignoredMessage,
+                ignoredStack,
+                ignoredMessageTruncated,
+                ignoredStackTruncated));
+#endif
+      }
     } else {
-#ifdef HERMES_HAS_SAFE_THROW_METADATA
-      (void)runtime->runtime->getSafeJSErrorMetadata(
-          value, safeMessage, safeStack);
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+      bool messageTruncated = false;
+      bool stackTruncated = false;
+      safeErrorClass = structuredErrorClass(
+          captureStructuredSafeMetadata(
+              runtime->runtime.get(),
+              value,
+              safeMessage,
+              safeStack,
+              messageTruncated,
+              stackTruncated));
+      safeMetadataFields = structuredSafeMetadataFields(
+          safeMessage, safeStack, messageTruncated, stackTruncated);
 #endif
     }
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
     runtime->structured_value_safe_throw_metadata.emplace(
         handle.handle_id,
-        std::make_pair(std::move(safeMessage), std::move(safeStack)));
+        StructuredSafeThrowMetadata{
+            safeMetadataFields,
+            safeErrorClass,
+            std::move(safeMessage),
+            std::move(safeStack)});
+#endif
     StructuredAsyncFailureContext context =
         runtime->structured_active_async_failure_context_set
         ? runtime->structured_active_async_failure_context
@@ -1875,9 +2101,22 @@ void trackPendingPromiseRejection(
     pending.reason =
         std::make_unique<facebook::jsi::Value>(*runtime->runtime, reason);
     pending.failureContext = currentPromiseRejectionContext(runtime);
-#ifdef HERMES_HAS_SAFE_THROW_METADATA
-    (void)runtime->runtime->getSafeJSErrorMetadata(
-        reason, pending.safeMessage, pending.safeStack);
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+    bool messageTruncated = false;
+    bool stackTruncated = false;
+    pending.safeErrorClass = structuredErrorClass(
+        captureStructuredSafeMetadata(
+            runtime->runtime.get(),
+            reason,
+            pending.safeMessage,
+            pending.safeStack,
+            messageTruncated,
+            stackTruncated));
+    pending.safeMetadataFields = structuredSafeMetadataFields(
+        pending.safeMessage,
+        pending.safeStack,
+        messageTruncated,
+        stackTruncated);
 #endif
     runtime->structured_pending_promise_rejections.push_back(
         std::move(pending));
@@ -1947,7 +2186,9 @@ void flushPendingPromiseRejections(ExactHermesRuntime* runtime) {
           runtime,
           *rejection.reason,
           &rejection.safeMessage,
-          &rejection.safeStack);
+          &rejection.safeStack,
+          &rejection.safeMetadataFields,
+          &rejection.safeErrorClass);
     }
   }
   // The retained records precede collection overflow, so publish them first
@@ -2050,6 +2291,33 @@ bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
   const bool rawCapture =
       structuredWorkPublicationEnabled(runtime) &&
       ScopedRawThrowCapture::available();
+  std::string safeMessage;
+  std::string safeStack;
+  uint32_t safeMetadataFields = 0;
+  uint32_t safeErrorClass = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+  bool safeMetadataCaptured = false;
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+  if (structuredWorkPublicationEnabled(runtime)) {
+    try {
+      bool messageTruncated = false;
+      bool stackTruncated = false;
+      safeErrorClass = structuredErrorClass(
+          captureStructuredSafeMetadata(
+              runtime->runtime.get(),
+              err.value(),
+              safeMessage,
+              safeStack,
+              messageTruncated,
+              stackTruncated));
+      safeMetadataFields = structuredSafeMetadataFields(
+          safeMessage, safeStack, messageTruncated, stackTruncated);
+      safeMetadataCaptured = true;
+    } catch (...) {
+      // Publication below owns loss accounting. A bounded metadata allocation
+      // failure must not bypass the uncaught-handler disposition.
+    }
+  }
+#endif
   try {
     if (invokeUncaughtHandler(*runtime->runtime, err)) {
       workUnit.finish();
@@ -2070,10 +2338,17 @@ bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
     // reported through an explicit pre-receipt drop marker, so the engine can
     // keep running without deciding session fatality or writing raw stderr.
     // @ref LLP 0024#9-asynchronous-failures
-    const std::string safeMessage = err.getMessage();
-    const std::string safeStack = err.getStack();
-    publishStructuredAsyncFailure(
-        runtime, err.value(), &safeMessage, &safeStack);
+    if (safeMetadataCaptured) {
+      publishStructuredAsyncFailure(
+          runtime,
+          err.value(),
+          &safeMessage,
+          &safeStack,
+          &safeMetadataFields,
+          &safeErrorClass);
+    } else {
+      publishStructuredAsyncFailure(runtime, err.value());
+    }
     workUnit.finish();
     return !runtime->structured_session_terminated;
   }
@@ -2774,6 +3049,16 @@ bool isAndroidStorageHostPathEnvironmentKey(const std::string& key) {
 #endif
 }
 
+bool isPrivateProcessIpcEnvironmentKey(const std::string& key) {
+  // These inherited values are a native construction handshake, not public
+  // process environment. Unarmed compatibility runtimes otherwise expose the
+  // host environment, so suppress the raw startup copies there too; an explicit
+  // later JavaScript override remains ordinary process.env state in its proxy.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  return key == "EXACT_IPC_FD" || key == "EXACT_IPC_SERIALIZATION";
+}
+
 // Returns the value of `key`, or std::nullopt when the variable is unset (kept
 // distinct from a present-but-empty value). Grows past the initial stack buffer
 // so a value >= 4096 bytes (e.g. a long PATH) is read in full rather than being
@@ -3356,7 +3641,137 @@ void defineExactCapability(
       descriptor);
 }
 
+void installBootstrapCompatibilityModes(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  size_t count = (handle->bootstrap_bun_compat ? 1u : 0u) +
+      (handle->bootstrap_fixture_compat ? 1u : 0u) +
+      (handle->bootstrap_bun_fixture ? 1u : 0u);
+  facebook::jsi::Array modes(rt, count);
+  size_t index = 0;
+  auto append = [&](const char* mode) {
+    modes.setValueAtIndex(
+        rt,
+        index++,
+        facebook::jsi::String::createFromAscii(rt, mode));
+  };
+  if (handle->bootstrap_bun_compat) append("bun");
+  if (handle->bootstrap_fixture_compat) append("fixture");
+  if (handle->bootstrap_bun_fixture) append("fixture:bun");
+  auto freeze = rt.global()
+                    .getPropertyAsObject(rt, "Object")
+                    .getPropertyAsFunction(rt, "freeze");
+  auto frozenModes = freeze.call(rt, modes);
+  rt.global().setProperty(
+      rt, "__exactCompatModes", std::move(frozenModes));
+  if (handle->process_ipc_fd >= 0) {
+    // Publish a dedicated frozen bootstrap input rather than projecting the
+    // inherited descriptor through either the principal environment or the
+    // non-capability compatibility-mode tuple. Bootstrap scripts capture it
+    // lexically, then the engine load finalizer deletes the temporary root
+    // before project code.
+    // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+    // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+    facebook::jsi::Object ipcBootstrap(rt);
+    ipcBootstrap.setProperty(rt, "fd", handle->process_ipc_fd);
+    ipcBootstrap.setProperty(
+        rt,
+        "serialization",
+        facebook::jsi::String::createFromAscii(
+            rt,
+            handle->process_ipc_advanced_serialization
+                ? "advanced"
+                : "json"));
+    auto closeProcessIpc = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "close"),
+        0,
+        [runtimeNonce = handle->runtime_nonce, fd = handle->process_ipc_fd](
+            facebook::jsi::Runtime& runtime,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value*,
+            size_t) -> facebook::jsi::Value {
+          if (!exactCloseProcessIpcFd(runtimeNonce, fd)) {
+            throw facebook::jsi::JSError(
+                runtime, "process IPC channel is already closed or stale");
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    ipcBootstrap.setProperty(rt, "close", std::move(closeProcessIpc));
+    (void)freeze.call(rt, ipcBootstrap);
+    rt.global().setProperty(
+        rt, "__exactProcessIpcBootstrap", std::move(ipcBootstrap));
+  }
+}
+
+// Diagnostic runtimes may project the ambient process environment after the
+// caller passes the env:read:* gate. Armed runtimes return from
+// __exactGetAllEnv before this helper is reachable, so keeping the platform
+// enumeration in a named helper makes that post-arm boundary auditable.
+// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+void populateDiagnosticProcessEnvironment(
+    facebook::jsi::Runtime& runtime,
+    facebook::jsi::Object& env) {
+#if defined(_WIN32)
+  // ENG-23115 — populate from the REAL process environment. This was
+  // hardcoded to nullptr, so process.env enumeration ({...process.env},
+  // Object.keys, JSON.stringify) and child_process default env inheritance
+  // (`_flattenEnv` walks process.env) saw an empty environment on Windows
+  // (no PATH/SystemRoot). GetEnvironmentStringsW is always populated
+  // (independent of main/wmain) and returns UTF-16, converted to UTF-8 to
+  // match the POSIX branch below.
+  LPWCH envBlock = GetEnvironmentStringsW();
+  if (envBlock) {
+    auto toUtf8 = [](const std::wstring& w) -> std::string {
+      if (w.empty()) return std::string();
+      int n = WideCharToMultiByte(
+          CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+      if (n <= 0) return std::string();
+      std::string out(static_cast<size_t>(n), '\0');
+      WideCharToMultiByte(
+          CP_UTF8, 0, w.data(), static_cast<int>(w.size()), &out[0], n, nullptr, nullptr);
+      return out;
+    };
+    for (LPWCH p = envBlock; *p != L'\0';) {
+      std::wstring entry(p);  // wchar_t* -> length via char_traits, no wcslen
+      p += entry.size() + 1;
+      auto eq = entry.find(L'=');
+      // Windows exposes "=C:=..." drive-cwd pseudo-vars whose key is empty
+      // (the entry begins with '='); skip them, matching Node's process.env.
+      if (eq == std::wstring::npos || eq == 0) continue;
+      std::string key = toUtf8(entry.substr(0, eq));
+      std::string val = toUtf8(entry.substr(eq + 1));
+      if (isPrivateProcessIpcEnvironmentKey(key)) continue;
+      env.setProperty(runtime,
+        facebook::jsi::PropNameID::forUtf8(runtime, key),
+        facebook::jsi::String::createFromUtf8(runtime, val));
+    }
+    FreeEnvironmentStringsW(envBlock);
+  }
+#else
+#if defined(__APPLE__)
+  char **envp = *_NSGetEnviron();
+#else
+  char **envp = ::environ;
+#endif
+  if (envp) {
+    for (char **ep = envp; *ep; ++ep) {
+      std::string entry(*ep);
+      auto eq = entry.find('=');
+      if (eq != std::string::npos) {
+        auto key = entry.substr(0, eq);
+        auto val = entry.substr(eq + 1);
+        if (isPrivateProcessIpcEnvironmentKey(key)) continue;
+        env.setProperty(runtime,
+          facebook::jsi::PropNameID::forUtf8(runtime, key),
+          facebook::jsi::String::createFromUtf8(runtime, val));
+      }
+    }
+  }
+#endif
+}
+
 void installGlobals(struct ExactHermesRuntime* handle) {
+  captureLegacyBootstrapEnvironment(handle);
   bool _tracing = startup_trace_enabled();
   bool sharedRuntimeInstalled = false;
   auto _t_host_functions = std::chrono::steady_clock::now();
@@ -3368,6 +3783,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
             #n, (long long)_el, _el / 1000.0); }
 
   auto& rt = *handle->runtime;
+  installBootstrapCompatibilityModes(handle);
   auto _t_console_globals = std::chrono::steady_clock::now();
   installConsoleGlobals(handle);
   ensureExactEmbedderObject(handle);
@@ -3480,10 +3896,28 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         auto key = args[0].toString(runtime).utf8(runtime);
+        if (!handle->armed && isPrivateProcessIpcEnvironmentKey(key)) {
+          return facebook::jsi::Value::undefined();
+        }
         if (handle->armed && isAndroidStorageHostPathEnvironmentKey(key)) {
           return facebook::jsi::Value::undefined();
         }
         authorizeTypedEnvironmentRead(runtime, key);
+        if (handle->armed) {
+          auto principal = currentPrincipalId();
+          auto principalOverlay =
+              handle->environment_principal_overlays.find(principal);
+          if (principalOverlay ==
+              handle->environment_principal_overlays.end()) {
+            return facebook::jsi::Value::undefined();
+          }
+          auto value = principalOverlay->second.find(key);
+          if (value == principalOverlay->second.end()) {
+            return facebook::jsi::Value::undefined();
+          }
+          return facebook::jsi::Value(
+              facebook::jsi::String::createFromUtf8(runtime, value->second));
+        }
         auto value = getEnvValue(key);
         if (!value.has_value()) {
           // Unset -> undefined; a present-but-empty value returns "" so callers
@@ -3495,6 +3929,49 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactGetEnv", std::move(getEnvFn));
 
+  if (handle->armed) {
+    auto setEnvFn = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "__exactSetEnv"),
+        2,
+        [handle](facebook::jsi::Runtime& runtime,
+                 const facebook::jsi::Value&,
+                 const facebook::jsi::Value* args,
+                 size_t count) -> facebook::jsi::Value {
+          if (count != 2 || !args[0].isString() ||
+              (!args[1].isString() && !args[1].isUndefined())) {
+            throw facebook::jsi::JSError::createTypeError(
+                runtime,
+                "environment overlay mutation requires a name and string or undefined value");
+          }
+          auto key = args[0].asString(runtime).utf8(runtime);
+          if (isAndroidStorageHostPathEnvironmentKey(key)) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "Permission denied: private storage environment key");
+          }
+          authorizeTypedEnvironmentWrite(runtime, key);
+          auto principal = currentPrincipalId();
+          if (args[1].isUndefined()) {
+            auto principalOverlay =
+                handle->environment_principal_overlays.find(principal);
+            if (principalOverlay !=
+                handle->environment_principal_overlays.end()) {
+              principalOverlay->second.erase(key);
+              if (principalOverlay->second.empty()) {
+                handle->environment_principal_overlays.erase(
+                    principalOverlay);
+              }
+            }
+          } else {
+            handle->environment_principal_overlays[principal][key] =
+                args[1].asString(runtime).utf8(runtime);
+          }
+          return facebook::jsi::Value::undefined();
+        });
+    rt.global().setProperty(rt, "__exactSetEnv", std::move(setEnvFn));
+  }
+
   auto getAllEnvFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetAllEnv"),
@@ -3504,70 +3981,41 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                const facebook::jsi::Value*,
                size_t) -> facebook::jsi::Value {
         facebook::jsi::Object env(runtime);
-        // @ref LLP 0021#typed-resources-and-initial-vocabulary — enumeration
-        // cannot be represented by wildcard environment authority, so armed
-        // runtimes close it without consulting the legacy string oracle.
+        // @ref LLP 0022#7-capabilities-principals-and-affordance-parity — the
+        // armed base is empty. Enumeration visits only the current principal's
+        // overlay and independently authorizes each exact name before copying
+        // its value; env:write alone never implies disclosure.
         if (handle->armed) {
+          auto principalOverlay =
+              handle->environment_principal_overlays.find(
+                  currentPrincipalId());
+          if (principalOverlay ==
+              handle->environment_principal_overlays.end()) {
+            return env;
+          }
+          std::vector<std::string> keys;
+          keys.reserve(principalOverlay->second.size());
+          for (const auto& entry : principalOverlay->second) {
+            keys.push_back(entry.first);
+          }
+          std::sort(keys.begin(), keys.end());
+          for (const auto& key : keys) {
+            if (!typedEnvironmentOverlayAccessAllowed(
+                    key, ExactEnvironmentOverlayAccess::EnumerationRead)) {
+              continue;
+            }
+            env.setProperty(
+                runtime,
+                facebook::jsi::PropNameID::forUtf8(runtime, key),
+                facebook::jsi::String::createFromUtf8(
+                    runtime, principalOverlay->second.at(key)));
+          }
           return env;
         }
         if (!checkCapability("env:read:*")) {
           return env;
         }
-#if defined(_WIN32)
-        // ENG-23115 — populate from the REAL process environment. This was
-        // hardcoded to nullptr, so process.env enumeration ({...process.env},
-        // Object.keys, JSON.stringify) and child_process default env inheritance
-        // (`_flattenEnv` walks process.env) saw an empty environment on Windows
-        // (no PATH/SystemRoot). GetEnvironmentStringsW is always populated
-        // (independent of main/wmain) and returns UTF-16, converted to UTF-8 to
-        // match the POSIX branch below.
-        LPWCH envBlock = GetEnvironmentStringsW();
-        if (envBlock) {
-          auto toUtf8 = [](const std::wstring& w) -> std::string {
-            if (w.empty()) return std::string();
-            int n = WideCharToMultiByte(
-                CP_UTF8, 0, w.data(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
-            if (n <= 0) return std::string();
-            std::string out(static_cast<size_t>(n), '\0');
-            WideCharToMultiByte(
-                CP_UTF8, 0, w.data(), static_cast<int>(w.size()), &out[0], n, nullptr, nullptr);
-            return out;
-          };
-          for (LPWCH p = envBlock; *p != L'\0';) {
-            std::wstring entry(p);  // wchar_t* -> length via char_traits, no wcslen
-            p += entry.size() + 1;
-            auto eq = entry.find(L'=');
-            // Windows exposes "=C:=..." drive-cwd pseudo-vars whose key is empty
-            // (the entry begins with '='); skip them, matching Node's process.env.
-            if (eq == std::wstring::npos || eq == 0) continue;
-            std::string key = toUtf8(entry.substr(0, eq));
-            std::string val = toUtf8(entry.substr(eq + 1));
-            env.setProperty(runtime,
-              facebook::jsi::PropNameID::forUtf8(runtime, key),
-              facebook::jsi::String::createFromUtf8(runtime, val));
-          }
-          FreeEnvironmentStringsW(envBlock);
-        }
-#else
-#if defined(__APPLE__)
-        char **envp = *_NSGetEnviron();
-#else
-        char **envp = ::environ;
-#endif
-        if (envp) {
-          for (char **ep = envp; *ep; ++ep) {
-            std::string entry(*ep);
-            auto eq = entry.find('=');
-            if (eq != std::string::npos) {
-              auto key = entry.substr(0, eq);
-              auto val = entry.substr(eq + 1);
-              env.setProperty(runtime,
-                facebook::jsi::PropNameID::forUtf8(runtime, key),
-                facebook::jsi::String::createFromUtf8(runtime, val));
-            }
-          }
-        }
-#endif
+        populateDiagnosticProcessEnvironment(runtime, env);
         return env;
       });
   rt.global().setProperty(rt, "__exactGetAllEnv", std::move(getAllEnvFn));
@@ -3701,8 +4149,16 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               : 0;
         }
         auto specifier = args[1].asString(runtime).utf8(runtime);
+        std::string targetSourceId;
+        bool hasTargetSourceId = count > 2 && args[2].isString();
+        if (hasTargetSourceId) {
+          targetSourceId = args[2].asString(runtime).utf8(runtime);
+        }
         return facebook::jsi::Value(
-            ex_host_check_import(principal, specifier.c_str()) != 0);
+            ex_host_check_import(
+                principal,
+                specifier.c_str(),
+                hasTargetSourceId ? targetSourceId.c_str() : nullptr) != 0);
       });
   rt.global().setProperty(rt, "__exactCheckImport", std::move(checkImportFn));
 
@@ -4470,6 +4926,14 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactEnsureNet", std::move(ensureNetFn));
   sharedRuntimeInstalled = installModuleLoader(handle);
   handle->shared_runtime_bundle_installed = sharedRuntimeInstalled;
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  // Armed code must never fall back to the legacy native process object: its
+  // eager env snapshot and other compatibility state are intentionally not a
+  // capability-mediated package surface.
+  if (handle->armed && !sharedRuntimeInstalled) {
+    throw std::runtime_error(
+        "Armed startup requires the capability-mediated shared runtime bundle");
+  }
   if (handle->armed && !configurePromiseRejectionCheckpointTracker(handle)) {
     throw std::runtime_error(
         "Hermes promise rejection checkpoint tracking is unavailable");
@@ -5024,6 +5488,62 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // package's object graph: an ungated native primitive while every other
   // dangerous native is capability-gated. Acceptance criterion: escape-hatch
   // globals unreachable in all modes.
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  // Conformance must observe the exact loaded Hermes natives, but production
+  // correctly deletes their globals below before project code can run. Invoke
+  // four fixed sentinels in this last trusted-bootstrap window and retain only
+  // a bit mask on this runtime: deep primitive/object, shallow
+  // primitive/object, and an independent completion bit. Null-prototype graphs
+  // ensure the probe cannot freeze any shared realm object.
+  // @ref LLP 0013#mechanism-1
+  {
+    static const char* kNativeFreezeObservationJS = R"JS((function () {
+  var g = globalThis;
+  var mask = 16;
+  try {
+    var deepPrimitive = 1729;
+    if (g.__exactDeepFreeze(deepPrimitive) === deepPrimitive) mask |= 1;
+  } catch (e) {}
+  try {
+    var deepChild = Object.create(null);
+    var deepRoot = Object.create(null);
+    deepRoot.child = deepChild;
+    if (g.__exactDeepFreeze(deepRoot) === deepRoot &&
+        Object.isFrozen(deepRoot) && Object.isFrozen(deepChild)) mask |= 2;
+  } catch (e) {}
+  try {
+    var shallowPrimitive = 1729;
+    if (g.__exactNativeFreeze(shallowPrimitive) === shallowPrimitive) mask |= 4;
+  } catch (e) {}
+  try {
+    var shallowChild = Object.create(null);
+    var shallowRoot = Object.create(null);
+    shallowRoot.child = shallowChild;
+    if (g.__exactNativeFreeze(shallowRoot) === shallowRoot &&
+        Object.isFrozen(shallowRoot) && !Object.isFrozen(shallowChild)) mask |= 8;
+  } catch (e) {}
+  return mask;
+})())JS";
+    try {
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(
+          kNativeFreezeObservationJS);
+      auto observation = handle->runtime->evaluateJavaScript(
+          buffer, "<native-freeze-conformance-observation>");
+      if (observation.isNumber()) {
+        const double mask = observation.asNumber();
+        if (mask >= 16 && mask <= 31 &&
+            mask == static_cast<double>(static_cast<uint32_t>(mask))) {
+          handle->capsec_native_freeze_observation =
+              static_cast<uint32_t>(mask);
+        }
+      }
+    } catch (...) {
+      // A zero/partial mask is the fail-closed result consumed by the test-only
+      // executor. Runtime construction and the production deletion below keep
+      // their ordinary semantics even when an observation cannot complete.
+    }
+  }
+#endif
   {
     static const char* kFreezeSealJS = R"JS((function () {
   var g = globalThis;
@@ -5045,6 +5565,20 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 
   IG_TRACE_END(post_host_fns);
 }
+
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+extern "C" int ibex_test_native_freeze_observation(
+    ExactHermesRuntime* runtime,
+    uint32_t* outMask) {
+  if (outMask != nullptr) *outMask = 0;
+  if (runtime == nullptr || outMask == nullptr || !runtime->runtime ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    return 0;
+  }
+  *outMask = runtime->capsec_native_freeze_observation;
+  return 1;
+}
+#endif
 
 void runNextTickQueue(ExactHermesRuntime* runtime) {
   if (!runtime) {
@@ -5158,10 +5692,13 @@ extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
 extern "C" int32_t ex_hermes_engine_mapped_object(
     uint64_t* out_device, uint64_t* out_inode) {
   if (out_device == nullptr || out_inode == nullptr) return -1;
-#if defined(__APPLE__) && TARGET_OS_OSX
+#if (defined(__APPLE__) && TARGET_OS_OSX) || defined(__linux__) || \
+    defined(__ANDROID__)
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);
   auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+#endif
+#if defined(__APPLE__) && TARGET_OS_OSX
   proc_regionwithpathinfo region = {};
   int bytes = proc_pidinfo(
       getpid(), PROC_PIDREGIONPATHINFO,
@@ -5171,6 +5708,53 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
   *out_device = static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_dev);
   *out_inode = static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_ino);
   return *out_inode != 0 ? 1 : -1;
+#elif defined(__linux__) || defined(__ANDROID__)
+  // Identify the file object backing the mapping that contains Hermes' runtime
+  // factory. This binds device/inode identity only; it does not hash the
+  // executable pages already mapped by the loader. The
+  // adapter function itself is compiled into Ibex and therefore names the
+  // executable, not libhermesvm; using its address would attest the wrong
+  // object on ELF targets.
+  uintptr_t address = reinterpret_cast<uintptr_t>(
+      reinterpret_cast<void*>(factory));
+  std::ifstream maps("/proc/self/maps");
+  std::string line;
+  while (std::getline(maps, line)) {
+    std::istringstream fields(line);
+    std::string range;
+    std::string permissions;
+    std::string offset;
+    std::string device;
+    std::string inode;
+    if (!(fields >> range >> permissions >> offset >> device >> inode)) {
+      continue;
+    }
+    auto dash = range.find('-');
+    auto colon = device.find(':');
+    if (dash == std::string::npos || colon == std::string::npos) continue;
+    uintptr_t start = 0;
+    uintptr_t end = 0;
+    uint64_t major = 0;
+    uint64_t minor = 0;
+    uint64_t parsed_inode = 0;
+    auto parse = [](const char* first, const char* last, auto& value, int base) {
+      auto result = std::from_chars(first, last, value, base);
+      return result.ec == std::errc() && result.ptr == last;
+    };
+    if (!parse(range.data(), range.data() + dash, start, 16) ||
+        !parse(range.data() + dash + 1, range.data() + range.size(), end, 16) ||
+        !parse(device.data(), device.data() + colon, major, 16) ||
+        !parse(device.data() + colon + 1,
+               device.data() + device.size(), minor, 16) ||
+        !parse(inode.data(), inode.data() + inode.size(), parsed_inode, 10)) {
+      continue;
+    }
+    if (address < start || address >= end) continue;
+    *out_device = static_cast<uint64_t>(makedev(major, minor));
+    *out_inode = parsed_inode;
+    return *out_inode != 0 ? 1 : -1;
+  }
+  return -1;
 #else
   return -1;
 #endif
@@ -5335,15 +5919,28 @@ static bool captureRootGlobalDispositionIntrinsics(
   }
 }
 
-static bool rootGlobalTargetApplies(const char* target) {
+static bool rootGlobalTargetApplies(
+    ExactHermesRuntime* handle,
+    const char* target) {
   if (std::strcmp(target, "all") == 0 ||
       std::strcmp(target, "default") == 0) {
     return true;
   }
   if (std::strncmp(target, "conditional:", 12) == 0) {
-    const char* value = std::getenv(target + 12);
-    return value != nullptr && value[0] != '\0' &&
-        std::strcmp(value, "0") != 0 && std::strcmp(value, "false") != 0;
+    const char* control = target + 12;
+    if (std::strcmp(control, "EXACT_COMPAT_TEST") == 0) {
+      return handle->bootstrap_fixture_compat;
+    }
+    if (std::strcmp(control, "EXACT_COMPAT_BUN") == 0) {
+      return handle->bootstrap_bun_compat;
+    }
+    if (std::strcmp(control, "EXACT_IPC_FD") == 0) {
+      return handle->process_ipc_fd >= 0;
+    }
+    // Conditional root-global controls are a closed generated vocabulary. An
+    // unknown condition must not become an ambient post-arm environment read.
+    // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+    return false;
   }
 #if defined(_WIN32)
   if (std::strcmp(target, "windows") == 0) return true;
@@ -5378,25 +5975,19 @@ static bool rootGlobalActivationApplies(
   }
   if (std::strcmp(activation, "bun-compat-shared-runtime") == 0) {
     return handle->shared_runtime_bundle_installed &&
-        env_flag_enabled("EXACT_COMPAT_BUN");
+        handle->bootstrap_bun_compat;
   }
   if (
       std::strcmp(
           activation, "bun-compat-shared-or-legacy-fallback") == 0) {
     return !handle->shared_runtime_bundle_installed ||
-        env_flag_enabled("EXACT_COMPAT_BUN");
+        handle->bootstrap_bun_compat;
   }
   if (std::strcmp(activation, "web-streams-polyfill") == 0) {
     return env_flag_enabled("EX_WEB_STREAMS_POLYFILL");
   }
   if (std::strcmp(activation, "ipc-channel-bootstrap") == 0) {
-    const char* value = std::getenv("EXACT_IPC_FD");
-    if (value == nullptr || value[0] == '\0') return false;
-    char* end = nullptr;
-    errno = 0;
-    const long fd = std::strtol(value, &end, 10);
-    return end != value && *end == '\0' && errno == 0 && fd >= 0 &&
-        fd <= INT_MAX;
+    return handle->process_ipc_fd >= 0;
   }
   if (std::strcmp(activation, "openssl-crypto") == 0) {
 #if defined(EXACT_NO_OPENSSL)
@@ -5438,6 +6029,7 @@ static bool rootGlobalActivationApplies(
   if (
       std::strcmp(activation, "diagnostic-unarmed-promise-fallback") == 0 ||
       std::strcmp(activation, "intrinsic-reference-only") == 0 ||
+      std::strcmp(activation, "post-bootstrap-embedder-endowment") == 0 ||
       std::strcmp(activation, "post-bootstrap-lazy") == 0) {
     return false;
   }
@@ -5615,6 +6207,11 @@ static bool sealRootGlobalSessionBridges(ExactHermesRuntime* handle) {
     auto& rt = *handle->runtime;
     for (const char* key : {
              "__exactExit",
+             // The shared runtime has already captured the digest-bound
+             // compatibility tuple in module-private state. Reflect.delete is
+             // intentionally idempotent because the Rust preload also closes
+             // temporary process/bootstrap wires before this final sweep.
+             "__exactCompatModes",
              "__exactFsMutationGuard",
              "__exactGetCwd",
              "__exactOnRejectionHandled",
@@ -5764,7 +6361,7 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
     std::unordered_set<std::string> descriptorLeafRoots;
     for (const auto& expectation :
          exact::root_global_disposition::kRootExpectations) {
-      if (!rootGlobalTargetApplies(expectation.target_variant) ||
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant) ||
           !rootGlobalActivationApplies(
               handle, expectation.activation, expectation.root_key)) {
         continue;
@@ -5821,7 +6418,7 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
 
     for (const auto& expectation :
          exact::root_global_disposition::kAbsentExpectations) {
-      if (!rootGlobalTargetApplies(expectation.target_variant) ||
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant) ||
           !rootGlobalActivationApplies(
               handle, expectation.activation, expectation.logical_path)) {
         continue;
@@ -5837,7 +6434,7 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
     std::unordered_set<std::string> permittedKeys;
     for (const auto& expectation :
          exact::root_global_disposition::kNativeKeyExpectations) {
-      if (!rootGlobalTargetApplies(expectation.target_variant) ||
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant) ||
           !rootGlobalActivationApplies(
               handle, expectation.activation, expectation.root_key)) {
         continue;
@@ -5847,7 +6444,7 @@ static bool verifyRootGlobalDisposition(ExactHermesRuntime* handle) {
     }
     for (const auto& expectation :
          exact::root_global_disposition::kPermittedKeyExpectations) {
-      if (!rootGlobalTargetApplies(expectation.target_variant) ||
+      if (!rootGlobalTargetApplies(handle, expectation.target_variant) ||
           !rootGlobalActivationApplies(
               handle, expectation.activation, expectation.root_key)) {
         continue;
@@ -6167,6 +6764,22 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   }
   ScopedRuntimeSecurityContext securityContext(handle);
   if (armed) {
+    const uint32_t compatibilityFlags =
+        ex_host_armed_bootstrap_compatibility_flags();
+    if ((compatibilityFlags & ~7u) != 0 ||
+        ((compatibilityFlags & 4u) != 0 &&
+         (compatibilityFlags & 2u) == 0)) {
+      ex_host_console_log(
+          1,
+          "Armed startup refused: invalid bootstrap compatibility projection");
+      cleanupPartiallyConstructedRuntime(handle);
+      return nullptr;
+    }
+    handle->bootstrap_bun_compat = (compatibilityFlags & 1u) != 0;
+    handle->bootstrap_fixture_compat = (compatibilityFlags & 2u) != 0;
+    handle->bootstrap_bun_fixture = (compatibilityFlags & 4u) != 0;
+  }
+  if (armed) {
     // Bind the authenticated namespace before bootstrap installs any path-
     // bearing surface. No armed JavaScript can run without an exact runtime
     // generation owning `/project` and its retained cwd identity.
@@ -6263,15 +6876,40 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   TRACE_START(install_globals);
   try {
     requireArmedStartupStage(handle, "install-globals");
-    installGlobals(handle);
-    if (const char* ipcFdEnv = std::getenv("EXACT_IPC_FD")) {
-      char* end = nullptr;
-      errno = 0;
-      long ipcFd = std::strtol(ipcFdEnv, &end, 10);
-      if (end != ipcFdEnv && *end == '\0' && errno == 0 && ipcFd >= 0 && ipcFd <= INT_MAX) {
-        exactRegisterProcessIpcFd(static_cast<int>(ipcFd));
+    int32_t processIpcFd = -1;
+    uint32_t processIpcSerialization = 0;
+    const int32_t processIpcBootstrap =
+        ibex_private_take_process_ipc_bootstrap(
+            host_context_id,
+            &processIpcFd,
+            &processIpcSerialization);
+    if (processIpcBootstrap == 1) {
+      if (processIpcFd < 0 || processIpcSerialization > 1) {
+        throw std::runtime_error(
+            "invalid private child-process IPC bootstrap signal");
       }
+      // Register the protected descriptor before JavaScript bootstrap can
+      // install process.send/channel. The POSIX registration validates that it
+      // is a socket, restores FD_CLOEXEC after the child mapping, binds it to
+      // this runtime nonce, and keeps numeric-fd APIs from treating it as
+      // ambient authority.
+      // @ref LLP 0025#1-modes-descriptors-and-topology
+      if (!exactRegisterProcessIpcFd(processIpcFd)) {
+        throw std::runtime_error(
+            "invalid or unprotectable child-process IPC descriptor");
+      }
+      handle->process_ipc_fd = processIpcFd;
+      handle->process_ipc_advanced_serialization =
+          processIpcSerialization == 1;
+      // The test-only diagnostic stage proves that partial construction after
+      // descriptor adoption takes the same identity-safe teardown path as a
+      // normally destroyed runtime.
+      requireDiagnosticStartupStage(handle, "process-ipc-registered");
+    } else if (processIpcBootstrap != 0) {
+      throw std::runtime_error(
+          "private child-process IPC bootstrap handoff failed");
     }
+    installGlobals(handle);
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(
         1, (std::string("Armed startup refused: ") + err.getMessage()).c_str());
@@ -6571,10 +7209,11 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
     return;
   }
 
-  if (runtime->vfs_runtime_bound) {
-    (void)ex_host_vfs_unbind_runtime(runtime->runtime_nonce);
-    runtime->vfs_runtime_bound = false;
-  }
+  // Closing refuses new native-worker pins. Cancel only filesystem leases
+  // that have not crossed the pool's queued -> committed edge; workers that
+  // already crossed it retain their generation pin and drain below.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  exactCancelQueuedFsOperations(target);
 
   // Stop/cancel callback sources while the exact generation remains
   // registered in Closing. Already-admitted JSI-bearing producers retain a
@@ -6589,6 +7228,16 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   exactCleanupRuntimeHttpServers(runtime->runtime_nonce);
 
   finishRuntimeTeardown(target);
+
+  // A committed filesystem lease can still perform chunk/commit-stage typed
+  // checks while its native pin drains. Keep this exact VFS session bound
+  // until every admitted producer is finished; Closing already prevents a
+  // new lease, so retaining the binding cannot admit new work.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  if (runtime->vfs_runtime_bound) {
+    (void)ex_host_vfs_unbind_runtime(runtime->runtime_nonce);
+    runtime->vfs_runtime_bound = false;
+  }
 
   exactCleanupRuntimeSpawnedProcesses(runtime->runtime_nonce);
   ibex_tls_cleanup_runtime(runtime->runtime_nonce);
@@ -6617,9 +7266,28 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
        ++index) {
     sessionToken[index] = 0;
   }
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  const uint64_t destroyedRuntimeNonce = runtime->runtime_nonce;
+  const uint64_t destroyedStructuredValueHandleCount =
+      runtime->structured_value_handles.size();
+#endif
   // All producer pins are gone and every queued/finalized JSI capture was
   // destroyed on this thread before Hermes itself.
   delete runtime;
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  if (destroyedStructuredValueHandleCount != 0) {
+    try {
+      std::lock_guard<std::mutex> lock(
+          g_destroyed_structured_value_handle_counts_mutex);
+      g_destroyed_structured_value_handle_counts[destroyedRuntimeNonce] =
+          destroyedStructuredValueHandleCount;
+    } catch (...) {
+      // A test receipt must never make the production destructor semantics
+      // throw across their C boundary. The C probe fails loud on a missing
+      // receipt instead.
+    }
+  }
+#endif
   ex_host_release_context(hostContext);
 }
 
@@ -6713,12 +7381,26 @@ bool validUtf8(const uint8_t* bytes, size_t length) {
   return true;
 }
 
+void disposeStructuredSourcePositions(ExHermesEvaluationResult* result);
+
+void clearStructuredThrowMetadata(ExHermesEvaluationResult* result) {
+  free(result->message.data);
+  free(result->stack.data);
+  disposeStructuredSourcePositions(result);
+  result->message = {nullptr, 0};
+  result->stack = {nullptr, 0};
+  result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
+  result->throw_metadata_fields = 0;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+}
+
 void structuredFault(
     ExHermesEvaluationResult* result,
     ExHermesEvaluationFault fault) {
+  clearStructuredThrowMetadata(result);
   result->outcome_tag = EX_HERMES_EVAL_OUTCOME_ENGINE_FAULT;
   result->fault = static_cast<uint32_t>(fault);
-  result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
+  result->lifecycle_exit_code = 0;
   result->capability_flags = 0;
 }
 
@@ -6754,6 +7436,7 @@ void discardStructuredEvaluationResultPayload(
   result->stack = {nullptr, 0};
   result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
   result->throw_metadata_fields = 0;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
   result->lifecycle_exit_code = 0;
 }
 
@@ -6762,10 +7445,10 @@ bool structuredLifecycleOutcome(
     ExHermesEvaluationResult* result,
     uint32_t capability_flags) {
   if (!runtime->structured_lifecycle_pending) return false;
+  clearStructuredThrowMetadata(result);
   result->outcome_tag = EX_HERMES_EVAL_OUTCOME_LIFECYCLE;
   result->fault = EX_HERMES_EVAL_FAULT_NONE;
   result->lifecycle_exit_code = runtime->structured_lifecycle_exit_code;
-  result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
   result->capability_flags = capability_flags;
   runtime->structured_lifecycle_pending = false;
   runtime->structured_session_terminated = true;
@@ -6790,7 +7473,14 @@ bool copyStructuredOwnedBytes(
     ExHermesOwnedBytes* destination) {
   destination->data = nullptr;
   destination->length = 0;
+  if (source.size() > EX_HERMES_SAFE_TEXT_MAX_BYTES) return false;
   if (source.empty()) return true;
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  if (g_injected_structured_safe_metadata_copy_allocation_failures != 0) {
+    --g_injected_structured_safe_metadata_copy_allocation_failures;
+    return false;
+  }
+#endif
   auto* bytes = static_cast<uint8_t*>(malloc(source.size() + 1));
   if (bytes == nullptr) return false;
   memcpy(bytes, source.data(), source.size());
@@ -6800,37 +7490,92 @@ bool copyStructuredOwnedBytes(
   return true;
 }
 
-bool populateStructuredSafeThrowMetadata(
+bool structuredSafeTextInvariant(
+    const std::string& text,
+    bool truncated) {
+  if (text.size() > EX_HERMES_SAFE_TEXT_MAX_BYTES) return false;
+  if (!truncated) return true;
+  constexpr const char marker[] = EX_HERMES_SAFE_TEXT_TRUNCATION_MARKER;
+  constexpr size_t markerBytes = sizeof(marker) - 1;
+  return text.size() >= markerBytes &&
+      memcmp(
+          text.data() + text.size() - markerBytes,
+          marker,
+          markerBytes) == 0;
+}
+
+void populateStructuredSafeThrowMetadata(
     ExactHermesRuntime* runtime,
     const facebook::jsi::Value& value,
-    ExHermesEvaluationResult* result) {
-#ifdef HERMES_HAS_SAFE_THROW_METADATA
-  std::string message;
-  std::string stack;
-  (void)runtime->runtime->getSafeJSErrorMetadata(value, message, stack);
-  if (!copyStructuredOwnedBytes(message, &result->message) ||
-      !copyStructuredOwnedBytes(stack, &result->stack)) {
-    free(result->message.data);
-    free(result->stack.data);
-    result->message = {nullptr, 0};
-    result->stack = {nullptr, 0};
-    return false;
+    ExHermesEvaluationResult* result) noexcept {
+  if ((result->capability_flags & EX_HERMES_EVAL_CAPABILITY_SAFE_THROW) == 0) {
+    // Metadata availability and the advertised stratum are one protocol
+    // invariant.  In particular, the unarmed diagnostic seam deliberately
+    // advertises no Base/SafeThrow profile even when the linked engine has the
+    // native metadata primitive, so it must not leak Captured metadata.
+    // @ref LLP 0024#8-safe-inspection
+    result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
+    result->throw_metadata_fields = 0;
+    result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    return;
   }
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+  // A Throw outcome and its rooted value remain valid even when this optional
+  // bounded copy cannot allocate. Establish the capability-consistent empty
+  // Captured fallback before entering any code which may throw, and publish
+  // richer metadata only after both owned copies have succeeded. This helper
+  // is called from JSError catch handlers, so no exception may leave it.
+  result->message = {nullptr, 0};
+  result->stack = {nullptr, 0};
   result->throw_metadata_status = EX_HERMES_THROW_METADATA_CAPTURED;
   result->throw_metadata_fields = 0;
-  if (result->message.data != nullptr) {
-    result->throw_metadata_fields |= EX_HERMES_THROW_FIELD_MESSAGE;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+  try {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+    if (g_injected_structured_safe_metadata_capture_allocation_failures != 0) {
+      --g_injected_structured_safe_metadata_capture_allocation_failures;
+      throw std::bad_alloc();
+    }
+#endif
+    std::string message;
+    std::string stack;
+    bool messageTruncated = false;
+    bool stackTruncated = false;
+    const uint32_t errorClass = structuredErrorClass(
+        captureStructuredSafeMetadata(
+            runtime->runtime.get(),
+            value,
+            message,
+            stack,
+            messageTruncated,
+            stackTruncated));
+    if (!structuredSafeTextInvariant(message, messageTruncated) ||
+        !structuredSafeTextInvariant(stack, stackTruncated)) {
+      return;
+    }
+    ExHermesOwnedBytes copiedMessage{nullptr, 0};
+    ExHermesOwnedBytes copiedStack{nullptr, 0};
+    if (!copyStructuredOwnedBytes(message, &copiedMessage) ||
+        !copyStructuredOwnedBytes(stack, &copiedStack)) {
+      free(copiedMessage.data);
+      free(copiedStack.data);
+      return;
+    }
+    result->message = copiedMessage;
+    result->stack = copiedStack;
+    result->throw_metadata_fields = structuredSafeMetadataFields(
+        message, stack, messageTruncated, stackTruncated);
+    result->throw_error_class = errorClass;
+  } catch (...) {
+    // The preinstalled empty Captured record is the bounded fail-closed form.
+    return;
   }
-  if (result->stack.data != nullptr) {
-    result->throw_metadata_fields |= EX_HERMES_THROW_FIELD_STACK;
-  }
-  return true;
 #else
   (void)runtime;
   (void)value;
   result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
   result->throw_metadata_fields = 0;
-  return true;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
 #endif
 }
 
@@ -6839,8 +7584,12 @@ bool populateStructuredSafeThrowMetadata(
 // and stack metadata, however, come directly from Hermes' internal Error state
 // without consulting JavaScript properties or coercion.
 constexpr uint32_t kStructuredEvaluatorCapabilities =
+#ifdef HERMES_HAS_SAFE_STAGE1_TEXT
     EX_HERMES_EVAL_CAPABILITY_BASE
-#ifdef HERMES_HAS_SAFE_THROW_METADATA
+#else
+    0
+#endif
+#ifdef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
     | EX_HERMES_EVAL_CAPABILITY_SAFE_THROW
 #endif
     ;
@@ -7164,7 +7913,17 @@ int evaluateStructuredSource(
     if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
       return 0;
     }
-    drainMicrotasks(*runtime->runtime);
+    // The Script completion has already settled. A user-scheduled job drained
+    // at this checkpoint is background work, so publish its throw through the
+    // asynchronous-failure channel instead of turning it into this input's
+    // Throw outcome. @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+    if (structuredWorkPublicationEnabled(runtime)) {
+      drainMicrotasksGuarded(runtime);
+    } else {
+      // The diagnostic-only seam has no authenticated event channel and keeps
+      // its historical foreground outcome behavior.
+      drainMicrotasks(*runtime->runtime);
+    }
     if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
       return 0;
     }
@@ -7206,12 +7965,7 @@ int evaluateStructuredSource(
     result->outcome_tag = EX_HERMES_EVAL_OUTCOME_THROW;
     result->fault = EX_HERMES_EVAL_FAULT_NONE;
     result->capability_flags = capability_flags;
-    if (!populateStructuredSafeThrowMetadata(
-            runtime, error.value(), result)) {
-      runtime->structured_value_handles.erase(result->value.handle_id);
-      result->value = {0, 0};
-      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-    }
+    populateStructuredSafeThrowMetadata(runtime, error.value(), result);
     return 0;
   } catch (const std::bad_alloc&) {
     if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
@@ -7678,10 +8432,12 @@ struct StructuredDeclarationPlanEntry {
 bool buildStructuredDeclarationPlan(
     const ExHermesSessionDeclaration* declarations,
     size_t declarationCount,
-    std::vector<StructuredDeclarationPlanEntry>* output) {
+    std::vector<StructuredDeclarationPlanEntry>* output,
+    std::string* semanticCollision) {
   std::unordered_map<std::string, size_t> byName;
   output->clear();
   output->reserve(declarationCount);
+  semanticCollision->clear();
   for (size_t index = 0; index < declarationCount; ++index) {
     const auto& declaration = declarations[index];
     if (declaration.name == nullptr || declaration.name_length == 0 ||
@@ -7706,7 +8462,23 @@ bool buildStructuredDeclarationPlan(
         prior.kind == EX_HERMES_SESSION_DECL_FUNCTION;
     bool nextVar = declaration.kind == EX_HERMES_SESSION_DECL_VAR ||
         declaration.kind == EX_HERMES_SESSION_DECL_FUNCTION;
-    if (!priorVar || !nextVar) return false;
+    if (!priorVar || !nextVar) {
+      // This is an authenticated source early error, not a malformed ABI
+      // payload. Continue validating the remaining rows and retain any import
+      // kind needed by the independently validated import plan; the caller
+      // will return a JavaScript SyntaxError before compilation or mutation.
+      // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+      if (semanticCollision->empty()) {
+        *semanticCollision = priorVar != nextVar
+            ? "lexical declaration " + name +
+                " collides with a var-scoped declaration"
+            : "duplicate lexical declaration " + name;
+      }
+      if (declaration.kind == EX_HERMES_SESSION_DECL_IMPORT) {
+        prior.kind = declaration.kind;
+      }
+      continue;
+    }
     if (declaration.kind == EX_HERMES_SESSION_DECL_FUNCTION) {
       prior.kind = declaration.kind;
     }
@@ -8470,11 +9242,7 @@ void structuredThrowValue(
   result->outcome_tag = EX_HERMES_EVAL_OUTCOME_THROW;
   result->fault = EX_HERMES_EVAL_FAULT_NONE;
   result->capability_flags = capabilityFlags;
-  if (!populateStructuredSafeThrowMetadata(handle, value, result)) {
-    handle->structured_value_handles.erase(result->value.handle_id);
-    result->value = {0, 0};
-    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-  }
+  populateStructuredSafeThrowMetadata(handle, value, result);
 }
 
 void structuredDeclarationRefusal(
@@ -8508,10 +9276,9 @@ void clearStructuredAsyncState(ExactHermesRuntime* handle) {
 void structuredSuspended(
     ExHermesEvaluationResult* result,
     uint32_t capabilityFlags) {
+  clearStructuredThrowMetadata(result);
   result->outcome_tag = EX_HERMES_EVAL_CONTINUATION_SUSPENDED;
   result->fault = EX_HERMES_EVAL_FAULT_NONE;
-  result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
-  result->throw_metadata_fields = 0;
   result->lifecycle_exit_code = 0;
   result->capability_flags = capabilityFlags;
 }
@@ -8739,6 +9506,7 @@ extern "C" void ex_hermes_evaluation_result_init(
   result->abi_version = EX_HERMES_STRUCTURED_EVAL_ABI_VERSION;
   result->struct_size = sizeof(*result);
   result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
+  result->throw_error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
 }
 
 // @abi-output ex_hermes_evaluation_result_dispose result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
@@ -9439,6 +10207,169 @@ extern "C" int ex_hermes_eval_structured_session(
       &evaluation);
 }
 
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+// Exercise the real direct armed-session ABI without weakening its production
+// credential surface. The helper starts from an already-bound test session,
+// uses the next two native ordinals, and leaves the real asynchronous-failure
+// records queued for the Rust adapter to validate and release.
+extern "C" int32_t ibex_test_direct_session_async_boundary(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || !runtime->armed ||
+      !runtime->structured_session_bound ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      runtime->structured_evaluation_in_flight ||
+      runtime->structured_session_terminated ||
+      !runtime->structured_async_failure_events.empty() ||
+      runtime->structured_async_failure_dropped != 0 ||
+      runtime->structured_async_failure_failed) {
+    return 1;
+  }
+
+  const uint64_t firstOrdinal =
+      runtime->next_structured_submission_ordinal;
+  if (firstOrdinal == 0 ||
+      firstOrdinal > std::numeric_limits<uint64_t>::max() - 2) {
+    return 2;
+  }
+
+  auto makeCredential = [runtime](uint64_t ordinal, uint8_t bindingByte) {
+    ExHermesSessionCredential credential{};
+    credential.abi_version = EX_HERMES_STRUCTURED_EVAL_ABI_VERSION;
+    credential.struct_size = sizeof(credential);
+    std::copy(
+        runtime->structured_session_token.begin(),
+        runtime->structured_session_token.end(),
+        credential.session_token);
+    std::fill(
+        credential.request_binding,
+        credential.request_binding + EX_HERMES_REQUEST_BINDING_LENGTH,
+        bindingByte);
+    credential.ordinal = ordinal;
+    return credential;
+  };
+
+  auto evaluateNumber = [runtime](
+                            const ExHermesSessionCredential& credential,
+                            const char* source,
+                            const char* label,
+                            double expected) -> bool {
+    ExHermesEvaluationResult result{};
+    ex_hermes_evaluation_result_init(&result);
+    const int status = ex_hermes_eval_structured_session(
+        runtime,
+        &credential,
+        reinterpret_cast<const uint8_t*>(source),
+        strlen(source),
+        reinterpret_cast<const uint8_t*>(label),
+        strlen(label),
+        &result);
+    bool matches = status == 0 &&
+        result.outcome_tag == EX_HERMES_EVAL_OUTCOME_VALUE &&
+        result.fault == EX_HERMES_EVAL_FAULT_NONE &&
+        result.value.runtime_nonce == runtime->runtime_nonce &&
+        result.value.handle_id != 0;
+    if (matches) {
+      auto found = runtime->structured_value_handles.find(
+          result.value.handle_id);
+      matches = found != runtime->structured_value_handles.end() &&
+          found->second && found->second->isNumber() &&
+          found->second->asNumber() == expected;
+    }
+    if (result.value.handle_id != 0) {
+      matches =
+          ex_hermes_value_release(runtime, result.value) ==
+              EX_HERMES_EVAL_FAULT_NONE && matches;
+    }
+    ex_hermes_evaluation_result_dispose(&result);
+    return matches;
+  };
+
+  static const char kFirstSource[] = R"JS((function () {
+  globalThis.__ibexDirectSessionBoundary = {
+    foreground: 40,
+    nextTickAfter: false,
+    microtaskAfter: false
+  };
+  process.nextTick(function directSessionNextTickThrow() {
+    throw 'direct-next-tick';
+  });
+  process.nextTick(function directSessionNextTickAfter() {
+    globalThis.__ibexDirectSessionBoundary.nextTickAfter = true;
+  });
+  queueMicrotask(function directSessionMicrotaskThrow() {
+    throw 'direct-microtask';
+  });
+  queueMicrotask(function directSessionMicrotaskAfter() {
+    globalThis.__ibexDirectSessionBoundary.microtaskAfter = true;
+  });
+  globalThis.__ibexDirectSessionBoundary.foreground += 1;
+  return globalThis.__ibexDirectSessionBoundary.foreground;
+})())JS";
+  const auto firstCredential = makeCredential(firstOrdinal, 0xA5);
+  if (!evaluateNumber(
+          firstCredential,
+          kFirstSource,
+          "repl:direct-session-boundary:1",
+          41)) {
+    return 3;
+  }
+
+  if (runtime->structured_async_failure_events.size() != 2 ||
+      runtime->structured_async_failure_dropped != 0 ||
+      runtime->structured_async_failure_failed) {
+    return 4;
+  }
+  bool sawNextTick = false;
+  bool sawMicrotask = false;
+  for (const auto& event : runtime->structured_async_failure_events) {
+    auto found = runtime->structured_value_handles.find(event.handleId);
+    if (event.runtimeNonce != runtime->runtime_nonce ||
+        event.eventId == 0 || event.associatedEvaluation != firstOrdinal ||
+        found == runtime->structured_value_handles.end() || !found->second ||
+        !found->second->isString()) {
+      return 5;
+    }
+    const std::string reason =
+        found->second->getString(*runtime->runtime).utf8(*runtime->runtime);
+    if (event.kind == EX_HERMES_ASYNC_FAILURE_NEXT_TICK &&
+        reason == "direct-next-tick") {
+      sawNextTick = true;
+    } else if (event.kind == EX_HERMES_ASYNC_FAILURE_MICROTASK &&
+               reason == "direct-microtask") {
+      sawMicrotask = true;
+    } else {
+      return 6;
+    }
+  }
+  if (!sawNextTick || !sawMicrotask) return 7;
+
+  static const char kSecondSource[] = R"JS((function () {
+  var state = globalThis.__ibexDirectSessionBoundary;
+  var result = state.foreground +
+      (state.nextTickAfter ? 1 : -100) +
+      (state.microtaskAfter ? 1 : -100);
+  delete globalThis.__ibexDirectSessionBoundary;
+  return result;
+})())JS";
+  const auto secondCredential = makeCredential(firstOrdinal + 1, 0x5A);
+  if (!evaluateNumber(
+          secondCredential,
+          kSecondSource,
+          "repl:direct-session-boundary:2",
+          43)) {
+    return 8;
+  }
+  if (runtime->structured_async_failure_events.size() != 2 ||
+      runtime->structured_evaluation_in_flight ||
+      runtime->structured_session_terminated ||
+      runtime->structured_active_work_target_id != 0 ||
+      runtime->next_structured_submission_ordinal != firstOrdinal + 2) {
+    return 9;
+  }
+  return 0;
+}
+#endif
+
 // @abi-output ex_hermes_eval_lowered_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
 extern "C" int ex_hermes_eval_lowered_session(
     ExactHermesRuntime* runtime,
@@ -9552,8 +10483,12 @@ extern "C" int ex_hermes_eval_lowered_session(
   }
 
   std::vector<StructuredDeclarationPlanEntry> plan;
+  std::string declarationCollision;
   if (!buildStructuredDeclarationPlan(
-          declarations, declaration_count, &plan)) {
+          declarations,
+          declaration_count,
+          &plan,
+          &declarationCollision)) {
     structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
     return 0;
   }
@@ -9611,6 +10546,16 @@ extern "C" int ex_hermes_eval_lowered_session(
   ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get());
   std::unique_ptr<ScopedStructuredEvaluation> evaluation;
   try {
+    if (!declarationCollision.empty()) {
+      const auto collision = facebook::jsi::JSError::createSyntaxError(
+          *runtime->runtime, declarationCollision);
+      structuredThrowValue(
+          runtime,
+          collision.value(),
+          kStructuredEvaluatorCapabilities,
+          result);
+      return 0;
+    }
     const std::string label(
         reinterpret_cast<const char*>(source_label), source_label_length);
     if (commonJsEntry) {
@@ -9998,12 +10943,20 @@ extern "C" uint32_t ex_hermes_value_kind(
   if (value->isSymbol()) return EX_HERMES_VALUE_SYMBOL;
   if (value->isBigInt()) return EX_HERMES_VALUE_BIGINT;
   if (value->isObject()) {
-    auto object = value->getObject(*runtime->runtime);
-    if (object.isFunction(*runtime->runtime)) {
-      return EX_HERMES_VALUE_FUNCTION;
-    }
-    if (object.isArray(*runtime->runtime)) {
-      return EX_HERMES_VALUE_ARRAY;
+    try {
+      auto object = value->getObject(*runtime->runtime);
+      if (object.isFunction(*runtime->runtime)) {
+        return EX_HERMES_VALUE_FUNCTION;
+      }
+      if (object.isArray(*runtime->runtime)) {
+        return EX_HERMES_VALUE_ARRAY;
+      }
+    } catch (...) {
+      // IsArray throws for a revoked Proxy.  Stage 1 is deliberately opaque
+      // for any object it cannot classify, and no exception may cross this C
+      // ABI boundary into the host.
+      // @ref LLP 0024#8-safe-inspection
+      return EX_HERMES_VALUE_OBJECT;
     }
     return EX_HERMES_VALUE_OBJECT;
   }
@@ -10026,25 +10979,33 @@ std::string structuredStage1Number(double number) {
   return std::string(buffer, converted.ptr);
 }
 
+// @abi-output ex_hermes_value_stage1_text out_data role=output kind=buffer length=out_length ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_value_stage1_text out_truncated role=output kind=scalar ownership=caller-storage
 extern "C" uint32_t ex_hermes_value_stage1_text(
     ExactHermesRuntime* runtime,
     ExHermesValueHandle handle,
     uint8_t** out_data,
-    size_t* out_length) {
-  if (out_data == nullptr || out_length == nullptr) {
+    size_t* out_length,
+    uint32_t* out_truncated) {
+  if (out_data == nullptr || out_length == nullptr ||
+      out_truncated == nullptr) {
     return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
   }
   *out_data = nullptr;
   *out_length = 0;
+  *out_truncated = 0;
   if (runtime == nullptr ||
       runtime->runtime_thread != std::this_thread::get_id()) {
     return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
   }
   auto* value = structuredValueForHandle(runtime, handle);
   if (value == nullptr) return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
+#ifndef HERMES_HAS_SAFE_STAGE1_TEXT
+  return EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE;
+#endif
   try {
-    auto& rt = *runtime->runtime;
     std::string text;
+    bool truncated = false;
     if (value->isUndefined()) {
       text = "undefined";
     } else if (value->isNull()) {
@@ -10053,16 +11014,21 @@ extern "C" uint32_t ex_hermes_value_stage1_text(
       text = value->getBool() ? "true" : "false";
     } else if (value->isNumber()) {
       text = structuredStage1Number(value->getNumber());
-    } else if (value->isString()) {
-      text = value->getString(rt).utf8(rt);
-    } else if (value->isSymbol()) {
-      text = value->getSymbol(rt).toString(rt);
-    } else if (value->isBigInt()) {
-      text = value->getBigInt(rt).toString(rt).utf8(rt);
+    } else if (value->isString() || value->isSymbol() || value->isBigInt()) {
+#ifndef HERMES_HAS_SAFE_STAGE1_TEXT
+      return EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE;
+#else
+      if (!runtime->runtime->getSafeStage1Text(*value, text, truncated)) {
+        return EX_HERMES_EVAL_FAULT_ENGINE;
+      }
+#endif
     } else {
       // Stage 1 renders object categories from ex_hermes_value_kind. Never
       // touch an object property or invoke a user-replaceable coercion here.
       return EX_HERMES_EVAL_FAULT_NONE;
+    }
+    if (!structuredSafeTextInvariant(text, truncated)) {
+      return EX_HERMES_EVAL_FAULT_ENGINE;
     }
     auto* bytes = static_cast<uint8_t*>(malloc(text.size() + 1));
     if (bytes == nullptr) return EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY;
@@ -10070,6 +11036,7 @@ extern "C" uint32_t ex_hermes_value_stage1_text(
     bytes[text.size()] = 0;
     *out_data = bytes;
     *out_length = text.size();
+    *out_truncated = truncated ? 1u : 0u;
     return EX_HERMES_EVAL_FAULT_NONE;
   } catch (const std::bad_alloc&) {
     return EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY;
@@ -10080,14 +11047,21 @@ extern "C" uint32_t ex_hermes_value_stage1_text(
 
 // @abi-output ex_hermes_value_safe_throw_metadata message role=output kind=aggregate schema=ExHermesOwnedBytes members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_free_string
 // @abi-output ex_hermes_value_safe_throw_metadata stack role=output kind=aggregate schema=ExHermesOwnedBytes members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_value_safe_throw_metadata metadata_fields role=output kind=scalar ownership=caller-storage
+// @abi-output ex_hermes_value_safe_throw_metadata error_class role=output kind=scalar ownership=caller-storage
 extern "C" uint32_t ex_hermes_value_safe_throw_metadata(
     ExactHermesRuntime* runtime,
     ExHermesValueHandle handle,
+    uint32_t* metadata_fields,
+    uint32_t* error_class,
     ExHermesOwnedBytes* message,
     ExHermesOwnedBytes* stack) {
-  if (message == nullptr || stack == nullptr) {
+  if (metadata_fields == nullptr || error_class == nullptr ||
+      message == nullptr || stack == nullptr) {
     return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
   }
+  *metadata_fields = 0;
+  *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
   *message = {nullptr, 0};
   *stack = {nullptr, 0};
   if (runtime == nullptr ||
@@ -10096,21 +11070,46 @@ extern "C" uint32_t ex_hermes_value_safe_throw_metadata(
   }
   auto* value = structuredValueForHandle(runtime, handle);
   if (value == nullptr) return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
+#ifndef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
+  return EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE;
+#endif
   try {
     std::string safeMessage;
     std::string safeStack;
+    uint32_t safeMetadataFields = 0;
     auto captured = runtime->structured_value_safe_throw_metadata.find(
         handle.handle_id);
     if (captured != runtime->structured_value_safe_throw_metadata.end()) {
-      safeMessage = captured->second.first;
-      safeStack = captured->second.second;
+      safeMetadataFields = captured->second.fields;
+      *error_class = captured->second.errorClass;
+      safeMessage = captured->second.message;
+      safeStack = captured->second.stack;
     } else {
-#ifndef HERMES_HAS_SAFE_THROW_METADATA
+#ifndef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
       return EX_HERMES_EVAL_FAULT_RAW_THROW_UNAVAILABLE;
 #else
-      (void)runtime->runtime->getSafeJSErrorMetadata(
-          *value, safeMessage, safeStack);
+      bool messageTruncated = false;
+      bool stackTruncated = false;
+      *error_class = structuredErrorClass(
+          captureStructuredSafeMetadata(
+              runtime->runtime.get(),
+              *value,
+              safeMessage,
+              safeStack,
+              messageTruncated,
+              stackTruncated));
+      safeMetadataFields = structuredSafeMetadataFields(
+          safeMessage, safeStack, messageTruncated, stackTruncated);
 #endif
+    }
+    const bool messageTruncated =
+        (safeMetadataFields & EX_HERMES_THROW_FIELD_MESSAGE_TRUNCATED) != 0;
+    const bool stackTruncated =
+        (safeMetadataFields & EX_HERMES_THROW_FIELD_STACK_TRUNCATED) != 0;
+    if (!structuredSafeTextInvariant(safeMessage, messageTruncated) ||
+        !structuredSafeTextInvariant(safeStack, stackTruncated)) {
+      *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+      return EX_HERMES_EVAL_FAULT_ENGINE;
     }
     if (!copyStructuredOwnedBytes(safeMessage, message) ||
         !copyStructuredOwnedBytes(safeStack, stack)) {
@@ -10118,12 +11117,26 @@ extern "C" uint32_t ex_hermes_value_safe_throw_metadata(
       free(stack->data);
       *message = {nullptr, 0};
       *stack = {nullptr, 0};
+      *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
       return EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY;
     }
+    *metadata_fields = safeMetadataFields;
     return EX_HERMES_EVAL_FAULT_NONE;
   } catch (const std::bad_alloc&) {
+    free(message->data);
+    free(stack->data);
+    *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    *metadata_fields = 0;
+    *message = {nullptr, 0};
+    *stack = {nullptr, 0};
     return EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY;
   } catch (...) {
+    free(message->data);
+    free(stack->data);
+    *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
+    *metadata_fields = 0;
+    *message = {nullptr, 0};
+    *stack = {nullptr, 0};
     return EX_HERMES_EVAL_FAULT_ENGINE;
   }
 }
@@ -10195,6 +11208,7 @@ extern "C" uint32_t ex_hermes_value_release(
   return EX_HERMES_EVAL_FAULT_NONE;
 }
 
+// @abi-output ex_hermes_eval out_value role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_hermes_eval(
     ExactHermesRuntime* runtime,
     const uint8_t* data,
@@ -10275,33 +11289,29 @@ extern "C" int ex_hermes_eval(
       source_buffer = std::make_shared<AlignedBytecodeBuffer>(data, len);
       auto aligned_data = source_buffer->data();
 #if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
-      const auto* disable_check = std::getenv("EX_DISABLE_BYTECODE_SANITY_CHECK");
-      if (!disable_check) {
-        std::string reason;
-        if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
-                aligned_data, len, &reason)) {
-          // Stable prefix so the Rust caller can tell "the bytecode buffer
-          // was rejected before any code ran" apart from "the program ran
-          // and threw" — only the former may delete a cached .hbc and
-          // re-run the JS source (see is_bytecode_load_error, ENG-23484).
-          writeOutError("Bytecode sanity check failed: " + reason);
-          return 2;
-        }
+      std::string reason;
+      if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
+              aligned_data, len, &reason)) {
+        // Stable prefix so the Rust caller can tell "the bytecode buffer
+        // was rejected before any code ran" apart from "the program ran
+        // and threw" — only the former may delete a cached .hbc and
+        // re-run the JS source (see is_bytecode_load_error, ENG-23484).
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        writeOutError("Bytecode sanity check failed: " + reason);
+        return 2;
       }
 #elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
-      const auto* disable_check = std::getenv("EX_DISABLE_BYTECODE_SANITY_CHECK");
-      if (!disable_check) {
-        std::string reason;
-        auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
-            facebook::hermes::makeHermesRootAPI());
-        if (root == nullptr ||
-            !root->hermesBytecodeSanityCheck(aligned_data, len, &reason)) {
-          writeOutError("Bytecode sanity check failed: " +
-                        (root == nullptr ? std::string("Hermes root API unavailable") : reason));
-          // A distinct status is the native proof that no program instruction
-          // ran. User exception text can never manufacture this status.
-          return 2;
-        }
+      std::string reason;
+      auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+          facebook::hermes::makeHermesRootAPI());
+      if (root == nullptr ||
+          !root->hermesBytecodeSanityCheck(aligned_data, len, &reason)) {
+        writeOutError("Bytecode sanity check failed: " +
+                      (root == nullptr ? std::string("Hermes root API unavailable") : reason));
+        // A distinct status is the native proof that no program instruction
+        // ran. User exception text can never manufacture this status.
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        return 2;
       }
 #else
       (void)aligned_data;
@@ -10387,22 +11397,14 @@ extern "C" int ex_hermes_eval(
         // counts *any* referenced work (a `setInterval`, a live server), so an
         // unrelated timer keeps it true and this loop would spin forever when the
         // awaited Promise itself never settles — e.g. `setInterval(()=>{},1000)`
-        // then `await new Promise(()=>{})`. Cap the wait and fall back to
-        // returning the still-pending Promise so the prompt (which holds the
-        // runtime lock across this call) comes back. Override the budget with
-        // IBEX_AWAIT_UNWRAP_TIMEOUT_MS; 0 disables the cap. (ENG-23030 #4)
-        const uint64_t unwrap_budget_ms = []() -> uint64_t {
-          const char* raw = std::getenv("IBEX_AWAIT_UNWRAP_TIMEOUT_MS");
-          if (!raw || !*raw) {
-            return 10000;
-          }
-          char* end = nullptr;
-          unsigned long long parsed = std::strtoull(raw, &end, 10);
-          if (end == raw) {
-            return 10000;
-          }
-          return static_cast<uint64_t>(parsed);
-        }();
+        // then `await new Promise(()=>{})`. The historical environment override
+        // was a post-arming evaluation-time host read and is intentionally
+        // retired: evaluation behavior cannot depend on mutable launcher state.
+        // @ref LLP 0024#9-asynchronous-failures — evaluation budgets are not
+        // environment-configurable after arming.
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming — a
+        // session never re-consults the host environment.
+        constexpr uint64_t unwrap_budget_ms = 10000;
         const uint64_t unwrap_start_ms = nowMs();
 
         while (true) {

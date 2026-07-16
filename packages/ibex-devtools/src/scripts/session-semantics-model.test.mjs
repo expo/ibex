@@ -8,6 +8,9 @@ import fs from "node:fs";
 import {
   EMPTY,
   GATE_CATALOG,
+  GATE_3_DIRECT_ORACLE_EXCLUSIONS,
+  GATE_3_LOWERING_CASES,
+  GATE_3_LOWERING_OBLIGATIONS,
   MATRIX_ROWS,
   MODEL_FIXTURES,
   RESTRICTED_CLASS_CASES,
@@ -24,6 +27,7 @@ import {
   hasRestrictedGlobalProperty,
   isRestrictedClassCase,
   modelSourceDigest,
+  repoRoot,
   restrictedClassExclusions,
   runModelStandardsProbe,
   runStandardsProbe,
@@ -312,12 +316,125 @@ describe("LLP 0024 executable session-semantics model", () => {
     );
     expect(mismatches).toHaveLength(1);
     expect(mismatches[0].id).toBe(cases[0].id);
+  });
 
-    expect(GATE_CATALOG.find(({ id }) => id.startsWith("gate-1"))?.status).toBe(
-      "implementation-adapter-pending",
+  test("external gates identify their exact implemented Rust harness", () => {
+    const expected = new Map([
+      [
+        "gate-1-model-conformance",
+        "session_semantics_conformance::implementation_matches_reference_model_gate",
+      ],
+      [
+        "gate-2-model-validation",
+        "session_semantics_conformance::reference_model_matches_same_engine_growing_script_gate",
+      ],
+      [
+        "gate-3-lowering-fidelity",
+        "session_semantics_conformance::single_input_lowering_fidelity_gate",
+      ],
+    ]);
+    const sourcePath = "src/bin/ibex/session_semantics_conformance.rs";
+    const rustHarness = fs.readFileSync(`${repoRoot}/${sourcePath}`, "utf8");
+    const rustMain = fs.readFileSync(`${repoRoot}/src/bin/ibex/main.rs`, "utf8");
+    expect(rustMain).toContain(
+      '#[cfg(all(test, feature = "capsec-conformance-observer"))]\nmod session_semantics_conformance;',
     );
-    expect(GATE_CATALOG.find(({ id }) => id.startsWith("gate-3"))?.status).toBe(
-      "session-lowering-adapter-pending",
+
+    for (const [id, testName] of expected) {
+      const gate = GATE_CATALOG.find((candidate) => candidate.id === id);
+      expect(gate?.status).toBe("external-harness-implemented");
+      expect(gate?.harness).toEqual({
+        kind: "external-rust-test",
+        cargoTarget: "bin:ibex",
+        requiredFeatures: ["capsec-conformance-observer"],
+        sourcePath,
+        testName,
+        cargoArgs: [
+          "test",
+          "--bin",
+          "ibex",
+          "--features",
+          "capsec-conformance-observer",
+          testName,
+          "--",
+          "--test-threads=1",
+        ],
+      });
+      expect(rustHarness).toContain(
+        `#[tokio::test(flavor = "current_thread")]\nasync fn ${testName.split("::").at(-1)}()`,
+      );
+    }
+  });
+
+  test("gate 3 executes every named lowering obligation without hiding exclusions", () => {
+    const obligationIds = [...GATE_3_LOWERING_OBLIGATIONS];
+    expect(new Set(obligationIds).size).toBe(obligationIds.length);
+
+    const caseIds = GATE_3_LOWERING_CASES.map(({ id }) => id);
+    expect(new Set(caseIds).size).toBe(caseIds.length);
+    const declared = new Set(obligationIds);
+    const observed = new Set();
+    for (const testCase of GATE_3_LOWERING_CASES) {
+      expect(testCase.source.length, testCase.id).toBeGreaterThan(0);
+      expect(testCase.covers.length, testCase.id).toBeGreaterThan(0);
+      for (const obligation of testCase.covers) {
+        expect(declared.has(obligation), `${testCase.id}: ${obligation}`).toBe(
+          true,
+        );
+        observed.add(obligation);
+      }
+      expect(
+        [
+          "equal-completion",
+          "expected-difference",
+          "matching-refusal",
+          "matching-throw",
+        ],
+        testCase.id,
+      ).toContain(testCase.oracle.kind);
+      if (testCase.oracle.kind !== "equal-completion") {
+        expect(testCase.oracle.rationale.length, testCase.id).toBeGreaterThan(0);
+        expect(testCase.oracle.direct, testCase.id).toBeDefined();
+        expect(testCase.oracle.lowered, testCase.id).toBeDefined();
+      }
+    }
+    expect([...observed].sort()).toEqual([...obligationIds].sort());
+
+    expect(
+      GATE_3_LOWERING_CASES.filter(
+        ({ oracle }) => oracle.kind === "expected-difference",
+      ).map(({ oracle }) => oracle.rationale),
+    ).toEqual([
+      "safe-display-quotes-string-completions",
+      "hermes-finally-does-not-apply-update-empty",
+      "hermes-finally-does-not-apply-update-empty",
+      "hermes-finally-does-not-apply-update-empty",
+      "legacy-seam-collapses-undefined-and-empty",
+      "legacy-seam-collapses-undefined-and-empty",
+      "hermes-has-no-session-lexical-tdz",
+      "hermes-rejects-const-assignment-before-runtime",
+    ]);
+    expect(
+      GATE_3_DIRECT_ORACLE_EXCLUSIONS.map(({ id, owner }) => ({ id, owner })),
+    ).toEqual([
+      { id: "script-static-import", owner: "OBL-PARSER-GOAL" },
+      { id: "dynamic-import-expression", owner: "OBL-PARSER-GOAL" },
+      { id: "script-top-level-await", owner: "OBL-PARSER-GOAL" },
+      {
+        id: "script-plus-extensions-parser-goal",
+        owner: "OBL-PARSER-GOAL",
+      },
+    ]);
+
+    const gate = GATE_CATALOG.find(
+      ({ id }) => id === "gate-3-lowering-fidelity",
+    );
+    expect(gate?.status).toBe("external-harness-implemented");
+    expect(gate?.selfContainedCoverage).toContain(
+      `${GATE_3_LOWERING_OBLIGATIONS.length} lowering obligations`,
+    );
+    expect(gate?.selfContainedCoverage).toContain(
+      `${GATE_3_LOWERING_CASES.length} owner-authored cases`,
     );
   });
 

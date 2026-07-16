@@ -14,7 +14,10 @@ import {
 } from "./capsec-conformance.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
-import { authoredTargetAbsenceOutputBindings } from "./capsec-target-absence-output-templates.mjs";
+import {
+  authoredTargetAbsenceOutputBindings,
+  targetAbsenceDispositionRationale,
+} from "./capsec-target-absence-output-templates.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -104,7 +107,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(205);
+    expect(nativePublicFixtures).toHaveLength(219);
     expect(
       nativePublicFixtures
         .filter(
@@ -132,7 +135,7 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.expectedResult === "absent",
       ),
-    ).toHaveLength(26);
+    ).toHaveLength(40);
     expect(recipes.summary.fullyExecutableFixtures).toBe(
       authoredPublicFixtures,
     );
@@ -337,7 +340,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_906);
+    expect(callbackRecipes).toHaveLength(2_982);
     expect(
       Object.fromEntries(
         [
@@ -359,8 +362,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 556,
       "principal-restore": 556,
       "snapshot-mismatch-deny": 556,
-      "cannot-widen-authority": 338,
-      "post-lockdown-invariant": 338,
+      "cannot-widen-authority": 376,
+      "post-lockdown-invariant": 376,
       "non-capability": 6,
     });
     for (const terminalObservedKey of [
@@ -654,7 +657,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(rows).toHaveLength(110);
+    expect(rows).toHaveLength(112);
     expect(rows.every((recipe) => recipe.scenario === "absent")).toBe(true);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
@@ -703,28 +706,21 @@ describe("exact-target CapSec executable recipes", () => {
     );
     const androidGlobal = rows.find(
       (recipe) =>
-        recipe.publicSurfaceProbe.invocation.surfaceName ===
-        "__exactAndroidLocation.getPermissionStatus",
+        recipe.terminalObservedKey ===
+        "native-op:__exactAndroidLocation.getPermissionStatus",
     );
     expect(androidGlobal.publicSurfaceProbe).toMatchObject({
       surfaceObservedKey:
         "native-op:__exactAndroidLocation.getPermissionStatus",
       invocation: {
-        invocationSchema: "ibex/capsec-target-absence-invocation/1",
-        kind: "target-absence",
-        surfaceKind: "native-op",
-        targetTriple: "aarch64-apple-darwin",
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        kind: "native-global-function",
+        globalName: "__exactAndroidLocation.getPermissionStatus",
         sourceDescriptor: {
-          kind: "target-absent-native-operation",
-          targetVariants: ["android"],
-          sourceMetadata: {
-            installationBranches: expect.any(Array),
-          },
-          probeMode: {
-            kind: "runtime-global-property",
-            globalName: "__exactAndroidLocation",
-            memberName: "getPermissionStatus",
-          },
+          kind: "native-global-function",
+          globalName: "__exactAndroidLocation.getPermissionStatus",
+          sourceRef:
+            "src/engine/hermes_runtime_android.cc#jsi-global:__exactAndroidLocation.getPermissionStatus",
         },
         expectedResult: "absent",
         expectedTypedDecisionCount: 0,
@@ -735,47 +731,47 @@ describe("exact-target CapSec executable recipes", () => {
     ).toMatch(/^sha256-/u);
     const iosLayoutTree = rows.find(
       (recipe) =>
-        recipe.publicSurfaceProbe.invocation.surfaceName ===
-        "global:exact.getLayoutTree",
+        recipe.terminalObservedKey ===
+        "native-op:global:exact.getLayoutTree",
     );
     expect(iosLayoutTree.publicSurfaceProbe).toMatchObject({
       surfaceObservedKey: "native-op:global:exact.getLayoutTree",
       invocation: {
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        kind: "native-global-function",
+        globalName: "exact.getLayoutTree",
         sourceDescriptor: {
-          kind: "target-absent-native-operation",
-          targetVariants: ["ios"],
-          probeMode: {
-            kind: "runtime-global-property",
-            globalName: "exact",
-            memberName: "getLayoutTree",
-          },
+          kind: "native-global-function",
+          globalName: "exact.getLayoutTree",
+          sourceRef:
+            "src/engine/hermes_runtime_ios.cc#jsi-global:exact.getLayoutTree",
         },
         expectedResult: "absent",
         expectedTypedDecisionCount: 0,
       },
     });
 
-    expect(bindings).toHaveLength(110);
+    expect(bindings).toHaveLength(115);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "host-abi"),
-    ).toHaveLength(56);
+    ).toHaveLength(59);
     expect(
       bindings.filter((binding) => binding.key.sourceKind === "native-op"),
-    ).toHaveLength(54);
+    ).toHaveLength(56);
     expect(
       bindings.filter(
         (binding) =>
           binding.invocationSchema ===
           "ibex/capsec-target-absence-invocation/1",
       ),
-    ).toHaveLength(102);
+    ).toHaveLength(93);
     expect(
       bindings.filter(
         (binding) =>
           binding.invocationSchema ===
           "ibex/capsec-native-global-invocation/1",
       ),
-    ).toHaveLength(8);
+    ).toHaveLength(22);
 
     const policy = readJson("capsec/registry/output-disposition-policy.json");
     const targetAbsentSurfaceIds = new Set(
@@ -791,14 +787,23 @@ describe("exact-target CapSec executable recipes", () => {
       .map((decision) => canonicalOutputDispositionKey(decision.key))
       .sort();
     expect(actualKeys).toEqual(expectedKeys);
-    expect(targetAbsentDecisions).toHaveLength(110);
+    expect(targetAbsentDecisions).toHaveLength(115);
+    const bindingByKey = new Map(
+      bindings.map((binding) => [
+        canonicalOutputDispositionKey(binding.key),
+        binding,
+      ]),
+    );
     expect(
       targetAbsentDecisions.every(
         (decision) =>
           decision.disposition === "absent" &&
           decision.expectation.outcome === "absent" &&
           decision.expectation.normalizedValue === "absent" &&
-          /target-absence recipe/u.test(decision.rationale),
+          decision.rationale ===
+            targetAbsenceDispositionRationale(
+              bindingByKey.get(canonicalOutputDispositionKey(decision.key)),
+            ),
       ),
     ).toBe(true);
 
@@ -836,7 +841,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "startup-environment",
     );
-    expect(rows).toHaveLength(21);
+    expect(rows).toHaveLength(20);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
     );
@@ -998,7 +1003,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.classification === "effects" &&
         recipe.terminalObservedKey.startsWith("startup:env:"),
     );
-    expect(startupEnvironmentRecipes).toHaveLength(680);
+    expect(startupEnvironmentRecipes).toHaveLength(665);
     expect(
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.terminalObservedKey === "startup:env:CLICOLOR_FORCE",
@@ -1105,7 +1110,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(671);
+    ).toHaveLength(656);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

@@ -2,8 +2,19 @@
 (function() {
 	var _exactPrivateBuiltinBridges = typeof __exactPrivateBuiltinBridges === "object" && __exactPrivateBuiltinBridges ? __exactPrivateBuiltinBridges : null;
 	var _exactSharedRuntimeOwnsGlobals = _exactPrivateBuiltinBridges && _exactPrivateBuiltinBridges.sharedRuntimeBundle === true;
+	var _exactGetVirtualCwd = _exactPrivateBuiltinBridges && typeof _exactPrivateBuiltinBridges.getVirtualCwd === "function" ? _exactPrivateBuiltinBridges.getVirtualCwd : typeof globalThis.__exactGetCwd === "function" ? globalThis.__exactGetCwd : typeof globalThis.process === "object" && globalThis.process !== null && typeof globalThis.process.cwd === "function" ? globalThis.process.cwd.bind(globalThis.process) : null;
 	var URLExport = typeof globalThis !== "undefined" && typeof globalThis.URL === "function" ? globalThis.URL : null;
 	var URLSearchParamsExport = typeof globalThis !== "undefined" && typeof globalThis.URLSearchParams === "function" ? globalThis.URLSearchParams : null;
+	function _resolvePathToFileURLInput(path, isWin) {
+		if (path.charAt(0) === "/" || isWin && (path.charAt(0) === "\\" || /^[A-Za-z]:[\\/]/.test(path))) return path;
+		var cwd = "/";
+		if (typeof _exactGetVirtualCwd === "function") {
+			var observedCwd = _exactGetVirtualCwd();
+			if (typeof observedCwd === "string" && observedCwd.length > 0) cwd = observedCwd;
+		}
+		if (cwd.charAt(cwd.length - 1) !== "/") cwd += "/";
+		return cwd + path;
+	}
 	var _objectURLCounter = 0;
 	var _objectURLRegistry = {};
 	function _createObjectURL(object) {
@@ -2507,6 +2518,7 @@
 			var isWin = false;
 			if (options && typeof options === "object" && options.windows !== void 0) isWin = !!options.windows;
 			else isWin = typeof process !== "undefined" && process.platform === "win32";
+			path = _resolvePathToFileURLInput(path, isWin);
 			if (isWin) {
 				if (path.indexOf("\\\\?\\") === 0) {
 					var rest = path.slice(4);
@@ -2522,14 +2534,12 @@
 					}
 					return new URLExport("file://" + _encodeFileURLPath(uncPath));
 				}
-				return new URLExport("file:///" + _encodeFileURLPath(path.replace(/\\/g, "/")));
+				var windowsPath = path.replace(/\\/g, "/");
+				return new URLExport((windowsPath.charAt(0) === "/" ? "file://" : "file:///") + _encodeFileURLPath(windowsPath));
 			}
 			var encoded = _encodeFileURLPath(path);
 			if (path.charAt(0) === "/") return new URLExport("file://" + encoded);
-			var cwd = "/";
-			if (typeof process !== "undefined" && typeof process.cwd === "function") cwd = process.cwd();
-			if (cwd.charAt(cwd.length - 1) !== "/") cwd += "/";
-			return new URLExport("file://" + _encodeFileURLPath(cwd) + encoded);
+			return new URLExport("file:///" + encoded);
 		},
 		canParse: URL.canParse,
 		urlToHttpOptions,

@@ -1216,6 +1216,9 @@ pub struct Runtime {
     /// native-only and is used solely to select the direct entry object for
     /// digest-bound generated-artifact construction.
     authenticated_project_root: Option<std::path::PathBuf>,
+    /// Exact binary-runtime cache root authenticated before Host/engine
+    /// construction. Armed generated ingress reuses this value verbatim.
+    authenticated_runtime_cache_root: Option<std::path::PathBuf>,
     bundle_format: BundleFormat,
     exec_argv: Vec<String>,
     compat_modes: Vec<String>,
@@ -1306,6 +1309,524 @@ impl AuthenticatedEvaluationFailure {
     }
 }
 
+/// Final semantic disposition of one authenticated file-program execution.
+///
+/// Orderly completion deliberately carries no status: its status is resolved
+/// from the supervisor-authoritative `process.exitCode` mirror only after the
+/// keep-alive set reaches quiescence. A cooperative lifecycle outcome carries
+/// its own status and must never be collapsed into that orderly mirror.
+/// @ref LLP 0025#8-exit-and-lifecycle
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum AuthenticatedFileProgramOutcome {
+    Completed,
+    Lifecycle {
+        status: i32,
+        secondary_diagnostics: Vec<String>,
+    },
+    Failed {
+        status: i32,
+        diagnostic: String,
+    },
+}
+
+fn authenticated_file_lifecycle(status: i32) -> AuthenticatedFileProgramOutcome {
+    AuthenticatedFileProgramOutcome::Lifecycle {
+        status,
+        secondary_diagnostics: Vec::new(),
+    }
+}
+
+fn authenticated_file_throw_diagnostic(thrown: crate::engine::AuthenticatedThrow) -> String {
+    let mut diagnostic = format!(
+        "uncaught file-program exception: {}",
+        thrown.value.diagnostic_text()
+    );
+    if let Some(message) = thrown.metadata.message() {
+        diagnostic.push('\n');
+        diagnostic.push_str(message);
+    }
+    if let Some(stack) = thrown.metadata.stack() {
+        diagnostic.push('\n');
+        diagnostic.push_str(stack);
+    }
+    for position in thrown.metadata.positions() {
+        diagnostic.push_str(&format!(
+            "\nat {}:{}:{}",
+            position.source_label, position.line, position.column
+        ));
+    }
+    diagnostic
+}
+
+fn authenticated_file_lifecycle_outcome(
+    lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+    evaluation_status: i32,
+) -> AuthenticatedFileProgramOutcome {
+    use ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT;
+
+    match lifecycle.take_pending_request() {
+        Some(request) if request.status == evaluation_status => {
+            authenticated_file_lifecycle(request.status)
+        }
+        Some(request) => AuthenticatedFileProgramOutcome::Failed {
+            status: EXIT_STATUS_ENGINE_FAULT,
+            diagnostic: format!(
+                "authenticated file-program lifecycle status disagreed with the supervisor record (evaluation {evaluation_status}, supervisor {}, request {})",
+                request.status, request.request_id
+            ),
+        },
+        None => AuthenticatedFileProgramOutcome::Failed {
+            status: EXIT_STATUS_ENGINE_FAULT,
+            diagnostic: format!(
+                "authenticated file-program lifecycle outcome {evaluation_status} had no pending supervisor record"
+            ),
+        },
+    }
+}
+
+fn authenticated_file_async_failure_outcome(
+    failures: Vec<crate::engine::AuthenticatedAsyncFailure>,
+    receipt_cleanup_error: Option<anyhow::Error>,
+) -> AuthenticatedFileProgramOutcome {
+    use ibex_runtime::session_constants::{
+        EXIT_STATUS_ENGINE_FAULT, EXIT_STATUS_NON_INTERACTIVE_FAILURE,
+    };
+
+    let status = if failures.iter().any(|failure| {
+        matches!(
+            failure,
+            crate::engine::AuthenticatedAsyncFailure::PreReceiptLoss { .. }
+        )
+    }) {
+        // LLP 0024 defines a pre-receipt loss as a worker/engine fault: the
+        // consumer cannot reconstruct which failure event was lost.
+        EXIT_STATUS_ENGINE_FAULT
+    } else {
+        EXIT_STATUS_NON_INTERACTIVE_FAILURE
+    };
+    let mut diagnostic = String::from("unhandled asynchronous file-program failure");
+    for failure in failures {
+        diagnostic.push_str("\n- ");
+        diagnostic.push_str(&failure.to_string());
+    }
+    if let Some(error) = receipt_cleanup_error {
+        diagnostic.push_str(&format!(
+            "\n- suppressed-result cleanup failed after the primary asynchronous failure: {error:#}"
+        ));
+    }
+    AuthenticatedFileProgramOutcome::Failed { status, diagnostic }
+}
+
+fn append_authenticated_file_diagnostic(
+    outcome: AuthenticatedFileProgramOutcome,
+    detail: &str,
+) -> AuthenticatedFileProgramOutcome {
+    match outcome {
+        AuthenticatedFileProgramOutcome::Failed {
+            status,
+            mut diagnostic,
+        } => {
+            diagnostic.push_str("\n- ");
+            diagnostic.push_str(detail);
+            AuthenticatedFileProgramOutcome::Failed { status, diagnostic }
+        }
+        AuthenticatedFileProgramOutcome::Lifecycle {
+            status,
+            mut secondary_diagnostics,
+        } => {
+            secondary_diagnostics.push(detail.to_owned());
+            AuthenticatedFileProgramOutcome::Lifecycle {
+                status,
+                secondary_diagnostics,
+            }
+        }
+        outcome => outcome,
+    }
+}
+
+fn authenticated_file_release_outcome(
+    lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+    request_before_release: Option<ibex_runtime::session_lifecycle::LifecycleExitRequest>,
+    release_error: Option<anyhow::Error>,
+) -> Option<AuthenticatedFileProgramOutcome> {
+    use ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT;
+
+    let request = request_before_release.or_else(|| lifecycle.take_pending_request());
+    if let Some(request) = request {
+        let mut outcome = authenticated_file_lifecycle(request.status);
+        if let Some(error) = release_error {
+            outcome = append_authenticated_file_diagnostic(
+                outcome,
+                &format!(
+                    "failed to release the undisplayed file-program completion after cooperative exit: {error:#}"
+                ),
+            );
+        }
+        return Some(outcome);
+    }
+    release_error.map(|error| AuthenticatedFileProgramOutcome::Failed {
+        status: EXIT_STATUS_ENGINE_FAULT,
+        diagnostic: format!("failed to release the undisplayed file-program completion: {error:#}"),
+    })
+}
+
+async fn preserve_file_evaluation_after_async_collection_error(
+    engine: &dyn Engine,
+    lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+    evaluation: std::result::Result<
+        crate::engine::AuthenticatedEvaluation,
+        AuthenticatedEvaluationFailure,
+    >,
+    collection_error: anyhow::Error,
+) -> AuthenticatedFileProgramOutcome {
+    use crate::engine::AuthenticatedEvaluation;
+    use ibex_runtime::session_constants::{
+        EXIT_STATUS_ENGINE_FAULT, EXIT_STATUS_INTERRUPT, EXIT_STATUS_NON_INTERACTIVE_FAILURE,
+    };
+
+    let collection_detail = format!(
+        "asynchronous failure collection failed after file-program evaluation settled: {collection_error:#}"
+    );
+    match evaluation {
+        Err(error) => {
+            let status = if error.is_engine_fault() {
+                EXIT_STATUS_ENGINE_FAULT
+            } else {
+                EXIT_STATUS_NON_INTERACTIVE_FAILURE
+            };
+            AuthenticatedFileProgramOutcome::Failed {
+                status,
+                diagnostic: format!(
+                    "authenticated file-program evaluation failed: {error:#}\n- {collection_detail}"
+                ),
+            }
+        }
+        Ok(AuthenticatedEvaluation::Lifecycle(status)) => append_authenticated_file_diagnostic(
+            authenticated_file_lifecycle_outcome(lifecycle, status),
+            &collection_detail,
+        ),
+        Ok(AuthenticatedEvaluation::Throw(thrown)) => AuthenticatedFileProgramOutcome::Failed {
+            status: EXIT_STATUS_NON_INTERACTIVE_FAILURE,
+            diagnostic: format!(
+                "{}\n- {collection_detail}",
+                authenticated_file_throw_diagnostic(thrown)
+            ),
+        },
+        Ok(AuthenticatedEvaluation::Cancelled) => AuthenticatedFileProgramOutcome::Failed {
+            status: EXIT_STATUS_INTERRUPT,
+            diagnostic: format!(
+                "authenticated file-program evaluation was cancelled\n- {collection_detail}"
+            ),
+        },
+        Ok(AuthenticatedEvaluation::Value { receipt, .. }) => {
+            let receipt_cleanup_error = match receipt {
+                Some(receipt) => engine.release_undisplayed_value(receipt).await.err(),
+                None => None,
+            };
+            if let Some(request) = lifecycle.take_pending_request() {
+                let mut outcome = authenticated_file_lifecycle(request.status);
+                outcome = append_authenticated_file_diagnostic(outcome, &collection_detail);
+                if let Some(error) = receipt_cleanup_error {
+                    outcome = append_authenticated_file_diagnostic(
+                        outcome,
+                        &format!("suppressed-result cleanup also failed: {error:#}"),
+                    );
+                }
+                return outcome;
+            }
+            let mut diagnostic = collection_detail;
+            if let Some(error) = receipt_cleanup_error {
+                diagnostic.push_str(&format!(
+                    "\n- suppressed-result cleanup also failed: {error:#}"
+                ));
+            }
+            AuthenticatedFileProgramOutcome::Failed {
+                status: EXIT_STATUS_ENGINE_FAULT,
+                diagnostic,
+            }
+        }
+        Ok(AuthenticatedEvaluation::Empty) => {
+            if let Some(request) = lifecycle.take_pending_request() {
+                append_authenticated_file_diagnostic(
+                    authenticated_file_lifecycle(request.status),
+                    &collection_detail,
+                )
+            } else {
+                AuthenticatedFileProgramOutcome::Failed {
+                    status: EXIT_STATUS_ENGINE_FAULT,
+                    diagnostic: collection_detail,
+                }
+            }
+        }
+    }
+}
+
+/// Apply the LLP 0025 non-interactive cause precedence after authenticated
+/// file evaluation. The engine reports asynchronous failures but never chooses
+/// process fatality; this consumer must drain and classify them before orderly
+/// `process.exitCode` can be consulted by the CLI owner.
+/// @ref LLP 0024#9-asynchronous-failures
+/// @ref LLP 0025#8-exit-and-lifecycle
+async fn settle_authenticated_file_program(
+    engine: &dyn Engine,
+    lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+    evaluation: std::result::Result<
+        crate::engine::AuthenticatedEvaluation,
+        AuthenticatedEvaluationFailure,
+    >,
+) -> Result<AuthenticatedFileProgramOutcome> {
+    use crate::engine::AuthenticatedEvaluation;
+    use ibex_runtime::session_constants::{
+        EXIT_STATUS_ENGINE_FAULT, EXIT_STATUS_INTERRUPT, EXIT_STATUS_NON_INTERACTIVE_FAILURE,
+    };
+
+    let initial_async_failures = match engine.take_authenticated_async_failures().await {
+        Ok(failures) => failures,
+        Err(error) => {
+            return Ok(preserve_file_evaluation_after_async_collection_error(
+                engine, lifecycle, evaluation, error,
+            )
+            .await)
+        }
+    };
+    if !initial_async_failures.is_empty() {
+        // Background work can become reportable while a top-level-await file
+        // evaluation is still in flight. Classify that already-published event
+        // before the later foreground outcome, matching the worker-program
+        // settlement path. If the foreground outcome retained a value, release
+        // it as cleanup without allowing a cleanup failure to replace the
+        // already-latched asynchronous cause.
+        let receipt_cleanup_error = match evaluation {
+            Ok(crate::engine::AuthenticatedEvaluation::Value {
+                receipt: Some(receipt),
+                ..
+            }) => engine.release_undisplayed_value(receipt).await.err(),
+            _ => None,
+        };
+        return Ok(authenticated_file_async_failure_outcome(
+            initial_async_failures,
+            receipt_cleanup_error,
+        ));
+    }
+
+    let evaluation = match evaluation {
+        Ok(evaluation) => evaluation,
+        Err(error) => {
+            let status = if error.is_engine_fault() {
+                EXIT_STATUS_ENGINE_FAULT
+            } else {
+                EXIT_STATUS_NON_INTERACTIVE_FAILURE
+            };
+            return Ok(AuthenticatedFileProgramOutcome::Failed {
+                status,
+                diagnostic: format!("authenticated file-program evaluation failed: {error:#}"),
+            });
+        }
+    };
+
+    match evaluation {
+        AuthenticatedEvaluation::Lifecycle(status) => {
+            // The Host's accepted request is supervisor-authoritative. The
+            // engine outcome is only a paired notification and may not select
+            // a different status or manufacture a lifecycle cause.
+            return Ok(authenticated_file_lifecycle_outcome(lifecycle, status));
+        }
+        AuthenticatedEvaluation::Throw(thrown) => {
+            return Ok(AuthenticatedFileProgramOutcome::Failed {
+                status: EXIT_STATUS_NON_INTERACTIVE_FAILURE,
+                diagnostic: authenticated_file_throw_diagnostic(thrown),
+            });
+        }
+        AuthenticatedEvaluation::Cancelled => {
+            return Ok(AuthenticatedFileProgramOutcome::Failed {
+                status: EXIT_STATUS_INTERRUPT,
+                diagnostic: "authenticated file-program evaluation was cancelled".to_owned(),
+            });
+        }
+        AuthenticatedEvaluation::Value { receipt, .. } => {
+            if let Some(receipt) = receipt {
+                // Observe lifecycle on both sides of the potentially blocking
+                // release. Once accepted, that request is the primary cause;
+                // a release failure is secondary cleanup damage only.
+                let request_before_release = lifecycle.take_pending_request();
+                let release_error = engine.release_undisplayed_value(receipt).await.err();
+                if let Some(outcome) = authenticated_file_release_outcome(
+                    lifecycle,
+                    request_before_release,
+                    release_error,
+                ) {
+                    return Ok(outcome);
+                }
+            }
+        }
+        AuthenticatedEvaluation::Empty => {}
+    }
+
+    // A cooperative request can arrive while foreground evaluation is in
+    // flight without being encoded in that evaluation's result. Latch it
+    // before starting any more program work, just as the worker settlement
+    // path does; a later drain failure must not replace this earlier cause.
+    if let Some(request) = lifecycle.take_pending_request() {
+        return Ok(authenticated_file_lifecycle(request.status));
+    }
+
+    // Keep the drain result pending until the asynchronous-event and lifecycle
+    // channels have been inspected. A failure published earlier in the drain
+    // wins before a later cooperative request; otherwise the request carries
+    // the primary cause. Both override orderly process.exitCode.
+    let drain = engine.drive_authenticated_program_to_quiescence().await;
+    let async_failures = match engine.take_authenticated_async_failures().await {
+        Ok(failures) => failures,
+        Err(collection_error) => {
+            // A request committed while the program drain was running is an
+            // already-latched cause. Collection failure is later diagnostic
+            // damage and cannot replace it.
+            if let Some(request) = lifecycle.take_pending_request() {
+                return Ok(append_authenticated_file_diagnostic(
+                    authenticated_file_lifecycle(request.status),
+                    &format!(
+                        "asynchronous failure collection failed after cooperative exit: {collection_error:#}"
+                    ),
+                ));
+            }
+            return Ok(match drain {
+                Err(error) => {
+                    let status = if error.is_engine_fault() {
+                        EXIT_STATUS_ENGINE_FAULT
+                    } else {
+                        EXIT_STATUS_NON_INTERACTIVE_FAILURE
+                    };
+                    AuthenticatedFileProgramOutcome::Failed {
+                        status,
+                        diagnostic: format!(
+                            "authenticated file-program drain failed: {error:#}\n- asynchronous failure collection also failed: {collection_error:#}"
+                        ),
+                    }
+                }
+                Ok(()) => AuthenticatedFileProgramOutcome::Failed {
+                    status: EXIT_STATUS_ENGINE_FAULT,
+                    diagnostic: format!(
+                        "asynchronous failure collection failed after the authenticated file-program drain: {collection_error:#}"
+                    ),
+                },
+            });
+        }
+    };
+    if !async_failures.is_empty() {
+        return Ok(authenticated_file_async_failure_outcome(
+            async_failures,
+            None,
+        ));
+    }
+
+    if let Some(request) = lifecycle.take_pending_request() {
+        return Ok(authenticated_file_lifecycle(request.status));
+    }
+
+    if let Err(error) = drain {
+        let status = if error.is_engine_fault() {
+            EXIT_STATUS_ENGINE_FAULT
+        } else {
+            EXIT_STATUS_NON_INTERACTIVE_FAILURE
+        };
+        return Ok(AuthenticatedFileProgramOutcome::Failed {
+            status,
+            diagnostic: format!("authenticated file-program drain failed: {error:#}"),
+        });
+    }
+
+    Ok(AuthenticatedFileProgramOutcome::Completed)
+}
+
+/// Settle one ready-only turn after `--keep-alive` has reopened an otherwise
+/// completed authenticated file session. Each turn drains the structured
+/// asynchronous-failure lane before treating a cooperative request or engine
+/// error as primary, matching the full program settlement above without
+/// waiting for the keep-alive set to become empty.
+/// @ref LLP 0024#9-asynchronous-failures
+/// @ref LLP 0025#8-exit-and-lifecycle
+async fn settle_authenticated_file_keep_alive_tick(
+    engine: &dyn Engine,
+    lifecycle: &ibex_runtime::session_lifecycle::SessionLifecyclePort,
+) -> Option<AuthenticatedFileProgramOutcome> {
+    use ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT;
+
+    let initial_async_failures = match engine.take_authenticated_async_failures().await {
+        Ok(failures) => failures,
+        Err(error) => {
+            let detail = format!(
+                "asynchronous failure collection failed before the authenticated file keep-alive turn: {error:#}"
+            );
+            if let Some(request) = lifecycle.take_pending_request() {
+                return Some(append_authenticated_file_diagnostic(
+                    authenticated_file_lifecycle(request.status),
+                    &detail,
+                ));
+            }
+            return Some(AuthenticatedFileProgramOutcome::Failed {
+                status: EXIT_STATUS_ENGINE_FAULT,
+                diagnostic: detail,
+            });
+        }
+    };
+    if !initial_async_failures.is_empty() {
+        return Some(authenticated_file_async_failure_outcome(
+            initial_async_failures,
+            None,
+        ));
+    }
+    if let Some(request) = lifecycle.take_pending_request() {
+        return Some(authenticated_file_lifecycle(request.status));
+    }
+
+    let drive = engine.drive_ready_tasks().await;
+    let async_failures = match engine.take_authenticated_async_failures().await {
+        Ok(failures) => failures,
+        Err(collection_error) => {
+            let collection_detail = format!(
+                "asynchronous failure collection failed after the authenticated file keep-alive turn: {collection_error:#}"
+            );
+            if let Some(request) = lifecycle.take_pending_request() {
+                return Some(append_authenticated_file_diagnostic(
+                    authenticated_file_lifecycle(request.status),
+                    &collection_detail,
+                ));
+            }
+            return Some(match drive {
+                Ok(()) => AuthenticatedFileProgramOutcome::Failed {
+                    status: EXIT_STATUS_ENGINE_FAULT,
+                    diagnostic: collection_detail,
+                },
+                Err(error) => AuthenticatedFileProgramOutcome::Failed {
+                    status: EXIT_STATUS_ENGINE_FAULT,
+                    diagnostic: format!(
+                        "authenticated file keep-alive event-loop drive failed: {error:#}\n- {collection_detail}"
+                    ),
+                },
+            });
+        }
+    };
+    if !async_failures.is_empty() {
+        return Some(authenticated_file_async_failure_outcome(
+            async_failures,
+            None,
+        ));
+    }
+    if let Some(request) = lifecycle.take_pending_request() {
+        // Hermes reports its typed lifecycle stop through the same negative
+        // ready-poll return used for faults. The authenticated Host record is
+        // authoritative, so that paired drive error cannot replace or tarnish
+        // the cooperative cause.
+        return Some(authenticated_file_lifecycle(request.status));
+    }
+    drive
+        .err()
+        .map(|error| AuthenticatedFileProgramOutcome::Failed {
+            status: EXIT_STATUS_ENGINE_FAULT,
+            diagnostic: format!("authenticated file keep-alive event-loop drive failed: {error:#}"),
+        })
+}
+
 pub(crate) type ReplEvaluationFailure = AuthenticatedEvaluationFailure;
 
 /// Closed source ingress for the two non-file inline product routes.
@@ -1326,9 +1847,10 @@ pub(crate) struct AuthenticatedInlineIngress {
 
 /// Closed direct-file source ingress. The entry path is reconstructed only
 /// from the digest-bound virtual file URL retained by the armed snapshot; the
-/// original host spelling, bundle cache, `require` wrapper, and bare file
-/// evaluator are not part of this route.
+/// original host spelling, persistent bundle bytes, `require` wrapper, and
+/// bare file evaluator are not part of this route.
 /// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+/// @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
 /// @ref LLP 0023#2-identity-versus-spelling
 /// @ref LLP 0024#1-the-in-memory-source-api
 pub(crate) struct AuthenticatedFileIngress {
@@ -1338,6 +1860,9 @@ pub(crate) struct AuthenticatedFileIngress {
     sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
     entry: ibex_runtime::vfs::NamespacePath,
     project_root: std::path::PathBuf,
+    /// Exact binary-runtime cache root authenticated before arming and reused
+    /// only as the parent of a fresh, process-private generated-artifact root.
+    runtime_cache_root: std::path::PathBuf,
     session_io: crate::terminal_session::SessionIoPlan,
 }
 
@@ -1857,6 +2382,7 @@ impl AuthenticatedFileIngress {
     fn from_armed_runtime(
         host: Host,
         project_root: std::path::PathBuf,
+        runtime_cache_root: std::path::PathBuf,
         session_io: crate::terminal_session::SessionIoPlan,
     ) -> Result<Self> {
         use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
@@ -1902,6 +2428,7 @@ impl AuthenticatedFileIngress {
             sequence,
             entry,
             project_root,
+            runtime_cache_root,
             session_io,
         })
     }
@@ -2007,8 +2534,19 @@ impl AuthenticatedFileIngress {
             .armed_snapshot()
             .context("generated entry requires the authenticated armed snapshot")?;
         let authority = BundleSourceProvenanceAuthority::from_snapshot(snapshot)?;
-        let cache_dir = runtime_cache_dir()?;
-        let fresh_root = FreshGeneratedArtifactRoot::create(&cache_dir)?;
+        // Recheck the actual root selected before arming and reuse that exact
+        // canonical path; generated ingress must never re-read cache settings.
+        // @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
+        let checked_cache = ibex_runtime::cache_topology::authenticate_internal_cache_root(
+            &self.runtime_cache_root,
+            std::slice::from_ref(&self.project_root),
+        )
+        .context("authenticated generated cache no longer has safe topology")?;
+        anyhow::ensure!(
+            checked_cache == self.runtime_cache_root,
+            "authenticated generated cache canonical path changed after arming"
+        );
+        let fresh_root = FreshGeneratedArtifactRoot::create(&self.runtime_cache_root)?;
         let Some(output) = run_fresh_bundler_with_source_provenance(
             &source_entry,
             fresh_root.path(),
@@ -2034,7 +2572,7 @@ impl AuthenticatedFileIngress {
             .source_provenance
             .as_ref()
             .context("authenticated bundle omitted original-source provenance")?;
-        let Some(original) = admitted_single_original_bundle(&manifest, &output) else {
+        let Some(original) = admitted_single_original_bundle(manifest, &output) else {
             return Ok(None);
         };
         if manifest.deps[0].path != source_entry.to_string_lossy()
@@ -2165,7 +2703,8 @@ pub(crate) fn prepare_session_worker_runtime(
             && session_io.route.mode == ArmedExecutionMode::Interactive,
         cli.history_was_explicit,
     );
-    let (host, _digest, project_root) = build_host_with_route(cli, session_io.route)?;
+    let (host, _digest, project_root, _runtime_cache_root) =
+        build_host_with_route(cli, session_io.route)?;
     let snapshot = host
         .armed_snapshot()
         .context("session worker launch requires an authenticated armed snapshot")?;
@@ -2268,6 +2807,10 @@ impl Runtime {
         engine: Arc<dyn Engine>,
         session_io: crate::terminal_session::SessionIoPlan,
     ) -> Self {
+        let compat_modes = host
+            .armed_snapshot()
+            .map(|snapshot| snapshot.bootstrap_compatibility_modes().to_vec())
+            .unwrap_or_default();
         let history_startup = crate::history::HistoryPlatformCapture::capture(
             crate::cli::HistoryMode::Off,
             false,
@@ -2281,9 +2824,10 @@ impl Runtime {
             history_startup,
             session_io: Some(session_io),
             authenticated_project_root: None,
+            authenticated_runtime_cache_root: None,
             bundle_format: BundleFormat::Cjs,
             exec_argv: Vec::new(),
-            compat_modes: Vec::new(),
+            compat_modes,
         }
     }
 
@@ -2307,10 +2851,19 @@ impl Runtime {
                     == capsec_semantics::arming::ArmedExecutionMode::Interactive,
             cli.history_was_explicit,
         );
-        let (host, armed_snapshot_digest, authenticated_project_root) =
-            build_host_with_route(cli, session_io.route)?;
+        let (
+            host,
+            armed_snapshot_digest,
+            authenticated_project_root,
+            authenticated_runtime_cache_root,
+        ) = build_host_with_route(cli, session_io.route)?;
         let authenticated_project_object =
             authenticated_project_history_root_object(&host, &authenticated_project_root)?;
+        let compat_modes = host
+            .armed_snapshot()
+            .context("production Host has no armed snapshot")?
+            .bootstrap_compatibility_modes()
+            .to_vec();
         // Bind only to the root authenticated by that exact Host build. This
         // occurs before the engine/worker is constructed.
         let history_startup = history_platform.bind_authenticated_project_root(Some(
@@ -2320,14 +2873,10 @@ impl Runtime {
             },
         ));
 
-        // Opt-in compat surfaces ride the env contract so the runtime bundle
-        // sees them regardless of bootstrap ordering, and child spawns inherit
-        // them. `__exactCompatModes` is also seeded in the preload for JS-side
-        // introspection. Validate armed startup before this process-global
-        // mutation so a rejected compatibility facade has no side effect.
-        if cli.compat.as_deref() == Some("bun") {
-            std::env::set_var("EXACT_COMPAT_BUN", "1");
-        }
+        // The native/shared bootstrap consumes only the digest-bound
+        // projection above. Do not mirror it into the process environment:
+        // that would let one runtime race or influence a later runtime's
+        // requested snapshot in the same supervisor.
         crate::host::abi::install_host(host.clone());
         let engine = engine::create_engine(&cli.engine, armed_snapshot_digest.as_deref())?;
 
@@ -2348,9 +2897,10 @@ impl Runtime {
             history_startup,
             session_io: Some(session_io),
             authenticated_project_root: Some(authenticated_project_root),
+            authenticated_runtime_cache_root: Some(authenticated_runtime_cache_root),
             bundle_format,
             exec_argv: build_exec_argv(cli),
-            compat_modes: cli.compat.iter().cloned().collect(),
+            compat_modes,
         })
     }
 
@@ -2385,6 +2935,7 @@ impl Runtime {
             history_startup,
             session_io: None,
             authenticated_project_root: None,
+            authenticated_runtime_cache_root: None,
             bundle_format,
             exec_argv: build_audit_exec_argv(cli),
             compat_modes: Vec::new(),
@@ -2397,6 +2948,9 @@ impl Runtime {
 
     // @ref LLP 0025#9-history — terminal code receives only a private capture,
     // never the authenticated root spelling or a locator callable from JS.
+    // The in-process REPL adapter is retained as a target-bring-up seam while
+    // supported product targets use the supervisor-owned worker route.
+    #[allow(dead_code)]
     pub(crate) fn history_startup(&self) -> crate::history::HistoryStartupCapture {
         self.history_startup.clone()
     }
@@ -2444,8 +2998,11 @@ impl Runtime {
     }
 
     /// Claim the single digest-bound direct-file submission route. The adapter
-    /// reconstructs the entry solely from the armed virtual file identity and
-    /// obtains its bytes through the typed VFS read.
+    /// reconstructs the entry solely from the armed virtual file identity,
+    /// obtains its bytes through the typed VFS read, and retains the exact
+    /// pre-arming project/cache roots for fresh generated admission without an
+    /// environment re-read.
+    /// @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
     pub(crate) fn authenticated_file_ingress(&self) -> Result<AuthenticatedFileIngress> {
         let session_io = self
             .session_io
@@ -2454,7 +3011,16 @@ impl Runtime {
             .authenticated_project_root
             .clone()
             .context("file source ingress requires the authenticated project root")?;
-        AuthenticatedFileIngress::from_armed_runtime(self.host.clone(), project_root, session_io)
+        let runtime_cache_root = self
+            .authenticated_runtime_cache_root
+            .clone()
+            .context("file source ingress requires the authenticated runtime cache root")?;
+        AuthenticatedFileIngress::from_armed_runtime(
+            self.host.clone(),
+            project_root,
+            runtime_cache_root,
+            session_io,
+        )
     }
 
     pub fn session_io_plan(&self) -> Option<crate::terminal_session::SessionIoPlan> {
@@ -2514,8 +3080,13 @@ impl Runtime {
             globalThis.__exactCompatModes = {};\n\
             if (Array.isArray(globalThis.__exactCompatModes) && \
                 globalThis.__exactCompatModes.indexOf('bun') !== -1 && \
-                !globalThis.Bun && globalThis.Exact) {{\n\
-              globalThis.Bun = globalThis.Exact;\n\
+                globalThis.Exact) {{\n\
+              Object.defineProperty(globalThis, 'Bun', {{\n\
+                value: globalThis.Exact,\n\
+                writable: false,\n\
+                configurable: false,\n\
+                enumerable: true\n\
+              }});\n\
             }}\n\
             if (typeof globalThis.__exactWhich === 'function') {{\n\
               if (globalThis.Exact) globalThis.Exact.which = globalThis.__exactWhich;\n\
@@ -2601,9 +3172,10 @@ impl Runtime {
         self.engine.eval(code).await
     }
 
-    async fn run_authenticated_file_with_args(&self, args: &[String]) -> Result<Option<String>> {
-        use crate::engine::AuthenticatedEvaluation;
-
+    pub(crate) async fn run_authenticated_file_program(
+        &self,
+        args: &[String],
+    ) -> Result<AuthenticatedFileProgramOutcome> {
         let mut ingress = self.authenticated_file_ingress()?;
         anyhow::ensure!(
             matches!(
@@ -2615,60 +3187,30 @@ impl Runtime {
             ),
             "authenticated file ingress changed route after arming"
         );
-        let evaluation = ingress
-            .evaluate(self.engine.as_ref(), args)
+        let evaluation = ingress.evaluate(self.engine.as_ref(), args).await;
+        settle_authenticated_file_program(
+            self.engine.as_ref(),
+            &self.session_lifecycle(),
+            evaluation,
+        )
+        .await
+    }
+
+    /// Drive and settle one ready-only `--keep-alive` turn. Returning `None`
+    /// means the debug loop may continue; every terminal result retains the
+    /// same fixed-status and cooperative-cause rules as initial file execution.
+    pub(crate) async fn settle_authenticated_file_keep_alive_tick(
+        &self,
+    ) -> Option<AuthenticatedFileProgramOutcome> {
+        settle_authenticated_file_keep_alive_tick(self.engine.as_ref(), &self.session_lifecycle())
             .await
-            .map_err(anyhow::Error::new)?;
-        match evaluation {
-            AuthenticatedEvaluation::Lifecycle(_) => return Ok(None),
-            AuthenticatedEvaluation::Throw(thrown) => {
-                let mut diagnostic =
-                    format!("uncaught file-program exception: {}", thrown.value.text);
-                if let Some(message) = thrown.metadata.message() {
-                    diagnostic.push_str("\n");
-                    diagnostic.push_str(message);
-                }
-                if let Some(stack) = thrown.metadata.stack() {
-                    diagnostic.push_str("\n");
-                    diagnostic.push_str(stack);
-                }
-                for position in thrown.metadata.positions() {
-                    diagnostic.push_str(&format!(
-                        "\nat {}:{}:{}",
-                        position.source_label, position.line, position.column
-                    ));
-                }
-                anyhow::bail!(diagnostic);
-            }
-            AuthenticatedEvaluation::Cancelled => {
-                anyhow::bail!("authenticated file-program evaluation was cancelled")
-            }
-            AuthenticatedEvaluation::Value { receipt, .. } => {
-                if let Some(receipt) = receipt {
-                    self.engine
-                        .release_undisplayed_value(receipt)
-                        .await
-                        .context("failed to release the undisplayed file-program completion")?;
-                }
-            }
-            AuthenticatedEvaluation::Empty => {}
-        }
-        self.engine
-            .drive_authenticated_program_to_quiescence()
-            .await
-            .map_err(anyhow::Error::new)?;
-        Ok(None)
     }
 
     pub async fn run_file_with_args(&self, file: &str, args: &[String]) -> Result<Option<String>> {
-        if self.host.armed_snapshot().is_some() {
-            // The raw CLI spelling was authenticated into the snapshot during
-            // Runtime construction. From this point forward the digest-bound
-            // virtual file identity is the only entry selector; `file` cannot
-            // redirect the already-armed runtime.
-            let _authenticated_at_construction = file;
-            return self.run_authenticated_file_with_args(args).await;
-        }
+        anyhow::ensure!(
+            self.host.armed_snapshot().is_none(),
+            "armed file execution requires the structured file-program settlement path"
+        );
 
         // Use runtime module loader instead of bundling
         // This makes require() work and enables proper module resolution
@@ -3118,13 +3660,17 @@ fn finalize_production_snapshot(value: &mut serde_json::Value) -> Result<()> {
 fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     let session_io = crate::terminal_session::SessionIoPlan::capture_for_cli(cli)
         .context("production host construction requires an execution route")?;
-    let (host, digest, _) = build_host_with_route(cli, session_io.route)?;
+    let (host, digest, _, _) = build_host_with_route(cli, session_io.route)?;
     Ok((host, digest))
 }
 
 #[derive(Clone, Debug)]
 struct AuthenticatedLaunchEntry {
     project_root: std::path::PathBuf,
+    /// Exact canonical binary-runtime cache root checked against the mounted
+    /// project tree. Later startup materialization must reuse this path rather
+    /// than re-reading environment-derived cache configuration.
+    runtime_cache_root: std::path::PathBuf,
     project_discovery: ProjectRootDiscovery,
     entry: capsec_semantics::arming::ArmedEntry,
 }
@@ -3160,6 +3706,18 @@ fn authenticate_launch_entry(
         authenticated_project_root_discovery_for_entry(cli, canonical_file.as_deref())?;
     emit_project_root_discovery_diagnostic(&project_discovery);
     let project_root = project_discovery.selected_root.clone();
+    let runtime_cache_root = runtime_cache_dir()?;
+    std::fs::create_dir_all(&runtime_cache_root).with_context(|| {
+        format!(
+            "failed to create binary runtime cache root {}",
+            runtime_cache_root.display()
+        )
+    })?;
+    let runtime_cache_root = ibex_runtime::cache_topology::authenticate_internal_cache_root(
+        &runtime_cache_root,
+        std::slice::from_ref(&project_root),
+    )
+    .context("binary runtime cache overlaps the authenticated project tree")?;
     let identity = match canonical_file.as_deref() {
         Some(file) => {
             ibex_runtime::vfs::source_label_for_authenticated_project_path(&project_root, file)?
@@ -3179,6 +3737,7 @@ fn authenticate_launch_entry(
     entry.validate().map_err(anyhow::Error::msg)?;
     Ok(AuthenticatedLaunchEntry {
         project_root,
+        runtime_cache_root,
         project_discovery,
         entry,
     })
@@ -3224,10 +3783,69 @@ fn authenticated_project_history_root_object(
     Ok(binding.object.clone())
 }
 
+/// If a snapshot declares the private `home` coordinate, bind it exactly to
+/// the binary cache root independently authenticated for this launch. External
+/// snapshots may omit the private coordinate; it is never treated as a public
+/// VFS mount or as the authority for cache placement.
+/// @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
+fn validate_optional_home_cache_binding(
+    snapshot: &capsec_semantics::arming::ArmedSnapshot,
+    runtime_cache_root: &std::path::Path,
+) -> Result<()> {
+    use capsec_semantics::model::{LogicalRoot, ObjectIdentity};
+
+    let homes = snapshot
+        .root_bindings()?
+        .iter()
+        .filter(|binding| binding.logical_root == LogicalRoot::Home)
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        homes.len() <= 1,
+        "armed snapshot has more than one private home binding"
+    );
+    let Some(home) = homes.first() else {
+        return Ok(());
+    };
+    anyhow::ensure!(
+        home.owner.is_none() && home.logical_path.is_none(),
+        "armed snapshot private home binding is not ownerless"
+    );
+    let home_path = std::fs::canonicalize(runtime_host_path_from_logical(&home.host_path)?)
+        .context("cannot canonicalize armed private home binding")?;
+    anyhow::ensure!(
+        home_path == runtime_cache_root,
+        "armed private home binding differs from the authenticated binary cache root"
+    );
+    let observed: ObjectIdentity =
+        serde_json::from_value(runtime_object_identity_json(&home_path)?)
+            .context("cannot decode authenticated binary cache object identity")?;
+    anyhow::ensure!(
+        observed == home.object,
+        "armed private home binding object differs from the authenticated binary cache root"
+    );
+    Ok(())
+}
+
+fn requested_bootstrap_compatibility_modes(cli: &Cli) -> Vec<String> {
+    let bun = cli.compat.as_deref() == Some("bun") || crate::env_flag_enabled("EXACT_COMPAT_BUN");
+    let fixture = crate::env_flag_enabled("EXACT_COMPAT_TEST");
+    let mut modes = Vec::new();
+    if bun {
+        modes.push("bun".to_owned());
+    }
+    if fixture {
+        modes.push("fixture".to_owned());
+        if std::env::var("EXACT_TEST_SECTION").as_deref() == Ok("bun") {
+            modes.push("fixture:bun".to_owned());
+        }
+    }
+    modes
+}
+
 fn build_host_with_route(
     cli: &Cli,
     route: crate::terminal_session::SelectedExecutionRoute,
-) -> Result<(Host, Option<String>, std::path::PathBuf)> {
+) -> Result<(Host, Option<String>, std::path::PathBuf, std::path::PathBuf)> {
     use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
     use std::sync::Arc;
 
@@ -3296,6 +3914,7 @@ fn build_host_with_route(
             let mut expected = observed_arming_identity(expected, &snapshot_bytes)?;
             let AuthenticatedLaunchEntry {
                 project_root,
+                runtime_cache_root,
                 project_discovery,
                 entry,
             } = launch;
@@ -3306,6 +3925,10 @@ fn build_host_with_route(
             // the fresh nonce and therefore the final armed digest.
             let template = ArmedSnapshot::load(&snapshot_bytes, &expected)
                 .context("refused to authenticate capability snapshot template")?;
+            anyhow::ensure!(
+                template.bootstrap_compatibility_modes().is_empty(),
+                "externally supplied armed snapshots close compatibility bootstrap controls"
+            );
             let mut runtime_document = template.document().clone();
             finalize_production_snapshot(&mut runtime_document)
                 .context("failed to finalize fresh production capability snapshot")?;
@@ -3319,6 +3942,7 @@ fn build_host_with_route(
                 ArmedSnapshot::load(&serde_json::to_vec(&runtime_document)?, &expected)
                     .context("refused to arm finalized capability snapshot")?,
             );
+            validate_optional_home_cache_binding(&snapshot, &runtime_cache_root)?;
             let digest = snapshot.digest().as_str().to_owned();
             let host = Host::new_armed(
                 HostConfig {
@@ -3328,7 +3952,7 @@ fn build_host_with_route(
                 snapshot,
             )
             .context("failed to construct armed capability host")?;
-            Ok((host, Some(digest), project_root))
+            Ok((host, Some(digest), project_root, runtime_cache_root))
         }
     }
 }
@@ -3336,7 +3960,7 @@ fn build_host_with_route(
 fn build_default_armed_host(
     cli: &Cli,
     launch: AuthenticatedLaunchEntry,
-) -> Result<(Host, Option<String>, std::path::PathBuf)> {
+) -> Result<(Host, Option<String>, std::path::PathBuf, std::path::PathBuf)> {
     use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
     use capsec_semantics::digest::{
         compute_checked_contract_digest, compute_domain_digest, DigestKind,
@@ -3357,6 +3981,7 @@ fn build_default_armed_host(
     }
     let AuthenticatedLaunchEntry {
         project_root,
+        runtime_cache_root: cache_root,
         project_discovery,
         entry,
     } = launch;
@@ -3582,6 +4207,12 @@ fn build_default_armed_host(
     )))?;
     value["workflow"] = serde_json::json!("production");
     value["effectiveMode"] = serde_json::json!("enforce");
+    // @ref LLP 0022#11-delegated-obligations — OBL-ENV-BASE is a digest-bound,
+    // explicitly empty session base. Exact-name values can exist only in the
+    // independently authorized principal overlays carried by policy rows.
+    value["environmentBase"] = serde_json::json!([]);
+    value["bootstrapCompatibilityModes"] =
+        serde_json::to_value(requested_bootstrap_compatibility_modes(cli))?;
     value["policyDigest"] = serde_json::json!(policy_digest);
     value["engine"] = serde_json::json!({
         "target": exact_runtime_target(),
@@ -3608,9 +4239,6 @@ fn build_default_armed_host(
         "hostPath": {"root": "absolute", "components": components, "hostBound": true},
         "object": root_object,
     })];
-    let cache_root = runtime_cache_dir()?;
-    std::fs::create_dir_all(&cache_root)?;
-    let cache_root = std::fs::canonicalize(cache_root)?;
     let cache_components = runtime_path_components_json(&cache_root)?;
     let cache_object = runtime_object_identity_json(&cache_root)?;
     root_bindings.push(serde_json::json!({
@@ -3743,6 +4371,7 @@ fn build_default_armed_host(
         &serde_json::to_vec(&value)?,
         &expected,
     )?);
+    validate_optional_home_cache_binding(&snapshot, &cache_root)?;
     let digest = snapshot.digest().as_str().to_owned();
     let host = Host::new_armed(
         HostConfig {
@@ -3751,7 +4380,7 @@ fn build_default_armed_host(
         },
         snapshot,
     )?;
-    Ok((host, Some(digest), project_root))
+    Ok((host, Some(digest), project_root, cache_root))
 }
 
 fn exact_runtime_target() -> String {
@@ -4799,7 +5428,7 @@ fn runtime_object_identity_from_metadata(
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        return Ok(serde_json::json!({
+        Ok(serde_json::json!({
             "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
                 "apple"
             } else if cfg!(target_os = "android") {
@@ -4809,7 +5438,7 @@ fn runtime_object_identity_from_metadata(
             },
             "volume": format!("dev:{}", metadata.dev()),
             "file": format!("ino:{}", metadata.ino()),
-        }));
+        }))
     }
     #[cfg(windows)]
     {
@@ -5200,7 +5829,9 @@ fn validate_runtime_inputs(cli: &Cli, reject_closed_environment: bool) -> Result
                 ..
             })
     );
-    if cli.compat.is_some()
+    let external_arming_artifact_supplied =
+        cli.capsec_armed_snapshot.is_some() || cli.capsec_arming_identity.is_some();
+    if (cli.compat.is_some() && external_arming_artifact_supplied)
         || cli.inspect
         || cli.inspect_wait
         || cli.inspect_open
@@ -5506,8 +6137,9 @@ async fn prepare_entry_with_format_and_bytecode(
     }
 
     let cache_dir = runtime_cache_dir()?;
+    let bundles_root = ensure_real_internal_cache_subdirectory(&cache_dir, "bundles")?;
     let cache_key = bundle_cache_key(&path, bundle_format)?;
-    let artifact_root = bundle_artifact_root(&cache_dir, &cache_key);
+    let artifact_root = bundle_artifact_root(&bundles_root, &cache_key);
 
     if let Some(output) = find_fresh_bundle(&artifact_root, &path, bundle_format).await {
         // Bundle is cached. Try bytecode if not already known incompatible.
@@ -5521,8 +6153,6 @@ async fn prepare_entry_with_format_and_bytecode(
         }
         return Ok(output);
     }
-
-    tokio::fs::create_dir_all(&cache_dir).await?;
 
     // If the source uses top-level await and we're targeting CJS, use ESM instead.
     // Rolldown rejects TLA in CJS mode, but ESM handles it fine. The TLA shim in
@@ -5541,7 +6171,7 @@ async fn prepare_entry_with_format_and_bytecode(
     // If format changed, recompute output path
     let artifact_root = if effective_format != bundle_format {
         let new_key = bundle_cache_key(&path, effective_format)?;
-        bundle_artifact_root(&cache_dir, &new_key)
+        bundle_artifact_root(&bundles_root, &new_key)
     } else {
         artifact_root
     };
@@ -5565,7 +6195,7 @@ async fn prepare_entry_with_format_and_bytecode(
             // blocks that our heuristic missed), retry with ESM format.
             if effective_format == BundleFormat::Cjs && err_msg.contains("Top-level await") {
                 let esm_key = bundle_cache_key(&path, BundleFormat::Esm)?;
-                let esm_root = bundle_artifact_root(&cache_dir, &esm_key);
+                let esm_root = bundle_artifact_root(&bundles_root, &esm_key);
                 match run_bundler(&path, &esm_root, BundleFormat::Esm).await {
                     Ok(output) => output,
                     Err(esm_err) => return Err(esm_err),
@@ -6704,6 +7334,7 @@ fn bytecode_manifest_path(bytecode: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
+#[cfg(test)]
 async fn bytecode_cache_is_fresh(source: &Path, bytecode: &Path) -> bool {
     engine::hermes::bytecode_artifact_is_fresh(source, bytecode).await
 }
@@ -7617,7 +8248,7 @@ fn collect_authenticated_tool_files(
         return Ok(());
     }
     let mut entries = std::fs::read_dir(&canonical)?.collect::<std::result::Result<Vec<_>, _>>()?;
-    entries.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+    entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
         collect_authenticated_tool_files(
             &entry.path(),
@@ -7795,8 +8426,48 @@ fn bundle_file_ext(format: BundleFormat) -> &'static str {
 /// shared `rolldown-runtime.js` name and corrupt each other's cache (a real
 /// hazard for concurrent `ibex run` of different apps, surfaced once enforce
 /// began auto-enabling chunking — ENG-22681). @ref LLP 0013#mechanism-3
-fn bundle_artifact_root(cache_dir: &Path, key: &str) -> PathBuf {
-    cache_dir.join("bundles").join(key)
+fn ensure_real_internal_cache_subdirectory(cache_root: &Path, name: &str) -> Result<PathBuf> {
+    std::fs::create_dir_all(cache_root).with_context(|| {
+        format!(
+            "Failed to create runtime cache root {}",
+            cache_root.display()
+        )
+    })?;
+    let cache_root = std::fs::canonicalize(cache_root).with_context(|| {
+        format!(
+            "Failed to authenticate runtime cache root {}",
+            cache_root.display()
+        )
+    })?;
+    let child = cache_root.join(name);
+    match std::fs::symlink_metadata(&child) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match std::fs::create_dir(&child) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    let metadata = std::fs::symlink_metadata(&child)?;
+    anyhow::ensure!(
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
+        "internal cache subroot must be a real directory: {}",
+        child.display()
+    );
+    let child = std::fs::canonicalize(&child)?;
+    anyhow::ensure!(
+        child.parent() == Some(cache_root.as_path()),
+        "internal cache subroot escaped its authenticated parent: {}",
+        child.display()
+    );
+    Ok(child)
+}
+
+fn bundle_artifact_root(bundles_root: &Path, key: &str) -> PathBuf {
+    bundles_root.join(key)
 }
 
 fn bundle_entry_path(artifact_dir: &Path, format: BundleFormat) -> PathBuf {
@@ -8440,46 +9111,33 @@ enum BundlePublicationMode {
     FreshPrivate,
 }
 
-fn remove_fresh_bundler_injection_environment(command: &mut tokio::process::Command) {
-    // The executable path and bytes are authenticated separately. These
-    // ambient variables can still preload code, redirect module resolution,
-    // or select a persistent transpiler cache before our script starts.
-    const INJECTION_ENVIRONMENT: &[&str] = &[
-        "NODE_OPTIONS",
-        "NODE_PATH",
-        "NODE_COMPILE_CACHE",
-        "NODE_EXTRA_CA_CERTS",
-        "NODE_REPL_EXTERNAL_MODULE",
-        "BUN_OPTIONS",
-        "BUN_BE_BUN",
-        "BUN_ENV",
-        "BUN_INSPECT_PRELOAD",
-        "BUN_INSTALL",
-        "BUN_INSTALL_BIN",
-        "BUN_INSTALL_CACHE_DIR",
-        "BUN_INSTALL_GLOBAL_DIR",
-        "BUN_RUNTIME_TRANSPILER_CACHE_PATH",
-        "BUN_PRELOAD",
-        "BUN_TCC_OPTIONS",
-        "BUNFIG",
-        "NPM_CONFIG_PREFIX",
-        "NPM_CONFIG_USERCONFIG",
-        "npm_config_prefix",
-        "npm_config_userconfig",
-        "OPENSSL_CONF",
-        "SSLKEYLOGFILE",
-        "LD_PRELOAD",
-        "LD_LIBRARY_PATH",
-        "DYLD_INSERT_LIBRARIES",
-        "DYLD_LIBRARY_PATH",
-        "DYLD_FRAMEWORK_PATH",
-        "DYLD_FALLBACK_LIBRARY_PATH",
-        "DYLD_FALLBACK_FRAMEWORK_PATH",
-    ];
-    for name in INJECTION_ENVIRONMENT {
-        command.env_remove(name);
-    }
-    command.env("NODE_DISABLE_COMPILE_CACHE", "1");
+fn configure_js_tool_environment(
+    command: &mut tokio::process::Command,
+    private_environment: &Path,
+) {
+    // Bundler and policy outputs are executed or authenticated downstream.
+    // Start from no inherited environment: a denylist cannot enumerate every
+    // Node/Bun/native-loader injection control, and PATH is unnecessary because
+    // the selected runner is an authenticated absolute path.
+    // @ref LLP 0023#6-path-bearing-observables
+    command.env_clear();
+    command
+        .env("HOME", private_environment)
+        .env("XDG_CONFIG_HOME", private_environment)
+        .env("XDG_CACHE_HOME", private_environment)
+        .env("TMPDIR", private_environment)
+        .env("TMP", private_environment)
+        .env("TEMP", private_environment)
+        .env("BUN_RUNTIME_TRANSPILER_CACHE_PATH", private_environment)
+        .env("NODE_DISABLE_COMPILE_CACHE", "1")
+        .env("LANG", "C")
+        .env("LC_ALL", "C")
+        .env("TZ", "UTC");
+    #[cfg(windows)]
+    command
+        .env("USERPROFILE", private_environment)
+        .env("APPDATA", private_environment)
+        .env("LOCALAPPDATA", private_environment);
 }
 
 async fn run_bundler_with_source_provenance_mode(
@@ -8525,8 +9183,8 @@ async fn run_bundler_with_source_provenance_mode(
         None
     };
 
-    let private_runner_environment = if publication_mode == BundlePublicationMode::FreshPrivate {
-        let path = artifact_root.join(".runner-environment");
+    let private_runner_environment = {
+        let path = stage_dir.join(".runner-environment");
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         {
@@ -8539,17 +9197,10 @@ async fn run_bundler_with_source_provenance_mode(
                 path.display()
             )
         })?;
-        Some(path)
-    } else {
-        None
+        path
     };
-    let private_bun_config = if publication_mode == BundlePublicationMode::FreshPrivate
-        && runner_name == "bun"
-    {
-        let path = private_runner_environment
-            .as_ref()
-            .context("fresh bundler environment is missing")?
-            .join("bunfig.toml");
+    let private_bun_config = if runner_name == "bun" {
+        let path = private_runner_environment.join("bunfig.toml");
         std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -8584,18 +9235,20 @@ async fn run_bundler_with_source_provenance_mode(
         .arg("--sourcemap")
         .arg("--cache-manifest")
         .current_dir(&working_dir);
-    if let Some(private_environment) = private_runner_environment.as_ref() {
-        remove_fresh_bundler_injection_environment(&mut command);
-        command
-            .env("HOME", private_environment)
-            .env("XDG_CONFIG_HOME", private_environment)
-            .env("XDG_CACHE_HOME", private_environment)
-            .env("BUN_RUNTIME_TRANSPILER_CACHE_PATH", private_environment);
-        #[cfg(windows)]
-        command
-            .env("USERPROFILE", private_environment)
-            .env("APPDATA", private_environment)
-            .env("LOCALAPPDATA", private_environment);
+    configure_js_tool_environment(&mut command, &private_runner_environment);
+    #[cfg(test)]
+    if publication_mode == BundlePublicationMode::ReusableCache {
+        // These two barriers exercise cache publication races only. They are
+        // never part of a production compiler environment and FreshPrivate
+        // deliberately withholds them.
+        for name in [
+            "IBEX_TEST_BUNDLE_BARRIER_ENTRY",
+            "IBEX_TEST_BUNDLE_BARRIER_DIR",
+        ] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
     }
     if let Some((authority_path, authority_digest)) = source_provenance_input.as_ref() {
         command
@@ -8620,6 +9273,15 @@ async fn run_bundler_with_source_provenance_mode(
         &format!("bundler via {}", runner_name),
     )
     .await;
+    // Compiler configuration is private scratch, not a cache member.
+    tokio::fs::remove_dir_all(&private_runner_environment)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to remove private bundler environment {}",
+                private_runner_environment.display()
+            )
+        })?;
     if let Some((authority_path, _)) = source_provenance_input.as_ref() {
         // This file contains backing roots and must never become a published
         // cache member. The child has exited, so no consumer retains it.
@@ -8796,9 +9458,35 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
         &root,
         Path::new("packages/ibex-devtools/src/scripts/generate-policy.mjs"),
     )?;
-    let (runner, _runner_name) = find_js_runner()?;
+    let (runner, runner_name) = find_js_runner()?;
+    let private_environment = FreshGeneratedArtifactRoot::create(&std::env::temp_dir())?;
 
     let mut cmd = tokio::process::Command::new(&runner);
+    configure_js_tool_environment(&mut cmd, private_environment.path());
+    cmd.current_dir(std::env::current_dir().context("failed to capture policy working directory")?);
+    if runner_name == "bun" {
+        let bun_config = private_environment.path().join("bunfig.toml");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&bun_config)
+            .and_then(|mut file| {
+                use std::io::Write as _;
+                file.write_all(b"# intentionally empty authenticated policy config\n")
+            })
+            .with_context(|| {
+                format!(
+                    "failed to create private Bun policy config {}",
+                    bun_config.display()
+                )
+            })?;
+        cmd.arg("--no-env-file").arg(format!(
+            "--config={}",
+            bun_config
+                .to_str()
+                .context("private Bun policy config path is not UTF-8")?
+        ));
+    }
     cmd.arg(&script);
     match command {
         PolicyCommands::Generate { entry, out, mode } => {
@@ -8843,21 +9531,51 @@ fn bundler_working_dir() -> Result<PathBuf> {
     Ok(root)
 }
 
-fn find_js_runner() -> Result<(PathBuf, &'static str)> {
-    #[cfg(windows)]
-    {
-        if let Ok(path) = which::which("node") {
-            return Ok((path, "node"));
-        }
-    }
+#[derive(Clone)]
+struct CapturedJsRunnerSelection {
+    path: PathBuf,
+    name: &'static str,
+}
 
-    if let Ok(path) = which::which("bun") {
-        return Ok((path, "bun"));
-    }
-    if let Ok(path) = which::which("node") {
-        return Ok((path, "node"));
+fn discover_js_runner() -> Result<CapturedJsRunnerSelection> {
+    let search_path =
+        std::env::var_os("PATH").context("PATH is unavailable while capturing the JS runner")?;
+    let cwd = std::env::current_dir().context("failed to capture the runner search directory")?;
+    #[cfg(windows)]
+    let candidates = [("node.exe", "node"), ("bun.exe", "bun")];
+    #[cfg(not(windows))]
+    let candidates = [("bun", "bun"), ("node", "node")];
+    for (executable, name) in candidates {
+        let Ok(path) = which::which_in(executable, Some(&search_path), &cwd) else {
+            continue;
+        };
+        let path = std::fs::canonicalize(&path)
+            .with_context(|| format!("failed to capture JS runner {}", path.display()))?;
+        return Ok(CapturedJsRunnerSelection { path, name });
     }
     anyhow::bail!("bun or node is required to run the bundler")
+}
+
+fn captured_js_runner_selection() -> Result<CapturedJsRunnerSelection> {
+    static CAPTURED: std::sync::OnceLock<std::result::Result<CapturedJsRunnerSelection, String>> =
+        std::sync::OnceLock::new();
+    CAPTURED
+        .get_or_init(|| discover_js_runner().map_err(|error| format!("{error:#}")))
+        .clone()
+        .map_err(anyhow::Error::msg)
+}
+
+/// Freeze PATH-based runner selection before any worker, Host, or engine can
+/// execute project code. The selected path is only an operator-trusted input;
+/// BundlerToolchainIdentity is the trust boundary that hashes the canonical
+/// runner and full tool tree and re-verifies them before and after execution.
+pub(crate) fn capture_bundler_runner_selection() {
+    let _ = captured_js_runner_selection();
+}
+
+fn find_js_runner() -> Result<(PathBuf, &'static str)> {
+    let selection = captured_js_runner_selection()?;
+    Ok((selection.path, selection.name))
 }
 
 fn repo_root() -> Result<PathBuf> {
@@ -8990,6 +9708,22 @@ pub(crate) mod tests {
     use crate::cli::Cli;
     use clap::Parser;
     use tempfile::tempdir;
+
+    #[cfg(unix)]
+    #[test]
+    fn bundles_subroot_refuses_preexisting_symlink_redirect() {
+        use std::os::unix::fs::symlink;
+
+        let cache = tempdir().unwrap();
+        let project = tempdir().unwrap();
+        symlink(project.path(), cache.path().join("bundles")).unwrap();
+        let error = ensure_real_internal_cache_subdirectory(cache.path(), "bundles")
+            .expect_err("bundle cache must not follow a preexisting subroot symlink");
+        assert!(
+            error.to_string().contains("must be a real directory"),
+            "unexpected error: {error:#}"
+        );
+    }
 
     fn test_source_provenance_authority(project_root: &Path) -> BundleSourceProvenanceAuthority {
         use capsec_semantics::model::{LogicalRoot, NonEmptyString, Principal};
@@ -9238,6 +9972,595 @@ pub(crate) mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FileProgramSettlementProbeEngine {
+        drive_calls: std::sync::atomic::AtomicUsize,
+        ready_drive_calls: std::sync::atomic::AtomicUsize,
+        async_failure_calls: std::sync::atomic::AtomicUsize,
+        async_failures: std::sync::Mutex<Vec<crate::engine::AuthenticatedAsyncFailure>>,
+        async_failures_after_drive: std::sync::Mutex<Vec<crate::engine::AuthenticatedAsyncFailure>>,
+        async_failure_error_on_call: usize,
+        drain_failure: Option<FileProgramDrainProbeFailure>,
+        ready_drive_failure: bool,
+        ready_lifecycle: Option<(ibex_runtime::session_lifecycle::SessionLifecyclePort, i32)>,
+    }
+
+    #[derive(Clone, Copy)]
+    enum FileProgramDrainProbeFailure {
+        Unhandled,
+        EngineFault,
+    }
+
+    impl FileProgramSettlementProbeEngine {
+        fn with_async_failure(summary: &str) -> Self {
+            Self {
+                async_failures: std::sync::Mutex::new(vec![
+                    crate::engine::AuthenticatedAsyncFailure::capture_unavailable(summary),
+                ]),
+                ..Self::default()
+            }
+        }
+
+        fn with_async_failure_after_drive(summary: &str) -> Self {
+            Self {
+                async_failures_after_drive: std::sync::Mutex::new(vec![
+                    crate::engine::AuthenticatedAsyncFailure::capture_unavailable(summary),
+                ]),
+                ..Self::default()
+            }
+        }
+
+        fn with_pre_receipt_loss(count: u64) -> Self {
+            Self {
+                async_failures: std::sync::Mutex::new(vec![
+                    crate::engine::AuthenticatedAsyncFailure::PreReceiptLoss { count },
+                ]),
+                ..Self::default()
+            }
+        }
+
+        fn with_async_failure_collection_error_on_call(call: usize) -> Self {
+            Self {
+                async_failure_error_on_call: call,
+                ..Self::default()
+            }
+        }
+
+        fn with_drain_and_collection_failures(drain_failure: FileProgramDrainProbeFailure) -> Self {
+            Self {
+                async_failure_error_on_call: 2,
+                drain_failure: Some(drain_failure),
+                ..Self::default()
+            }
+        }
+
+        fn with_ready_lifecycle_and_drive_failure(
+            lifecycle: ibex_runtime::session_lifecycle::SessionLifecyclePort,
+            status: i32,
+        ) -> Self {
+            Self {
+                ready_drive_failure: true,
+                ready_lifecycle: Some((lifecycle, status)),
+                ..Self::default()
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Engine for FileProgramSettlementProbeEngine {
+        fn name(&self) -> &str {
+            "file-program-settlement-probe"
+        }
+
+        fn version(&self) -> Result<String> {
+            Ok("test".to_owned())
+        }
+
+        async fn load_runtime(&self) -> Result<()> {
+            Ok(())
+        }
+
+        async fn eval(&self, _code: &str) -> Result<Option<String>> {
+            anyhow::bail!("file settlement must not use bare evaluation")
+        }
+
+        async fn take_authenticated_async_failures(
+            &self,
+        ) -> Result<Vec<crate::engine::AuthenticatedAsyncFailure>> {
+            let call = self.async_failure_calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if call == self.async_failure_error_on_call {
+                anyhow::bail!("probe asynchronous failure collection failed on call {call}");
+            }
+            Ok(std::mem::take(&mut *self.async_failures.lock().unwrap()))
+        }
+
+        async fn drive_ready_tasks(&self) -> Result<()> {
+            self.ready_drive_calls.fetch_add(1, Ordering::SeqCst);
+            let delayed = std::mem::take(&mut *self.async_failures_after_drive.lock().unwrap());
+            self.async_failures.lock().unwrap().extend(delayed);
+            if let Some((lifecycle, status)) = &self.ready_lifecycle {
+                let _ = lifecycle.request_exit(
+                    ibex_runtime::session_lifecycle::LifecyclePrincipal::Root,
+                    *status,
+                );
+            }
+            if self.ready_drive_failure {
+                anyhow::bail!("ready poll reported the paired lifecycle stop")
+            }
+            Ok(())
+        }
+
+        async fn drive_authenticated_program_to_quiescence(
+            &self,
+        ) -> std::result::Result<(), crate::engine::AuthenticatedProgramDrainFailure> {
+            self.drive_calls.fetch_add(1, Ordering::SeqCst);
+            let delayed = std::mem::take(&mut *self.async_failures_after_drive.lock().unwrap());
+            self.async_failures.lock().unwrap().extend(delayed);
+            match self.drain_failure {
+                None => Ok(()),
+                Some(FileProgramDrainProbeFailure::Unhandled) => {
+                    Err(crate::engine::AuthenticatedProgramDrainFailure::Unhandled(
+                        anyhow::anyhow!("primary program drain failure"),
+                    ))
+                }
+                Some(FileProgramDrainProbeFailure::EngineFault) => Err(
+                    crate::engine::AuthenticatedProgramDrainFailure::EngineFault(anyhow::anyhow!(
+                        "primary program drain engine fault"
+                    )),
+                ),
+            }
+        }
+
+        async fn run_file(&self, _path: &str) -> Result<Option<String>> {
+            anyhow::bail!("file settlement must not use bare file evaluation")
+        }
+
+        async fn start_inspector(&self, _host: &str, _port: u16) -> Result<()> {
+            anyhow::bail!("unexpected inspector start")
+        }
+
+        async fn stop_inspector(&self) -> Result<()> {
+            Ok(())
+        }
+
+        fn supports_feature(&self, _feature: EngineFeature) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn lifecycle_accepted_during_file_release_survives_cleanup_failure() {
+        use ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT;
+        use ibex_runtime::session_lifecycle::{
+            LifecyclePrincipal, LifecycleRequestDisposition, SessionLifecyclePort,
+        };
+
+        let lifecycle = SessionLifecyclePort::default();
+        let request_before_release = lifecycle.take_pending_request();
+        assert!(request_before_release.is_none());
+        assert!(matches!(
+            lifecycle.request_exit(LifecyclePrincipal::Root, 41),
+            LifecycleRequestDisposition::Accepted { .. }
+        ));
+        let outcome = authenticated_file_release_outcome(
+            &lifecycle,
+            request_before_release,
+            Some(anyhow::anyhow!("release failed after lifecycle commit")),
+        )
+        .expect("a lifecycle accepted during release must settle the program");
+        let AuthenticatedFileProgramOutcome::Lifecycle {
+            status,
+            secondary_diagnostics,
+        } = outcome
+        else {
+            panic!("cleanup failure replaced the accepted lifecycle cause")
+        };
+        assert_eq!(status, 41);
+        assert_eq!(secondary_diagnostics.len(), 1);
+        assert!(secondary_diagnostics[0].contains("release failed after lifecycle commit"));
+
+        let no_lifecycle = authenticated_file_release_outcome(
+            &SessionLifecyclePort::default(),
+            None,
+            Some(anyhow::anyhow!("primary release failure")),
+        )
+        .expect("a release failure without lifecycle must settle as a fault");
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = no_lifecycle else {
+            panic!("an unowned release failure must remain an engine fault")
+        };
+        assert_eq!(status, EXIT_STATUS_ENGINE_FAULT);
+        assert!(diagnostic.contains("primary release failure"));
+    }
+
+    #[tokio::test]
+    async fn authenticated_file_program_settlement_preserves_primary_cause() {
+        use crate::engine::AuthenticatedEvaluation;
+        use ibex_runtime::session_constants::EXIT_STATUS_NON_INTERACTIVE_FAILURE;
+        use ibex_runtime::session_lifecycle::{
+            LifecycleGetDisposition, LifecyclePrincipal, LifecycleRequestDisposition,
+            LifecycleSetDisposition, SessionLifecyclePort,
+        };
+
+        // Normal completion drains and checks the structured failure channel,
+        // but leaves the orderly exitCode mirror for the CLI owner to resolve.
+        let normal_engine = FileProgramSettlementProbeEngine::default();
+        let normal_lifecycle = SessionLifecyclePort::default();
+        assert_eq!(
+            normal_lifecycle.set_exit_code(LifecyclePrincipal::Root, 5),
+            LifecycleSetDisposition::Accepted { status: 5 }
+        );
+        assert_eq!(
+            settle_authenticated_file_program(
+                &normal_engine,
+                &normal_lifecycle,
+                Ok(AuthenticatedEvaluation::Empty),
+            )
+            .await
+            .unwrap(),
+            AuthenticatedFileProgramOutcome::Completed
+        );
+        assert_eq!(
+            normal_lifecycle.get_exit_code(LifecyclePrincipal::Root),
+            LifecycleGetDisposition::Value(5)
+        );
+        assert_eq!(normal_engine.drive_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(normal_engine.async_failure_calls.load(Ordering::SeqCst), 2);
+
+        // A foreground lifecycle outcome carries its own status and does not
+        // enter the ordinary completion drain.
+        let lifecycle_engine = FileProgramSettlementProbeEngine::default();
+        let lifecycle = SessionLifecyclePort::default();
+        assert!(matches!(
+            lifecycle.request_exit(LifecyclePrincipal::Root, 7),
+            LifecycleRequestDisposition::Accepted { .. }
+        ));
+        assert_eq!(
+            settle_authenticated_file_program(
+                &lifecycle_engine,
+                &lifecycle,
+                Ok(AuthenticatedEvaluation::Lifecycle(7)),
+            )
+            .await
+            .unwrap(),
+            authenticated_file_lifecycle(7)
+        );
+        assert!(!lifecycle.has_pending_request());
+        assert_eq!(lifecycle_engine.drive_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            lifecycle_engine.async_failure_calls.load(Ordering::SeqCst),
+            1
+        );
+
+        // A cooperative request published while evaluation was in flight is
+        // latched before any further program work can introduce a later cause.
+        let pending_lifecycle_engine = FileProgramSettlementProbeEngine::default();
+        let pending_lifecycle = SessionLifecyclePort::default();
+        assert!(matches!(
+            pending_lifecycle.request_exit(LifecyclePrincipal::Root, 11),
+            LifecycleRequestDisposition::Accepted { .. }
+        ));
+        assert_eq!(
+            settle_authenticated_file_program(
+                &pending_lifecycle_engine,
+                &pending_lifecycle,
+                Ok(AuthenticatedEvaluation::Empty),
+            )
+            .await
+            .unwrap(),
+            authenticated_file_lifecycle(11)
+        );
+        assert!(!pending_lifecycle.has_pending_request());
+        assert_eq!(
+            pending_lifecycle_engine.drive_calls.load(Ordering::SeqCst),
+            0
+        );
+        assert_eq!(
+            pending_lifecycle_engine
+                .async_failure_calls
+                .load(Ordering::SeqCst),
+            1
+        );
+
+        // A failure already published while evaluation was suspended wins
+        // before a later foreground outcome and is drained exactly once.
+        let pre_outcome_engine = FileProgramSettlementProbeEngine::with_async_failure("early");
+        let pre_outcome_lifecycle = SessionLifecyclePort::default();
+        let outcome = settle_authenticated_file_program(
+            &pre_outcome_engine,
+            &pre_outcome_lifecycle,
+            Ok(AuthenticatedEvaluation::Cancelled),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = outcome else {
+            panic!("an already-published asynchronous failure must win")
+        };
+        assert_eq!(status, EXIT_STATUS_NON_INTERACTIVE_FAILURE);
+        assert!(diagnostic.contains("early"));
+        assert_eq!(pre_outcome_engine.drive_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            pre_outcome_engine
+                .async_failure_calls
+                .load(Ordering::SeqCst),
+            1
+        );
+
+        // An unhandled asynchronous failure is the primary termination cause:
+        // it exits 1 even when user code selected a nonzero orderly exitCode.
+        let async_engine = FileProgramSettlementProbeEngine::with_async_failure_after_drive("boom");
+        let async_lifecycle = SessionLifecyclePort::default();
+        assert_eq!(
+            async_lifecycle.set_exit_code(LifecyclePrincipal::Root, 7),
+            LifecycleSetDisposition::Accepted { status: 7 }
+        );
+        let outcome = settle_authenticated_file_program(
+            &async_engine,
+            &async_lifecycle,
+            Ok(AuthenticatedEvaluation::Empty),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = outcome else {
+            panic!("async failure must produce a fixed file-program failure")
+        };
+        assert_eq!(status, EXIT_STATUS_NON_INTERACTIVE_FAILURE);
+        assert!(diagnostic.contains("unhandled asynchronous file-program failure"));
+        assert!(diagnostic.contains("boom"));
+        assert_eq!(
+            async_lifecycle.get_exit_code(LifecyclePrincipal::Root),
+            LifecycleGetDisposition::Value(7),
+            "the failed cause overrides rather than mutating orderly exitCode"
+        );
+        assert_eq!(async_engine.drive_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(async_engine.async_failure_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn authenticated_file_keep_alive_tick_settles_lifecycle_and_async_failure() {
+        use ibex_runtime::session_constants::EXIT_STATUS_NON_INTERACTIVE_FAILURE;
+        use ibex_runtime::session_lifecycle::SessionLifecyclePort;
+
+        // Hermes currently pairs its authenticated lifecycle record with a
+        // negative ready-poll return. The Host record remains authoritative and
+        // the generic drive error must not replace it with status 70.
+        let lifecycle = SessionLifecyclePort::default();
+        let lifecycle_engine =
+            FileProgramSettlementProbeEngine::with_ready_lifecycle_and_drive_failure(
+                lifecycle.clone(),
+                29,
+            );
+        assert_eq!(
+            settle_authenticated_file_keep_alive_tick(&lifecycle_engine, &lifecycle).await,
+            Some(authenticated_file_lifecycle(29))
+        );
+        assert_eq!(lifecycle_engine.ready_drive_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            lifecycle_engine.async_failure_calls.load(Ordering::SeqCst),
+            2
+        );
+
+        // A callback failure published by the ready turn is a fixed
+        // non-interactive failure, rather than falling through to the file's
+        // already-completed outcome and orderly exitCode.
+        let async_engine =
+            FileProgramSettlementProbeEngine::with_async_failure_after_drive("keep-alive boom");
+        let outcome = settle_authenticated_file_keep_alive_tick(
+            &async_engine,
+            &SessionLifecyclePort::default(),
+        )
+        .await
+        .expect("the asynchronous failure must terminate keep-alive");
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = outcome else {
+            panic!("the keep-alive asynchronous failure lost its fixed status")
+        };
+        assert_eq!(status, EXIT_STATUS_NON_INTERACTIVE_FAILURE);
+        assert!(diagnostic.contains("keep-alive boom"));
+        assert_eq!(async_engine.ready_drive_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(async_engine.async_failure_calls.load(Ordering::SeqCst), 2);
+
+        let idle_engine = FileProgramSettlementProbeEngine::default();
+        assert_eq!(
+            settle_authenticated_file_keep_alive_tick(
+                &idle_engine,
+                &SessionLifecyclePort::default(),
+            )
+            .await,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn authenticated_file_program_collection_faults_preserve_fixed_causes() {
+        use crate::engine::AuthenticatedEvaluation;
+        use ibex_runtime::session_constants::{
+            EXIT_STATUS_ENGINE_FAULT, EXIT_STATUS_INTERRUPT, EXIT_STATUS_NON_INTERACTIVE_FAILURE,
+        };
+        use ibex_runtime::session_lifecycle::SessionLifecyclePort;
+
+        let evaluation_engine =
+            FileProgramSettlementProbeEngine::with_async_failure_collection_error_on_call(1);
+        let outcome = settle_authenticated_file_program(
+            &evaluation_engine,
+            &SessionLifecyclePort::default(),
+            Err(AuthenticatedEvaluationFailure::EngineFault(
+                anyhow::anyhow!("primary evaluation engine fault"),
+            )),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = outcome else {
+            panic!("evaluation engine fault must remain fixed")
+        };
+        assert_eq!(status, EXIT_STATUS_ENGINE_FAULT);
+        assert!(diagnostic.contains("primary evaluation engine fault"));
+        assert!(diagnostic.contains("collection failed"));
+
+        let refusal_engine =
+            FileProgramSettlementProbeEngine::with_async_failure_collection_error_on_call(1);
+        let outcome = settle_authenticated_file_program(
+            &refusal_engine,
+            &SessionLifecyclePort::default(),
+            Err(AuthenticatedEvaluationFailure::Refusal(anyhow::anyhow!(
+                "primary evaluation refusal"
+            ))),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = outcome else {
+            panic!("evaluation refusal must remain fixed")
+        };
+        assert_eq!(status, EXIT_STATUS_NON_INTERACTIVE_FAILURE);
+        assert!(diagnostic.contains("primary evaluation refusal"));
+        assert!(diagnostic.contains("collection failed"));
+
+        let cancellation_engine =
+            FileProgramSettlementProbeEngine::with_async_failure_collection_error_on_call(1);
+        let outcome = settle_authenticated_file_program(
+            &cancellation_engine,
+            &SessionLifecyclePort::default(),
+            Ok(AuthenticatedEvaluation::Cancelled),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = outcome else {
+            panic!("cancellation must remain fixed")
+        };
+        assert_eq!(status, EXIT_STATUS_INTERRUPT);
+        assert!(diagnostic.contains("was cancelled"));
+        assert!(diagnostic.contains("collection failed"));
+
+        for (drain_failure, expected_status, primary) in [
+            (
+                FileProgramDrainProbeFailure::Unhandled,
+                EXIT_STATUS_NON_INTERACTIVE_FAILURE,
+                "primary program drain failure",
+            ),
+            (
+                FileProgramDrainProbeFailure::EngineFault,
+                EXIT_STATUS_ENGINE_FAULT,
+                "primary program drain engine fault",
+            ),
+        ] {
+            let engine =
+                FileProgramSettlementProbeEngine::with_drain_and_collection_failures(drain_failure);
+            let outcome = settle_authenticated_file_program(
+                &engine,
+                &SessionLifecyclePort::default(),
+                Ok(AuthenticatedEvaluation::Empty),
+            )
+            .await
+            .unwrap();
+            let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = outcome else {
+                panic!("program drain cause must remain fixed")
+            };
+            assert_eq!(status, expected_status);
+            assert!(diagnostic.contains(primary));
+            assert!(diagnostic.contains("collection also failed"));
+        }
+    }
+
+    #[tokio::test]
+    async fn authenticated_file_program_collection_fault_without_primary_is_engine_fault() {
+        use crate::engine::AuthenticatedEvaluation;
+        use ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT;
+        use ibex_runtime::session_lifecycle::SessionLifecyclePort;
+
+        let engine =
+            FileProgramSettlementProbeEngine::with_async_failure_collection_error_on_call(1);
+        let outcome = settle_authenticated_file_program(
+            &engine,
+            &SessionLifecyclePort::default(),
+            Ok(AuthenticatedEvaluation::Empty),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = outcome else {
+            panic!("an unowned collection fault must terminate as an engine fault")
+        };
+        assert_eq!(status, EXIT_STATUS_ENGINE_FAULT);
+        assert!(diagnostic.contains("collection failed"));
+
+        let engine = FileProgramSettlementProbeEngine::with_pre_receipt_loss(3);
+        let outcome = settle_authenticated_file_program(
+            &engine,
+            &SessionLifecyclePort::default(),
+            Ok(AuthenticatedEvaluation::Empty),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = outcome else {
+            panic!("pre-receipt loss must terminate as an engine fault")
+        };
+        assert_eq!(status, EXIT_STATUS_ENGINE_FAULT);
+        assert!(diagnostic.contains("lost 3 asynchronous failure event(s) before receipt"));
+    }
+
+    #[tokio::test]
+    async fn authenticated_file_program_lifecycle_requires_matching_supervisor_record() {
+        use crate::engine::AuthenticatedEvaluation;
+        use ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT;
+        use ibex_runtime::session_lifecycle::{
+            LifecyclePrincipal, LifecycleRequestDisposition, SessionLifecyclePort,
+        };
+
+        let missing = settle_authenticated_file_program(
+            &FileProgramSettlementProbeEngine::default(),
+            &SessionLifecyclePort::default(),
+            Ok(AuthenticatedEvaluation::Lifecycle(7)),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = missing else {
+            panic!("a lifecycle outcome without a supervisor record must fail closed")
+        };
+        assert_eq!(status, EXIT_STATUS_ENGINE_FAULT);
+        assert!(diagnostic.contains("had no pending supervisor record"));
+
+        let mismatch_port = SessionLifecyclePort::default();
+        assert!(matches!(
+            mismatch_port.request_exit(LifecyclePrincipal::Root, 9),
+            LifecycleRequestDisposition::Accepted { .. }
+        ));
+        let mismatch = settle_authenticated_file_program(
+            &FileProgramSettlementProbeEngine::default(),
+            &mismatch_port,
+            Ok(AuthenticatedEvaluation::Lifecycle(7)),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Failed { status, diagnostic } = mismatch else {
+            panic!("a mismatched lifecycle outcome must fail closed")
+        };
+        assert_eq!(status, EXIT_STATUS_ENGINE_FAULT);
+        assert!(diagnostic.contains("evaluation 7"));
+        assert!(diagnostic.contains("supervisor 9"));
+        assert!(!mismatch_port.has_pending_request());
+
+        let matching_port = SessionLifecyclePort::default();
+        assert!(matches!(
+            matching_port.request_exit(LifecyclePrincipal::Root, 11),
+            LifecycleRequestDisposition::Accepted { .. }
+        ));
+        let matching = settle_authenticated_file_program(
+            &FileProgramSettlementProbeEngine::with_async_failure_collection_error_on_call(1),
+            &matching_port,
+            Ok(AuthenticatedEvaluation::Lifecycle(11)),
+        )
+        .await
+        .unwrap();
+        let AuthenticatedFileProgramOutcome::Lifecycle {
+            status,
+            secondary_diagnostics,
+        } = matching
+        else {
+            panic!("a matching lifecycle outcome must preserve its status")
+        };
+        assert_eq!(status, 11);
+        assert_eq!(secondary_diagnostics.len(), 1);
+        assert!(secondary_diagnostics[0].contains("collection failed"));
+        assert!(!matching_port.has_pending_request());
+    }
+
     fn inspector_probe_runtime(host: Host, engine: Arc<InspectorProbeEngine>) -> Runtime {
         Runtime {
             engine,
@@ -9251,6 +10574,7 @@ pub(crate) mod tests {
             .bind_authenticated_project_root(None),
             session_io: None,
             authenticated_project_root: None,
+            authenticated_runtime_cache_root: None,
             bundle_format: BundleFormat::Cjs,
             exec_argv: Vec::new(),
             compat_modes: Vec::new(),
@@ -9269,6 +10593,7 @@ pub(crate) mod tests {
         assert_eq!(engine.starts.load(Ordering::SeqCst), 1);
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test]
     async fn session_worker_material_runtime_refuses_inspector_before_engine_dispatch() {
         let project = tempdir().unwrap();
@@ -9324,6 +10649,7 @@ pub(crate) mod tests {
             .bind_authenticated_project_root(None),
             session_io: None,
             authenticated_project_root: None,
+            authenticated_runtime_cache_root: None,
             bundle_format: BundleFormat::Cjs,
             exec_argv: vec!["--test-runtime-flag".to_owned()],
             compat_modes: Vec::new(),
@@ -9346,6 +10672,143 @@ pub(crate) mod tests {
                 "the one trusted preload omitted {temporary_root}"
             );
         }
+    }
+
+    #[cfg(all(not(windows), feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_bun_preload_pins_the_canonical_principal_environment_proxy() {
+        struct ResetHost;
+        impl Drop for ResetHost {
+            fn drop(&mut self) {
+                crate::host::abi::install_host(Host::strict());
+            }
+        }
+
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _environment = ProductionEnvGuard::capture();
+        std::env::set_var("NODE_ENV", "host-production-must-not-project");
+        let project = tempdir().unwrap();
+        let host = armed_ingress_test_host_with_compatibility(
+            project.path(),
+            capsec_semantics::arming::ArmedEntryKind::Repl,
+            "ibex:repl",
+            capsec_semantics::arming::ArmedExecutionMode::Transcript,
+            &["bun"],
+        );
+        let digest = host.armed_snapshot().unwrap().digest().as_str().to_owned();
+        let compat_modes = host
+            .armed_snapshot()
+            .unwrap()
+            .bootstrap_compatibility_modes()
+            .to_vec();
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = ResetHost;
+        let engine: Arc<dyn Engine> = Arc::new(
+            crate::engine::hermes::HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap(),
+        );
+        let runtime = Runtime {
+            engine,
+            host: host.clone(),
+            runtime_bootstrap_loaded: tokio::sync::OnceCell::new(),
+            history_startup: crate::history::HistoryPlatformCapture::capture(
+                crate::cli::HistoryMode::Off,
+                false,
+                false,
+            )
+            .bind_authenticated_project_root(None),
+            session_io: None,
+            authenticated_project_root: None,
+            authenticated_runtime_cache_root: None,
+            bundle_format: BundleFormat::Cjs,
+            exec_argv: Vec::new(),
+            compat_modes,
+        };
+
+        runtime.load_runtime().await.unwrap();
+        let session = host.mint_armed_session_token().unwrap();
+        let mut sequence =
+            ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone()).unwrap();
+        let request = sequence
+            .mint_repl(capsec_semantics::model::LogicalPath {
+                root: capsec_semantics::model::LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })
+            .unwrap()
+            .authorize_inline()
+            .bind_bytes(
+                r#"(function () {
+                  var processDescriptor = Object.getOwnPropertyDescriptor(process, 'env');
+                  var exactDescriptor = Object.getOwnPropertyDescriptor(Exact, 'env');
+                  var bunDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Bun');
+                  var before = process.env;
+                  try { process.env = {}; } catch (_error) {}
+                  try { Exact.env = {}; } catch (_error) {}
+                  try { Bun = {}; } catch (_error) {}
+                  try { Object.defineProperty(globalThis, 'Bun', { value: {} }); } catch (_error) {}
+                  return JSON.stringify({
+                    bunIsExact: Bun === Exact,
+                    processIsExact: process.env === Exact.env,
+                    processIsBun: process.env === Bun.env,
+                    hostNodeEnvWithheld: process.env.NODE_ENV === undefined,
+                    principalEnvironmentEmpty: Object.keys(process.env).length === 0,
+                    bunVersionPresent: typeof process.versions.bun === 'string',
+                    identitySurvivedMutation: before === process.env && Bun === Exact,
+                    processDescriptor: {
+                      writable: processDescriptor.writable,
+                      configurable: processDescriptor.configurable
+                    },
+                    exactDescriptor: {
+                      hasGetter: typeof exactDescriptor.get === 'function',
+                      configurable: exactDescriptor.configurable
+                    },
+                    bunDescriptor: {
+                      writable: bunDescriptor.writable,
+                      configurable: bunDescriptor.configurable
+                    }
+                  });
+                })()"#
+                    .as_bytes()
+                    .to_vec(),
+            )
+            .into_request()
+            .unwrap();
+        let evaluation = runtime
+            .engine
+            .evaluate_authenticated(&session, request)
+            .await
+            .unwrap();
+        let crate::engine::AuthenticatedEvaluation::Value { display, receipt } = evaluation else {
+            panic!("authenticated Bun environment probe did not return: {evaluation:?}")
+        };
+        assert_eq!(
+            display.kind,
+            crate::engine::AuthenticatedDisplayKind::String
+        );
+        let encoded: String = serde_json::from_str(&display.text).unwrap();
+        runtime
+            .engine
+            .release_undisplayed_value(receipt.expect("Bun environment probe value receipt"))
+            .await
+            .unwrap();
+        let observed: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(
+            observed,
+            serde_json::json!({
+                "bunIsExact": true,
+                "processIsExact": true,
+                "processIsBun": true,
+                "hostNodeEnvWithheld": true,
+                "principalEnvironmentEmpty": true,
+                "bunVersionPresent": true,
+                "identitySurvivedMutation": true,
+                "processDescriptor": { "writable": false, "configurable": false },
+                "exactDescriptor": { "hasGetter": true, "configurable": false },
+                "bunDescriptor": { "writable": false, "configurable": false }
+            })
+        );
     }
 
     #[tokio::test]
@@ -9377,11 +10840,13 @@ pub(crate) mod tests {
             Self(
                 [
                     "IBEX_LOCKDOWN",
+                    "IBEX_COMPARTMENTS",
                     "IBEX_PER_PACKAGE_CHUNKS",
                     "IBEX_SEAL_SELF_GRANT",
                     "IBEX_ENDOW",
                     "IBEX_REPO_ROOT",
                     "EXACT_REPO_ROOT",
+                    "NODE_ENV",
                 ]
                 .into_iter()
                 .map(|key| (key, std::env::var_os(key)))
@@ -9401,23 +10866,43 @@ pub(crate) mod tests {
         }
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     fn armed_repl_ingress_test_host(
         project_root: &Path,
         mode: capsec_semantics::arming::ArmedExecutionMode,
     ) -> Host {
-        armed_ingress_test_host(
+        armed_ingress_test_host_with_compatibility(
             project_root,
             capsec_semantics::arming::ArmedEntryKind::Repl,
             "ibex:repl",
             mode,
+            &[],
         )
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     fn armed_ingress_test_host(
         project_root: &Path,
         entry_kind: capsec_semantics::arming::ArmedEntryKind,
         entry_identity: &str,
         mode: capsec_semantics::arming::ArmedExecutionMode,
+    ) -> Host {
+        armed_ingress_test_host_with_compatibility(
+            project_root,
+            entry_kind,
+            entry_identity,
+            mode,
+            &[],
+        )
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    fn armed_ingress_test_host_with_compatibility(
+        project_root: &Path,
+        entry_kind: capsec_semantics::arming::ArmedEntryKind,
+        entry_identity: &str,
+        mode: capsec_semantics::arming::ArmedExecutionMode,
+        bootstrap_compatibility_modes: &[&str],
     ) -> Host {
         use capsec_semantics::arming::{
             ArmedEntry, ArmedSnapshot, ExpectedArmingIdentity, ExpectedProtectedArtifact,
@@ -9433,6 +10918,7 @@ pub(crate) mod tests {
         .unwrap();
         value["workflow"] = serde_json::json!("production");
         value["effectiveMode"] = serde_json::json!("enforce");
+        value["bootstrapCompatibilityModes"] = serde_json::json!(bootstrap_compatibility_modes);
         value["entry"] = serde_json::to_value(ArmedEntry {
             kind: entry_kind,
             identity: NonEmptyString::new(entry_identity).unwrap(),
@@ -9530,6 +11016,7 @@ pub(crate) mod tests {
         .unwrap()
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     fn repl_ingress_test_plan(
         mode: capsec_semantics::arming::ArmedExecutionMode,
     ) -> crate::terminal_session::SessionIoPlan {
@@ -9543,7 +11030,28 @@ pub(crate) mod tests {
     pub(crate) fn session_conformance_repl_parts(
         project_root: &Path,
     ) -> Result<(Host, Arc<dyn Engine>, ReplSessionIngress)> {
-        let mode = capsec_semantics::arming::ArmedExecutionMode::Transcript;
+        session_conformance_repl_parts_for_mode(
+            project_root,
+            capsec_semantics::arming::ArmedExecutionMode::Transcript,
+        )
+    }
+
+    /// Observer-only adapter fixture for terminal conformance. The mode is
+    /// authenticated into the same complete test snapshot as the transcript
+    /// gates; this does not create or promote a production target advertisement.
+    #[cfg(feature = "capsec-conformance-observer")]
+    pub(crate) fn session_conformance_repl_parts_for_mode(
+        project_root: &Path,
+        mode: capsec_semantics::arming::ArmedExecutionMode,
+    ) -> Result<(Host, Arc<dyn Engine>, ReplSessionIngress)> {
+        anyhow::ensure!(
+            matches!(
+                mode,
+                capsec_semantics::arming::ArmedExecutionMode::Interactive
+                    | capsec_semantics::arming::ArmedExecutionMode::Transcript
+            ),
+            "session conformance REPL fixture requires an interactive or transcript mode"
+        );
         let host = armed_repl_ingress_test_host(project_root, mode);
         let plan = repl_ingress_test_plan(mode);
         let digest = host
@@ -9558,6 +11066,67 @@ pub(crate) mod tests {
         Ok((host, engine, ingress))
     }
 
+    /// Build an armed observer-only Runtime for the exact production direct
+    /// execution adapters. This substitutes complete test cells without
+    /// creating or promoting a production target advertisement.
+    #[cfg(feature = "capsec-conformance-observer")]
+    pub(crate) fn session_conformance_direct_runtime(
+        project_root: &Path,
+        entry_kind: capsec_semantics::arming::ArmedEntryKind,
+        entry_identity: &str,
+        mode: capsec_semantics::arming::ArmedExecutionMode,
+    ) -> Result<Runtime> {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        anyhow::ensure!(
+            matches!(
+                (entry_kind, mode),
+                (ArmedEntryKind::Eval, ArmedExecutionMode::OneShot)
+                    | (ArmedEntryKind::File, ArmedExecutionMode::Program)
+            ),
+            "direct-execution observer fixture requires eval/one-shot or file/program"
+        );
+        let project_root = std::fs::canonicalize(project_root)
+            .context("direct-execution observer project root is not canonical")?;
+        let runtime_cache_root = project_root
+            .parent()
+            .context("direct-execution observer project root has no parent")?
+            .join(format!(
+                ".ibex-direct-execution-cache-{}",
+                std::process::id()
+            ));
+        std::fs::create_dir_all(&runtime_cache_root)?;
+        let runtime_cache_root = std::fs::canonicalize(runtime_cache_root)?;
+        let host = armed_ingress_test_host(&project_root, entry_kind, entry_identity, mode);
+        let plan = ingress_test_plan(entry_kind, mode);
+        let digest = host
+            .armed_snapshot()
+            .context("direct-execution observer Host has no armed snapshot")?
+            .digest()
+            .as_str()
+            .to_owned();
+        crate::host::abi::install_host(host.clone());
+        let engine = crate::engine::create_engine("hermes", Some(&digest))?;
+        Ok(Runtime {
+            engine,
+            host,
+            runtime_bootstrap_loaded: tokio::sync::OnceCell::new(),
+            history_startup: crate::history::HistoryPlatformCapture::capture(
+                crate::cli::HistoryMode::Off,
+                false,
+                true,
+            )
+            .bind_authenticated_project_root(None),
+            session_io: Some(plan),
+            authenticated_project_root: Some(project_root),
+            authenticated_runtime_cache_root: Some(runtime_cache_root),
+            bundle_format: BundleFormat::Cjs,
+            exec_argv: Vec::new(),
+            compat_modes: Vec::new(),
+        })
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
     fn ingress_test_plan(
         entry_kind: capsec_semantics::arming::ArmedEntryKind,
         mode: capsec_semantics::arming::ArmedExecutionMode,
@@ -10452,8 +12021,14 @@ pub(crate) mod tests {
         (snapshot_path, identity_path, digest, entry_path)
     }
 
-    #[test]
-    fn armed_startup_requires_paired_artifacts() {
+    #[tokio::test]
+    async fn armed_startup_requires_paired_artifacts() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::remove_var("IBEX_LOCKDOWN");
+        std::env::remove_var("IBEX_COMPARTMENTS");
         let cli = Cli::parse_from(["ibex", "--capsec-armed-snapshot", "snapshot.json", "app.ts"]);
         let error = build_host(&cli)
             .err()
@@ -10519,12 +12094,18 @@ pub(crate) mod tests {
         let cli = Cli::parse_from(["ibex", "capsec", "audit", "fixture.js"]);
         reject_closed_diagnostic_cli(&cli).expect("explicit foreground audit remains open");
         let exec_argv = build_audit_exec_argv(&cli);
-        assert_eq!(exec_argv.get(0).map(String::as_str), Some("capsec"));
+        assert_eq!(exec_argv.first().map(String::as_str), Some("capsec"));
         assert_eq!(exec_argv.get(1).map(String::as_str), Some("audit"));
     }
 
-    #[test]
-    fn armed_startup_rejects_legacy_authority_overrides_before_io() {
+    #[tokio::test]
+    async fn armed_startup_rejects_legacy_authority_overrides_before_io() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::remove_var("IBEX_LOCKDOWN");
+        std::env::remove_var("IBEX_COMPARTMENTS");
         let cli = Cli::parse_from([
             "ibex",
             "--capsec-armed-snapshot",
@@ -10550,8 +12131,14 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
-    fn armed_startup_closes_every_inspector_activation_before_io() {
+    #[tokio::test]
+    async fn armed_startup_closes_every_inspector_activation_before_io() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::remove_var("IBEX_LOCKDOWN");
+        std::env::remove_var("IBEX_COMPARTMENTS");
         for inspector_args in [
             vec!["--inspect"],
             vec!["--inspect-wait"],
@@ -10586,8 +12173,14 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
-    fn armed_startup_closes_compatibility_facades_before_io() {
+    #[tokio::test]
+    async fn armed_startup_closes_compatibility_facades_before_io() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::remove_var("IBEX_LOCKDOWN");
+        std::env::remove_var("IBEX_COMPARTMENTS");
         let cli = Cli::parse_from([
             "ibex",
             "--capsec-armed-snapshot",
@@ -10610,7 +12203,26 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn armed_startup_closes_hidden_runtime_fidelity_flags_before_io() {
+    fn default_arming_captures_bun_compatibility_instead_of_rejecting_it() {
+        let cli = Cli::parse_from(["ibex", "--compat", "bun", "app.ts"]);
+        validate_runtime_inputs(&cli, false)
+            .expect("default arming must admit the fixed Bun compatibility mode");
+        assert_eq!(
+            requested_bootstrap_compatibility_modes(&cli)
+                .first()
+                .map(String::as_str),
+            Some("bun")
+        );
+    }
+
+    #[tokio::test]
+    async fn armed_startup_closes_hidden_runtime_fidelity_flags_before_io() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::remove_var("IBEX_LOCKDOWN");
+        std::env::remove_var("IBEX_COMPARTMENTS");
         for fidelity_args in [
             vec!["--expose-internals"],
             vec!["--stack-size", "2048"],
@@ -10657,8 +12269,14 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
-    fn armed_startup_authenticates_engine_before_refusing_unadvertised_target() {
+    #[tokio::test]
+    async fn armed_startup_authenticates_engine_before_refusing_unadvertised_target() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::remove_var("IBEX_LOCKDOWN");
+        std::env::remove_var("IBEX_COMPARTMENTS");
         let directory = tempdir().unwrap();
         let (snapshot, identity, _, entry) = write_arming_fixture(directory.path());
         let cli = Cli::parse_from([
@@ -10746,8 +12364,14 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
-    fn armed_startup_rejects_tampered_template_before_freshening() {
+    #[tokio::test]
+    async fn armed_startup_rejects_tampered_template_before_freshening() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::remove_var("IBEX_LOCKDOWN");
+        std::env::remove_var("IBEX_COMPARTMENTS");
         let directory = tempdir().unwrap();
         let (snapshot, identity, _, entry) = write_arming_fixture(directory.path());
         let mut tampered: serde_json::Value =
@@ -11320,41 +12944,75 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn fresh_bundler_removes_ambient_code_injection_environment() {
+    fn fresh_bundler_builds_only_the_closed_private_environment() {
+        let private = tempdir().unwrap();
         let mut command = tokio::process::Command::new("unused-runner");
-        for name in [
-            "NODE_OPTIONS",
-            "NODE_PATH",
-            "NODE_COMPILE_CACHE",
-            "BUN_OPTIONS",
-            "BUN_INSTALL",
-            "BUN_PRELOAD",
-            "LD_PRELOAD",
-            "DYLD_INSERT_LIBRARIES",
-        ] {
-            command.env(name, "attacker-controlled");
-        }
-        remove_fresh_bundler_injection_environment(&mut command);
+        command.env("IBEX_UNLISTED_PARENT_SENTINEL", "attacker-controlled");
+        configure_js_tool_environment(&mut command, private.path());
         let environment = command
             .as_std()
             .get_envs()
+            .map(|(name, value)| {
+                (
+                    name.to_string_lossy().into_owned(),
+                    value
+                        .expect("fresh environment never carries an env_remove tombstone")
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            })
             .collect::<std::collections::BTreeMap<_, _>>();
-        for name in [
-            "NODE_OPTIONS",
-            "NODE_PATH",
-            "NODE_COMPILE_CACHE",
-            "BUN_OPTIONS",
-            "BUN_INSTALL",
-            "BUN_PRELOAD",
-            "LD_PRELOAD",
-            "DYLD_INSERT_LIBRARIES",
-        ] {
-            assert_eq!(environment.get(std::ffi::OsStr::new(name)), Some(&None));
-        }
-        assert_eq!(
-            environment.get(std::ffi::OsStr::new("NODE_DISABLE_COMPILE_CACHE")),
-            Some(&Some(std::ffi::OsStr::new("1")))
-        );
+        let private = private.path().to_string_lossy().into_owned();
+        #[allow(unused_mut)] // extended with Windows-only private-directory keys
+        let mut expected = std::collections::BTreeMap::from([
+            (
+                "BUN_RUNTIME_TRANSPILER_CACHE_PATH".to_owned(),
+                private.clone(),
+            ),
+            ("HOME".to_owned(), private.clone()),
+            ("LANG".to_owned(), "C".to_owned()),
+            ("LC_ALL".to_owned(), "C".to_owned()),
+            ("NODE_DISABLE_COMPILE_CACHE".to_owned(), "1".to_owned()),
+            ("TEMP".to_owned(), private.clone()),
+            ("TMP".to_owned(), private.clone()),
+            ("TMPDIR".to_owned(), private.clone()),
+            ("TZ".to_owned(), "UTC".to_owned()),
+            ("XDG_CACHE_HOME".to_owned(), private.clone()),
+            ("XDG_CONFIG_HOME".to_owned(), private.clone()),
+        ]);
+        #[cfg(windows)]
+        expected.extend([
+            ("APPDATA".to_owned(), private.clone()),
+            ("LOCALAPPDATA".to_owned(), private.clone()),
+            ("USERPROFILE".to_owned(), private),
+        ]);
+        assert_eq!(environment, expected);
+        assert!(!environment.contains_key("PATH"));
+        assert!(!environment.contains_key("IBEX_UNLISTED_PARENT_SENTINEL"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn fresh_bundler_real_child_does_not_inherit_an_unlisted_parent_value() {
+        let private = tempdir().unwrap();
+        let env_program = ["/usr/bin/env", "/bin/env"]
+            .into_iter()
+            .find(|candidate| Path::new(candidate).is_file())
+            .expect("system env utility");
+        let mut command = tokio::process::Command::new(env_program);
+        command.env("IBEX_UNLISTED_PARENT_SENTINEL", "attacker-controlled");
+        configure_js_tool_environment(&mut command, private.path());
+        let output = command.output().await.unwrap();
+        assert!(output.status.success());
+        let environment = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(environment.len(), 11, "{environment:#?}");
+        assert!(!environment.contains_key("PATH"));
+        assert!(!environment.contains_key("IBEX_UNLISTED_PARENT_SENTINEL"));
     }
 
     #[tokio::test]

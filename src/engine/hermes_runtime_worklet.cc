@@ -705,6 +705,7 @@ extern "C" uint64_t ex_worklet_generation(ExactHermesRuntime* handle) {
 #define EX_WORKLET_ERROR 1
 #define EX_WORKLET_NOOP 2
 
+// @abi-output ex_worklet_install out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_worklet_install(
     ExactHermesRuntime* handle,
     const char* worklet_id,
@@ -764,6 +765,7 @@ extern "C" int ex_worklet_install(
   }
 }
 
+// @abi-output ex_worklet_invoke out_result_json role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_worklet_invoke(
     ExactHermesRuntime* handle,
     const char* worklet_id,
@@ -810,6 +812,7 @@ extern "C" int ex_worklet_invoke(
   }
 }
 
+// @abi-output ex_worklet_install_typed out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_worklet_install_typed(
     ExactHermesRuntime* handle,
     uint32_t install_format,

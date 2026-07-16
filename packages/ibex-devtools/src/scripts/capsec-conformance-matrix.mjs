@@ -31,6 +31,11 @@ export const CONFORMANCE_COMMANDS = Object.freeze([
   ["android-websocket-behavioral", "bun", ["run", "test:android-java"]],
   ["hermes-transform-loader-corpora", "bun", ["run", "test:hermes-compat"]],
   ["capsec-registry-drift", "bun", ["run", "check:capsec-registry"]],
+  [
+    "runtime-environment-inventory-drift",
+    "bun",
+    ["run", "check:runtime-environment-inventory"],
+  ],
   ["capsec-contract-drift", "bun", ["run", "check:capsec-contract"]],
   ["generated-policy-drift", "bun", ["run", "check:example-policy"]],
   ["all-generated-drift", "./scripts/check-generated-drift.sh", []],

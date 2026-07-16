@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 use ibex_windows_dll_staging::stage_runtime_dlls;
 
+#[path = "build_support/hermes_profile_provenance.rs"]
+mod hermes_profile_provenance;
+
 #[derive(Clone)]
 struct AppleFramework {
     search_dir: PathBuf,
@@ -165,6 +168,335 @@ fn read_dir_paths_or_panic(path: &Path, context: &str) -> Vec<PathBuf> {
         paths.push(entry.path());
     }
     paths
+}
+
+const HERMES_PROFILE_PROVENANCE_SCHEMA: &str = "ibex/hermes-profile-provenance-receipt/2";
+
+fn exact_json_object_fields(value: &serde_json::Value, expected: &[&str]) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    let mut actual = object.keys().map(String::as_str).collect::<Vec<_>>();
+    let mut expected = expected.to_vec();
+    actual.sort_unstable();
+    expected.sort_unstable();
+    actual == expected
+}
+
+struct HermesProfileProvenanceInstall<'a> {
+    repo_root: &'a Path,
+    out_dir: &'a Path,
+    receipt_path: &'a Path,
+    selected_binary: &'a Path,
+    selected_linked_dependency: Option<&'a Path>,
+    selected_link_artifact: Option<&'a Path>,
+    target_os: &'a str,
+    target_arch: &'a str,
+}
+
+fn install_hermes_profile_provenance(install: HermesProfileProvenanceInstall<'_>) {
+    let HermesProfileProvenanceInstall {
+        repo_root,
+        out_dir,
+        receipt_path,
+        selected_binary,
+        selected_linked_dependency,
+        selected_link_artifact,
+        target_os,
+        target_arch,
+    } = install;
+    let output = out_dir.join("hermes_profile_provenance.json");
+    println!("cargo:rerun-if-changed=build_support/hermes_profile_provenance.rs");
+    for authority in [
+        "scripts/hermes-version.sh",
+        "scripts/apply-hermes-patches.sh",
+        "scripts/build-hermes.sh",
+        "scripts/build-hermes-linux.sh",
+        "scripts/install-windows-hermes.ps1",
+        "patches/hermes",
+    ] {
+        println!("cargo:rerun-if-changed={authority}");
+    }
+    println!("cargo:rerun-if-env-changed=HERMES_PROFILE_PROVENANCE_RECEIPT");
+    println!("cargo:rerun-if-env-changed=IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE");
+    println!("cargo:rerun-if-changed={}", receipt_path.display());
+    println!("cargo:rerun-if-changed={}", selected_binary.display());
+    if let Some(dependency) = selected_linked_dependency {
+        println!("cargo:rerun-if-changed={}", dependency.display());
+    }
+    if let Some(link_artifact) = selected_link_artifact {
+        println!("cargo:rerun-if-changed={}", link_artifact.display());
+    }
+
+    let required = std::env::var("IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE")
+        .map(|value| {
+            matches!(
+                value.as_str(),
+                "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
+            )
+        })
+        .unwrap_or(false);
+    if !receipt_path.exists() {
+        if required || std::env::var_os("HERMES_PROFILE_PROVENANCE_RECEIPT").is_some() {
+            panic!(
+                "Hermes profile provenance receipt not found at {}. Re-run the platform Hermes installer; authenticated CapSec execution refuses an unbound linked engine.",
+                receipt_path.display()
+            );
+        }
+        std::fs::write(&output, b"null\n").unwrap_or_else(|error| {
+            panic!(
+                "Failed to write absent Hermes provenance marker {}: {error}",
+                output.display()
+            )
+        });
+        return;
+    }
+
+    let bytes = std::fs::read(receipt_path).unwrap_or_else(|error| {
+        panic!(
+            "Failed to read Hermes profile provenance receipt {}: {error}",
+            receipt_path.display()
+        )
+    });
+    let receipt: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+        panic!(
+            "Hermes profile provenance receipt {} is not JSON: {error}",
+            receipt_path.display()
+        )
+    });
+    let exact_receipt_fields = if target_os == "windows" {
+        &[
+            "artifact",
+            "linkArtifact",
+            "origin",
+            "profileId",
+            "schema",
+            "targetVariant",
+        ][..]
+    } else {
+        &["artifact", "origin", "profileId", "schema", "targetVariant"][..]
+    };
+    if !exact_json_object_fields(&receipt, exact_receipt_fields)
+        || receipt["schema"] != HERMES_PROFILE_PROVENANCE_SCHEMA
+    {
+        panic!(
+            "Hermes profile provenance receipt {} has malformed exact fields",
+            receipt_path.display()
+        );
+    }
+    let (profile_id, target_variant, origin_kind) = match target_os {
+        "android" => ("android-maven", "android", "maven-aar"),
+        "windows" => ("windows-nuget", "windows", "nuget-package"),
+        _ => ("source-patched", "default", "source-patched-cache"),
+    };
+    if receipt["profileId"] != profile_id
+        || receipt["targetVariant"] != target_variant
+        || receipt["origin"]["kind"] != origin_kind
+    {
+        panic!(
+            "Hermes profile provenance receipt {} does not name the compiled target's reviewed profile",
+            receipt_path.display()
+        );
+    }
+    let expected_name = selected_binary
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_else(|| {
+            panic!(
+                "Selected Hermes artifact has no UTF-8 filename: {}",
+                selected_binary.display()
+            )
+        });
+    hermes_profile_provenance::validate_reviewed_profile_identity(
+        repo_root,
+        &receipt,
+        target_os,
+        expected_name,
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "Hermes profile provenance receipt {} is not independently bound to the checked-in reviewed profile: {error}",
+            receipt_path.display()
+        )
+    });
+    hermes_profile_provenance::read_validated_artifact_binding(
+        &receipt["artifact"],
+        selected_binary,
+        target_os,
+        target_arch,
+        "Hermes runtime artifact binding",
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "Hermes profile provenance receipt {} does not bind {}: {error}",
+            receipt_path.display(),
+            selected_binary.display()
+        )
+    });
+
+    if let Some(dependency_path) = selected_linked_dependency {
+        let dependency = &receipt["origin"]["linkedDependency"];
+        let dependency_artifact = &dependency["artifact"];
+        if !exact_json_object_fields(
+            dependency,
+            &[
+                "artifact",
+                "packageCoordinate",
+                "packageDigest",
+                "packageRepository",
+            ],
+        ) {
+            panic!(
+                "Hermes profile provenance receipt {} has no exact linked dependency binding",
+                receipt_path.display()
+            );
+        }
+        hermes_profile_provenance::read_validated_artifact_binding(
+            dependency_artifact,
+            dependency_path,
+            target_os,
+            target_arch,
+            "Hermes linked runtime dependency binding",
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "Hermes profile provenance receipt {} does not bind {}: {error}",
+                receipt_path.display(),
+                dependency_path.display()
+            )
+        });
+    }
+
+    if let Some(link_artifact_path) = selected_link_artifact {
+        if target_os != "windows" {
+            panic!("a separate Hermes link artifact is supported only on Windows");
+        }
+        hermes_profile_provenance::read_validated_windows_link_artifact(
+            &receipt,
+            link_artifact_path,
+            target_arch,
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "Hermes profile provenance receipt {} does not bind {}: {error}",
+                receipt_path.display(),
+                link_artifact_path.display()
+            )
+        });
+    }
+
+    let normalized = serde_json::to_vec(&receipt)
+        .expect("validated Hermes provenance receipt must serialize as JSON");
+    std::fs::write(&output, normalized).unwrap_or_else(|error| {
+        panic!(
+            "Failed to embed Hermes profile provenance receipt {}: {error}",
+            output.display()
+        )
+    });
+}
+
+fn windows_import_library_for_link(
+    out_dir: &Path,
+    selected_import_library: &Path,
+    target_arch: &str,
+) -> PathBuf {
+    let embedded_receipt_path = out_dir.join("hermes_profile_provenance.json");
+    let receipt_bytes = std::fs::read(&embedded_receipt_path).unwrap_or_else(|error| {
+        panic!(
+            "Failed to read embedded Windows Hermes provenance {}: {error}",
+            embedded_receipt_path.display()
+        )
+    });
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&receipt_bytes).unwrap_or_else(|error| {
+            panic!(
+                "Embedded Windows Hermes provenance {} is not JSON: {error}",
+                embedded_receipt_path.display()
+            )
+        });
+    if receipt.is_null() {
+        return if selected_import_library.is_absolute() {
+            selected_import_library.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .expect("resolve current directory for Windows Hermes import library")
+                .join(selected_import_library)
+        };
+    }
+
+    // Capture the bytes which matched the reviewed receipt, then link that
+    // immutable, content-addressed build copy under a digest-unique filename.
+    // This closes both the HERMES_LIB_NAME substitution and the
+    // validate-then-link race on the mutable installer directory while also
+    // giving downstream rlib consumers an unambiguous propagating link name.
+    let bytes = hermes_profile_provenance::read_validated_windows_link_artifact(
+        &receipt,
+        selected_import_library,
+        target_arch,
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "Windows Hermes import library {} is not receipt-bound: {error}",
+            selected_import_library.display()
+        )
+    });
+    let binding_digest = receipt["linkArtifact"]["binaryDigest"]
+        .as_str()
+        .unwrap_or_else(|| panic!("Windows Hermes linkArtifact digest is malformed"));
+    let pinned_name = hermes_profile_provenance::windows_pinned_import_library_name(binding_digest)
+        .unwrap_or_else(|error| panic!("Windows Hermes linkArtifact digest is malformed: {error}"));
+    let digest = binding_digest
+        .strip_prefix("sha256-")
+        .expect("validated pinned import-library digest must have a sha256 prefix");
+    let pinned_dir = out_dir.join("reviewed-windows-hermes-import").join(digest);
+    std::fs::create_dir_all(&pinned_dir).unwrap_or_else(|error| {
+        panic!(
+            "Failed to create reviewed Windows Hermes import directory {}: {error}",
+            pinned_dir.display()
+        )
+    });
+    let pinned = pinned_dir.join(&pinned_name);
+    if !pinned.exists() {
+        use std::io::Write as _;
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&pinned)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "Failed to create reviewed Windows Hermes import library {}: {error}",
+                    pinned.display()
+                )
+            });
+        output.write_all(&bytes).unwrap_or_else(|error| {
+            panic!(
+                "Failed to write reviewed Windows Hermes import library {}: {error}",
+                pinned.display()
+            )
+        });
+        output.sync_all().unwrap_or_else(|error| {
+            panic!(
+                "Failed to sync reviewed Windows Hermes import library {}: {error}",
+                pinned.display()
+            )
+        });
+    }
+    let mut pinned_binding = receipt["linkArtifact"].clone();
+    pinned_binding["fileName"] = serde_json::Value::String(pinned_name);
+    hermes_profile_provenance::read_validated_artifact_binding(
+        &pinned_binding,
+        &pinned,
+        "windows",
+        target_arch,
+        "pinned Windows Hermes import-library binding",
+    )
+    .unwrap_or_else(|error| {
+        panic!(
+            "Pinned Windows Hermes import library {} failed revalidation: {error}",
+            pinned.display()
+        )
+    });
+    pinned
 }
 
 fn main() {
@@ -356,6 +688,100 @@ fn main() {
             hermes_lib_dir.display()
         );
     }
+
+    // The platform installer asserts the reviewed source/package identity and
+    // hashes the extracted runtime. Re-hash the exact image this build selects
+    // for linking before embedding that receipt; runtime evidence will compare
+    // it with the current bytes of the device/inode object that contains the
+    // mapped Hermes factory. This does not hash already-mapped executable pages.
+    // @ref LLP 0013#upstream-tracking-and-re-derivation — release coordinates
+    // and source pins are not loaded-image evidence without this byte binding.
+    let provenance_selection = match target_os.as_str() {
+        "macos" => macos_hermes_framework.as_ref().map(|framework| {
+            (
+                framework.binary_path.clone(),
+                framework.search_dir.join("hermes-profile-provenance.json"),
+                None,
+                None,
+            )
+        }),
+        "android" => Some((
+            hermes_lib_dir.join("libhermesvm.so"),
+            hermes_lib_dir.join("hermes-profile-provenance.json"),
+            Some(jsi_lib_dir.join("libjsi.so")),
+            None,
+        )),
+        "windows" => Some((
+            hermes_bin_dir.join("hermes.dll"),
+            hermes_bin_dir.join("hermes-profile-provenance.json"),
+            None,
+            Some(hermes_lib_dir.join("hermes.lib")),
+        )),
+        "linux" => Some((
+            hermes_lib_dir.join("libhermesvm.so"),
+            hermes_lib_dir.join("hermes-profile-provenance.json"),
+            None,
+            None,
+        )),
+        _ => None,
+    };
+    if let Some((
+        selected_binary,
+        default_receipt,
+        selected_linked_dependency,
+        selected_link_artifact,
+    )) = provenance_selection
+    {
+        let receipt_path = std::env::var("HERMES_PROFILE_PROVENANCE_RECEIPT")
+            .map(PathBuf::from)
+            .unwrap_or(default_receipt);
+        install_hermes_profile_provenance(HermesProfileProvenanceInstall {
+            repo_root,
+            out_dir: &out_dir,
+            receipt_path: &receipt_path,
+            selected_binary: &selected_binary,
+            selected_linked_dependency: selected_linked_dependency.as_deref(),
+            selected_link_artifact: selected_link_artifact.as_deref(),
+            target_os: &target_os,
+            target_arch: &target_arch,
+        });
+    } else {
+        println!("cargo:rerun-if-env-changed=HERMES_PROFILE_PROVENANCE_RECEIPT");
+        println!("cargo:rerun-if-env-changed=IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE");
+        let required = std::env::var("IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE")
+            .map(|value| {
+                matches!(
+                    value.as_str(),
+                    "1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON"
+                )
+            })
+            .unwrap_or(false);
+        if required {
+            panic!("Hermes profile provenance is not implemented for target OS {target_os}");
+        }
+        std::fs::write(out_dir.join("hermes_profile_provenance.json"), b"null\n")
+            .expect("write absent Hermes provenance marker");
+    }
+
+    let windows_import_library = if target_os == "windows" {
+        println!("cargo:rerun-if-env-changed=HERMES_LIB_NAME");
+        let configured_name = match std::env::var("HERMES_LIB_NAME") {
+            Ok(value) => Some(value),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                panic!("HERMES_LIB_NAME is not valid Unicode")
+            }
+        };
+        hermes_profile_provenance::validate_windows_link_library_name(configured_name.as_deref())
+            .unwrap_or_else(|error| panic!("{error}"));
+        Some(windows_import_library_for_link(
+            &out_dir,
+            &hermes_lib_dir.join("hermes.lib"),
+            &target_arch,
+        ))
+    } else {
+        None
+    };
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_session_conformance.cc");
@@ -952,11 +1378,19 @@ fn main() {
     // adapter. This catches accidental C++-only declarations and freezes the
     // structured-evaluation field layout at the language boundary.
     // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
-    cc::Build::new()
+    let mut c_abi_consumer = cc::Build::new();
+    c_abi_consumer
         .file("src/engine/exact_runtime_c_abi_check.c")
         .include("include")
+        .std("c11")
         .warnings(true)
-        .compile("exact_runtime_c_abi_check");
+        .warnings_into_errors(true);
+    if std::env::var_os("CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER").is_some() {
+        // The runtime probe and its deterministic controls must be absent from
+        // ordinary artifacts; the always-built declaration/layout half stays.
+        c_abi_consumer.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
+    }
+    c_abi_consumer.compile("exact_runtime_c_abi_check");
 
     // Compile Hermes runtime adapter sources.
     let mut build = cc::Build::new();
@@ -1371,9 +1805,21 @@ fn main() {
             "cargo:rustc-link-search=native={}",
             hermes_bin_dir.display()
         );
-        let hermes_lib_name =
-            std::env::var("HERMES_LIB_NAME").unwrap_or_else(|_| "hermes".to_string());
-        println!("cargo:rustc-link-lib=dylib={hermes_lib_name}");
+        // Link the exact import library captured after receipt validation.
+        // The digest-unique verbatim name propagates through this crate's rlib
+        // to downstream embedders without permitting another search directory
+        // to substitute a bare `hermes.lib` after build.rs checked it.
+        let import_library = windows_import_library
+            .as_ref()
+            .expect("Windows Hermes import library must be selected");
+        let (link_search, link_library) =
+            hermes_profile_provenance::windows_import_library_link_directives(import_library)
+                .unwrap_or_else(|error| panic!("{error}"));
+        println!("cargo:rustc-link-search={link_search}");
+        println!("cargo:rustc-link-lib={link_library}");
+        // Keep the absolute argument for this package's own bins/tests. The
+        // native-library directive above is the propagating rlib dependency.
+        println!("cargo:rustc-link-arg={}", import_library.display());
         println!("cargo:rustc-link-lib=winhttp");
         println!("cargo:rustc-link-lib=bcrypt");
         println!("cargo:rustc-link-lib=ncrypt");

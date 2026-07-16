@@ -5,7 +5,9 @@
  *
  * A normal run performs a loaded-engine preflight, authors the probe for the
  * target the Rust binary actually reports, executes it in that loaded runtime,
- * and writes an explicitly incomplete ledger. `--audit-only --record <file>`
+ * and writes a fail-closed ledger. Receipt-bound records retain useful byte
+ * and coordinate evidence, but imported JSON remains untrusted until a future
+ * independent target/CI attestation contract exists. `--audit-only --record <file>`
  * merges command-bound target records without executing a local engine. Android device runners
  * can pull the Rust preflight, use `--plan-only --preflight <file>` on the
  * host, then push the resulting plan back for the execution test.
@@ -237,7 +239,8 @@ function validatePreflight(preflight, expectedProfile) {
     typeof preflight.targetVariant !== "string" ||
     typeof preflight.target?.triple !== "string" ||
     !Array.isArray(preflight.target?.features) ||
-    !preflight.loadedEngineIdentity
+    !preflight.loadedEngineIdentity ||
+    !preflight.loadedEngineProfileProvenance
   ) {
     throw new Error("loaded-engine preflight is malformed");
   }
@@ -289,11 +292,12 @@ let sourceIdentity = committedSourceIdentity({
 });
 if (!options.auditOnly) {
   const preflightPath = path.join(outputDirectory, "loaded-engine-preflight.json");
-  const executionCommand = runCargoBatch({
+  runCargoBatch({
     id: "loaded-engine-preflight",
     testName: "capsec_inherited_intrinsic_alias_loaded_engine_preflight",
     environment: {
       IBEX_CAPSEC_INTRINSIC_ALIAS_PREFLIGHT_OUTPUT: preflightPath,
+      IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE: "1",
     },
     outputDirectory,
   });
@@ -308,12 +312,13 @@ if (!options.auditOnly) {
   const planPath = path.join(outputDirectory, "execution-plan.json");
   writeNewJson(planPath, plan);
   localEvidencePath = path.join(outputDirectory, "loaded-execution.json");
-  runCargoBatch({
+  const executionCommand = runCargoBatch({
     id: "loaded-intrinsic-alias-execution",
     testName: "capsec_inherited_intrinsic_alias_loaded_execution",
     environment: {
       IBEX_CAPSEC_INTRINSIC_ALIAS_PLAN: planPath,
       IBEX_CAPSEC_INTRINSIC_ALIAS_EVIDENCE_OUTPUT: localEvidencePath,
+      IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE: "1",
     },
     outputDirectory,
   });

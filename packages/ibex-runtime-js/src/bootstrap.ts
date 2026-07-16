@@ -78,6 +78,11 @@ import { installExactGlobal } from "./fs/ExactFile";
 import { installExactAccessibilityGlobal } from "./accessibility";
 import { installExactLocaleGlobal } from "./locale";
 import {
+  captureHostNavigatorInput,
+  isBootstrapCompatibilityControlFixed,
+  readBootstrapCompatibilityControl,
+} from "./core/host-inputs";
+import {
   setImmediate as exactSetImmediate,
   clearImmediate as exactClearImmediate,
 } from "./timers";
@@ -334,9 +339,7 @@ export function installGlobals(): void {
   const g = globalThis as any;
   if (g.__exactLoadTimings) g.__exactLoadTimings.installGlobalsStart = Date.now();
 
-  if (typeof g.__exactHostNavigator === 'undefined' && typeof g.navigator === 'object' && g.navigator) {
-    g.__exactHostNavigator = g.navigator;
-  }
+  captureHostNavigatorInput(g.navigator);
 
   installExactLocaleGlobal();
   installExactAccessibilityGlobal();
@@ -349,54 +352,21 @@ export function installGlobals(): void {
   // ========================================
   // ESSENTIAL: process object (Node.js compat)
   // Install the full Process class with real event emitter support.
-  // Preserve key env vars from the host runtime's process (e.g. NODE_ENV=test in Bun).
   // ========================================
-  const _prevEnv: Record<string, string | undefined> = {};
-  const _oldProcess = g.process;
-  if (
-    g.__exactRuntimeContext !== 'shell' &&
-    g.process?.env &&
-    typeof g.process.env === 'object'
-  ) {
-    const hostEnv = g.process.env;
-    for (const key of ['NODE_ENV', 'EXACT_ALLOW_INSECURE_CRYPTO', 'CI', 'TEST']) {
-      const val = hostEnv[key];
-      if (typeof val === 'string') _prevEnv[key] = val;
-    }
-  }
   g.process = exactProcess;
-  // Copy over properties from the old (native-patched) process object that
-  // the new Process class doesn't have (e.g. emitWarning, features, etc.)
-  if (_oldProcess && typeof _oldProcess === 'object') {
-    const skip = new Set(['env', 'version', 'versions', 'platform', 'arch',
-      'pid', 'ppid', 'argv', 'argv0', 'execPath', 'execArgv', 'title',
-      'stdin', 'stdout', 'stderr', 'config', 'release', 'browser',
-      'on', 'off', 'once', 'emit', 'removeListener', 'removeAllListeners',
-      'listeners', 'listenerCount', 'addListener', '_events']);
-    for (const key of Object.getOwnPropertyNames(_oldProcess)) {
-      if (!skip.has(key) && (exactProcess as any)[key] === undefined) {
-        try {
-          (exactProcess as any)[key] = (_oldProcess as any)[key];
-        } catch (_e) { /* skip read-only */ }
-      }
-    }
-    // Also check the prototype chain for methods added via addEventEmitter
-    const proto = Object.getPrototypeOf(_oldProcess);
-    if (proto && proto !== Object.prototype) {
-      for (const key of Object.getOwnPropertyNames(proto)) {
-        if (!skip.has(key) && (exactProcess as any)[key] === undefined) {
-          try {
-            (exactProcess as any)[key] = proto[key];
-          } catch (_e) { /* skip */ }
-        }
-      }
-    }
-  }
-  // Re-apply host env vars so existing env checks (e.g. NODE_ENV === 'test') still work
-  for (const [key, val] of Object.entries(_prevEnv)) {
-    if (exactProcess.env[key] === undefined || exactProcess.env[key] === 'development') {
-      exactProcess.env[key] = val;
-    }
+  // @ref LLP 0023#6-path-bearing-observables — do not project the ambient
+  // host process own/prototype domains into the package-readable Process.
+  // Compatibility members are authored explicitly by Process instead.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity — never
+  // launder eager host-environment values through bootstrap-owned JS writes;
+  // process.env reads must remain on the typed native mediation route.
+  if (typeof g.__exactSetEnv === 'function') {
+    Object.defineProperty(exactProcess, 'env', {
+      value: exactProcess.env,
+      writable: false,
+      configurable: false,
+      enumerable: true,
+    });
   }
 
   // ========================================
@@ -1510,16 +1480,24 @@ export function installGlobals(): void {
   // EXACT_COMPAT_BUN=1): an ambient 16-key Bun global made `typeof Bun`
   // detection lie to ecosystem packages (LLP 0012#decision). Implementations
   // stay reachable under `Exact`.
-  const compatModes = (g as any).__exactCompatModes;
+  const fixedBunCompat = readBootstrapCompatibilityControl('EXACT_COMPAT_BUN');
   const bunCompatEnabled =
-    (Array.isArray(compatModes) && compatModes.indexOf('bun') !== -1) ||
-    g.process?.env?.EXACT_COMPAT_BUN === '1';
-  if (bunCompatEnabled && !g.Bun) g.Bun = g.Exact;
+    fixedBunCompat === '1' ||
+    (!isBootstrapCompatibilityControlFixed('EXACT_COMPAT_BUN') &&
+      g.process?.env?.EXACT_COMPAT_BUN === '1');
+  if (bunCompatEnabled && g.Exact) {
+    Object.defineProperty(g, 'Bun', {
+      value: g.Exact,
+      writable: false,
+      configurable: false,
+      enumerable: true,
+    });
+  }
   // Wire Bun.env to process.env so packages can use either
   if (g.Exact && !g.Exact.env) {
     Object.defineProperty(g.Exact, 'env', {
       get() { return g.process?.env; },
-      configurable: true,
+      configurable: typeof g.__exactSetEnv !== 'function',
       enumerable: true,
     });
   }

@@ -101,6 +101,7 @@ const HOST_TERMINAL_FUNCTIONS = new Set([
 ]);
 
 const HOST_BASIC_FUNCTIONS = new Set([
+  "ex_host_armed_bootstrap_compatibility_flags",
   "ex_host_armed_endowments",
   "ex_host_check_capability",
   "ex_host_check_capability_no_follow_final",
@@ -160,8 +161,15 @@ const HERMES_DIAGNOSTIC_FUNCTIONS = new Set([
   "ex_hermes_callback_backlog",
   "ex_hermes_cancel_structured_work_target",
   "ex_hermes_create_diagnostic",
+  "ex_hermes_debugger_enable",
+  "ex_hermes_debugger_eval",
+  "ex_hermes_debugger_get_script_source",
+  "ex_hermes_debugger_get_scripts",
+  "ex_hermes_debugger_next_event",
+  "ex_hermes_debugger_set_breakpoint",
   "ex_hermes_destroy",
   "ex_hermes_eval",
+  "ex_hermes_eval_structured_diagnostic",
   "ex_hermes_finish_bootstrap",
   "ex_hermes_gc",
   "ex_hermes_get_gc_stats",
@@ -171,6 +179,8 @@ const HERMES_DIAGNOSTIC_FUNCTIONS = new Set([
   "ex_hermes_poll",
   "ex_hermes_resolve_host_call",
   "ex_hermes_runtime_nonce",
+  "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+  "ex_hermes_set_exact_host_call_async",
   "ex_hermes_set_host_call",
   "ex_hermes_set_host_call_async",
   "ex_hermes_set_keep_alive_on_async_error",
@@ -180,17 +190,203 @@ const HERMES_DIAGNOSTIC_FUNCTIONS = new Set([
   "ex_hermes_take_work_unit_event",
 ]);
 
+const EVALUATION_RESULT_OUTPUT_SELECTORS = Object.freeze([
+  "out:result.abi_version",
+  "out:result.capability_flags",
+  "out:result.fault",
+  "out:result.lifecycle_exit_code",
+  "out:result.message.data",
+  "out:result.outcome_tag",
+  "out:result.positions",
+  "out:result.positions[].column",
+  "out:result.positions[].line",
+  "out:result.positions[].source_label.data",
+  "out:result.stack.data",
+  "out:result.struct_size",
+  "out:result.throw_error_class",
+  "out:result.throw_metadata_fields",
+  "out:result.throw_metadata_status",
+  "out:result.value.handle_id",
+  "out:result.value.runtime_nonce",
+  "out:result.work_target_id",
+]);
+
 const HERMES_WORKLET_FUNCTIONS = new Set([
-  "ex_worklet_bind_shared_values",
+  "ex_worklet_bind_shared_value_accessors",
   "ex_worklet_create",
   "ex_worklet_destroy",
   "ex_worklet_drain_logs",
   "ex_worklet_drain_scheduled",
+  "ex_worklet_drain_scheduled_typed",
   "ex_worklet_generation",
   "ex_worklet_install",
+  "ex_worklet_install_metrics",
+  "ex_worklet_install_typed",
   "ex_worklet_invoke",
+  "ex_worklet_invoke_typed",
   "ex_worklet_set_generation",
   "ex_worklet_set_measure_callback",
+  "ex_worklet_take_scheduled_drop_count",
+]);
+
+const HERMES_DISPATCH_FUNCTIONS = new Set([
+  "ex_hermes_dispatch_motion_rated_publish",
+  "ex_hermes_dispatch_worklet_calls",
+  "ex_hermes_dispatch_worklet_json_batch",
+]);
+
+const HERMES_VALUE_FUNCTIONS = new Set([
+  "ex_hermes_session_display_ack",
+  "ex_hermes_value_kind",
+  "ex_hermes_value_release",
+  "ex_hermes_value_safe_throw_metadata",
+  "ex_hermes_value_stage1_text",
+]);
+
+const HOST_TYPED_AUTHORITY_FUNCTIONS = new Set([
+  "ex_host_authorize_typed_environment_read_stack",
+  "ex_host_authorize_typed_environment_write_stack",
+  "ex_host_authorize_typed_fs_stack",
+  "ex_host_authorize_typed_lifecycle_exit_stack",
+  "ex_host_authorize_typed_listen_stack",
+  "ex_host_authorize_typed_network_stack",
+  "ex_host_authorize_typed_print_stack",
+  "ex_host_authorize_typed_system_info_stack",
+  "ex_host_authorize_typed_udp_datagram_stack",
+  "ex_host_evaluate_typed_decision",
+  "ex_host_lifecycle_exit_code_get_stack",
+  "ex_host_lifecycle_exit_code_set_stack",
+  "ex_host_typed_dynamic_grant",
+  "ex_host_typed_dynamic_revoke",
+  "ex_host_typed_generations",
+  "ex_host_typed_handle_mint",
+  "ex_host_typed_handle_revoke",
+]);
+
+const HOST_AUTHENTICATED_STATEFUL_FUNCTIONS = new Set([
+  "ex_host_authorize_exact_endowment",
+  "ex_host_env_get",
+  "ex_host_install_armed",
+  "ex_host_matches_armed_snapshot_digest",
+  "ex_host_prepare_armed_embedder_artifacts",
+  "ex_host_random_fill",
+  "ex_host_session_static_import_resolve",
+  "ex_host_session_static_import_resolve_meta",
+]);
+
+// Non-return selectors whose companion native family captures the caller
+// storage (or owned pointee) immediately after the exact ABI call. Keep this
+// list independent from catalog policy: source contracts decide membership;
+// this list only states which selectors have a bounded executor.
+const BOUNDED_FAMILY_OUTPUT_SELECTORS = new Set([
+  "ex_host_fs_pread\0out:buf",
+  "ex_host_fs_read\0out:buf",
+  "ex_host_fs_read_file\0out:errno",
+  "ex_host_fs_read_file\0out:len",
+  "ex_host_terminal_session_stdio_query\0out:columns",
+  "ex_host_terminal_session_stdio_query\0out:is_tty",
+  "ex_host_terminal_session_stdio_query\0out:rows",
+  "ex_hermes_engine_mapped_object\0out:device",
+  "ex_hermes_engine_mapped_object\0out:inode",
+  "ex_hermes_eval\0out:value",
+  ...["ex_hermes_evaluation_result_dispose", "ex_hermes_evaluation_result_init"]
+    .flatMap((functionName) =>
+      EVALUATION_RESULT_OUTPUT_SELECTORS
+        .filter(
+          (selector) =>
+            !selector.startsWith("out:result.positions[].") ||
+            functionName === "ex_hermes_eval_structured_diagnostic",
+        )
+        .map((selector) => `${functionName}\0${selector}`),
+    ),
+  ...EVALUATION_RESULT_OUTPUT_SELECTORS.map(
+    (selector) => `ex_hermes_eval_structured_diagnostic\0${selector}`,
+  ),
+  ...[
+    "associated_evaluation",
+    "dropped_count",
+    "event_id",
+    "host_context_id",
+    "kind",
+    "owning_principal_id",
+    "principal_status",
+    "value.handle_id",
+    "value.runtime_nonce",
+  ].map((member) => `ex_hermes_take_async_failure_event\0out:event.${member}`),
+  ...["resolution", "target_id"].map(
+    (member) => `ex_hermes_take_cancellation_event\0out:event.${member}`,
+  ),
+  ...["kind", "phase", "scheduling_id", "target_id"].map(
+    (member) => `ex_hermes_take_work_unit_event\0out:event.${member}`,
+  ),
+  "ex_worklet_install\0out:error",
+  "ex_worklet_invoke\0out:result_json",
+  ...[
+    "callback:read_callback/0.epoch",
+    "callback:read_callback/0.generation",
+    "callback:read_callback/0.slot",
+    "callback:read_callback/2",
+    "callback:write_callback/0.epoch",
+    "callback:write_callback/0.generation",
+    "callback:write_callback/0.slot",
+    "callback:write_callback/1",
+    "callback:write_callback/2",
+  ].map(
+    (selector) =>
+      `ex_worklet_bind_shared_value_accessors\0${selector}`,
+  ),
+  "ex_worklet_drain_scheduled_typed\0out:calls",
+  "ex_worklet_install_metrics\0out:metrics",
+  "ex_worklet_install_typed\0out:error",
+  "ex_worklet_install_typed\0out:identity",
+  "ex_worklet_invoke_typed\0out:output_count",
+  "ex_worklet_invoke_typed\0out:outputs",
+  "ex_worklet_set_measure_callback\0callback:callback/0",
+  "ex_worklet_set_measure_callback\0callback:callback/2",
+  "ex_host_authorize_typed_lifecycle_exit_stack\0out:code",
+  "ex_host_lifecycle_exit_code_get_stack\0out:code",
+  "ex_host_typed_generations\0out:dynamic",
+  "ex_host_typed_generations\0out:handle",
+  "ex_host_typed_generations\0out:negative",
+  "ex_host_env_get\0out:buf",
+  "ex_host_random_fill\0out:buf",
+  "ex_hermes_dispatch_worklet_calls\0out:delivered",
+  "ex_hermes_value_safe_throw_metadata\0out:error_class",
+  "ex_hermes_value_safe_throw_metadata\0out:message.data",
+  "ex_hermes_value_safe_throw_metadata\0out:metadata_fields",
+  "ex_hermes_value_safe_throw_metadata\0out:stack.data",
+  "ex_hermes_value_stage1_text\0out:data",
+  "ex_hermes_value_stage1_text\0out:truncated",
+  "ex_hermes_schedule_watchdog_heartbeat_for_generation\0callback:callback/0",
+  ...[
+    "callback:callback/0",
+    "callback:callback/1",
+  ].map((selector) => `ex_hermes_set_host_call\0${selector}`),
+  ...[
+    "callback:callback/0",
+    "callback:callback/1",
+    "callback:callback/2",
+    "callback:callback/3",
+  ].map((selector) => `ex_hermes_set_host_call_async\0${selector}`),
+  ...[
+    "callback:callback/0",
+    "callback:callback/1",
+    "callback:callback/2",
+    "callback:callback/3",
+    "callback:callback/5",
+  ].map((selector) => `ex_hermes_set_exact_host_call_async\0${selector}`),
+  "ex_hermes_set_host_wake_hook\0callback:hook/0",
+]);
+
+const AUTHENTICATED_VFS_OUTPUT_SELECTORS = new Set([
+  "ex_host_vfs_bind_runtime\0[[return]]",
+  "ex_host_vfs_chdir\0[[return]]",
+  "ex_host_vfs_chdir\0out:errno",
+  "ex_host_vfs_get_cwd\0[[return]]",
+  "ex_host_vfs_get_cwd\0out:errno",
+  "ex_host_vfs_resolve_path\0[[return]]",
+  "ex_host_vfs_resolve_path\0out:errno",
+  "ex_host_vfs_unbind_runtime\0[[return]]",
 ]);
 
 // These are deliberately exact selector recipes rather than a general rule
@@ -390,13 +586,39 @@ function operationFor(functionName, outputSelector = "[[return]]", key = null) {
   if (legacyOutput) return structuredClone(legacyOutput.operation);
   const pathOutput = pathOutputOperationFor(functionName, outputSelector);
   if (pathOutput) return structuredClone(pathOutput.operation);
-  if (outputSelector !== "[[return]]") return null;
+  if (
+    AUTHENTICATED_VFS_OUTPUT_SELECTORS.has(
+      `${functionName}\0${outputSelector}`,
+    )
+  ) {
+    return {
+      kind: "rust-host-authenticated-vfs-output",
+      targetVariant: "default",
+    };
+  }
+  if (
+    outputSelector !== "[[return]]" &&
+    !BOUNDED_FAMILY_OUTPUT_SELECTORS.has(
+      `${functionName}\0${outputSelector}`,
+    )
+  ) {
+    return null;
+  }
   if (HOST_FS_FUNCTIONS.has(functionName)) return { kind: "rust-host-fs-sandbox" };
   if (HOST_SQLITE_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-sqlite-memory" };
   }
   if (HOST_TERMINAL_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-terminal-inert" };
+  }
+  if (HOST_TYPED_AUTHORITY_FUNCTIONS.has(functionName)) {
+    return { kind: "rust-host-authenticated-typed-authority" };
+  }
+  if (HOST_AUTHENTICATED_STATEFUL_FUNCTIONS.has(functionName)) {
+    return { kind: "rust-host-authenticated-stateful-output" };
+  }
+  if (functionName === "ex_hermes_set_host_wake_hook") {
+    return { kind: "rust-host-wake-hook-callback" };
   }
   if (HOST_BASIC_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-bounded-basic" };
@@ -410,6 +632,18 @@ function operationFor(functionName, outputSelector = "[[return]]", key = null) {
   if (HERMES_DIAGNOSTIC_FUNCTIONS.has(functionName)) {
     return {
       kind: "native-hermes-diagnostic-runtime",
+      targetVariant: "default",
+    };
+  }
+  if (HERMES_DISPATCH_FUNCTIONS.has(functionName)) {
+    return {
+      kind: "native-hermes-bounded-dispatch-runtime",
+      targetVariant: "default",
+    };
+  }
+  if (HERMES_VALUE_FUNCTIONS.has(functionName)) {
+    return {
+      kind: "native-hermes-owned-value-runtime",
       targetVariant: "default",
     };
   }
@@ -582,17 +816,18 @@ function exactLegacyHostOutputBinding({
         (contract) =>
           contract.return.role === "value" &&
           contract.return.kind === "pointer" &&
-          contract.return.ownership?.kind === "unknown" &&
-          contract.status === "unresolved" &&
-          canonicalJson(contract.unresolved) ===
-            canonicalJson(["return-pointer-ownership"]),
+          canonicalJson(contract.return.ownership) ===
+            canonicalJson(OWNED_HOST_STRING_RETURN.ownership) &&
+          contract.status === "resolved" &&
+          canonicalJson(contract.unresolved) === canonicalJson([]),
       ) &&
       selectedChannels.every(
         (channel) =>
           channel?.selector === "[[return]]" &&
           channel.role === "return" &&
           channel.kind === "pointer" &&
-          channel.ownership?.kind === "unknown",
+          canonicalJson(channel.ownership) ===
+            canonicalJson(OWNED_HOST_STRING_RETURN.ownership),
       ),
     `${functionName}: legacy Host pointer return contract drifted`,
   );
@@ -693,21 +928,41 @@ export function authoredHostAbiOutputProbe({
     selectedOutput = structuredClone(exact.binding.output);
     sourceSafetyBinding = exact.sourceSafetyBinding;
   } else if (key.output === "[[return]]") {
+    const selected = selectedChannels[0];
     if (
+      !selected ||
+      !selectedChannels.every(
+        (channel) => canonicalJson(channel) === canonicalJson(selected),
+      ) ||
       !outputContracts.every(
         (contract) =>
-          contract.return.role === "value" &&
-          contract.return.kind === "scalar" &&
-          contract.return.ownership?.kind === "not-applicable",
+          contract.status === "resolved" &&
+          Array.isArray(contract.unresolved) &&
+          contract.unresolved.length === 0,
       )
     ) {
       return null;
     }
-    selectedOutput = {
-      kind: "scalar",
-      ownership: "not-applicable",
-      selector: "[[return]]",
-    };
+    if (
+      selected.kind === "scalar" &&
+      selected.role === "return" &&
+      selected.ownership?.kind === "not-applicable"
+    ) {
+      selectedOutput = {
+        kind: "scalar",
+        ownership: "not-applicable",
+        selector: "[[return]]",
+      };
+    } else if (
+      selected.kind === "pointer" &&
+      selected.role === "return" &&
+      selected.ownership?.kind === "caller-owned" &&
+      typeof selected.ownership.releaseFunction === "string"
+    ) {
+      selectedOutput = structuredClone(selected);
+    } else {
+      return null;
+    }
   } else {
     requireCondition(
       outputContracts.every(
@@ -723,11 +978,25 @@ export function authoredHostAbiOutputProbe({
       key.output,
       selectedChannels,
     );
-    requireCondition(
-      binding,
-      `${functionName}: non-return output has no bounded path binding`,
-    );
-    selectedOutput = structuredClone(binding.output);
+    if (binding) {
+      selectedOutput = structuredClone(binding.output);
+    } else {
+      const selected = selectedChannels[0];
+      requireCondition(
+        selected &&
+          selectedChannels.every(
+            (channel) => canonicalJson(channel) === canonicalJson(selected),
+          ) &&
+          new Set(["aggregate", "buffer", "pointer", "scalar"]).has(
+            selected.kind,
+          ) &&
+          new Set(["callback-payload", "output", "inout"]).has(
+            selected.role,
+          ),
+        `${functionName}: bounded output ${key.output} lost its exact source contract`,
+      );
+      selectedOutput = structuredClone(selected);
+    }
   }
 
   const sourceDescriptor = {
@@ -769,12 +1038,16 @@ export function hostAbiOutputExecutorCoverage(
 
 export function hostAbiOutputResidualReason({ catalogRow, surface }) {
   if (catalogRow?.key?.sourceKind !== "host-abi") return null;
+  const legacyOutput = legacyHostOutputOperationFor(
+    surface?.name,
+    catalogRow.key,
+  );
   const operation = operationFor(
     surface?.name,
     catalogRow.key.output,
     catalogRow.key,
   );
-  if (catalogRow.key.mode !== "all" && !operation) {
+  if (catalogRow.key.mode !== "all" && !legacyOutput) {
     return "private-vfs-return-record-requires-authenticated-runtime-session";
   }
   if (operation) {
@@ -785,10 +1058,6 @@ export function hostAbiOutputResidualReason({ catalogRow, surface }) {
       (definition) =>
         definition.targetVariant === (operation.targetVariant ?? "default") &&
         definition.language === expectedLanguage,
-    );
-    const legacyOutput = legacyHostOutputOperationFor(
-      surface.name,
-      catalogRow.key,
     );
     const sourceOutputSelector = legacyOutput
       ? legacyOutput.operation.sourceSelector
@@ -855,6 +1124,9 @@ export function hostAbiOutputResidualReason({ catalogRow, surface }) {
   }
   if (surface?.name?.startsWith("ex_hermes_debugger_")) {
     return "debugger-route-requires-owned-live-debug-session";
+  }
+  if (surface?.name === "ex_hermes_create_armed") {
+    return "armed-runtime-creation-requires-hermes-promise-rejection-checkpoint-hook";
   }
   if (surface?.name?.startsWith("ex_hermes_")) {
     return "engine-route-requires-owned-armed-or-diagnostic-runtime-state";

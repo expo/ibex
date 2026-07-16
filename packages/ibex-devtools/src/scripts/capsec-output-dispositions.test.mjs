@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import Ajv2020 from "ajv/dist/2020.js";
 import {
   OUTPUT_DISPOSITIONS,
+  OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR,
   buildOutputDispositionDataset,
   buildOutputShapeCatalog,
   canonicalOutputDispositionKey,
@@ -17,6 +18,7 @@ import {
   legacyHostPathOutputShapes,
   modulePackageRootShapes,
   outputExecutionContextsForRows,
+  outputParameterizedBindingDigest,
   outputShapeCatalogKeyDigest,
   renderOutputDispositionMarkdown,
   resolverRecordShapes,
@@ -24,6 +26,7 @@ import {
   validateOutputDispositionJoin,
   validateOutputShapeCatalogAccounts,
   validateOutputValueProofKind,
+  validateTrackedOutputDispositionEvidenceSentinel,
   vfsHostAbiShapes,
 } from "./capsec-output-dispositions.mjs";
 import {
@@ -31,6 +34,9 @@ import {
   deriveHostAbiOutputCatalogAccount,
   discoverRepositorySurfaces,
 } from "./capsec-surface-inventory.mjs";
+import { buildCoverageModel } from "./capsec-coverage-model.mjs";
+import { buildRootGlobalDispositionManifest } from "./capsec-root-global-dispositions.mjs";
+import { rootGlobalInstallSurfaces } from "./generate-root-global-dispositions.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -113,11 +119,13 @@ function fixture() {
       status: "unpromotable",
       method:
         "source-inventory-surface-accounting-plus-source-asserted-structured-outputs",
-      requiredExecutor: "test-runner",
+      requiredExecutor: OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR,
       reason: "test evidence is intentionally absent",
     },
     contexts: outputExecutionContextsForRows(rows),
     surfaceAccounts,
+    parameterizedOutputBindings: [],
+    parameterizedBindingDigest: outputParameterizedBindingDigest([]),
     catalogKeyDigest: outputShapeCatalogKeyDigest(rows),
     counts: {
       coverageSurfaces: rows.length,
@@ -125,6 +133,7 @@ function fixture() {
       structuralOnlySurfaces: 0,
       unresolvedSurfaces: 0,
       catalogRows: rows.length,
+      parameterizedBindings: 0,
       sourceInventoryRows: rows.length,
       structuredRows: 0,
     },
@@ -145,10 +154,10 @@ function fixture() {
   };
   const evidence = {
     outputDispositionEvidenceSchema:
-      "ibex/capsec-output-disposition-evidence/2",
+      "ibex/capsec-output-disposition-evidence/3",
     profile: "ibex/capsec/1",
     status: "unpromotable",
-    requiredExecutor: "test-runner",
+    requiredExecutor: OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR,
     reason: "test evidence is intentionally absent",
     observations: [],
   };
@@ -200,14 +209,29 @@ async function repositoryCatalogFixture() {
 }
 
 function verifiedEvidence(dataset) {
+  const target = {
+    triple: "aarch64-apple-darwin",
+    features: ["native-lockdown"],
+  };
   return {
     outputDispositionEvidenceSchema:
-      "ibex/capsec-output-disposition-evidence/2",
+      "ibex/capsec-output-disposition-evidence/3",
     profile: "ibex/capsec/1",
     status: "verified",
-    requiredExecutor: "test-runner",
+    requiredExecutor: OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR,
     sourceRevision: "a".repeat(40),
-    engineBinaryDigest: `sha256-${"A".repeat(43)}`,
+    sourceTreeDigest: `sha256-${"B".repeat(43)}`,
+    target,
+    engine: {
+      engineArtifactPath: "/exact/hermes",
+      kind: "hermes",
+      binaryDigest: `sha256-${"A".repeat(43)}`,
+      object: { platform: "apple", volume: "dev:1", file: "ino:2" },
+      targetArchitecture: "aarch64",
+      structuralFeatures: [...target.features],
+    },
+    sweepPlan: {},
+    sweepArtifact: {},
     observations: dataset.rows.map((row) => ({
       key: structuredClone(row.key),
       disposition: row.disposition,
@@ -431,30 +455,20 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,206 covered surfaces and emits 5,553 context-bound output rows", async () => {
+  test("accounts for all 7,272 covered surfaces and emits 6,362 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
-    // coverage-edges.json is regenerated after the source-derived catalog.
-    // Accept the one-row pre-regeneration state while pinning the exact
-    // post-regeneration baseline this repository must converge to.
-    const pendingStructuralRegeneration = 7_206 - coverage.edges.length;
-    expect(new Set([0, 1]).has(pendingStructuralRegeneration)).toBe(true);
-    expect({
-      ...catalog.counts,
-      coverageSurfaces:
-        catalog.counts.coverageSurfaces + pendingStructuralRegeneration,
-      structuralOnlySurfaces:
-        catalog.counts.structuralOnlySurfaces + pendingStructuralRegeneration,
-    }).toEqual({
-      coverageSurfaces: 7_206,
-      outputBearingSurfaces: 5_149,
-      structuralOnlySurfaces: 1_400,
-      unresolvedSurfaces: 657,
-      catalogRows: 5_553,
-      sourceInventoryRows: 5_210,
-      structuredRows: 343,
+    expect(catalog.counts).toEqual({
+      coverageSurfaces: 7_272,
+      outputBearingSurfaces: 5_740,
+      structuralOnlySurfaces: 1_529,
+      unresolvedSurfaces: 3,
+      catalogRows: 6_362,
+      parameterizedBindings: 1,
+      sourceInventoryRows: 5_955,
+      structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
     expect(
@@ -465,17 +479,18 @@ describe("LLP 0023 output-disposition dataset", () => {
         coverage,
         surfaceAccounts: catalog.surfaceAccounts,
         rows: catalog.rows,
+        parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_149,
-      "structural-only": 1_400 - pendingStructuralRegeneration,
-      unresolved: 657,
+      "output-bearing": 5_740,
+      "structural-only": 1_529,
+      unresolved: 3,
     });
     expect(
       catalog.rows.filter(
         (row) => row.discovery.kind === "source-asserted-structured-output",
       ),
-    ).toHaveLength(343);
+    ).toHaveLength(407);
     expect(
       catalog.rows.every(
         (row) =>
@@ -788,7 +803,6 @@ describe("LLP 0023 output-disposition dataset", () => {
       ["__ibex", "reserved-native-prefix-literal"],
       ["__exactHttpWaitExecutor", "promise-executor-control"],
       ["__exactHttpAwaitWritableExecutor", "promise-executor-control"],
-      ["inspector.cdp-listener", "inspector-listener-control-plane"],
       ["inspector.debugger-pause", "debugger-void-control"],
       ["inspector.debugger-remove-breakpoint", "debugger-void-control"],
       ["inspector.debugger-resume", "debugger-void-control"],
@@ -805,6 +819,16 @@ describe("LLP 0023 output-disposition dataset", () => {
       ).toBe(true);
       expect(rowsFor(surfaceName), surfaceName).toHaveLength(0);
     }
+
+    expect(accountFor("inspector.cdp-listener")).toMatchObject({
+      status: "structural-only",
+      reasonCode: "closed-before-inspector-dispatch",
+      outputKinds: [],
+    });
+    expect(accountFor("inspector.cdp-listener").sourceRefs).toContain(
+      "src/bin/ibex/runtime.rs#Runtime::start_inspector:armed-sink-guard",
+    );
+    expect(rowsFor("inspector.cdp-listener")).toHaveLength(0);
 
     for (const symbol of [
       "ex_hermes_debugger_pause",
@@ -862,7 +886,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         alias: "__privSetCompartmentFor",
         mode: "all",
         sourceKind: "native-op",
-        returnVariant: "undefined",
+        returnVariant: "boolean",
         contextId: "runtime.bootstrap-native-call-loaded",
       },
     ]);
@@ -1035,10 +1059,7 @@ describe("LLP 0023 output-disposition dataset", () => {
     const accountById = new Map(
       catalog.surfaceAccounts.map((account) => [account.surfaceId, account]),
     );
-    const rowsById = Map.groupBy(
-      catalog.rows,
-      (row) => row.key.surfaceId,
-    );
+    const rowsById = Map.groupBy(catalog.rows, (row) => row.key.surfaceId);
     const rowsFor = (surfaceName) =>
       rowsById.get(edgeByName.get(surfaceName).id) ?? [];
 
@@ -1110,9 +1131,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         (row) => row.key.returnVariant === "absent",
       ),
     ).toHaveLength(2);
-    expect(
-      rowsFor("__exactRunOnJS").map((row) => row.key.output),
-    ).toEqual(
+    expect(rowsFor("__exactRunOnJS").map((row) => row.key.output)).toEqual(
       expect.arrayContaining([
         "callback:run-on-js/0",
         "callback:run-on-js/1.sourceIdentity",
@@ -1141,6 +1160,16 @@ describe("LLP 0023 output-disposition dataset", () => {
       reasonCode: "source-asserted-structured-output",
       outputKinds: ["structured-output"],
     });
+    const observerSourceRefs = [
+      "build.rs#IBEX_CAPSEC_CONFORMANCE_OBSERVER",
+      "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs#context-observer:capture-delete-before-use",
+      "src/bin/ibex/engine/hermes.rs#install_capsec_context_test_observer",
+      "src/engine/hermes_runtime.cc#__ibexCapsecContextObserver_",
+      "src/engine/hermes_runtime.cc#ibex_test_install_capsec_context_observer",
+    ];
+    expect(accountById.get(observerEdge.id).sourceRefs).toEqual(
+      observerSourceRefs,
+    );
     expect(rowsFor(observerName).map((row) => row.key)).toEqual([
       expect.objectContaining({
         output: "[[return]]",
@@ -1161,12 +1190,11 @@ describe("LLP 0023 output-disposition dataset", () => {
       }),
     ]);
     expect(
-      rowsFor(observerName).every((row) =>
-        row.discovery.sourceRefs.some((sourceRef) =>
-          sourceRef.startsWith(
-            "src/engine/hermes_runtime.cc#region:extern \"C\" int ibex_test_install_capsec_context_observer(",
-          ),
-        ),
+      rowsFor(observerName).every(
+        (row) =>
+          row.discovery.kind === "source-asserted-structured-output" &&
+          JSON.stringify(row.discovery.sourceRefs) ===
+            JSON.stringify(observerSourceRefs),
       ),
     ).toBe(true);
   }, 30_000);
@@ -1255,23 +1283,22 @@ describe("LLP 0023 output-disposition dataset", () => {
       return derived;
     });
 
-    expect(hostEdges).toHaveLength(276);
+    expect(hostEdges).toHaveLength(278);
     expect(countsBy(derivedAccounts, (account) => account.status)).toEqual({
-      "output-bearing": 151,
-      "structural-only": 25,
-      unresolved: 100,
+      "output-bearing": 228,
+      "structural-only": 50,
     });
     expect(
       derivedAccounts
         .filter((account) => account.status === "output-bearing")
         .flatMap((account) => account.outputChannels),
-    ).toHaveLength(182);
+    ).toHaveLength(427);
     expect(
       derivedAccounts.some(
         (account) =>
           account.status === "unresolved" && account.outputChannels.length > 0,
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     const vfsResolveEdge = hostEdges.find(
       (edge) => edge.surface.name === "ex_host_vfs_resolve_path",
@@ -1322,12 +1349,24 @@ describe("LLP 0023 output-disposition dataset", () => {
         repoRoot,
         liveEvidence: {
           status: "verified",
-          requiredExecutor: "test-runner",
+          requiredExecutor: OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR,
           sourceRevision: "a".repeat(40),
-          engineBinaryDigest: `sha256-${"A".repeat(43)}`,
+          sourceTreeDigest: `sha256-${"B".repeat(43)}`,
+          target: {
+            triple: "aarch64-apple-darwin",
+            features: ["native-lockdown"],
+          },
+          engine: {
+            engineArtifactPath: "/exact/hermes",
+            kind: "hermes",
+            binaryDigest: `sha256-${"A".repeat(43)}`,
+            object: { platform: "apple", volume: "dev:1", file: "ino:2" },
+            targetArchitecture: "aarch64",
+            structuralFeatures: ["native-lockdown"],
+          },
         },
       }),
-    ).toThrow(/verified output catalog has 657 unresolved surface accounts/);
+    ).toThrow(/verified output catalog has 3 unresolved surface accounts/);
   }, 30_000);
 
   test("rejects incomplete accounts and registrar-only value evidence", async () => {
@@ -1414,10 +1453,10 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-ycYwUGDv598Zq4FEHapGAe1DeT-kq-bSezmbkMBcAdY",
+      "sha256-3yTAxhBaEqa8jy6zXp8lbh5JPOHasmex6NulYM0VWuA",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
-    expect(policy.overrides).toHaveLength(232);
+    expect(policy.overrides).toHaveLength(368);
     expect(
       new Set(
         policy.overrides.map((row) => canonicalOutputDispositionKey(row.key)),
@@ -1432,44 +1471,46 @@ describe("LLP 0023 output-disposition dataset", () => {
       ),
     ).toBe(true);
     expect(countsBy(policy.overrides, (row) => row.disposition)).toEqual({
-      absent: 34,
+      absent: 151,
       closed: 28,
-      "non-path": 34,
-      refused: 9,
+      "non-path": 41,
+      "private-native-path": 5,
+      refused: 12,
       "reserved-constant": 1,
       "synthetic-source-id": 21,
       "typed-logical": 23,
-      "virtual-absolute": 71,
-      "virtual-basename": 3,
+      "virtual-absolute": 74,
+      "virtual-basename": 4,
       "virtual-relative": 8,
     });
     expect(dataset.outputDispositionDatasetSchema).toBe(
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 5_231,
-      dispositionRows: 5_231,
+      catalogRows: 6_362,
+      dispositionRows: 6_362,
       byDisposition: {
-        absent: 34,
+        absent: 151,
         closed: 28,
-        "non-path": 5_033,
-        refused: 9,
+        "non-path": 6_035,
+        "private-native-path": 5,
+        refused: 12,
         "reserved-constant": 1,
         "synthetic-source-id": 21,
         "typed-logical": 23,
-        "virtual-absolute": 71,
-        "virtual-basename": 3,
+        "virtual-absolute": 74,
+        "virtual-basename": 4,
         "virtual-relative": 8,
       },
     });
 
     // The legacy v1 policy had 494 explicit overrides. The exact-key join
-    // retained 227; five source-reviewed v2 corrections were then added.
+    // retained 227; 141 source-reviewed v2 corrections were then added.
     expect({
       legacyExplicitOverrides: 494,
       exactKeyRetained: 227,
       exactKeyDropped: 267,
-      reviewedV2Corrections: 5,
+      reviewedV2Corrections: 141,
       currentOverrides: policy.overrides.length,
       droppedByCatalogAccount: {
         "output-bearing-key-changed": 14,
@@ -1488,8 +1529,8 @@ describe("LLP 0023 output-disposition dataset", () => {
       legacyExplicitOverrides: 494,
       exactKeyRetained: 227,
       exactKeyDropped: 267,
-      reviewedV2Corrections: 5,
-      currentOverrides: 232,
+      reviewedV2Corrections: 141,
+      currentOverrides: 368,
       droppedByCatalogAccount: {
         "output-bearing-key-changed": 14,
         "structural-only": 137,
@@ -1581,6 +1622,172 @@ describe("LLP 0023 output-disposition dataset", () => {
     });
   });
 
+  test("binds the sealed __exactCompatModes root to an exact absent value override", async () => {
+    const { catalog } = await repositoryCatalogFixture();
+    const policy = readRepoJson(
+      "capsec/registry/output-disposition-policy.json",
+    );
+    const rootManifest = readRepoJson(
+      "capsec/generated/root-global-disposition-manifest.json",
+    );
+    const manifestRow = rootManifest.rows.find(
+      (row) => row.observedKey === "native-op:__exactCompatModes",
+    );
+    expect(manifestRow).toMatchObject({
+      installId: "root-global.exactcompatmodes.d1e1fe28017b1402",
+      registryEdgeId: "surface.native.op.exactcompatmodes.0hzhmrx",
+      branch: {
+        sourceRefs: [
+          "src/engine/hermes_runtime.cc#jsi-global:__exactCompatModes",
+        ],
+      },
+      disposition: "sealed",
+      liveExpectation: "absent",
+      nativeImplementation: true,
+    });
+
+    const override = policy.overrides.find(
+      (row) => row.key.surfaceId === manifestRow.registryEdgeId,
+    );
+    expect(override).toEqual({
+      key: {
+        surfaceId: "surface.native.op.exactcompatmodes.0hzhmrx",
+        output: "[[value]]",
+        alias: "__exactCompatModes",
+        mode: "all",
+        sourceKind: "native-op",
+        returnVariant: "default",
+        contextId: "javascript.package-property-read-loaded",
+      },
+      disposition: "absent",
+      expectation: { outcome: "absent", normalizedValue: "absent" },
+      rationale:
+        "The generated sealed-root manifest row root-global.exactcompatmodes.d1e1fe28017b1402 binds native-op:__exactCompatModes to src/engine/hermes_runtime.cc#jsi-global:__exactCompatModes with disposition sealed and liveExpectation absent; the loaded package-property read must observe this exact value key absent.",
+    });
+    expect(
+      catalog.rows.find(
+        (row) =>
+          canonicalOutputDispositionKey(row.key) ===
+          canonicalOutputDispositionKey(override.key),
+      ),
+    ).toMatchObject({ requiredValueProof: "live-value-observation" });
+  });
+
+  test("binds the sealed process IPC bootstrap carrier to exact absent value overrides", async () => {
+    const inventory = await discoverRepositorySurfaces(repoRoot);
+    const model = buildCoverageModel(inventory.surfaces, {
+      definitions: readRepoJson(
+        "capsec/registry/capability-definitions.json",
+      ),
+      rules: readRepoJson("capsec/registry/policy-rules.json"),
+    });
+    const catalog = buildOutputShapeCatalog({
+      coverage: model.coverage,
+      implementationRows: model.implementationRows,
+      surfaces: inventory.surfaces,
+      repoRoot,
+      liveEvidence: readRepoJson(
+        "capsec/registry/output-disposition-evidence.json",
+      ),
+    });
+    const rootManifest = buildRootGlobalDispositionManifest({
+      globals: rootGlobalInstallSurfaces(inventory),
+      coverage: model.coverage,
+    });
+    const policy = readRepoJson(
+      "capsec/registry/output-disposition-policy.json",
+    );
+    const expectedRows = [
+      {
+        observedKey: "native-op:__exactProcessIpcBootstrap",
+        installId: "root-global.exactprocessipcbootstrap.f5ef7efbc7e86864",
+        surfaceId: "surface.native.op.exactprocessipcbootstrap.1f8twb6",
+        sourceRef:
+          "src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap",
+      },
+      {
+        observedKey: "native-op:__exactProcessIpcBootstrap.close",
+        installId:
+          "root-global.exactprocessipcbootstrap.close.8979e0d4ab05815a",
+        surfaceId:
+          "surface.native.op.exactprocessipcbootstrap.close.1ap2eh4",
+        sourceRef:
+          "src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.close",
+        output: "[[return]]",
+        contextId: "runtime.bootstrap-native-call-loaded",
+        rationale:
+          "The generated sealed-root manifest row root-global.exactprocessipcbootstrap.close.8979e0d4ab05815a binds native-op:__exactProcessIpcBootstrap.close to src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.close with disposition sealed and liveExpectation absent; the loaded bootstrap lookup must observe this exact callable absent before any invocation.",
+      },
+      {
+        observedKey: "native-op:__exactProcessIpcBootstrap.fd",
+        installId:
+          "root-global.exactprocessipcbootstrap.fd.f0572c00634b3d42",
+        surfaceId: "surface.native.op.exactprocessipcbootstrap.fd.1yvjieu",
+        sourceRef:
+          "src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.fd",
+      },
+      {
+        observedKey: "native-op:__exactProcessIpcBootstrap.serialization",
+        installId:
+          "root-global.exactprocessipcbootstrap.serialization.efa6a07e051d0374",
+        surfaceId:
+          "surface.native.op.exactprocessipcbootstrap.serialization.1vtmt9s",
+        sourceRef:
+          "src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.serialization",
+      },
+    ];
+
+    expect(
+      rootManifest.rows.filter((row) =>
+        row.observedKey.startsWith("native-op:__exactProcessIpcBootstrap"),
+      ),
+    ).toHaveLength(expectedRows.length);
+    for (const expected of expectedRows) {
+      const manifestRow = rootManifest.rows.find(
+        (row) => row.observedKey === expected.observedKey,
+      );
+      expect(manifestRow).toMatchObject({
+        installId: expected.installId,
+        registryEdgeId: expected.surfaceId,
+        branch: { sourceRefs: [expected.sourceRef] },
+        disposition: "sealed",
+        liveExpectation: "absent",
+        nativeImplementation: true,
+      });
+
+      const matchingOverrides = policy.overrides.filter(
+        (row) => row.key.surfaceId === manifestRow.registryEdgeId,
+      );
+      expect(matchingOverrides).toHaveLength(1);
+      const alias = expected.observedKey.slice("native-op:".length);
+      const override = matchingOverrides[0];
+      expect(override).toEqual({
+        key: {
+          surfaceId: expected.surfaceId,
+          output: expected.output ?? "[[value]]",
+          alias,
+          mode: "all",
+          sourceKind: "native-op",
+          returnVariant: "default",
+          contextId:
+            expected.contextId ?? "javascript.package-property-read-loaded",
+        },
+        disposition: "absent",
+        expectation: { outcome: "absent", normalizedValue: "absent" },
+        rationale:
+          expected.rationale ??
+          `The generated sealed-root manifest row ${expected.installId} binds ${expected.observedKey} to ${expected.sourceRef} with disposition sealed and liveExpectation absent; the loaded package-property read must observe this exact value key absent.`,
+      });
+      expect(
+        catalog.rows.find(
+          (row) =>
+            canonicalOutputDispositionKey(row.key) ===
+            canonicalOutputDispositionKey(override.key),
+        ),
+      ).toMatchObject({ requiredValueProof: "live-value-observation" });
+    }
+  }, 30_000);
+
   test("rejects every v1 policy/evidence compatibility shape", () => {
     const { catalog, policy, evidence } = fixture();
     const legacyPolicy = structuredClone(policy);
@@ -1603,7 +1810,7 @@ describe("LLP 0023 output-disposition dataset", () => {
         policy,
         evidence: legacyEvidence,
       }),
-    ).toThrow(/evidence is not a complete v2 document/);
+    ).toThrow(/evidence is not a complete v3 document/);
   });
 
   test("generates all eleven dispositions and an explicit unpromotable state", () => {
@@ -1700,16 +1907,31 @@ describe("LLP 0023 output-disposition dataset", () => {
         "source-inventory-surface-accounting-plus-source-asserted-structured-outputs",
       requiredExecutor: verified.requiredExecutor,
       sourceRevision: verified.sourceRevision,
-      engineBinaryDigest: verified.engineBinaryDigest,
+      sourceTreeDigest: verified.sourceTreeDigest,
+      target: structuredClone(verified.target),
+      engine: structuredClone(verified.engine),
     };
-    expect(
-      buildOutputDispositionDataset({ catalog, policy, evidence: verified })
-        .evidence,
-    ).toEqual({
+    const verifiedDataset = buildOutputDispositionDataset({
+      catalog,
+      policy,
+      evidence: verified,
+    });
+    expect(verifiedDataset.evidence).toEqual({
       status: "verified",
       sourceRevision: verified.sourceRevision,
-      engineBinaryDigest: verified.engineBinaryDigest,
+      sourceTreeDigest: verified.sourceTreeDigest,
+      target: verified.target,
+      engine: verified.engine,
     });
+    for (const [schemaPath, document] of [
+      ["capsec/schema/output-shape-catalog.schema.json", catalog],
+      ["capsec/schema/output-dispositions.schema.json", verifiedDataset],
+    ]) {
+      const validate = new Ajv2020({ allErrors: true, strict: true }).compile(
+        readRepoJson(schemaPath),
+      );
+      expect(validate(document), JSON.stringify(validate.errors)).toBe(true);
+    }
 
     const wrongRevision = structuredClone(verified);
     wrongRevision.sourceRevision = "b".repeat(40);
@@ -1722,7 +1944,7 @@ describe("LLP 0023 output-disposition dataset", () => {
     ).toThrow(/does not bind the verified engine identity/);
 
     const wrongDigest = structuredClone(verified);
-    wrongDigest.engineBinaryDigest = `sha256-${"B".repeat(43)}`;
+    wrongDigest.engine.binaryDigest = `sha256-${"C".repeat(43)}`;
     expect(() =>
       buildOutputDispositionDataset({
         catalog,
@@ -1781,11 +2003,31 @@ describe("LLP 0023 output-disposition dataset", () => {
       evidence,
     });
     const verified = verifiedEvidence(dataset);
+    const validateEvidenceSchema = new Ajv2020({
+      allErrors: true,
+      strict: true,
+    }).compile(
+      readRepoJson("capsec/schema/output-disposition-evidence.schema.json"),
+    );
+    expect(
+      validateEvidenceSchema(verified),
+      JSON.stringify(validateEvidenceSchema.errors),
+    ).toBe(true);
     expect(validateOutputDispositionEvidence(dataset.rows, verified)).toEqual({
       status: "verified",
       sourceRevision: verified.sourceRevision,
-      engineBinaryDigest: verified.engineBinaryDigest,
+      sourceTreeDigest: verified.sourceTreeDigest,
+      target: verified.target,
+      engine: verified.engine,
     });
+
+    const wrongExecutor = structuredClone(verified);
+    wrongExecutor.requiredExecutor =
+      "ibex-public-surface-harness/output-shape-sweep-v2";
+    expect(validateEvidenceSchema(wrongExecutor)).toBe(false);
+    expect(() =>
+      validateOutputDispositionEvidence(dataset.rows, wrongExecutor),
+    ).toThrow(/evidence is not a complete v3 document/);
 
     const missing = structuredClone(verified);
     missing.observations.pop();
@@ -1806,10 +2048,10 @@ describe("LLP 0023 output-disposition dataset", () => {
     ).toThrow(/duplicate canonical output key/);
 
     const unidentified = structuredClone(verified);
-    delete unidentified.engineBinaryDigest;
+    delete unidentified.engine;
     expect(() =>
       validateOutputDispositionEvidence(dataset.rows, unidentified),
-    ).toThrow(/lacks exact source and engine identity/);
+    ).toThrow(/expected exact keys/);
 
     const registrarOnly = structuredClone(verified);
     registrarOnly.observations[0].proofKind = "compiled-registrar";
@@ -1827,7 +2069,7 @@ describe("LLP 0023 output-disposition dataset", () => {
     delete missingExecutor.requiredExecutor;
     expect(() =>
       validateOutputDispositionEvidence(dataset.rows, missingExecutor),
-    ).toThrow(/evidence is not a complete v2 document/);
+    ).toThrow(/evidence is not a complete v3 document/);
   });
 
   test("does not allow observations to hide inside unpromotable evidence", () => {
@@ -1850,6 +2092,26 @@ describe("LLP 0023 output-disposition dataset", () => {
     evidence.sourceRevision = "a".repeat(40);
     expect(() =>
       validateOutputDispositionEvidence(dataset.rows, evidence),
-    ).toThrow(/cannot claim engine identity/);
+    ).toThrow(/expected exact keys/);
+  });
+
+  test("keeps the tracked evidence document permanently unpromotable", () => {
+    const { catalog, policy, evidence } = fixture();
+    expect(
+      validateTrackedOutputDispositionEvidenceSentinel(evidence),
+    ).toEqual({
+      status: "unpromotable",
+      reason: evidence.reason,
+    });
+    const dataset = buildOutputDispositionDataset({
+      catalog,
+      policy,
+      evidence,
+    });
+    expect(() =>
+      validateTrackedOutputDispositionEvidenceSentinel(
+        verifiedEvidence(dataset),
+      ),
+    ).toThrow();
   });
 });

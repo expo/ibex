@@ -60,7 +60,7 @@ beforeAll(async () => {
     repoRoot,
     liveEvidence: {
       status: "unpromotable",
-      requiredExecutor: "ibex-public-surface-harness/output-shape-sweep-v2",
+      requiredExecutor: "ibex-public-surface-harness/output-shape-sweep-v3",
       reason: "focused native delivery template fixture",
     },
   });

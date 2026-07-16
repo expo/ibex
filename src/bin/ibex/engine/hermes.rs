@@ -7,16 +7,17 @@ use super::{
     async_trait, AuthenticatedAsyncFailure, AuthenticatedAsyncFailureOwner,
     AuthenticatedCancellationEvent, AuthenticatedCancellationResolution,
     AuthenticatedCancellationStatus, AuthenticatedCapabilityStratum, AuthenticatedDisplay,
-    AuthenticatedDisplayKind, AuthenticatedEvaluation, AuthenticatedGeneratedEntry,
-    AuthenticatedProgramDrainFailure, AuthenticatedSourcePosition, AuthenticatedThrow,
-    AuthenticatedThrowMetadata, AuthenticatedWorkUnitEvent, AuthenticatedWorkUnitKind,
-    AuthenticatedWorkUnitPhase, DisplayDisposition, Engine, EngineFeature,
+    AuthenticatedDisplayKind, AuthenticatedErrorClass, AuthenticatedEvaluation,
+    AuthenticatedGeneratedEntry, AuthenticatedProgramDrainFailure, AuthenticatedSourcePosition,
+    AuthenticatedThrow, AuthenticatedThrowMetadata, AuthenticatedWorkUnitEvent,
+    AuthenticatedWorkUnitKind, AuthenticatedWorkUnitPhase, DisplayDisposition, Engine,
+    EngineFeature,
 };
 use crate::cdp::{self, BreakpointInfo, CdpBackend, DebugCommand, ScriptInfo};
-use crate::subprocess::{output_with_timeout, timeout_from_env, DEFAULT_HERMESC_TIMEOUT_MS};
+use crate::subprocess::{output_with_timeout, parse_timeout_ms, DEFAULT_HERMESC_TIMEOUT_MS};
 use anyhow::{anyhow, Context, Result};
 use ibex_runtime::engine::evaluation::{
-    ArmedSessionToken, CapabilityStratum, SourceRequest, ThrowMetadata,
+    ArmedSessionToken, CapabilityStratum, NativeErrorClass, SourceRequest, ThrowMetadata,
 };
 use ibex_runtime::engine::hermes_structured::{
     acknowledge_stage1_display, consume_authenticated_json,
@@ -81,13 +82,35 @@ const CLOSE_ARMED_PROCESS_BOOTSTRAP_WIRES: &str = r#"(function () {
     '__exactExecArgv',
     '__exactExecPath',
     '__exactRawArgv0',
-    '__exactCompatModes'
+    '__exactCompatModes',
+    '__exactProcessIpcBootstrap'
   ];
   for (var index = 0; index < temporaryRoots.length; index++) {
     var key = temporaryRoots[index];
     if (!Reflect.deleteProperty(g, key) ||
         Object.prototype.hasOwnProperty.call(g, key)) {
       throw new Error('armed process bootstrap could not delete ' + key);
+    }
+  }
+})();"#;
+
+/// The compatibility tuple and private child-process IPC input are needed until
+/// the shared runtime bundle has captured them. Diagnostic runtimes do not run
+/// the broader armed posture sweep, so close these temporary roots explicitly
+/// after bundle evaluation and compartment-baseline finalization.
+/// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+/// @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+const CLOSE_UNARMED_COMPATIBILITY_BOOTSTRAP_WIRE: &str = r#"(function () {
+  var g = globalThis;
+  var temporaryRoots = [
+    '__exactCompatModes',
+    '__exactProcessIpcBootstrap'
+  ];
+  for (var index = 0; index < temporaryRoots.length; index++) {
+    var key = temporaryRoots[index];
+    if (!Reflect.deleteProperty(g, key) ||
+        Object.prototype.hasOwnProperty.call(g, key)) {
+      throw new Error('diagnostic process bootstrap could not delete ' + key);
     }
   }
 })();"#;
@@ -108,6 +131,7 @@ fn authenticated_display(value: Stage1Display) -> AuthenticatedDisplay {
     AuthenticatedDisplay {
         kind,
         text: value.text.to_string(),
+        truncated: value.truncated,
     }
 }
 
@@ -120,6 +144,22 @@ fn authenticated_capability_stratum(stratum: CapabilityStratum) -> Authenticated
     }
 }
 
+fn authenticated_error_class(error_class: NativeErrorClass) -> AuthenticatedErrorClass {
+    match error_class {
+        NativeErrorClass::Unclassified => AuthenticatedErrorClass::Unclassified,
+        NativeErrorClass::Error => AuthenticatedErrorClass::Error,
+        NativeErrorClass::AggregateError => AuthenticatedErrorClass::AggregateError,
+        NativeErrorClass::EvalError => AuthenticatedErrorClass::EvalError,
+        NativeErrorClass::RangeError => AuthenticatedErrorClass::RangeError,
+        NativeErrorClass::ReferenceError => AuthenticatedErrorClass::ReferenceError,
+        NativeErrorClass::SyntaxError => AuthenticatedErrorClass::SyntaxError,
+        NativeErrorClass::TypeError => AuthenticatedErrorClass::TypeError,
+        NativeErrorClass::UriError => AuthenticatedErrorClass::UriError,
+        NativeErrorClass::TimeoutError => AuthenticatedErrorClass::TimeoutError,
+        NativeErrorClass::QuitError => AuthenticatedErrorClass::QuitError,
+    }
+}
+
 fn authenticated_throw_metadata(metadata: ThrowMetadata) -> AuthenticatedThrowMetadata {
     match metadata {
         ThrowMetadata::Unavailable { required_stratum } => {
@@ -128,12 +168,18 @@ fn authenticated_throw_metadata(metadata: ThrowMetadata) -> AuthenticatedThrowMe
             }
         }
         ThrowMetadata::Captured {
+            error_class,
             message,
+            message_truncated,
             stack,
+            stack_truncated,
             positions,
         } => AuthenticatedThrowMetadata::Captured {
+            error_class: authenticated_error_class(error_class),
             message: message.map(|message| message.to_string()),
+            message_truncated,
             stack: stack.map(|stack| stack.to_string()),
+            stack_truncated,
             positions: positions
                 .into_iter()
                 .map(|position| AuthenticatedSourcePosition {
@@ -364,6 +410,7 @@ extern "C" {
         armed_snapshot_digest: *const std::os::raw::c_char,
     ) -> *mut HermesRuntimeOpaque;
     fn ex_hermes_finish_bootstrap(runtime: *mut HermesRuntimeOpaque) -> u32;
+    #[cfg(test)]
     fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
     fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     fn ex_hermes_set_host_call(
@@ -449,7 +496,27 @@ extern "C" {
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ex_hermes_current_principal_id() -> u64;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_private_test_reset_fs_conformance_observer();
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_private_test_set_requested_fs_authorization_result(result: i32);
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_private_test_set_requested_fs_authorization_result_for_path(
+        result: i32,
+        path: *const std::ffi::c_char,
+    );
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_private_test_armed_path_lookup_count() -> u64;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_private_test_armed_path_lookup_after_refusal_count() -> u64;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_private_test_cancel_queued_fs_operations(runtime: *mut HermesRuntimeOpaque) -> u64;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_enable_work_unit_publication(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_native_freeze_observation(
+        runtime: *mut HermesRuntimeOpaque,
+        out_mask: *mut u32,
+    ) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_enqueue_blocking_native_work(runtime: *mut HermesRuntimeOpaque) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
@@ -460,12 +527,26 @@ extern "C" {
         selector: u32,
     ) -> u64;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_direct_session_async_boundary(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_set_pending_promise_rejection_drop_count(
         runtime: *mut HermesRuntimeOpaque,
         count: u64,
     ) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
-    fn ibex_test_release_blocking_native_work(runtime: *mut HermesRuntimeOpaque) -> i32;
+    fn ibex_exact_runtime_c_abi_probe_cancel_then_release(
+        runtime: *mut HermesRuntimeOpaque,
+        target_id: u64,
+    ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_exact_runtime_c_abi_probe_release_blocking_work(
+        runtime: *mut HermesRuntimeOpaque,
+    ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_exact_runtime_c_abi_probe_cancel_terminal(
+        runtime: *mut HermesRuntimeOpaque,
+        target_id: u64,
+    ) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_install_capsec_context_observer(
         runtime: *mut HermesRuntimeOpaque,
@@ -474,7 +555,13 @@ extern "C" {
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_set_armed_startup_failure_stage(stage: *const std::os::raw::c_char);
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_set_diagnostic_startup_failure_stage(stage: *const std::os::raw::c_char);
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_set_root_global_disposition_key(key: *const std::os::raw::c_char);
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_fail_next_structured_safe_metadata_capture_allocation();
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_fail_next_structured_safe_metadata_copy_allocation();
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_root_global_disposition_getter_calls() -> u32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
@@ -1220,6 +1307,8 @@ pub struct HermesEngine {
     debugger_warned: AtomicBool,
     process_bootstrap_wires_closed: AtomicBool,
     armed_snapshot_digest: Option<String>,
+    loop_trace_enabled: bool,
+    startup_trace_enabled: bool,
 }
 
 struct RuntimeHandle {
@@ -1592,6 +1681,18 @@ impl HermesEngine {
         // pushes wake the select! in wait_for_callback_or_sleep even without
         // the `cli-notify` feature. No-op under `cli-notify`.
         register_default_profile_wake_hook();
+        // Trace controls are diagnostic startup configuration. Capture once
+        // while constructing the engine so authenticated program drains never
+        // reread a mutable host environment after project execution begins.
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        let loop_trace_enabled = std::env::var("IBEX_LOOP_TRACE")
+            .or_else(|_| std::env::var("EXACT_LOOP_TRACE"))
+            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false);
+        let startup_trace_enabled = std::env::var("IBEX_STARTUP_TRACE")
+            .or_else(|_| std::env::var("EX_STARTUP_TRACE"))
+            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+            .unwrap_or(false);
         Ok(Self {
             runtime_loaded: Mutex::new(false),
             runtime: Mutex::new(None),
@@ -1604,6 +1705,8 @@ impl HermesEngine {
             debugger_warned: AtomicBool::new(false),
             process_bootstrap_wires_closed: AtomicBool::new(false),
             armed_snapshot_digest: armed_snapshot_digest.map(str::to_owned),
+            loop_trace_enabled,
+            startup_trace_enabled,
         })
     }
 
@@ -1675,22 +1778,50 @@ impl HermesEngine {
         Ok(shared)
     }
 
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    async fn native_freeze_observation(&self) -> Result<u32> {
+        let mut mask = 0;
+        let status = self
+            .ensure_runtime()
+            .await?
+            .with_runtime(|raw| unsafe { ibex_test_native_freeze_observation(raw, &mut mask) })?;
+        anyhow::ensure!(status == 1, "native-freeze observation is unavailable");
+        anyhow::ensure!(
+            mask & !0x1f == 0,
+            "native-freeze observation has unknown bits"
+        );
+        anyhow::ensure!(
+            mask & 0x10 != 0,
+            "native-freeze observation did not complete"
+        );
+        Ok(mask)
+    }
+
     async fn finish_armed_bootstrap(&self) -> Result<()> {
-        if self.armed_snapshot_digest.is_none() {
-            return Ok(());
-        }
         self.ensure_thread()?;
         if !self.process_bootstrap_wires_closed.load(Ordering::Acquire) {
-            self.eval_str(
-                CLOSE_ARMED_PROCESS_BOOTSTRAP_WIRES,
-                "<armed-process-bootstrap-close>",
-            )
-            .await
-            .context("failed to close armed process bootstrap wires")?;
+            let (source, source_name, failure) = if self.armed_snapshot_digest.is_some() {
+                (
+                    CLOSE_ARMED_PROCESS_BOOTSTRAP_WIRES,
+                    "<armed-process-bootstrap-close>",
+                    "failed to close armed process bootstrap wires",
+                )
+            } else {
+                (
+                    CLOSE_UNARMED_COMPATIBILITY_BOOTSTRAP_WIRE,
+                    "<diagnostic-process-bootstrap-close>",
+                    "failed to close diagnostic process bootstrap compatibility wire",
+                )
+            };
+            self.eval_str(source, source_name).await.context(failure)?;
             self.process_bootstrap_wires_closed
                 .store(true, Ordering::Release);
         }
-        self.ensure_runtime().await?.finish_bootstrap()
+        if self.armed_snapshot_digest.is_some() {
+            self.ensure_runtime().await?.finish_bootstrap()
+        } else {
+            Ok(())
+        }
     }
 
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
@@ -1899,10 +2030,7 @@ impl HermesEngine {
     ) -> std::result::Result<(), AuthenticatedProgramDrainFailure> {
         self.ensure_thread()
             .map_err(AuthenticatedProgramDrainFailure::EngineFault)?;
-        let trace_loop = std::env::var("IBEX_LOOP_TRACE")
-            .or_else(|_| std::env::var("EXACT_LOOP_TRACE"))
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false);
+        let trace_loop = self.loop_trace_enabled;
         let mut trace_iterations = 0usize;
         loop {
             let (pending, next_due, executed) = {
@@ -2122,10 +2250,11 @@ impl HermesEngine {
     /// Load the runtime bundle from disk (fallback when no embedded runtime is available
     /// or when the embedded runtime fails to load).
     async fn load_runtime_from_disk(&self) -> Result<()> {
-        let trace_startup = std::env::var("IBEX_STARTUP_TRACE")
-            .or_else(|_| std::env::var("EX_STARTUP_TRACE"))
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false);
+        anyhow::ensure!(
+            self.armed_snapshot_digest.is_none(),
+            "armed runtime disk fallback is closed"
+        );
+        let trace_startup = self.startup_trace_enabled;
         if trace_startup {
             eprintln!("[startup] load_runtime_from_disk_start");
         }
@@ -2213,6 +2342,18 @@ impl HermesEngine {
                     }
 
                     if !loaded_from_cache {
+                        // Authenticate every environment-selected compiler
+                        // input synchronously, before evaluating even the
+                        // trusted runtime bundle. The detached cache warmer
+                        // receives only this immutable capture and never
+                        // consults a mutable process environment after project
+                        // execution can begin.
+                        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+                        let background_compile_environment = if cache_failed {
+                            None
+                        } else {
+                            CapturedHbcCompileEnvironment::capture().ok()
+                        };
                         // Load JS source
                         let bytes = tokio::fs::read(&runtime_path).await.with_context(|| {
                             format!("Failed to read runtime bundle {}", runtime_path.display())
@@ -2235,7 +2376,12 @@ impl HermesEngine {
                             let js_path = runtime_path.clone();
                             let hbc_out = hbc_path.clone();
                             let compile_task = std::thread::spawn(move || {
-                                if !bytecode_versions_compatible() {
+                                let Some(environment) = background_compile_environment else {
+                                    return;
+                                };
+                                if !bytecode_versions_compatible_with_compiler(
+                                    &environment.compiler_identity,
+                                ) {
                                     return;
                                 }
                                 let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
@@ -2246,10 +2392,11 @@ impl HermesEngine {
                                 };
 
                                 let _ = runtime.block_on(async {
-                                    compile_attested_cache_bytecode(
+                                    compile_attested_cache_bytecode_with_environment(
                                         &js_path.to_string_lossy(),
                                         &hbc_out,
                                         None,
+                                        &environment,
                                     )
                                     .await
                                     .ok()
@@ -2329,10 +2476,7 @@ impl Engine for HermesEngine {
         if *loaded {
             return Ok(());
         }
-        let trace_startup = std::env::var("IBEX_STARTUP_TRACE")
-            .or_else(|_| std::env::var("EX_STARTUP_TRACE"))
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false);
+        let trace_startup = self.startup_trace_enabled;
 
         self.maybe_enable_debugger().await?;
         self.ensure_runtime().await?;
@@ -2359,16 +2503,24 @@ impl Engine for HermesEngine {
             return Ok(());
         }
 
-        // When disk fallback is disabled, the runtime must use only its
-        // embedded bytes and abort if they are unavailable or fail. This keeps
-        // benchmark binaries self-contained.
-        let no_disk_fallback = std::env::var("IBEX_NO_DISK_RUNTIME_FALLBACK")
-            .or_else(|_| std::env::var("EX_NO_DISK_RUNTIME_FALLBACK"))
-            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false);
+        // An armed engine may evaluate only the runtime bytes embedded in the
+        // authenticated engine. Disk fallback would otherwise admit mutable
+        // checkout JavaScript or a sibling `.hbc` selected only by mtime, and
+        // its background warmer would write beside that tooling source.
+        // Diagnostic engines retain the explicit benchmark escape hatch.
+        // @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
+        let armed_runtime = self.armed_snapshot_digest.is_some();
+        let no_disk_fallback = armed_runtime
+            || std::env::var("IBEX_NO_DISK_RUNTIME_FALLBACK")
+                .or_else(|_| std::env::var("EX_NO_DISK_RUNTIME_FALLBACK"))
+                .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+                .unwrap_or(false);
 
         // Try embedded runtime first (compiled into binary by build.rs).
         // This eliminates ~2.3ms of disk I/O on every startup.
+        // Windows armed bootstrap remains fail-closed until its native shared
+        // runtime-bundle install path is implemented; do not make Rust's
+        // embedded bytes look reachable there.
         let use_embedded_runtime = !embedded_runtime::EMBEDDED_RUNTIME.is_empty() && !cfg!(windows);
         if use_embedded_runtime {
             match self
@@ -2385,10 +2537,12 @@ impl Engine for HermesEngine {
                 Err(e) => {
                     // Embedded runtime failed (e.g. bytecode version mismatch).
                     if no_disk_fallback {
-                        anyhow::bail!(
-                            "Embedded runtime failed and IBEX_NO_DISK_RUNTIME_FALLBACK=1 \
-                             prevents disk fallback: {e}"
-                        );
+                        if armed_runtime {
+                            anyhow::bail!(
+                                "Armed runtime rejected disk fallback after embedded runtime failure: {e}"
+                            );
+                        }
+                        anyhow::bail!("Embedded runtime failed and IBEX_NO_DISK_RUNTIME_FALLBACK=1 prevents disk fallback: {e}");
                     }
                     // Fall through to disk-based loading below.
                     if embedded_runtime::EMBEDDED_RUNTIME_IS_BYTECODE
@@ -2401,6 +2555,11 @@ impl Engine for HermesEngine {
             }
         } else {
             if no_disk_fallback {
+                if armed_runtime {
+                    anyhow::bail!(
+                        "Armed runtime requires authenticated embedded runtime bytes; disk fallback is closed"
+                    );
+                }
                 anyhow::bail!(
                     "No embedded runtime available and IBEX_NO_DISK_RUNTIME_FALLBACK=1 \
                      prevents disk fallback. Build with embedded runtime support."
@@ -2453,6 +2612,7 @@ impl Engine for HermesEngine {
                 display: AuthenticatedDisplay {
                     kind: AuthenticatedDisplayKind::JsonData,
                     text: rendered.to_string(),
+                    truncated: false,
                 },
                 receipt: None,
             });
@@ -2934,7 +3094,13 @@ pub fn get_version() -> Result<String> {
         "hermes"
     });
 
-    let output = std::process::Command::new(&hermes_path)
+    let mut command = std::process::Command::new(&hermes_path);
+    command
+        .env_clear()
+        .env("LANG", "C")
+        .env("LC_ALL", "C")
+        .env("TZ", "UTC");
+    let output = command
         .arg("--version")
         .output()
         .context("Failed to get Hermes version")?;
@@ -2945,6 +3111,7 @@ pub fn get_version() -> Result<String> {
     Ok(version.trim().to_string())
 }
 
+#[cfg(test)]
 fn get_hermesc_version() -> Result<String> {
     let identity = find_hermesc_identity()?;
 
@@ -2954,7 +3121,13 @@ fn get_hermesc_version() -> Result<String> {
 }
 
 fn get_hermesc_version_at(path: &Path) -> Result<String> {
-    let output = std::process::Command::new(path)
+    let mut command = std::process::Command::new(path);
+    command
+        .env_clear()
+        .env("LANG", "C")
+        .env("LC_ALL", "C")
+        .env("TZ", "UTC");
+    let output = command
         .arg("--version")
         .output()
         .context("Failed to get hermesc version")?;
@@ -2977,11 +3150,23 @@ fn extract_hbc_version(version_output: &str) -> Option<u32> {
 /// Check whether the hermesc compiler produces bytecode compatible with
 /// the embedded Hermes runtime. Returns false if hermesc is unavailable
 /// or the bytecode versions don't match.
+#[cfg(test)]
 fn bytecode_versions_compatible() -> bool {
-    // Get the hermesc HBC bytecode version
-    let hermesc_hbc = get_hermesc_version()
+    let Ok(compiler_identity) = find_hermesc_identity() else {
+        return false;
+    };
+    bytecode_versions_compatible_with_compiler(&compiler_identity)
+}
+
+fn bytecode_versions_compatible_with_compiler(compiler_identity: &HermesToolIdentity) -> bool {
+    // Query the already-selected compiler rather than discovering tools again;
+    // detached cache warming receives this identity from bootstrap capture.
+    let hermesc_hbc = get_hermesc_version_at(&compiler_identity.path)
         .ok()
         .and_then(|v| extract_hbc_version(&v));
+    if compiler_identity.verify_selected_path().is_err() {
+        return false;
+    }
 
     // Query the root API exported by the engine binary that is actually mapped
     // into this process. A neighboring `hermes --version` executable can be a
@@ -3224,6 +3409,23 @@ fn absolute_path(path: &Path) -> PathBuf {
     }
 }
 
+fn canonical_publication_path(path: &Path) -> Result<PathBuf> {
+    let absolute = absolute_path(path);
+    let file_name = absolute
+        .file_name()
+        .context("generated artifact path has no file name")?;
+    let parent = absolute
+        .parent()
+        .context("generated artifact path has no parent directory")?;
+    let canonical_parent = std::fs::canonicalize(parent).with_context(|| {
+        format!(
+            "failed to authenticate generated artifact directory {}",
+            parent.display()
+        )
+    })?;
+    Ok(canonical_parent.join(file_name))
+}
+
 async fn sha256_path(path: &Path) -> Result<String> {
     Ok(format!(
         "{:x}",
@@ -3347,7 +3549,7 @@ async fn replace_file_atomically(staged: &Path, final_path: &Path) -> Result<()>
     #[cfg(not(windows))]
     {
         tokio::fs::rename(staged, final_path).await?;
-        return Ok(());
+        Ok(())
     }
     #[cfg(windows)]
     {
@@ -3413,12 +3615,35 @@ fn rewrite_staged_source_map(
     Ok(())
 }
 
-async fn wait_for_hbc_test_barrier(name: &str, output: &Path) -> Result<()> {
-    let Ok(dir) = std::env::var("IBEX_TEST_HBC_COMPILE_BARRIER") else {
+#[derive(Clone)]
+struct CapturedHbcCompileEnvironment {
+    compiler_identity: HermesToolIdentity,
+    timeout: std::time::Duration,
+    test_barrier: Option<PathBuf>,
+}
+
+impl CapturedHbcCompileEnvironment {
+    fn capture() -> Result<Self> {
+        let timeout = std::env::var("IBEX_HERMESC_TIMEOUT_MS")
+            .ok()
+            .or_else(|| std::env::var("EXACT_HERMESC_TIMEOUT_MS").ok());
+        Ok(Self {
+            compiler_identity: find_hermesc_identity()?,
+            timeout: parse_timeout_ms(timeout.as_deref(), DEFAULT_HERMESC_TIMEOUT_MS),
+            test_barrier: std::env::var_os("IBEX_TEST_HBC_COMPILE_BARRIER").map(PathBuf::from),
+        })
+    }
+}
+
+async fn wait_for_hbc_test_barrier(
+    name: &str,
+    output: &Path,
+    barrier: Option<&Path>,
+) -> Result<()> {
+    let Some(dir) = barrier else {
         return Ok(());
     };
-    let dir = PathBuf::from(dir);
-    tokio::fs::create_dir_all(&dir).await?;
+    tokio::fs::create_dir_all(dir).await?;
     if let Ok(target) = tokio::fs::read_to_string(dir.join("target")).await {
         if target != output.to_string_lossy() {
             return Ok(());
@@ -3468,6 +3693,13 @@ impl BytecodeOutputKind {
     }
 }
 
+struct BytecodeCompileConfig<'a> {
+    compiler_identity: &'a HermesToolIdentity,
+    output_kind: BytecodeOutputKind,
+    timeout: std::time::Duration,
+    test_barrier: Option<&'a Path>,
+}
+
 pub(crate) async fn compile_source_to_bytecode(
     input_path: &Path,
     source: &[u8],
@@ -3484,22 +3716,28 @@ pub(crate) async fn compile_source_to_bytecode(
     .await
 }
 
-async fn compile_attested_cache_bytecode(
+async fn compile_attested_cache_bytecode_with_environment(
     input: &str,
     output: &Path,
     source_map: Option<&Path>,
+    environment: &CapturedHbcCompileEnvironment,
 ) -> Result<()> {
     let input_path = std::fs::canonicalize(input)
         .with_context(|| format!("Failed to authenticate bytecode source {input}"))?;
     let source = tokio::fs::read(&input_path)
         .await
         .with_context(|| format!("Failed to read bytecode source {input}"))?;
-    compile_source_to_bytecode_with_attestation(
+    compile_source_to_bytecode_with_captured_environment(
         &input_path,
         &source,
         output,
         source_map,
-        BytecodeOutputKind::GeneratedCache,
+        BytecodeCompileConfig {
+            compiler_identity: &environment.compiler_identity,
+            output_kind: BytecodeOutputKind::GeneratedCache,
+            timeout: environment.timeout,
+            test_barrier: environment.test_barrier.as_deref(),
+        },
     )
     .await
 }
@@ -3511,18 +3749,23 @@ async fn compile_source_to_bytecode_with_attestation(
     source_map: Option<&Path>,
     output_kind: BytecodeOutputKind,
 ) -> Result<()> {
-    let compiler_identity = find_hermesc_identity()?;
-    compile_source_to_bytecode_with_compiler(
+    let environment = CapturedHbcCompileEnvironment::capture()?;
+    compile_source_to_bytecode_with_captured_environment(
         input_path,
         source,
         output,
         source_map,
-        &compiler_identity,
-        output_kind,
+        BytecodeCompileConfig {
+            compiler_identity: &environment.compiler_identity,
+            output_kind,
+            timeout: environment.timeout,
+            test_barrier: environment.test_barrier.as_deref(),
+        },
     )
     .await
 }
 
+#[cfg(test)]
 async fn compile_source_to_bytecode_with_compiler(
     input_path: &Path,
     source: &[u8],
@@ -3531,6 +3774,39 @@ async fn compile_source_to_bytecode_with_compiler(
     compiler_identity: &HermesToolIdentity,
     output_kind: BytecodeOutputKind,
 ) -> Result<()> {
+    let timeout = std::env::var("IBEX_HERMESC_TIMEOUT_MS")
+        .ok()
+        .or_else(|| std::env::var("EXACT_HERMESC_TIMEOUT_MS").ok());
+    let timeout = parse_timeout_ms(timeout.as_deref(), DEFAULT_HERMESC_TIMEOUT_MS);
+    let test_barrier = std::env::var_os("IBEX_TEST_HBC_COMPILE_BARRIER").map(PathBuf::from);
+    compile_source_to_bytecode_with_captured_environment(
+        input_path,
+        source,
+        output,
+        source_map,
+        BytecodeCompileConfig {
+            compiler_identity,
+            output_kind,
+            timeout,
+            test_barrier: test_barrier.as_deref(),
+        },
+    )
+    .await
+}
+
+async fn compile_source_to_bytecode_with_captured_environment(
+    input_path: &Path,
+    source: &[u8],
+    output: &Path,
+    source_map: Option<&Path>,
+    config: BytecodeCompileConfig<'_>,
+) -> Result<()> {
+    let BytecodeCompileConfig {
+        compiler_identity,
+        output_kind,
+        timeout,
+        test_barrier,
+    } = config;
     if output_kind.requires_runtime_attestation() {
         ibex_runtime::engine::loaded_engine_binary_identity()
             .map_err(anyhow::Error::msg)
@@ -3585,7 +3861,7 @@ async fn compile_source_to_bytecode_with_compiler(
     let staged_input = compile_dir.join(source_name);
     tokio::fs::write(&staged_input, source).await?;
     let source_digest = format!("{:x}", Sha256::digest(source));
-    wait_for_hbc_test_barrier("input-staged", output).await?;
+    wait_for_hbc_test_barrier("input-staged", output, test_barrier).await?;
 
     let runtime_hbc = ibex_runtime::engine::loaded_engine_bytecode_version().ok();
     let compiler_hbc = get_hermesc_version_at(&staged_compiler)
@@ -3601,18 +3877,20 @@ async fn compile_source_to_bytecode_with_compiler(
         }
     }
 
-    let timeout = std::env::var("IBEX_HERMESC_TIMEOUT_MS")
-        .ok()
-        .map(|value| crate::subprocess::parse_timeout_ms(Some(&value), DEFAULT_HERMESC_TIMEOUT_MS))
-        .unwrap_or_else(|| {
-            timeout_from_env("EXACT_HERMESC_TIMEOUT_MS", DEFAULT_HERMESC_TIMEOUT_MS)
-        });
     let temp_output = temporary_output_path(output);
     // @ref LLP 0005#bytecode-precompilation-hermesc — hermesc derives the
     // source-map path from `-out`; only publication uses the caller's path.
     let temp_source_map = source_map.map(|_| hermesc_source_map_path(&temp_output));
 
     let mut cmd = Command::new(&staged_compiler);
+    cmd.env_clear()
+        .env("TMPDIR", &compile_dir)
+        .env("TMP", &compile_dir)
+        .env("TEMP", &compile_dir)
+        .env("LANG", "C")
+        .env("LC_ALL", "C")
+        .env("TZ", "UTC")
+        .current_dir(&compile_dir);
     configure_hermesc_compile_command(
         &mut cmd,
         &temp_output,
@@ -3636,7 +3914,7 @@ async fn compile_source_to_bytecode_with_compiler(
         anyhow::bail!("Bytecode compilation failed:\n{}", stderr);
     }
 
-    wait_for_hbc_test_barrier("compile-finished", output).await?;
+    wait_for_hbc_test_barrier("compile-finished", output, test_barrier).await?;
     compiler_identity.verify_selected_path()?;
     if let Some(map_path) = temp_source_map.as_ref() {
         rewrite_staged_source_map(map_path, &staged_input, &source_path)?;
@@ -3644,7 +3922,11 @@ async fn compile_source_to_bytecode_with_compiler(
 
     let source_map_path = source_map
         .map(|path| {
-            let path = absolute_path(path);
+            // The final map does not exist until publication, so authenticate
+            // its existing parent and append only the selected file name.
+            // This also normalizes macOS `/var` -> `/private/var` aliases to
+            // the same identity verified by the consumer after publication.
+            let path = canonical_publication_path(path)?;
             path.to_str()
                 .context("bytecode cache does not support non-UTF-8 source-map paths")
                 .map(str::to_owned)
@@ -3696,6 +3978,18 @@ async fn compile_source_to_bytecode_with_compiler(
 mod tests {
     use super::*;
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    struct CAbiBlockingWorkReleaseGuard(Arc<SharedRuntime>);
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl Drop for CAbiBlockingWorkReleaseGuard {
+        fn drop(&mut self) {
+            let _ = self.0.with_session_control(|raw| unsafe {
+                ibex_exact_runtime_c_abi_probe_release_blocking_work(raw)
+            });
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn armed_engine_refuses_inspector_before_runtime_or_listener_allocation() {
         let engine = HermesEngine::new_with_armed_snapshot(Some(
@@ -3711,6 +4005,20 @@ mod tests {
         assert_eq!(error.to_string(), ARMED_INSPECTOR_CLOSED_MESSAGE);
         assert!(engine.runtime.lock().await.is_none());
         assert!(engine.cdp_handle.lock().await.is_none());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_engine_refuses_disk_runtime_fallback_before_lookup() {
+        let engine = HermesEngine::new_with_armed_snapshot(Some(
+            "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ))
+        .unwrap();
+        let error = engine
+            .load_runtime_from_disk()
+            .await
+            .expect_err("armed runtime must never inspect disk fallback");
+        assert_eq!(error.to_string(), "armed runtime disk fallback is closed");
+        assert!(engine.runtime.lock().await.is_none());
     }
 
     #[test]
@@ -3884,7 +4192,7 @@ mod tests {
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
-    async fn native_normal_return_after_delivery_resolves_defeated() {
+    async fn independent_c11_consumer_observes_normal_return_cancellation_as_defeated() {
         let _lock = hermes_engine_test_lock().lock().await;
         let _reset = install_test_host_with_allow(&[]);
         let engine = Arc::new(HermesEngine::new().unwrap());
@@ -3904,7 +4212,12 @@ mod tests {
         );
 
         let controller_engine = Arc::clone(&engine);
+        let controller_runtime = Arc::clone(&runtime);
         let controller = std::thread::spawn(move || {
+            // Arm cleanup before observing the publication. The C-owned probe
+            // releases on its ordinary path; this idempotent guard also
+            // releases if publication, queue decoding, or an assertion fails.
+            let _release = CAbiBlockingWorkReleaseGuard(Arc::clone(&controller_runtime));
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
             while std::time::Instant::now() < deadline {
                 while let Some(event) = controller_engine
@@ -3915,17 +4228,16 @@ mod tests {
                         && event.phase == AuthenticatedWorkUnitPhase::Begin
                     {
                         assert_eq!(
-                            controller_engine.cancel_authenticated_target(event.target_id),
-                            AuthenticatedCancellationStatus::Accepted
-                        );
-                        let runtime = controller_engine.cancellation_runtime().unwrap();
-                        assert_eq!(
-                            runtime
+                            controller_runtime
                                 .with_session_control(|raw| unsafe {
-                                    ibex_test_release_blocking_native_work(raw)
+                                    ibex_exact_runtime_c_abi_probe_cancel_then_release(
+                                        raw,
+                                        event.target_id,
+                                    )
                                 })
                                 .unwrap(),
-                            1
+                            0,
+                            "C11 consumer failed to deliver the exact cancellation race"
                         );
                         return event.target_id;
                     }
@@ -3937,16 +4249,15 @@ mod tests {
 
         engine.drive_ready_tasks().await.unwrap();
         let target_id = controller.join().unwrap();
-        let terminal = engine
-            .next_authenticated_cancellation()
-            .unwrap()
-            .expect("normal-return race did not publish a terminal result");
-        assert_eq!(terminal.target_id, target_id);
         assert_eq!(
-            terminal.resolution,
-            AuthenticatedCancellationResolution::Defeated
+            runtime
+                .with_runtime(|raw| unsafe {
+                    ibex_exact_runtime_c_abi_probe_cancel_terminal(raw, target_id)
+                })
+                .unwrap(),
+            0,
+            "C11 consumer did not observe one Defeated terminal record"
         );
-        assert!(engine.next_authenticated_cancellation().unwrap().is_none());
         assert_eq!(
             engine.eval_immediate("6 * 7").await.unwrap().as_deref(),
             Some("42")
@@ -4007,9 +4318,16 @@ mod tests {
         );
         assert_eq!(display.kind, ValueKind::Object);
         assert_eq!(display.text.as_ref(), "[Object]");
-        let ThrowMetadata::Captured { message, stack, .. } = metadata else {
+        let ThrowMetadata::Captured {
+            error_class,
+            message,
+            stack,
+            ..
+        } = metadata
+        else {
             panic!("runtime-principal throw lost safe metadata")
         };
+        assert_eq!(error_class, NativeErrorClass::Error);
         assert_eq!(message.as_deref(), Some("runtime-principal-unavailable"));
         assert!(stack
             .as_deref()
@@ -4181,13 +4499,16 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
         assert_eq!(thrown.value.kind, AuthenticatedDisplayKind::Object);
         assert_eq!(thrown.value.text, "[Object]");
         let AuthenticatedThrowMetadata::Captured {
+            error_class,
             message,
             stack,
             positions,
+            ..
         } = &thrown.metadata
         else {
             panic!("safe-throw fixture did not invoke the safe metadata ABI")
         };
+        assert_eq!(*error_class, AuthenticatedErrorClass::Error);
         assert_eq!(message.as_deref(), Some("safe-throw-metadata-fixture"));
         let stack = stack
             .as_deref()
@@ -4229,6 +4550,7 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
                 "text": thrown.value.text,
             },
             "metadata": {
+                "errorClass": error_class,
                 "message": message,
                 "stack": stack,
                 "sourceLabel": source_label,
@@ -4308,6 +4630,11 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
     #[cfg(feature = "capsec-conformance-observer")]
     mod capsec_public_startup_environment_batch {
         include!("capsec_public_startup_environment_batch.test.rs");
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    mod capsec_cwd_facade_batch {
+        include!("capsec_cwd_facade_batch.test.rs");
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -5282,6 +5609,456 @@ cp \"$input\" \"$out\"\n";
         }
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    struct AuthenticatedReplTestEvaluator {
+        session: ibex_runtime::engine::evaluation::ArmedSessionToken,
+        sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl AuthenticatedReplTestEvaluator {
+        fn new(host: &crate::host::Host) -> Self {
+            let session = host
+                .mint_armed_session_token()
+                .expect("mint authenticated test session");
+            let sequence =
+                ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
+                    .expect("create authenticated test submission sequence");
+            Self { session, sequence }
+        }
+
+        async fn evaluate(
+            &mut self,
+            engine: &HermesEngine,
+            source: &str,
+        ) -> AuthenticatedEvaluation {
+            use capsec_semantics::model::{LogicalPath, LogicalRoot};
+
+            let request = self
+                .sequence
+                .mint_repl(LogicalPath {
+                    root: LogicalRoot::Project,
+                    components: Vec::new(),
+                    host_bound: None,
+                })
+                .expect("mint authenticated test submission")
+                .authorize_inline()
+                .bind_bytes(source.as_bytes().to_vec())
+                .into_request()
+                .expect("bind authenticated test source");
+            engine
+                .evaluate_authenticated(&self.session, request)
+                .await
+                .expect("evaluate authenticated test source")
+        }
+
+        async fn eval_string(&mut self, engine: &HermesEngine, source: &str) -> String {
+            let evaluation = self.evaluate(engine, source).await;
+            let AuthenticatedEvaluation::Value { display, receipt } = evaluation else {
+                panic!("authenticated test source did not return a value: {evaluation:?}")
+            };
+            assert_eq!(
+                display.kind,
+                AuthenticatedDisplayKind::String,
+                "authenticated test source did not return a string"
+            );
+            engine
+                .release_undisplayed_value(
+                    receipt.expect("authenticated test value must retain a receipt"),
+                )
+                .await
+                .expect("release authenticated test value");
+            serde_json::from_str(&display.text)
+                .expect("authenticated string display must be valid JSON")
+        }
+
+        async fn eval_stage1(
+            &mut self,
+            engine: &HermesEngine,
+            source: &str,
+        ) -> AuthenticatedDisplay {
+            let evaluation = self.evaluate(engine, source).await;
+            let AuthenticatedEvaluation::Value { display, receipt } = evaluation else {
+                panic!("authenticated Stage-1 fixture did not return a value: {evaluation:?}")
+            };
+            engine
+                .release_undisplayed_value(
+                    receipt.expect("authenticated Stage-1 value must retain a receipt"),
+                )
+                .await
+                .expect("release authenticated Stage-1 fixture value");
+            display
+        }
+
+        async fn eval_throw(&mut self, engine: &HermesEngine, source: &str) -> AuthenticatedThrow {
+            let evaluation = self.evaluate(engine, source).await;
+            let AuthenticatedEvaluation::Throw(thrown) = evaluation else {
+                panic!("authenticated throw fixture did not throw: {evaluation:?}")
+            };
+            thrown
+        }
+
+        async fn eval_load_throw(
+            &mut self,
+            engine: &HermesEngine,
+            virtual_path: &str,
+            source: &str,
+        ) -> AuthenticatedThrow {
+            use capsec_semantics::model::{LogicalPath, LogicalRoot};
+
+            let request = self
+                .sequence
+                .mint_load(
+                    Arc::from(virtual_path),
+                    LogicalPath {
+                        root: LogicalRoot::Project,
+                        components: Vec::new(),
+                        host_bound: None,
+                    },
+                )
+                .expect("mint authenticated .load fixture")
+                .authorize_inline()
+                .bind_bytes(source.as_bytes().to_vec())
+                .into_request()
+                .expect("bind authenticated .load fixture");
+            let evaluation = engine
+                .evaluate_authenticated(&self.session, request)
+                .await
+                .expect("evaluate authenticated .load fixture");
+            let AuthenticatedEvaluation::Throw(thrown) = evaluation else {
+                panic!("authenticated .load fixture did not throw: {evaluation:?}")
+            };
+            thrown
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    fn captured_metadata(
+        thrown: &AuthenticatedThrow,
+    ) -> (
+        AuthenticatedErrorClass,
+        Option<&str>,
+        bool,
+        Option<&str>,
+        bool,
+    ) {
+        let AuthenticatedThrowMetadata::Captured {
+            error_class,
+            message,
+            message_truncated,
+            stack,
+            stack_truncated,
+            positions,
+        } = &thrown.metadata
+        else {
+            panic!("production Hermes did not advertise bounded safe metadata")
+        };
+        assert!(
+            positions.is_empty(),
+            "safe metadata must not impersonate the source-position stratum"
+        );
+        (
+            *error_class,
+            message.as_deref(),
+            *message_truncated,
+            stack.as_deref(),
+            *stack_truncated,
+        )
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    fn captured_async_throw(failures: Vec<AuthenticatedAsyncFailure>) -> AuthenticatedThrow {
+        assert_eq!(failures.len(), 1, "fixture must publish one failure");
+        let AuthenticatedAsyncFailure::Captured { thrown, .. } = failures
+            .into_iter()
+            .next()
+            .expect("one asynchronous failure")
+        else {
+            panic!("fixture failure lost its rooted throw")
+        };
+        thrown
+    }
+
+    /// Exercise the loaded, production Hermes primitive renderer rather than
+    /// a Rust-only decoder fixture. The typed flag is authoritative even when
+    /// hostile text itself ends in the shared marker.
+    /// @ref LLP 0024#8-safe-inspection
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn production_hermes_stage1_bounds_unicode_symbol_and_bigint() {
+        use ibex_runtime::engine::hermes_structured::{
+            SAFE_TEXT_MAX_BYTES, SAFE_TEXT_TRUNCATION_MARKER,
+        };
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_test_host_at(None, false, false, false, vec![]);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+        let content_bound = SAFE_TEXT_MAX_BYTES - SAFE_TEXT_TRUNCATION_MARKER.len();
+
+        let exact = evaluator.eval_stage1(&engine, "'a'.repeat(16384)").await;
+        assert_eq!(exact.kind, AuthenticatedDisplayKind::String);
+        assert!(!exact.truncated);
+        let exact_text: String = serde_json::from_str(&exact.text).unwrap();
+        assert_eq!(exact_text.len(), SAFE_TEXT_MAX_BYTES);
+
+        let over = evaluator.eval_stage1(&engine, "'a'.repeat(16385)").await;
+        assert!(over.truncated);
+        let over_text: String = serde_json::from_str(&over.text).unwrap();
+        assert_eq!(over_text.len(), content_bound);
+        assert!(over_text.bytes().all(|byte| byte == b'a'));
+
+        for (scalar, scalar_bytes) in [("é", 2usize), ("€", 3), ("😀", 4)] {
+            let prefix_bytes = content_bound - (scalar_bytes - 1);
+            let source = format!("'a'.repeat({prefix_bytes}) + {scalar:?} + 'z'.repeat(64)");
+            let display = evaluator.eval_stage1(&engine, &source).await;
+            assert!(display.truncated, "{scalar_bytes}-byte cut lost its flag");
+            let text: String = serde_json::from_str(&display.text).unwrap();
+            assert_eq!(
+                text.len(),
+                prefix_bytes,
+                "{scalar_bytes}-byte scalar was split at the bound"
+            );
+            assert!(text.bytes().all(|byte| byte == b'a'));
+        }
+
+        let hostile_marker_source = format!(
+            "'a'.repeat({}) + {:?}",
+            SAFE_TEXT_MAX_BYTES - SAFE_TEXT_TRUNCATION_MARKER.len(),
+            SAFE_TEXT_TRUNCATION_MARKER
+        );
+        let hostile_marker = evaluator.eval_stage1(&engine, &hostile_marker_source).await;
+        assert!(!hostile_marker.truncated);
+        let hostile_marker_text: String = serde_json::from_str(&hostile_marker.text).unwrap();
+        assert_eq!(hostile_marker_text.len(), SAFE_TEXT_MAX_BYTES);
+        assert!(hostile_marker_text.ends_with(SAFE_TEXT_TRUNCATION_MARKER));
+
+        let symbol = evaluator
+            .eval_stage1(&engine, "Symbol('λ'.repeat(9000))")
+            .await;
+        assert_eq!(symbol.kind, AuthenticatedDisplayKind::Symbol);
+        assert!(symbol.truncated);
+        assert!(symbol.text.starts_with("Symbol(λλ"));
+        assert!(symbol.text.ends_with(')'));
+        assert!(!symbol.text.ends_with(SAFE_TEXT_TRUNCATION_MARKER));
+        assert!(symbol.text.len() <= content_bound);
+
+        let bigint = evaluator.eval_stage1(&engine, "1n << 50000n").await;
+        assert_eq!(bigint.kind, AuthenticatedDisplayKind::BigInt);
+        assert!(bigint.truncated);
+        assert_eq!(bigint.text, "[BigInt]");
+    }
+
+    /// Allocation failure while enriching a rooted Throw is metadata loss,
+    /// not loss of the Throw. Both the potentially-throwing capture and the
+    /// fallible owned-byte copy have deterministic production-wrapper seams.
+    /// @ref LLP 0024#8-safe-inspection
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn safe_metadata_allocation_failure_preserves_throw_outcome() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_test_host_at(None, false, false, false, vec![]);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+
+        unsafe { ibex_test_fail_next_structured_safe_metadata_capture_allocation() };
+        let capture_failure = evaluator
+            .eval_throw(&engine, "throw new Error('capture-allocation')")
+            .await;
+        assert_eq!(capture_failure.value.kind, AuthenticatedDisplayKind::Object);
+        assert_eq!(
+            captured_metadata(&capture_failure),
+            (
+                AuthenticatedErrorClass::Unclassified,
+                None,
+                false,
+                None,
+                false
+            )
+        );
+
+        unsafe { ibex_test_fail_next_structured_safe_metadata_copy_allocation() };
+        let copy_failure = evaluator
+            .eval_throw(&engine, "throw new Error('copy-allocation')")
+            .await;
+        assert_eq!(copy_failure.value.kind, AuthenticatedDisplayKind::Object);
+        assert_eq!(
+            captured_metadata(&copy_failure),
+            (
+                AuthenticatedErrorClass::Unclassified,
+                None,
+                false,
+                None,
+                false
+            )
+        );
+
+        let recovered = evaluator
+            .eval_throw(&engine, "throw new Error('metadata-recovered')")
+            .await;
+        let (class, message, message_truncated, stack, stack_truncated) =
+            captured_metadata(&recovered);
+        assert_eq!(class, AuthenticatedErrorClass::Error);
+        assert_eq!(message, Some("metadata-recovered"));
+        assert!(!message_truncated && !stack_truncated);
+        assert!(stack.is_some());
+    }
+
+    /// Direct throws, pending Promise rejections, and native callback throws
+    /// all pass through the same bounded metadata contract.
+    /// @ref LLP 0024#9-asynchronous-failures
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn production_hermes_error_bound_and_async_route_parity() {
+        use ibex_runtime::engine::hermes_structured::{
+            SAFE_TEXT_MAX_BYTES, SAFE_TEXT_TRUNCATION_MARKER,
+        };
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_test_host_at(None, false, false, false, vec![]);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+
+        let exact = evaluator
+            .eval_throw(&engine, "throw new Error('m'.repeat(16384))")
+            .await;
+        let (_, exact_message, exact_truncated, _, _) = captured_metadata(&exact);
+        assert_eq!(exact_message.unwrap().len(), SAFE_TEXT_MAX_BYTES);
+        assert!(!exact_truncated);
+
+        let hostile_marker = evaluator
+            .eval_throw(&engine, "throw new Error('attacker...[truncated]')")
+            .await;
+        let (_, hostile_message, hostile_truncated, _, _) = captured_metadata(&hostile_marker);
+        assert_eq!(hostile_message, Some("attacker...[truncated]"));
+        assert!(!hostile_truncated);
+
+        let direct = evaluator
+            .eval_throw(&engine, "throw new Error('p'.repeat(17000))")
+            .await;
+
+        let pending_value = evaluator
+            .evaluate(
+                &engine,
+                "Promise.resolve().then(function parityPromise() { throw new Error('p'.repeat(17000)); }); 0",
+            )
+            .await;
+        let AuthenticatedEvaluation::Value { receipt, .. } = pending_value else {
+            panic!("pending rejection fixture did not return normally")
+        };
+        engine
+            .release_undisplayed_value(receipt.expect("pending fixture value receipt"))
+            .await
+            .unwrap();
+        engine.drive_ready_tasks().await.unwrap();
+        let pending =
+            captured_async_throw(engine.take_authenticated_async_failures().await.unwrap());
+
+        let callback_value = evaluator
+            .evaluate(
+                &engine,
+                "setTimeout(function parityCallback() { throw new Error('p'.repeat(17000)); }, 0); 0",
+            )
+            .await;
+        let AuthenticatedEvaluation::Value { receipt, .. } = callback_value else {
+            panic!("callback fixture did not return normally")
+        };
+        engine
+            .release_undisplayed_value(receipt.expect("callback fixture value receipt"))
+            .await
+            .unwrap();
+        engine.drive_ready_tasks().await.unwrap();
+        let callback =
+            captured_async_throw(engine.take_authenticated_async_failures().await.unwrap());
+
+        let project = |thrown: &AuthenticatedThrow| {
+            let (class, message, message_truncated, stack, stack_truncated) =
+                captured_metadata(thrown);
+            assert_eq!(message.unwrap().len(), SAFE_TEXT_MAX_BYTES);
+            assert!(message.unwrap().ends_with(SAFE_TEXT_TRUNCATION_MARKER));
+            assert!(stack.is_some());
+            (
+                class,
+                message.map(str::to_owned),
+                message_truncated,
+                stack_truncated,
+            )
+        };
+        let direct_projection = project(&direct);
+        assert_eq!(project(&pending), direct_projection);
+        assert_eq!(project(&callback), direct_projection);
+        assert_eq!(direct_projection.0, AuthenticatedErrorClass::Error);
+        assert!(direct_projection.2);
+    }
+
+    /// Hermes string-table extraction remains source-bounded for deep stacks,
+    /// UTF-16 function names, and authenticated non-ASCII source labels.
+    /// @ref LLP 0024#8-safe-inspection
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn production_hermes_stack_bounds_frames_and_unicode_string_tables() {
+        use ibex_runtime::engine::hermes_structured::{
+            SAFE_TEXT_MAX_BYTES, SAFE_TEXT_TRUNCATION_MARKER,
+        };
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_test_host_at(None, false, false, false, vec![]);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+
+        let deep = evaluator
+            .eval_throw(
+                &engine,
+                "function deepFrames(n) { if (n === 0) throw new Error('deep'); return 1 + deepFrames(n - 1); } deepFrames(130)",
+            )
+            .await;
+        let (_, _, _, deep_stack, deep_truncated) = captured_metadata(&deep);
+        let deep_stack = deep_stack.expect("deep Error stack");
+        assert!(deep_truncated);
+        assert!(deep_stack.len() <= SAFE_TEXT_MAX_BYTES);
+        assert!(deep_stack.ends_with(SAFE_TEXT_TRUNCATION_MARKER));
+        assert!(deep_stack.matches("deepFrames").count() <= 100);
+
+        let huge_function_name = "λ".repeat(9000);
+        let huge_function_source = format!(
+            "var f = function {huge_function_name}() {{ throw new Error('huge-function'); }}; f()"
+        );
+        let huge_function = evaluator.eval_throw(&engine, &huge_function_source).await;
+        let (_, _, _, function_stack, function_truncated) = captured_metadata(&huge_function);
+        let function_stack = function_stack.expect("huge-function Error stack");
+        assert!(function_truncated);
+        assert!(function_stack.len() <= SAFE_TEXT_MAX_BYTES);
+        assert!(function_stack.ends_with(SAFE_TEXT_TRUNCATION_MARKER));
+        assert!(function_stack.contains("λλ"));
+
+        let huge_source_label = format!("/{}.ts", "é".repeat(9000));
+        let huge_source = evaluator
+            .eval_load_throw(
+                &engine,
+                &huge_source_label,
+                "throw new Error('huge-source-label')",
+            )
+            .await;
+        let (_, _, _, source_stack, source_truncated) = captured_metadata(&huge_source);
+        let source_stack = source_stack.expect("huge-source-label Error stack");
+        assert!(source_truncated);
+        assert!(source_stack.len() <= SAFE_TEXT_MAX_BYTES);
+        assert!(source_stack.ends_with(SAFE_TEXT_TRUNCATION_MARKER));
+        assert!(source_stack.contains("éé"));
+    }
+
     fn install_test_host_with_allow(allow: &[&str]) -> HostResetGuard {
         crate::host::abi::install_host(crate::host::Host::new(crate::host::HostConfig {
             mode: crate::host::SecurityMode::Enforce,
@@ -5348,6 +6125,7 @@ JSON.stringify({
             Vec::new(),
             None,
             |snapshot| {
+                snapshot["bootstrapCompatibilityModes"] = serde_json::json!(["bun"]);
                 snapshot["entry"] = serde_json::json!({
                     "kind": "file",
                     "identity": entry_identity,
@@ -5373,13 +6151,6 @@ JSON.stringify({
         let _reset = HostResetGuard;
 
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
-        engine
-            .eval_immediate(
-                r#"globalThis.__exactCompatModes = ['bun'];
-if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
-            )
-            .await
-            .unwrap();
         engine.load_runtime().await.unwrap();
 
         let vfs = host.virtual_file_system().unwrap();
@@ -5496,6 +6267,7 @@ module.exports = JSON.stringify({
             Vec::new(),
             None,
             |snapshot| {
+                snapshot["bootstrapCompatibilityModes"] = serde_json::json!(["bun"]);
                 snapshot["entry"] = serde_json::json!({
                     "kind": "file",
                     "identity": entry_identity,
@@ -5517,13 +6289,6 @@ module.exports = JSON.stringify({
         let _reset = HostResetGuard;
 
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
-        engine
-            .eval_immediate(
-                r#"globalThis.__exactCompatModes = ['bun'];
-if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
-            )
-            .await
-            .unwrap();
         engine.load_runtime().await.unwrap();
         let vfs = host.virtual_file_system().unwrap();
         let entry = vfs.resolve_root_file_url(entry_identity, None).unwrap();
@@ -5819,6 +6584,114 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn direct_session_background_throws_preserve_success_state_and_reuse() {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+        use ibex_runtime::engine::evaluation::SubmissionSequence;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) = build_armed_test_host_at(None, false, false, false, vec![]);
+        let root = host
+            .typed_principal_for_module("0")
+            .expect("armed fixture must authenticate its root principal");
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let session = host.mint_armed_session_token().unwrap();
+        let mut sequence = SubmissionSequence::new(session.clone()).unwrap();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+
+        // Bind the production session before the observer calls the real
+        // direct-session ABI with its next two native ordinals.
+        let bind_request = sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })
+            .unwrap()
+            .authorize_inline()
+            .bind_bytes(b"0".to_vec())
+            .into_request()
+            .unwrap();
+        let AuthenticatedEvaluation::Value { receipt, .. } = engine
+            .evaluate_authenticated(&session, bind_request)
+            .await
+            .expect("session-binding input must succeed")
+        else {
+            panic!("session-binding input did not return a value")
+        };
+        engine
+            .release_undisplayed_value(receipt.expect("binding value must retain a receipt"))
+            .await
+            .unwrap();
+        assert!(engine
+            .take_authenticated_async_failures()
+            .await
+            .unwrap()
+            .is_empty());
+
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let observer_status = runtime
+            .with_runtime(|raw| unsafe { ibex_test_direct_session_async_boundary(raw) })
+            .unwrap();
+        assert_eq!(
+            observer_status, 0,
+            "direct-session boundary observer failed at step {observer_status}"
+        );
+
+        let failures = engine.take_authenticated_async_failures().await.unwrap();
+        assert_eq!(
+            failures.len(),
+            2,
+            "one nextTick throw and one microtask throw must publish exactly once"
+        );
+        let mut saw_next_tick = false;
+        let mut saw_microtask = false;
+        for failure in &failures {
+            let AuthenticatedAsyncFailure::Captured {
+                thrown,
+                owning_principal,
+                event_identity,
+                associated_evaluation,
+            } = failure
+            else {
+                panic!("direct-session background throw lost its structured capture")
+            };
+            assert_eq!(
+                owning_principal,
+                &AuthenticatedAsyncFailureOwner::Authenticated {
+                    principal: root.clone()
+                }
+            );
+            assert_eq!(*associated_evaluation, Some(2));
+            assert_eq!(thrown.value.kind, AuthenticatedDisplayKind::String);
+            match thrown.value.text.as_str() {
+                "\"direct-next-tick\"" => {
+                    assert!(event_identity.starts_with("next-tick:"));
+                    saw_next_tick = true;
+                }
+                "\"direct-microtask\"" => {
+                    assert!(event_identity.starts_with("microtask:"));
+                    saw_microtask = true;
+                }
+                other => panic!("unexpected direct-session failure value {other}"),
+            }
+        }
+        assert!(saw_next_tick && saw_microtask);
+
+        engine.drive_ready_tasks().await.unwrap();
+        assert!(
+            engine
+                .take_authenticated_async_failures()
+                .await
+                .unwrap()
+                .is_empty(),
+            "direct-session background throws were duplicated after settlement"
+        );
+    }
+
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_runtime_vfs_bind_accepts_rebased_custom_project_fixture() {
@@ -5898,6 +6771,7 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             "__exactExecPath",
             "__exactRawArgv0",
             "__exactCompatModes",
+            "__exactProcessIpcBootstrap",
             "Ibex.permissions",
             "Ibex.authority",
             "Exact.setModuleCapabilities",
@@ -6371,13 +7245,16 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         assert_eq!(thrown.value.kind, AuthenticatedDisplayKind::Object);
         assert_eq!(thrown.value.text, "[Object]");
         let AuthenticatedThrowMetadata::Captured {
+            error_class,
             message,
             stack,
             positions,
+            ..
         } = &thrown.metadata
         else {
             panic!("Promise rejection did not carry engine-safe metadata")
         };
+        assert_eq!(*error_class, AuthenticatedErrorClass::Error);
         assert_eq!(message.as_deref(), Some("promise-owned"));
         assert!(
             stack.as_deref().is_some_and(|stack| {
@@ -6725,6 +7602,213 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         assert_eq!(messages, ["package-native", "package-promise"]);
     }
 
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_session_package_compartment_withholds_all_late_global_spellings() {
+        use capsec_semantics::model::Principal;
+        use std::os::unix::fs::MetadataExt;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let project = tempfile::tempdir().unwrap();
+        let project_root = fs::canonicalize(project.path()).unwrap();
+        let package_root = project_root.join("node_modules/image-lib");
+        fs::create_dir_all(&package_root).unwrap();
+        fs::write(
+            package_root.join("package.json"),
+            r#"{"name":"image-lib","version":"2.4.1","main":"index.js"}"#,
+        )
+        .unwrap();
+        fs::write(
+            package_root.join("index.js"),
+            r#"module.exports = function observeLateSessionGlobals() {
+  function bareVarRead() {
+    try { return { kind: 'value', value: String(packageSessionVarSecret) }; }
+    catch (error) { return { kind: String(error && error.name || error) }; }
+  }
+  function bareSloppyRead() {
+    try { return { kind: 'value', value: String(packageSloppySessionSecret) }; }
+    catch (error) { return { kind: String(error && error.name || error) }; }
+  }
+  function reflected(name) {
+    return {
+      has: name in globalThis,
+      descriptorType: typeof Object.getOwnPropertyDescriptor(globalThis, name),
+      enumerated: Object.getOwnPropertyNames(globalThis).indexOf(name) !== -1
+    };
+  }
+  return {
+    package_compartment_withholds_session_var_binding: {
+      bareRead: bareVarRead(),
+      reflected: reflected('packageSessionVarSecret')
+    },
+    package_compartment_withholds_sloppy_created_global: {
+      bareRead: bareSloppyRead(),
+      reflected: reflected('packageSloppySessionSecret')
+    },
+    package_compartment_withholds_adopted_then_assigned_global: {
+      bareRead: {
+        isSessionValue: TextEncoder === 417,
+        type: typeof TextEncoder
+      },
+      reflected: reflected('TextEncoder')
+    }
+  };
+};
+"#,
+        )
+        .unwrap();
+
+        let integrity = crate::module_loader::package_tree_integrity(&package_root).unwrap();
+        let package_principal: Principal = serde_json::from_value(serde_json::json!({
+            "kind": "package",
+            "name": "image-lib",
+            "integrity": integrity,
+            "locator": "image-lib@2.4.1",
+        }))
+        .unwrap();
+        let principal_json = serde_json::to_value(&package_principal).unwrap();
+        let package_components = package_root
+            .components()
+            .filter_map(|component| match component {
+                std::path::Component::Normal(value) => Some(serde_json::json!({
+                    "encoding": "utf8",
+                    "value": value.to_str().unwrap(),
+                })),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let package_metadata = fs::metadata(&package_root).unwrap();
+        let (host, digest) = build_armed_test_host_control(
+            Some(&project_root),
+            false,
+            true,
+            true,
+            vec![],
+            vec![],
+            true,
+            1,
+            None,
+            move |snapshot| {
+                snapshot["principals"][1]["principal"] = principal_json.clone();
+                snapshot["packageGraph"]["nodes"][0]["principal"] = principal_json.clone();
+                snapshot["packageGraph"]["importEdges"][0]["imported"] = principal_json.clone();
+                snapshot["rootBindings"][0] = serde_json::json!({
+                    "logicalRoot": "package",
+                    "owner": principal_json,
+                    "hostPath": {
+                        "root": "absolute",
+                        "components": package_components,
+                        "hostBound": true,
+                    },
+                    "object": {
+                        "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
+                            "apple"
+                        } else {
+                            "unix"
+                        },
+                        "volume": format!("dev:{}", package_metadata.dev()),
+                        "file": format!("ino:{}", package_metadata.ino()),
+                    },
+                });
+            },
+        );
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+
+        let expected_package_observation = serde_json::json!({
+            "package_compartment_withholds_session_var_binding": {
+                "bareRead": {"kind": "value", "value": "undefined"},
+                "reflected": {
+                    "has": false,
+                    "descriptorType": "undefined",
+                    "enumerated": false,
+                },
+            },
+            "package_compartment_withholds_sloppy_created_global": {
+                "bareRead": {"kind": "value", "value": "undefined"},
+                "reflected": {
+                    "has": false,
+                    "descriptorType": "undefined",
+                    "enumerated": false,
+                },
+            },
+            "package_compartment_withholds_adopted_then_assigned_global": {
+                "bareRead": {
+                    "isSessionValue": false,
+                    "type": "function",
+                },
+                "reflected": {
+                    "has": true,
+                    "descriptorType": "undefined",
+                    "enumerated": false,
+                },
+            },
+        });
+        // The baseline is finalized before any of these persistent-session
+        // writes. Each spelling exercises LLP 0024's distinct leakage route:
+        // created `var`, sloppy-created global, and adopted builtin slot.
+        // @ref LLP 0024#77-deviations-and-the-four-gates-that-prove-them —
+        // package modules resolve against the arming baseline, never live
+        // session-authored realm state.
+        assert_eq!(
+            evaluator
+                .eval_string(
+                    &engine,
+                    "var packageSessionVarSecret = 'VAR-SECRET'; 'var-ready'",
+                )
+                .await,
+            "var-ready"
+        );
+        assert_eq!(
+            evaluator
+                .eval_string(
+                    &engine,
+                    "packageSloppySessionSecret = 'SLOPPY-SECRET'; 'sloppy-ready'",
+                )
+                .await,
+            "sloppy-ready"
+        );
+        assert_eq!(
+            evaluator
+                .eval_string(&engine, "var TextEncoder = 417; 'adopted-ready'")
+                .await,
+            "adopted-ready"
+        );
+
+        // First-load the package only after all three root writes. This catches
+        // a lazy compartment implementation that snapshots the live realm when
+        // `require` first creates a package module instead of using the
+        // bootstrap-finalized baseline.
+        let encoded = evaluator
+            .eval_string(
+                &engine,
+                r#"JSON.stringify({
+  package: require('image-lib')(),
+  root: {
+    varValue: packageSessionVarSecret,
+    sloppyValue: packageSloppySessionSecret,
+    adoptedValue: TextEncoder
+  }
+})"#,
+            )
+            .await;
+        let observed: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(
+            observed,
+            serde_json::json!({
+                "package": expected_package_observation,
+                "root": {
+                    "varValue": "VAR-SECRET",
+                    "sloppyValue": "SLOPPY-SECRET",
+                    "adoptedValue": 417,
+                },
+            })
+        );
+    }
+
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn authenticated_async_failure_overflow_is_an_explicit_loss_window() {
@@ -6999,7 +8083,9 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_test_host();
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
-        engine.load_runtime().await.unwrap();
+
+        // This is a native-boundary conformance probe. Project source cannot
+        // name private __exact* bridges after the one-shot armed seal.
 
         let typed_before = crate::host::abi::installed_typed_decision_count();
         let legacy_before = crate::host::abi::installed_legacy_authorization_check_count();
@@ -7034,6 +8120,7 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             crate::host::abi::installed_typed_decision_count() - typed_before,
             0
         );
+        engine.load_runtime().await.unwrap();
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -7111,7 +8198,9 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_test_host();
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
-        engine.load_runtime().await.unwrap();
+
+        // Exercise the private native ABI only during trusted bootstrap; the
+        // public SQLite wrapper retains this binding across the armed seal.
 
         let prefixed_uri = engine
             .eval_immediate(
@@ -7164,25 +8253,30 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             crate::host::abi::installed_typed_decision_count() - typed_before,
             0
         );
+        engine.load_runtime().await.unwrap();
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_host_call_abi_rejects_post_lockdown_install_and_resolution() {
         let _lock = hermes_engine_test_lock().lock().await;
-        let (_reset, digest) = install_armed_test_host();
+        let (host, digest) = build_armed_test_host_at(None, false, false, false, vec![]);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
         ABI_PROBE_SYNC_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
         ABI_PROBE_ASYNC_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
 
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
         assert_eq!(
-            engine
-                .eval_immediate("typeof __hostCall + '/' + typeof __hostCallAsync")
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("undefined/undefined")
+            evaluator
+                .eval_string(
+                    &engine,
+                    "String(typeof __hostCall + '/' + typeof __hostCallAsync)",
+                )
+                .await,
+            "undefined/undefined"
         );
 
         // The setters are invoked after armed creation has completed its
@@ -7199,12 +8293,13 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             .unwrap();
 
         assert_eq!(
-            engine
-                .eval_immediate("typeof __hostCall + '/' + typeof __hostCallAsync")
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("undefined/undefined")
+            evaluator
+                .eval_string(
+                    &engine,
+                    "String(typeof __hostCall + '/' + typeof __hostCallAsync)",
+                )
+                .await,
+            "undefined/undefined"
         );
         assert_eq!(
             ABI_PROBE_SYNC_CALLS.load(std::sync::atomic::Ordering::SeqCst),
@@ -7220,13 +8315,16 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
     #[tokio::test(flavor = "current_thread")]
     async fn armed_exact_embedder_ingress_is_binary_endowed_and_single_use() {
         let _lock = hermes_engine_test_lock().lock().await;
-        let (_reset, digest) = install_armed_exact_test_host();
+        let (host, digest) = build_armed_exact_test_host();
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
         EXACT_ABI_PROBE_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
         EXACT_ABI_PROBE_OPERATION.store(0, std::sync::atomic::Ordering::SeqCst);
         EXACT_ABI_PROBE_PAYLOAD_LEN.store(0, std::sync::atomic::Ordering::SeqCst);
 
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
         let runtime = engine.ensure_runtime().await.unwrap();
         let operations = [7_u32, 11_u32];
         let manifest_digest =
@@ -7291,60 +8389,54 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             .unwrap();
 
         assert_eq!(
-            engine
-                .eval_immediate(
+            evaluator
+                .eval_string(
+                    &engine,
                     "typeof __hostCall + '/' + typeof __hostCallAsync + '/' + \
                      typeof exact.invokeHostAsync",
                 )
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("undefined/undefined/function")
+                .await,
+            "undefined/undefined/function"
         );
         assert_eq!(
-            engine
-                .eval_immediate(
+            evaluator
+                .eval_string(
+                    &engine,
                     "globalThis.__exactTypedResult = 'pending'; \
                      exact.invokeHostAsync(7, new Uint8Array([1,2,3])).then(\
                        function(value) { globalThis.__exactTypedResult = Array.from(value).join(','); },\
                        function(error) { globalThis.__exactTypedResult = 'rejected:' + error.message; }); \
                      'kicked'",
                 )
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("kicked")
+                .await,
+            "kicked"
         );
         engine.drive_event_loop().await.unwrap();
         assert_eq!(
-            engine
-                .eval_immediate("globalThis.__exactTypedResult")
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("9,8")
+            evaluator
+                .eval_string(&engine, "String(globalThis.__exactTypedResult)")
+                .await,
+            "9,8"
         );
         assert_eq!(
-            engine
-                .eval_immediate(
+            evaluator
+                .eval_string(
+                    &engine,
                     "try { exact.invokeHostAsync(7, {}); 'allowed' } \
                      catch (error) { error.message }",
                 )
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("exact.invokeHostAsync payload must be an ArrayBuffer or view")
+                .await,
+            "exact.invokeHostAsync payload must be an ArrayBuffer or view"
         );
         assert_eq!(
-            engine
-                .eval_immediate(
+            evaluator
+                .eval_string(
+                    &engine,
                     "try { exact.invokeHostAsync(8, new Uint8Array()); 'allowed' } \
                      catch (error) { error.message }",
                 )
-                .await
-                .unwrap()
-                .as_deref(),
-            Some("exact.invokeHostAsync operation is not endowed")
+                .await,
+            "exact.invokeHostAsync operation is not endowed"
         );
         assert_eq!(
             EXACT_ABI_PROBE_CALLS.load(std::sync::atomic::Ordering::SeqCst),
@@ -7892,15 +8984,23 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         ]
         .into_iter()
         .map(|name| {
-            serde_json::json!({
-                "cap": "sys:read",
-                "resource": {"kind": "system-info", "name": name}
-            })
+            if name == "cwd" {
+                serde_json::json!({
+                    "cap": "path:cwd-observe",
+                    "resource": {"kind": "session-state", "name": "cwd"}
+                })
+            } else {
+                serde_json::json!({
+                    "cap": "sys:read",
+                    "resource": {"kind": "system-info", "name": name}
+                })
+            }
         })
         .collect();
         let (host, digest) =
             build_armed_test_host_custom(None, false, false, false, floors, None, |snapshot| {
-                snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:os"]);
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(["node:os", "node:process"]);
             });
         assert_ne!(crate::host::abi::install_host(host.clone()), 0);
         let _reset = HostResetGuard;
@@ -7918,13 +9018,14 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             .unwrap()
             .authorize_inline()
             .bind_bytes(
-                b"var os = require('node:os'); JSON.stringify([\
+                b"var os = require('node:os'); var publicProcess = require('node:process'); JSON.stringify([\
                    os.platform(), os.arch(), os.type(), os.release(),\
                    os.homedir(), os.tmpdir(), os.hostname(), os.cpus().length,\
                    os.totalmem(), os.freemem(), os.uptime(), os.endianness(),\
                    Object.keys(os.networkInterfaces()).length, os.loadavg().length,\
                    os.version(), os.machine(), os.availableParallelism(),\
-                   typeof os.userInfo().username, __exactGetProcessRSS(), __exactGetCwd()])"
+                   typeof os.userInfo().username, publicProcess.memoryUsage().rss,
+                   publicProcess.cwd(), process.cwd()])"
                     .to_vec(),
             )
             .into_request()
@@ -7952,8 +9053,8 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         );
         assert_eq!(
             observed.len(),
-            40,
-            "twenty reads must authorize two stages each"
+            42,
+            "twenty-one reads must authorize two stages each"
         );
 
         let expected = [
@@ -8007,6 +9108,7 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             ("surface.native.op.exactgetuserinfo.027b1gs", "user"),
             ("surface.native.op.exactgetprocessrss.0o50wgs", "memory"),
             ("surface.native.op.exactgetcwd.1bhagb7", "cwd"),
+            ("surface.native.op.exactgetcwd.1bhagb7", "cwd"),
         ];
         for (index, (edge, name)) in expected.into_iter().enumerate() {
             let requested = &observed[index * 2];
@@ -8026,12 +9128,20 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             for decision in [requested, committed] {
                 assert_eq!(decision.gates.len(), 1);
                 assert_eq!(decision.gates[0].coverage_edge_id.as_str(), edge);
-                assert_eq!(decision.decision_set.effects[0].action.as_str(), "sys:read");
-                assert_eq!(
-                    serde_json::to_value(&decision.decision_set.effects[0].resource).unwrap()
-                        ["requested"]["name"],
-                    name
-                );
+                let resource =
+                    serde_json::to_value(&decision.decision_set.effects[0].resource).unwrap();
+                if name == "cwd" {
+                    assert_eq!(
+                        decision.decision_set.effects[0].action.as_str(),
+                        "path:cwd-observe"
+                    );
+                    assert_eq!(resource["kind"], "session-state-occurrence");
+                    assert_eq!(resource["requested"]["kind"], "session-state");
+                    assert_eq!(resource["requested"]["name"], "cwd");
+                } else {
+                    assert_eq!(decision.decision_set.effects[0].action.as_str(), "sys:read");
+                    assert_eq!(resource["requested"]["name"], name);
+                }
                 assert_eq!(
                     decision.evidence.outcome,
                     capsec_semantics::decision::DecisionOutcome::Allow
@@ -8046,7 +9156,8 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         let _lock = hermes_engine_test_lock().lock().await;
         let (host, digest) =
             build_armed_test_host_custom(None, false, false, false, vec![], None, |snapshot| {
-                snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:os"]);
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(["node:os", "node:process"]);
                 snapshot["principals"][0]["denials"] = serde_json::json!([
                     {
                         "cap": "sys:read",
@@ -8057,48 +9168,84 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
                         "resource": {"kind": "system-info", "name": "memory"}
                     },
                     {
-                        "cap": "sys:read",
-                        "resource": {"kind": "system-info", "name": "cwd"}
+                        "cap": "path:cwd-observe",
+                        "resource": {"kind": "session-state", "name": "cwd"}
                     }
                 ]);
             });
-        assert_ne!(crate::host::abi::install_host(host), 0);
+        let root = host
+            .typed_principal_for_module("0")
+            .expect("armed root principal");
+        let direct_cwd_denial = host
+            .authorize_typed_cwd_observe_stage(
+                "0",
+                vec![root],
+                capsec_semantics::model::Stage::Requested,
+            )
+            .expect("evaluate direct cwd denial");
+        assert_eq!(
+            direct_cwd_denial.outcome,
+            capsec_semantics::decision::DecisionOutcome::Deny,
+            "the authored cwd denial must precede ambient root: {direct_cwd_denial:?}"
+        );
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
         let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
         assert!(
             ibex_runtime::host::abi::begin_installed_conformance_observation(
                 "public.node-os.cpus.denied"
             )
         );
-        let value = engine
-            .eval_immediate(
+        let value = evaluator
+            .eval_string(
+                &engine,
                 r#"(function() {
                     var os = require('node:os');
+                    var publicProcess = require('node:process');
                     var calls = [
                       function() { return os.cpus(); },
-                      function() { return __exactGetProcessRSS(); },
-                      function() { return __exactGetCwd(); }
+                      function() { return publicProcess.memoryUsage().rss; },
+                      function() { return publicProcess.cwd(); },
+                      function() { return process.cwd(); }
                     ];
-                    var denied = 0;
+                    var errors = [];
                     for (var i = 0; i < calls.length; i++) {
-                      try { calls[i](); }
+                      try { calls[i](); errors.push(null); }
                       catch (error) {
-                        if (String(error && error.message || error).indexOf('Permission denied') !== -1) denied++;
+                        errors.push(String(error && error.message || error));
                       }
                     }
-                    return String(denied);
+                    return JSON.stringify(errors);
                 })()"#,
             )
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(value, "3", "all public reads must deny before data access");
+            .await;
+        let errors: Vec<Option<String>> = serde_json::from_str(&value).unwrap();
+        assert_eq!(errors.len(), 4);
+        assert!(errors[0]
+            .as_deref()
+            .is_some_and(|message| message.contains("Permission denied")));
+        assert!(errors[1]
+            .as_deref()
+            .is_some_and(|message| message.contains("Permission denied")));
+        assert!(
+            errors[2]
+                .as_deref()
+                .is_some_and(|message| message.contains("EACCES: cwd: filesystem policy denied")),
+            "unexpected public cwd denial result: {errors:?}"
+        );
+        assert!(
+            errors[3]
+                .as_deref()
+                .is_some_and(|message| message.contains("EACCES: cwd: filesystem policy denied")),
+            "unexpected global cwd denial result: {errors:?}"
+        );
         let (legacy, observed) = ibex_runtime::host::abi::take_installed_conformance_observations();
         assert!(legacy.is_empty());
         assert_eq!(
             observed.len(),
-            3,
+            4,
             "each denial must stop before Commit and read"
         );
         assert!(observed.iter().all(|decision| {
@@ -8108,11 +9255,24 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         assert_eq!(
             observed
                 .iter()
+                .map(|decision| decision.decision_set.effects[0].action.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "sys:read",
+                "sys:read",
+                "path:cwd-observe",
+                "path:cwd-observe"
+            ]
+        );
+        assert_eq!(
+            observed
+                .iter()
                 .map(|decision| decision.gates[0].coverage_edge_id.as_str())
                 .collect::<Vec<_>>(),
             vec![
                 "surface.native.op.exactgetcpucount.1k05aty",
                 "surface.native.op.exactgetprocessrss.0o50wgs",
+                "surface.native.op.exactgetcwd.1bhagb7",
                 "surface.native.op.exactgetcwd.1bhagb7",
             ]
         );
@@ -8337,20 +9497,22 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
     #[tokio::test(flavor = "current_thread")]
     async fn armed_environment_enumeration_closes_without_any_authorization_oracle() {
         let _lock = hermes_engine_test_lock().lock().await;
-        let (_reset, digest) = install_armed_test_host();
+        let (host, digest) = build_armed_test_host_at(None, false, false, false, vec![]);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         engine.load_runtime().await.unwrap();
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
 
         let typed_before = crate::host::abi::installed_typed_decision_count();
         let legacy_before = crate::host::abi::installed_legacy_authorization_check_count();
         assert!(crate::host::abi::begin_installed_conformance_observation(
             "enforcement.test.environment-enumeration-closed"
         ));
-        let outcome = engine
-            .eval_immediate("String(Object.keys(__exactGetAllEnv()).length)")
-            .await
-            .unwrap();
-        assert_eq!(outcome.as_deref(), Some("0"));
+        let outcome = evaluator
+            .eval_string(&engine, "String(Object.keys(process.env).length)")
+            .await;
+        assert_eq!(outcome, "0");
         let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
         assert!(legacy.is_empty());
         assert!(typed.is_empty());
@@ -8368,72 +9530,89 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
     #[tokio::test(flavor = "current_thread")]
     async fn armed_authority_bridge_rejects_forged_principals_and_unknown_ids() {
         let _lock = hermes_engine_test_lock().lock().await;
-        let (_reset, digest) = install_armed_test_host();
+        let (host, digest) = build_armed_test_host_at(None, false, false, false, vec![]);
+        let root = host
+            .typed_principal_for_module("0")
+            .expect("armed fixture must authenticate its root principal");
+        let forged = serde_json::json!({
+            "kind": "package",
+            "name": "image-lib",
+            "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+            "locator": "image-lib@2.4.1"
+        });
+        let handle_request = serde_json::json!({
+            "actor": forged,
+            "holder": forged,
+            "authority": {
+                "cap": "fs:read",
+                "resource": {
+                    "kind": "path-tree",
+                    "path": {
+                        "root": "project",
+                        "components": [{"encoding": "utf8", "value": "images"}]
+                    }
+                }
+            }
+        });
+        assert!(host
+            .mint_typed_handle_json_for_actor(
+                root.clone(),
+                vec![root.clone()],
+                &serde_json::to_vec(&handle_request).unwrap(),
+            )
+            .is_err());
+        let unknown_handle = serde_json::to_vec("h-forged-not-issued").unwrap();
+        let unknown_handle_error = host
+            .revoke_typed_handle_json_for_actor(&root, &unknown_handle)
+            .unwrap_err();
+        assert!(
+            unknown_handle_error
+                .to_string()
+                .contains("only the authenticated handle owner or holder may revoke it"),
+            "unexpected unknown-handle rejection: {unknown_handle_error}"
+        );
+
+        let grant_request = serde_json::json!({
+            "grantId": "forged-package-grant",
+            "principal": forged,
+            "authority": {
+                "cap": "device:location",
+                "resource": {
+                    "kind": "device-location",
+                    "usage": "foreground",
+                    "precision": "coarse"
+                }
+            }
+        });
+        assert!(host
+            .grant_typed_dynamic_json_for_principal(
+                root.clone(),
+                &serde_json::to_vec(&grant_request).unwrap(),
+            )
+            .is_err());
+        let unknown_grant = serde_json::to_vec("forged-grant-not-issued").unwrap();
+        let unknown_grant_error = host
+            .revoke_typed_dynamic_json_for_principal(&root, &unknown_grant)
+            .unwrap_err();
+        assert!(
+            unknown_grant_error
+                .to_string()
+                .contains("only the grant principal may revoke a dynamic grant"),
+            "unexpected unknown-grant rejection: {unknown_grant_error}"
+        );
+
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         engine.load_runtime().await.unwrap();
-        let script = r#"(function() {
-            var forgedActorDenied = false;
-            try {
-              Ibex.authority.mintHandle({
-                actor: {
-                  kind: 'package',
-                  name: 'image-lib',
-                  integrity: 'sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA',
-                  locator: 'image-lib@2.4.1'
-                },
-                holder: {
-                  kind: 'package',
-                  name: 'image-lib',
-                  integrity: 'sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA',
-                  locator: 'image-lib@2.4.1'
-                },
-                authority: {
-                  cap: 'fs:read',
-                  resource: {
-                    kind: 'path-tree',
-                    path: {
-                      root: 'project',
-                      components: [{encoding: 'utf8', value: 'images'}]
-                    }
-                  }
-                }
-              });
-            } catch (_) { forgedActorDenied = true; }
-            var unknownBearerDenied = false;
-            try { Ibex.authority.revokeHandle('h-forged-not-issued'); }
-            catch (_) { unknownBearerDenied = true; }
-            var forgedGrantDenied = false;
-            try {
-              Ibex.permissions.requestTyped({
-                grantId: 'forged-package-grant',
-                principal: {
-                  kind: 'package',
-                  name: 'image-lib',
-                  integrity: 'sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA',
-                  locator: 'image-lib@2.4.1'
-                },
-                authority: {
-                  cap: 'device:location',
-                  resource: {
-                    kind: 'device-location',
-                    usage: 'foreground',
-                    precision: 'coarse'
-                  }
-                }
-              });
-            } catch (_) { forgedGrantDenied = true; }
-            var unknownGrantDenied = false;
-            try { Ibex.permissions.revokeTyped('forged-grant-not-issued'); }
-            catch (_) { unknownGrantDenied = true; }
-            return JSON.stringify([
-              forgedActorDenied,
-              unknownBearerDenied,
-              forgedGrantDenied,
-              unknownGrantDenied
-            ]);
-        })()"#;
-        let outcome = engine.eval_immediate(script).await.unwrap();
-        assert_eq!(outcome.as_deref(), Some("[true,true,true,true]"));
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+        let outcome = evaluator
+            .eval_string(
+                &engine,
+                "String(typeof Ibex.authority + '/' + typeof Ibex.permissions)",
+            )
+            .await;
+        assert_eq!(outcome, "undefined/undefined");
     }
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
@@ -8758,11 +9937,31 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
-    async fn armed_unported_network_surfaces_refuse_before_external_effects() {
+    async fn armed_unported_network_surfaces_refuse_synchronously_and_unix_listen_leaves_no_path() {
         let _lock = hermes_engine_test_lock().lock().await;
-        let (_reset, digest) = install_armed_test_host();
+        let (host, digest) =
+            build_armed_test_host_custom(None, false, false, false, vec![], None, |snapshot| {
+                snapshot["principals"][0]["denials"] = serde_json::json!([{
+                    "cap": "network:listen",
+                    "resource": {
+                        "kind": "listen-inet",
+                        "transport": "tcp",
+                        "bind": {"kind": "loopback"},
+                        "port": {"kind": "ephemeral"},
+                        "dualStack": false,
+                        "peerClasses": ["loopback"]
+                    }
+                }]);
+            });
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
-        engine.load_runtime().await.unwrap();
+        // These private native entry points are probed before the one-shot
+        // seal; authenticated project code reaches only their public wrappers.
+        // This regression proves synchronous refusal for every listed bridge
+        // and the directly observable no-bind postcondition for Unix listen.
+        // It deliberately does not claim that constructing and closing the UDP
+        // handle below is itself a zero-allocation operation.
         let socket_path = std::env::temp_dir().join(format!(
             "ibex-capsec-closed-{}-{}.sock",
             std::process::id(),
@@ -8774,30 +9973,47 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         let script = format!(
             r#"(function() {{
                 if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
-                var denied = 0;
-                try {{ __nativeFetch('http://127.0.0.1:9/', {{}}); }} catch (_) {{ denied++; }}
-                try {{ __exactDnsLookup('localhost', 4); }} catch (_) {{ denied++; }}
-                try {{ __exactWsConnect('ws://127.0.0.1:9/', '', {{}}); }} catch (_) {{ denied++; }}
+                var denied = {{}};
+                function refuses(name, call) {{
+                  try {{ call(); denied[name] = false; }} catch (_) {{ denied[name] = true; }}
+                }}
+                refuses('fetch', function() {{ __nativeFetch('http://127.0.0.1:9/', {{}}); }});
+                refuses('dns', function() {{ __exactDnsLookup('localhost', 4); }});
+                refuses('websocket', function() {{ __exactWsConnect('ws://127.0.0.1:9/', '', {{}}); }});
                 var nulUrlRejected = false;
                 try {{ __exactWsConnect('ws://127.0.0.1:9/\u0000suffix', '', {{}}); }}
                 catch (error) {{
                   nulUrlRejected = String(error && error.message || error).indexOf('ASCII control') !== -1;
                 }}
                 if (!nulUrlRejected) throw new Error('NUL-bearing WebSocket URL was not rejected');
-                try {{ __exactTcpListen('127.0.0.1', 0, 1, 0, 0); }} catch (_) {{ denied++; }}
-                try {{ __exactHttpServe(0, '127.0.0.1'); }} catch (_) {{ denied++; }}
-                try {{ __exactUnixConnect({socket_path:?}); }} catch (_) {{ denied++; }}
-                try {{ __exactUnixListen({socket_path:?}, 1); }} catch (_) {{ denied++; }}
+                refuses('tcpListen', function() {{ __exactTcpListen('127.0.0.1', 0, 1, 0, 0); }});
+                refuses('httpServe', function() {{ __exactHttpServe(0, '127.0.0.1'); }});
+                refuses('unixConnect', function() {{ __exactUnixConnect({socket_path:?}); }});
+                refuses('unixListen', function() {{ __exactUnixListen({socket_path:?}, 1); }});
                 var udp = __exactUdpSocket('udp4');
-                try {{ __exactUdpBind(udp, '127.0.0.1', 0); }} catch (_) {{ denied++; }}
+                refuses('udpBind', function() {{ __exactUdpBind(udp, '127.0.0.1', 0); }});
                 __exactUdpClose(udp);
-                return String(denied);
+                return JSON.stringify(denied);
             }})()"#,
             socket_path = socket_path.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
-        assert_eq!(outcome.as_deref(), Some("8"));
+        let outcome: serde_json::Value = serde_json::from_str(outcome.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            outcome,
+            serde_json::json!({
+                "fetch": true,
+                "dns": true,
+                "websocket": true,
+                "tcpListen": true,
+                "httpServe": true,
+                "unixConnect": true,
+                "unixListen": true,
+                "udpBind": true,
+            })
+        );
         assert!(!socket_path.exists());
+        engine.load_runtime().await.unwrap();
     }
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
@@ -9842,7 +11058,7 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
         assert_ne!(crate::host::abi::install_host(host), 0);
         let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
-        engine.load_runtime().await.unwrap();
+        assert!(engine.runtime_bundle_installed().await.unwrap());
 
         let script = format!(
             r#"(function () {{
@@ -9885,6 +11101,9 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
                 "wireDeleted": true,
             })
         );
+        // Finalization removes the bootstrap inspection path before any
+        // authenticated project submission is admitted.
+        engine.load_runtime().await.unwrap();
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -10463,6 +11682,13 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
     async fn stale_fd_number_reuse_never_authorizes_the_replacement_object() {
         use std::os::fd::AsRawFd;
 
+        const CHILD_ENV: &str = "IBEX_TEST_STALE_FD_REUSE_CHILD";
+        const TEST_NAME: &str =
+            "engine::hermes::tests::stale_fd_number_reuse_never_authorizes_the_replacement_object";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
+
         let _guard = hermes_engine_test_lock().lock().await;
         let tempdir = tempfile::tempdir().unwrap();
         let first = tempdir.path().join("first.txt");
@@ -10547,8 +11773,200 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
 
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
+    async fn process_ipc_disconnect_closes_once_without_reused_fd_damage() {
+        use std::io::Read as _;
+        use std::os::fd::{AsRawFd as _, IntoRawFd as _};
+        use std::os::unix::net::UnixStream;
+
+        const CHILD_ENV: &str = "IBEX_TEST_PROCESS_IPC_DISCONNECT_CHILD";
+        const TEST_NAME: &str =
+            "engine::hermes::tests::process_ipc_disconnect_closes_once_without_reused_fd_damage";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let (mut peer, adopted) = UnixStream::pair().expect("create process IPC socketpair");
+        peer.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let adopted_fd = adopted.into_raw_fd();
+        let _ipc_fd = TestEnvVar::set("EXACT_IPC_FD", &adopted_fd.to_string());
+        let _ipc_serialization = TestEnvVar::set("EXACT_IPC_SERIALIZATION", "advanced");
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        drop(_ipc_serialization);
+        drop(_ipc_fd);
+
+        let engine = HermesEngine::new().unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "if (!process.connected || typeof process.disconnect !== 'function') throw new Error('IPC unavailable'); process.disconnect(); 'disconnected'",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("disconnected")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate("'runtime-still-alive'")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("runtime-still-alive"),
+            "disconnect must close the channel, not the runtime"
+        );
+
+        let mut saw_eof = false;
+        let mut received = Vec::new();
+        while !saw_eof {
+            let mut chunk = [0u8; 1024];
+            match peer.read(&mut chunk) {
+                Ok(0) => saw_eof = true,
+                Ok(count) => received.extend_from_slice(&chunk[..count]),
+                Err(error) => panic!(
+                    "process IPC peer did not reach EOF after disconnect: {error}; received={}",
+                    String::from_utf8_lossy(&received)
+                ),
+            }
+        }
+        assert!(
+            String::from_utf8_lossy(&received).contains("\"type\":\"disconnect\""),
+            "disconnect packet was not flushed before close: {}",
+            String::from_utf8_lossy(&received)
+        );
+
+        // Reuse the just-closed integer before runtime teardown. The JS close
+        // must have unregistered the IPC row, so teardown cannot close this
+        // unrelated replacement as a second attempt at channel cleanup.
+        let replacement_path = std::env::temp_dir().join(format!(
+            "ibex-process-ipc-replacement-{}",
+            std::process::id()
+        ));
+        std::fs::write(&replacement_path, b"replacement").unwrap();
+        let replacement = std::fs::File::open(&replacement_path).unwrap();
+        let replacement_source_fd = replacement.as_raw_fd();
+        if replacement_source_fd != adopted_fd {
+            assert_eq!(
+                unsafe { libc::dup2(replacement_source_fd, adopted_fd) },
+                adopted_fd
+            );
+        }
+
+        drop(engine);
+        let mut bytes = [0u8; 11];
+        assert_eq!(
+            unsafe { libc::pread(adopted_fd, bytes.as_mut_ptr().cast(), bytes.len(), 0,) },
+            bytes.len() as isize,
+            "runtime teardown double-closed the reused IPC descriptor number"
+        );
+        assert_eq!(&bytes, b"replacement");
+        if replacement_source_fd != adopted_fd {
+            assert_eq!(unsafe { libc::close(adopted_fd) }, 0);
+        }
+        drop(replacement);
+        let _ = std::fs::remove_file(replacement_path);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn connected_process_ipc_closes_on_native_runtime_teardown() {
+        use std::io::Read as _;
+        use std::os::fd::IntoRawFd as _;
+        use std::os::unix::net::UnixStream;
+
+        const CHILD_ENV: &str = "IBEX_TEST_PROCESS_IPC_TEARDOWN_CHILD";
+        const TEST_NAME: &str =
+            "engine::hermes::tests::connected_process_ipc_closes_on_native_runtime_teardown";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let (mut peer, adopted) = UnixStream::pair().expect("create process IPC socketpair");
+        peer.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let adopted_fd = adopted.into_raw_fd();
+        let _ipc_fd = TestEnvVar::set("EXACT_IPC_FD", &adopted_fd.to_string());
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        drop(_ipc_fd);
+
+        let runtime = SharedRuntime::new(None).expect("create diagnostic runtime with IPC");
+        assert_eq!(runtime.shutdown(), RuntimeShutdown::Destroyed);
+
+        let mut byte = [0u8; 1];
+        assert_eq!(
+            peer.read(&mut byte).expect("read teardown EOF"),
+            0,
+            "native runtime teardown left the adopted IPC socket open"
+        );
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn partial_diagnostic_startup_closes_registered_process_ipc() {
+        use std::io::Read as _;
+        use std::os::fd::IntoRawFd as _;
+        use std::os::unix::net::UnixStream;
+
+        struct ResetInjectedFailure;
+        impl Drop for ResetInjectedFailure {
+            fn drop(&mut self) {
+                unsafe { ibex_test_set_diagnostic_startup_failure_stage(std::ptr::null()) };
+            }
+        }
+
+        const CHILD_ENV: &str = "IBEX_TEST_PROCESS_IPC_PARTIAL_STARTUP_CHILD";
+        const TEST_NAME: &str =
+            "engine::hermes::tests::partial_diagnostic_startup_closes_registered_process_ipc";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let _reset_failure = ResetInjectedFailure;
+        let (mut peer, adopted) = UnixStream::pair().expect("create process IPC socketpair");
+        peer.set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let adopted_fd = adopted.into_raw_fd();
+        let _ipc_fd = TestEnvVar::set("EXACT_IPC_FD", &adopted_fd.to_string());
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        drop(_ipc_fd);
+        let stage = CString::new("process-ipc-registered").unwrap();
+        unsafe { ibex_test_set_diagnostic_startup_failure_stage(stage.as_ptr()) };
+
+        assert!(
+            SharedRuntime::new(None).is_err(),
+            "diagnostic runtime survived injected post-registration failure"
+        );
+        let mut byte = [0u8; 1];
+        assert_eq!(
+            peer.read(&mut byte).expect("read partial-startup EOF"),
+            0,
+            "partial runtime cleanup left the registered IPC socket open"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
     async fn runtime_cleanup_never_closes_a_reused_descriptor_number() {
         use std::os::fd::AsRawFd;
+
+        const CHILD_ENV: &str = "IBEX_TEST_RUNTIME_CLEANUP_REUSED_FD_CHILD";
+        const TEST_NAME: &str =
+            "engine::hermes::tests::runtime_cleanup_never_closes_a_reused_descriptor_number";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
 
         let _guard = hermes_engine_test_lock().lock().await;
         let tempdir = tempfile::tempdir().unwrap();
@@ -10612,7 +12030,12 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             .env(child_env, "1")
             .env_remove("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
         let label = format!("owner-thread teardown probe {exact_test_name}");
-        let output = output_with_timeout(&mut command, std::time::Duration::from_secs(10), &label)
+        // The bound includes spawning and scheduling a second full test
+        // process. Ten seconds is enough in isolation but flakes when all ten
+        // owner-thread probes contend with the workspace's parallel test
+        // suite; thirty remains a strict deadlock bound while admitting that
+        // startup load.
+        let output = output_with_timeout(&mut command, std::time::Duration::from_secs(30), &label)
             .await
             .unwrap_or_else(|error| panic!("{error:#}"));
         assert!(
@@ -10699,6 +12122,604 @@ if (!globalThis.Bun && globalThis.Exact) globalThis.Bun = globalThis.Exact;"#,
             started_waiting.elapsed() >= std::time::Duration::from_millis(100),
             "destroy must wait while the worker owns a runtime lifetime pin"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn destroy_cancels_queued_fs_lease_but_drains_committed_workers() {
+        const CHILD_ENV: &str = "IBEX_TEST_QUEUED_FS_LEASE_TEARDOWN_CHILD";
+        const TEST_NAME: &str =
+            "engine::hermes::tests::destroy_cancels_queued_fs_lease_but_drains_committed_workers";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let mut fifos = Vec::new();
+        for index in 0..8 {
+            let fifo = tempdir.path().join(format!("blocked-read-{index}.fifo"));
+            let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+            fifos.push(fifo);
+        }
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let engine = HermesEngine::new().unwrap();
+        let paths = fifos
+            .iter()
+            .map(|path| format!("{:?}", path.to_str().unwrap()))
+            .collect::<Vec<_>>()
+            .join(",");
+        engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__blockedReads = [{paths}].map(function(path) {{
+                    return __exactFsReadFileAsync(path, 'r', 0);
+                  }});
+                  return 'started';
+                }})()"#
+            ))
+            .await
+            .unwrap();
+
+        // A nonblocking FIFO writer succeeds only after the matching worker
+        // has opened the read end. Keeping all eight writers open leaves every
+        // pool worker irreversibly committed and blocked in read(2), so the
+        // next operation is deterministically still cancelable in the queue.
+        let mut release_fds = Vec::new();
+        for fifo in &fifos {
+            let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                let fd = unsafe { libc::open(fifo_c.as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK) };
+                if fd >= 0 {
+                    release_fds.push(fd);
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "filesystem worker did not commit its FIFO read"
+                );
+                std::thread::yield_now();
+            }
+        }
+
+        let queued_effect = tempdir.path().join("must-remain-absent.txt");
+        engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  globalThis.__queuedWrite = __exactFsWriteFileAsync(
+                    {:?}, 'should-not-land', 'w', 438, true);
+                  return 'queued';
+                }})()"#,
+                queued_effect.to_str().unwrap()
+            ))
+            .await
+            .unwrap();
+
+        let shared = engine.runtime.lock().await.as_ref().unwrap().shared();
+        let raw = shared.raw.load(Ordering::SeqCst) as usize;
+        let nonce = unsafe { ex_hermes_runtime_nonce(raw as *mut HermesRuntimeOpaque) };
+        assert_ne!(nonce, 0);
+        let releaser = std::thread::spawn(move || {
+            while unsafe { ex_hermes_runtime_nonce(raw as *mut HermesRuntimeOpaque) } == nonce {
+                std::thread::yield_now();
+            }
+            for fd in release_fds {
+                assert_eq!(unsafe { libc::write(fd, b"x".as_ptr().cast(), 1) }, 1);
+                assert_eq!(unsafe { libc::close(fd) }, 0);
+            }
+        });
+
+        assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
+        releaser.join().unwrap();
+        assert!(
+            !queued_effect.exists(),
+            "teardown executed a filesystem effect that was still queued"
+        );
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn canceling_a_queued_async_close_rolls_back_its_descriptor_reservation() {
+        const CHILD_ENV: &str = "IBEX_TEST_QUEUED_FS_CLOSE_LEASE_CHILD";
+        const TEST_NAME: &str = "engine::hermes::tests::canceling_a_queued_async_close_rolls_back_its_descriptor_reservation";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let mut fifos = Vec::new();
+        for index in 0..8 {
+            let fifo = tempdir
+                .path()
+                .join(format!("blocked-close-read-{index}.fifo"));
+            let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+            fifos.push(fifo);
+        }
+        let output = tempdir.path().join("close-reservation.txt");
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let engine = HermesEngine::new().unwrap();
+        let paths = fifos
+            .iter()
+            .map(|path| format!("{:?}", path.to_str().unwrap()))
+            .collect::<Vec<_>>()
+            .join(",");
+        engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__closeLeaseFd = __exactFsOpen({output:?}, 'w');
+                  globalThis.__closeLeaseBlockers = [{paths}].map(function(path) {{
+                    return __exactFsReadFileAsync(path, 'r', 0);
+                  }});
+                  return 'started';
+                }})()"#,
+                output = output.to_str().unwrap(),
+            ))
+            .await
+            .unwrap();
+
+        let mut release_fds = Vec::new();
+        for fifo in &fifos {
+            let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                let fd = unsafe { libc::open(fifo_c.as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK) };
+                if fd >= 0 {
+                    release_fds.push(fd);
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "filesystem worker did not commit its FIFO read"
+                );
+                std::thread::yield_now();
+            }
+        }
+
+        engine
+            .eval_immediate(
+                "globalThis.__queuedClose = __exactFsCloseAsync(globalThis.__closeLeaseFd); 'queued';",
+            )
+            .await
+            .unwrap();
+        let shared = engine.runtime.lock().await.as_ref().unwrap().shared();
+        let raw = shared.raw.load(Ordering::SeqCst);
+        assert_eq!(
+            unsafe { ibex_private_test_cancel_queued_fs_operations(raw) },
+            1,
+            "the close must still be Queued while all workers are committed"
+        );
+
+        let written = engine
+            .eval_immediate("String(__exactFsWrite(globalThis.__closeLeaseFd, 'survived', 0))")
+            .await
+            .unwrap();
+        assert_eq!(written.as_deref(), Some("8"));
+        engine
+            .eval_immediate("__exactFsClose(globalThis.__closeLeaseFd); 'closed';")
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), b"survived");
+
+        for fd in release_fds {
+            assert_eq!(unsafe { libc::write(fd, b"x".as_ptr().cast(), 1) }, 1);
+            assert_eq!(unsafe { libc::close(fd) }, 0);
+        }
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_prepared_mutations_are_committed_leases_and_drain_on_teardown() {
+        const CHILD_ENV: &str = "IBEX_TEST_ARMED_COMMITTED_FS_LEASE_CHILD";
+        const TEST_NAME: &str = "engine::hermes::tests::armed_prepared_mutations_are_committed_leases_and_drain_on_teardown";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let blockers_dir = tempfile::tempdir().unwrap();
+        let mut fifos = Vec::new();
+        for index in 0..8 {
+            let fifo = blockers_dir
+                .path()
+                .join(format!("armed-commit-blocker-{index}.fifo"));
+            let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+            fifos.push(fifo);
+        }
+
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let blocker_engine = HermesEngine::new().unwrap();
+        let paths = fifos
+            .iter()
+            .map(|path| format!("{:?}", path.to_str().unwrap()))
+            .collect::<Vec<_>>()
+            .join(",");
+        blocker_engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__armedCommitBlockers = [{paths}].map(function(path) {{
+                    return __exactFsReadFileAsync(path, 'r', 0);
+                  }});
+                  return 'started';
+                }})()"#,
+            ))
+            .await
+            .unwrap();
+
+        let mut release_fds = Vec::new();
+        for fifo in &fifos {
+            let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                let fd = unsafe { libc::open(fifo_c.as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK) };
+                if fd >= 0 {
+                    release_fds.push(fd);
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "filesystem worker did not commit its FIFO read"
+                );
+                std::thread::yield_now();
+            }
+        }
+
+        let project = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        let existing = root.join("existing.txt");
+        std::fs::write(&existing, b"original").unwrap();
+        let created = root.join("created.txt");
+        let created_dir = root.join("created-dir");
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true, vec![]);
+        let armed = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        armed
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__armedCommittedOps = [
+                    __exactFsWriteFileAsync(
+                      '/project/existing.txt', 'replacement', 'w', 438, false),
+                    __exactFsOpenAsync('/project/created.txt', 'wx', 438),
+                    __exactFsPathAsync(
+                      'mkdir', '/project/created-dir', null, 0, 493, 0),
+                    __exactFsReadFileAsync(
+                      '/project/existing.txt', 'r', 0),
+                    __exactFsPathAsync(
+                      'readdir', '/project', null, 0, 0, 0)
+                  ];
+                  return 'queued';
+                })()"#,
+            )
+            .await
+            .unwrap();
+
+        // Preparation has already performed authorized target lookup and the
+        // create/truncate/mkdir effects. These records must therefore be
+        // Committed, never reported or rolled back as cancelable queue work.
+        assert!(created.exists());
+        assert!(created_dir.is_dir());
+        assert_eq!(std::fs::read(&existing).unwrap(), b"");
+        let shared = armed.runtime.lock().await.as_ref().unwrap().shared();
+        let raw = shared.raw.load(Ordering::SeqCst);
+        assert_eq!(
+            unsafe { ibex_private_test_cancel_queued_fs_operations(raw) },
+            2,
+            "queued armed read/list work is cancelable; prepared mutations are not"
+        );
+        let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+        assert_ne!(nonce, 0);
+        let raw_address = raw as usize;
+        let releaser = std::thread::spawn(move || {
+            while unsafe { ex_hermes_runtime_nonce(raw_address as *mut HermesRuntimeOpaque) }
+                == nonce
+            {
+                std::thread::yield_now();
+            }
+            for fd in release_fds {
+                assert_eq!(unsafe { libc::write(fd, b"x".as_ptr().cast(), 1) }, 1);
+                assert_eq!(unsafe { libc::close(fd) }, 0);
+            }
+        });
+
+        assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
+        releaser.join().unwrap();
+        assert_eq!(std::fs::read(&existing).unwrap(), b"replacement");
+        assert!(created.exists());
+        assert!(created_dir.is_dir());
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_committed_preparation_never_runs_before_queue_admission() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        for (control, value, other) in [
+            (
+                "IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
+                "1",
+                "IBEX_TEST_FS_WORKER_MAX_QUEUE",
+            ),
+            (
+                "IBEX_TEST_FS_WORKER_MAX_QUEUE",
+                "0",
+                "IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
+            ),
+        ] {
+            let _other = TestEnvVar::remove(other);
+            let _control = TestEnvVar::set(control, value);
+            let project = tempfile::tempdir().unwrap();
+            let root = std::fs::canonicalize(project.path()).unwrap();
+            let existing = root.join("existing.txt");
+            std::fs::write(&existing, b"original").unwrap();
+            let created = root.join("created.txt");
+            let created_dir = root.join("created-dir");
+            let (_reset, digest) =
+                install_armed_test_host_at(Some(&root), true, true, true, vec![]);
+            let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+            engine
+                .eval_immediate(
+                    r#"(function() {
+                      if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                      __exactFsWriteFileAsync(
+                        '/project/existing.txt', 'replacement', 'w', 438, false)
+                        .catch(function() {});
+                      __exactFsOpenAsync('/project/created.txt', 'wx', 438)
+                        .catch(function() {});
+                      __exactFsPathAsync(
+                        'mkdir', '/project/created-dir', null, 0, 493, 0)
+                        .catch(function() {});
+                      return 'rejected';
+                    })()"#,
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(
+                std::fs::read(&existing).unwrap(),
+                b"original",
+                "{control} allowed pre-admission truncation"
+            );
+            assert!(
+                !created.exists(),
+                "{control} allowed pre-admission creation"
+            );
+            assert!(
+                !created_dir.exists(),
+                "{control} allowed pre-admission mkdir"
+            );
+        }
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_committed_preparation_preserves_typed_failure_codes() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let _throw_enqueue = TestEnvVar::remove("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
+        let _max_queue = TestEnvVar::remove("IBEX_TEST_FS_WORKER_MAX_QUEUE");
+        let project = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(project.path()).unwrap();
+        let existing = root.join("existing.txt");
+        std::fs::write(&existing, b"original").unwrap();
+        let missing = root.join("missing.txt");
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        unsafe {
+            ibex_private_test_reset_fs_conformance_observer();
+            ibex_private_test_set_requested_fs_authorization_result(
+                crate::host::abi::EX_HOST_VFS_RESULT_POLICY_DENIED as i32,
+            );
+        }
+        engine
+            .eval(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__committedPolicyFailureCode = 'pending';
+                  __exactFsWriteFileAsync(
+                    '/project/existing.txt', 'replacement', 'w', 438, false)
+                    .catch(function(error) {
+                      globalThis.__committedPolicyFailureCode = error.code;
+                    });
+                  return 'scheduled';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+        assert_eq!(
+            engine
+                .eval_immediate("String(globalThis.__committedPolicyFailureCode)")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("EACCES")
+        );
+        assert_eq!(std::fs::read(&existing).unwrap(), b"original");
+
+        engine
+            .eval(
+                r#"(function() {
+                  globalThis.__committedMissingFailureCode = 'pending';
+                  __exactFsWriteFileAsync(
+                    '/project/missing.txt', 'replacement', 'r+', 438, false)
+                    .catch(function(error) {
+                      globalThis.__committedMissingFailureCode = error.code;
+                    });
+                  return 'scheduled';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("String(globalThis.__committedMissingFailureCode)")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("ENOENT")
+        );
+        assert!(!missing.exists());
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_requested_denial_and_outside_path_cross_no_lookup_syscall() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tempdir.path()).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+        let closed = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  try { __exactUnlink('/project/../outside-missing'); }
+                  catch (error) { return JSON.stringify({ code: error.code }); }
+                  return JSON.stringify({ code: 'unexpected-success' });
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&closed).unwrap()["code"],
+            "EPERM",
+            "closed operation must precede outside-mount and absence"
+        );
+        assert_eq!(unsafe { ibex_private_test_armed_path_lookup_count() }, 0);
+        assert_eq!(
+            unsafe { ibex_private_test_armed_path_lookup_after_refusal_count() },
+            0
+        );
+
+        // Positive control: with requested authorization allowed, a missing
+        // path crosses an instrumented lookup boundary before producing
+        // ENOENT.
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+        let absent = engine
+            .eval_immediate(
+                r#"(function() {
+                  try { __exactReadFile('/project/definitely-missing'); }
+                  catch (error) { return JSON.stringify({ code: error.code }); }
+                  return JSON.stringify({ code: 'unexpected-success' });
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&absent).unwrap()["code"],
+            "ENOENT"
+        );
+        assert!(unsafe { ibex_private_test_armed_path_lookup_count() } > 0);
+
+        unsafe {
+            ibex_private_test_reset_fs_conformance_observer();
+            ibex_private_test_set_requested_fs_authorization_result(
+                crate::host::abi::EX_HOST_VFS_RESULT_POLICY_DENIED as i32,
+            );
+        }
+        let denied = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  try { __exactReadFile('/project/definitely-missing'); }
+                  catch (error) { return JSON.stringify({ code: error.code }); }
+                  return JSON.stringify({ code: 'unexpected-success' });
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&denied).unwrap()["code"],
+            "EACCES"
+        );
+        assert_eq!(unsafe { ibex_private_test_armed_path_lookup_count() }, 0);
+
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+        let outside = engine
+            .eval_immediate(
+                r#"(function() {
+                  try { __exactReadFile('/project/../outside-missing'); }
+                  catch (error) { return JSON.stringify({ code: error.code }); }
+                  return JSON.stringify({ code: 'unexpected-success' });
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&outside).unwrap()["code"],
+            "ERR_IBEX_OUTSIDE_MOUNT"
+        );
+        assert_eq!(unsafe { ibex_private_test_armed_path_lookup_count() }, 0);
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_discovered_denied_absent_target_is_not_probed() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tempdir.path()).unwrap();
+        std::os::unix::fs::symlink("denied-missing", root.join("link")).unwrap();
+        let denied_target =
+            std::ffi::CString::new(root.join("denied-missing").as_os_str().as_encoded_bytes())
+                .unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        unsafe {
+            ibex_private_test_reset_fs_conformance_observer();
+            ibex_private_test_set_requested_fs_authorization_result_for_path(
+                crate::host::abi::EX_HOST_VFS_RESULT_POLICY_DENIED as i32,
+                denied_target.as_ptr(),
+            );
+        }
+        let result = engine
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  try { __exactReadFile('/project/link'); }
+                  catch (error) { return JSON.stringify({ code: error.code }); }
+                  return JSON.stringify({ code: 'unexpected-success' });
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&result).unwrap()["code"],
+            "EACCES"
+        );
+        assert!(
+            unsafe { ibex_private_test_armed_path_lookup_count() } > 0,
+            "the allowed link stage must reach its authenticated lookup"
+        );
+        assert_eq!(
+            unsafe { ibex_private_test_armed_path_lookup_after_refusal_count() },
+            0,
+            "the absent discovered target must not be looked up after denial"
+        );
+        unsafe { ibex_private_test_reset_fs_conformance_observer() };
     }
 
     #[cfg(unix)]

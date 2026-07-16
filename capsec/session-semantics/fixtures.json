@@ -3,7 +3,7 @@
   "modelVersion": 1,
   "modelSource": {
     "path": "packages/ibex-devtools/src/scripts/session-semantics-model.mjs",
-    "digest": "sha256-Et9jiQq0zJtpSDH_ZpkPfKvkYA1XhyS4PMky9M9FN64"
+    "digest": "sha256-U02UpYG32hnYcshxZNle3VH9Y99P8nNpcRlE9oCTbrE"
   },
   "valueEncoding": {
     "empty": {
@@ -20,14 +20,52 @@
       "compares": "implementation vs reference model",
       "domain": "every session",
       "selfContainedCoverage": "generated model fixtures and an observation comparator",
-      "status": "implementation-adapter-pending"
+      "status": "external-harness-implemented",
+      "harness": {
+        "kind": "external-rust-test",
+        "cargoTarget": "bin:ibex",
+        "requiredFeatures": [
+          "capsec-conformance-observer"
+        ],
+        "sourcePath": "src/bin/ibex/session_semantics_conformance.rs",
+        "testName": "session_semantics_conformance::implementation_matches_reference_model_gate",
+        "cargoArgs": [
+          "test",
+          "--bin",
+          "ibex",
+          "--features",
+          "capsec-conformance-observer",
+          "session_semantics_conformance::implementation_matches_reference_model_gate",
+          "--",
+          "--test-threads=1"
+        ]
+      }
     },
     {
       "id": "gate-2-model-validation",
       "compares": "reference model vs one growing script on the same engine and lowering",
       "domain": "restricted class",
       "selfContainedCoverage": "executable restricted-class classifier and exclusion fixtures",
-      "status": "engine-and-lowering-adapters-pending"
+      "status": "external-harness-implemented",
+      "harness": {
+        "kind": "external-rust-test",
+        "cargoTarget": "bin:ibex",
+        "requiredFeatures": [
+          "capsec-conformance-observer"
+        ],
+        "sourcePath": "src/bin/ibex/session_semantics_conformance.rs",
+        "testName": "session_semantics_conformance::reference_model_matches_same_engine_growing_script_gate",
+        "cargoArgs": [
+          "test",
+          "--bin",
+          "ibex",
+          "--features",
+          "capsec-conformance-observer",
+          "session_semantics_conformance::reference_model_matches_same_engine_growing_script_gate",
+          "--",
+          "--test-threads=1"
+        ]
+      }
     },
     {
       "id": "gate-2b-model-correctness",
@@ -38,10 +76,29 @@
     },
     {
       "id": "gate-3-lowering-fidelity",
-      "compares": "one input through lowering vs direct execution",
-      "domain": "single inputs",
-      "selfContainedCoverage": "generic exact-observation comparator",
-      "status": "session-lowering-adapter-pending"
+      "compares": "production-lowered outcomes vs direct Hermes outcomes for the complete named single-input branch corpus",
+      "domain": "ReferenceLowering and StatementLowering branches reachable after checked Script parsing, with owner-authored expected differences and explicit direct-oracle exclusions",
+      "selfContainedCoverage": "63 lowering obligations across 37 owner-authored cases; 4 named source-goal exclusions remain independently gated",
+      "status": "external-harness-implemented",
+      "harness": {
+        "kind": "external-rust-test",
+        "cargoTarget": "bin:ibex",
+        "requiredFeatures": [
+          "capsec-conformance-observer"
+        ],
+        "sourcePath": "src/bin/ibex/session_semantics_conformance.rs",
+        "testName": "session_semantics_conformance::single_input_lowering_fidelity_gate",
+        "cargoArgs": [
+          "test",
+          "--bin",
+          "ibex",
+          "--features",
+          "capsec-conformance-observer",
+          "session_semantics_conformance::single_input_lowering_fidelity_gate",
+          "--",
+          "--test-threads=1"
+        ]
+      }
     }
   ],
   "restrictedClass": {
@@ -358,6 +415,592 @@
       }
     }
   ],
+  "loweringFidelity": {
+    "obligations": [
+      "reference.identifier-read",
+      "reference.simple-assignment",
+      "reference.compound-assignment",
+      "reference.logical-assignment",
+      "reference.prefix-update",
+      "reference.postfix-update",
+      "reference.bare-call-unbound",
+      "reference.optional-call-unbound",
+      "reference.tagged-template-unbound",
+      "reference.member-call-receiver",
+      "reference.optional-member-call-receiver",
+      "reference.constructor-reference",
+      "reference.shorthand-property",
+      "reference.typeof-name",
+      "reference.delete-name",
+      "pattern.array-binding",
+      "pattern.object-binding",
+      "pattern.default-initializer",
+      "pattern.rest-binding",
+      "pattern.array-assignment",
+      "pattern.object-assignment",
+      "statement.directive-prologue",
+      "statement.strict-input",
+      "statement.sloppy-top-level-this",
+      "statement.expression",
+      "statement.block",
+      "statement.if-consequent",
+      "statement.if-alternate",
+      "statement.if-update-empty",
+      "statement.labeled",
+      "statement.break-preserved",
+      "statement.while",
+      "statement.continue-preserved",
+      "statement.do-while",
+      "statement.for-var-init",
+      "statement.for-lexical-init",
+      "statement.for-in-var-head",
+      "statement.for-of-var-head",
+      "statement.switch",
+      "statement.try-block",
+      "statement.throw-preserved",
+      "statement.catch",
+      "statement.finally-update-empty",
+      "statement.finally-abrupt-update-empty",
+      "statement.finally-throw-authoritative",
+      "statement.root-var-declaration",
+      "statement.root-let-declaration",
+      "statement.root-const-declaration",
+      "statement.function-hoist",
+      "statement.class-initialize",
+      "statement.block-var-declaration",
+      "statement.block-lexical-declaration",
+      "statement.annex-b-publication",
+      "statement.empty-preserved",
+      "statement.debugger-preserved",
+      "source-profile.with-refusal",
+      "completion.declaration-update-empty",
+      "completion.empty-discriminator",
+      "completion.undefined-value",
+      "observation.safe-string-display",
+      "repair.hermes-finally-update-empty",
+      "repair.session-tdz",
+      "repair.runtime-const"
+    ],
+    "cases": [
+      {
+        "id": "references-members-constructors-and-hoisting",
+        "source": "function G3Box(value) { this.value = value; } let g3box = new G3Box(7); let g3object = { value: 5, method() { return this.value; }, optional() { return this.value + 1; } }; g3box.value * 100 + g3object.method() * 10 + g3object.optional?.();",
+        "covers": [
+          "reference.identifier-read",
+          "reference.member-call-receiver",
+          "reference.optional-member-call-receiver",
+          "reference.constructor-reference",
+          "statement.expression",
+          "statement.function-hoist"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "bare-optional-and-tagged-calls-are-unbound",
+        "source": "let g3bare = function () { return this === globalThis; }; let g3optional = function () { return this === globalThis; }; let g3tag = function (strings) { return (this === globalThis ? 100 : 0) + strings[0].length; }; (g3bare() ? 1000 : 0) + (g3optional?.() ? 100 : 0) + g3tag`abc`;",
+        "covers": [
+          "reference.bare-call-unbound",
+          "reference.optional-call-unbound",
+          "reference.tagged-template-unbound"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "assignment-operator-families",
+        "source": "let g3assign = 1; g3assign = 4; g3assign += 3; g3assign *= 2; g3assign &&= g3assign + 1; let g3zero = 0; g3zero ||= 5; let g3nil = null; g3nil ??= 6; g3assign + g3zero + g3nil;",
+        "covers": [
+          "reference.simple-assignment",
+          "reference.compound-assignment",
+          "reference.logical-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "prefix-and-postfix-updates",
+        "source": "let g3counter = 4; let g3post = g3counter++; let g3pre = ++g3counter; let g3postDec = g3counter--; let g3preDec = --g3counter; g3post * 1000 + g3pre * 100 + g3postDec * 10 + g3preDec;",
+        "covers": [
+          "reference.prefix-update",
+          "reference.postfix-update"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "array-binding-default-rest-and-assignment",
+        "source": "let g3calls = 0; let [g3a = ++g3calls, ...g3rest] = [undefined, 2, 3]; let g3b = 0; let g3tail = []; [g3b, ...g3tail] = g3rest; g3a * 1000 + g3b * 100 + g3tail[0] * 10 + g3calls;",
+        "covers": [
+          "pattern.array-binding",
+          "pattern.default-initializer",
+          "pattern.rest-binding",
+          "pattern.array-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "object-binding-default-rest-and-assignment",
+        "source": "let g3fallback = function () { return 4; }; let { a: g3objectA, b: g3objectB = g3fallback(), ...g3objectRest } = { a: 2, c: 3 }; let g3target = 0; let g3targetRest = {}; ({ c: g3target, ...g3targetRest } = g3objectRest); g3objectA * 1000 + g3objectB * 100 + g3target * 10 + Object.keys(g3targetRest).length;",
+        "covers": [
+          "pattern.object-binding",
+          "pattern.default-initializer",
+          "pattern.rest-binding",
+          "pattern.object-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "object-shorthand-reference",
+        "source": "let g3shorthand = 8; ({ g3shorthand }).g3shorthand;",
+        "covers": [
+          "reference.shorthand-property"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "typeof-and-delete-name-operations",
+        "source": "globalThis.g3deletable = 9; let g3type = typeof g3deletable; let g3removed = delete g3deletable; g3type === 'number' && g3removed && typeof g3deletable === 'undefined';",
+        "covers": [
+          "reference.typeof-name",
+          "reference.delete-name"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "directive-prologue-completion",
+        "source": "'gate-3-directive';",
+        "covers": [
+          "statement.directive-prologue",
+          "observation.safe-string-display"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "safe-display-quotes-string-completions",
+          "direct": {
+            "outcome": "value",
+            "display": "gate-3-directive"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "\"gate-3-directive\""
+          }
+        }
+      },
+      {
+        "id": "strict-input-keeps-bare-call-this-undefined",
+        "source": "'use strict'; function g3strictReceiver() { return this === undefined; } g3strictReceiver();",
+        "covers": [
+          "statement.strict-input",
+          "reference.bare-call-unbound"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "sloppy-top-level-this",
+        "source": "this === globalThis;",
+        "covers": [
+          "statement.sloppy-top-level-this"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "block-update-empty",
+        "source": "1; { 2; let g3blockValue = 3; }",
+        "covers": [
+          "statement.block",
+          "completion.declaration-update-empty"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "if-consequent-and-alternate-completions",
+        "source": "if (true) { 1; } else { 2; } if (false) { 3; } else { 4; }",
+        "covers": [
+          "statement.if-consequent",
+          "statement.if-alternate"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "if-empty-preserves-prior-completion",
+        "source": "7; if (false) { 8; }",
+        "covers": [
+          "statement.if-update-empty"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "labeled-break-preserves-completion",
+        "source": "g3label: { 1; break g3label; 2; }",
+        "covers": [
+          "statement.labeled",
+          "statement.break-preserved"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "while-completion",
+        "source": "let g3while = 0; while (g3while < 3) { g3while++; g3while * 10; if (g3while < 3) continue; }",
+        "covers": [
+          "statement.while",
+          "statement.continue-preserved"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "do-while-completion",
+        "source": "let g3do = 0; do { ++g3do; g3do; } while (g3do < 2);",
+        "covers": [
+          "statement.do-while"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "for-var-initializer-completion",
+        "source": "for (var g3forVar = 0; g3forVar < 3; g3forVar++) { g3forVar; }",
+        "covers": [
+          "statement.for-var-init"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "for-lexical-initializer-completion",
+        "source": "for (let g3forLet = 0; g3forLet < 3; g3forLet++) { g3forLet; }",
+        "covers": [
+          "statement.for-lexical-init"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "for-in-var-head-completion",
+        "source": "let g3keys = 0; for (var g3key in { a: 1, b: 2 }) { g3keys += g3key === 'a' ? 1 : 10; g3keys; }",
+        "covers": [
+          "statement.for-in-var-head"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "for-of-var-pattern-head-completion",
+        "source": "let g3sum = 0; for (var [g3left, g3right] of [[1, 2], [3, 4]]) { g3sum += g3left + g3right; g3sum; }",
+        "covers": [
+          "statement.for-of-var-head",
+          "pattern.array-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "switch-fallthrough-completion",
+        "source": "let g3switch = 2; switch (g3switch) { case 1: 1; break; case 2: 2; case 3: 3; break; default: 4; }",
+        "covers": [
+          "statement.switch"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "try-catch-finally-update-empty",
+        "source": "try { throw 4; } catch (g3caught) { g3caught + 1; } finally { 8; }",
+        "covers": [
+          "statement.try-block",
+          "statement.throw-preserved",
+          "statement.catch",
+          "statement.finally-update-empty",
+          "repair.hermes-finally-update-empty"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-finally-does-not-apply-update-empty",
+          "direct": {
+            "outcome": "value",
+            "display": "8"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "5"
+          }
+        }
+      },
+      {
+        "id": "abrupt-finally-break-restores-try-completion",
+        "source": "g3finally: try { 6; } finally { 8; break g3finally; }",
+        "covers": [
+          "statement.finally-abrupt-update-empty",
+          "statement.labeled",
+          "repair.hermes-finally-update-empty"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-finally-does-not-apply-update-empty",
+          "direct": {
+            "outcome": "value",
+            "display": "8"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "6"
+          }
+        }
+      },
+      {
+        "id": "abrupt-finally-continue-restores-try-completion",
+        "source": "for (let g3finallyIndex = 0; g3finallyIndex < 3; g3finallyIndex++) { try { g3finallyIndex + 1; } finally { 99; continue; } }",
+        "covers": [
+          "statement.finally-abrupt-update-empty",
+          "statement.continue-preserved",
+          "repair.hermes-finally-update-empty"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-finally-does-not-apply-update-empty",
+          "direct": {
+            "outcome": "value",
+            "display": "99"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "3"
+          }
+        }
+      },
+      {
+        "id": "throwing-finally-remains-authoritative",
+        "source": "try { 1; } finally { throw new TypeError('gate-3-finalizer'); }",
+        "covers": [
+          "statement.finally-throw-authoritative",
+          "statement.throw-preserved"
+        ],
+        "oracle": {
+          "kind": "matching-throw",
+          "rationale": "a-thrown-finalizer-replaces-the-try-completion",
+          "direct": {
+            "outcome": "runtime-error",
+            "messageIncludes": "gate-3-finalizer"
+          },
+          "lowered": {
+            "outcome": "throw",
+            "errorClass": "type-error",
+            "messageIncludes": "gate-3-finalizer"
+          }
+        }
+      },
+      {
+        "id": "root-declarations-preserve-prior-completion",
+        "source": "9; var g3rootVar = 1; let g3rootLet = 2; const g3rootConst = 3; class G3RootClass {}",
+        "covers": [
+          "statement.root-var-declaration",
+          "statement.root-let-declaration",
+          "statement.root-const-declaration",
+          "statement.class-initialize",
+          "completion.declaration-update-empty"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "function-declaration-hoists-before-call",
+        "source": "g3hoisted(); function g3hoisted() { return 12; }",
+        "covers": [
+          "statement.function-hoist"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "class-session-cell-remains-mutable",
+        "source": "class G3MutableClass {} G3MutableClass = 'replacement'; G3MutableClass === 'replacement';",
+        "covers": [
+          "statement.class-initialize",
+          "reference.simple-assignment"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "block-var-and-lexical-declarations",
+        "source": "{ var g3blockVar = 5; let g3blockLexical = 7; g3blockLexical; } g3blockVar;",
+        "covers": [
+          "statement.block-var-declaration",
+          "statement.block-lexical-declaration"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "sloppy-annex-b-block-function-publication",
+        "source": "if (true) { function g3annexB() { return 13; } } g3annexB();",
+        "covers": [
+          "statement.annex-b-publication"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "empty-and-debugger-statements-preserve-completion",
+        "source": "1; debugger; ;",
+        "covers": [
+          "statement.empty-preserved",
+          "statement.debugger-preserved"
+        ],
+        "oracle": {
+          "kind": "equal-completion"
+        }
+      },
+      {
+        "id": "with-statement-is-explicitly-refused",
+        "source": "with ({ value: 1 }) { value; }",
+        "covers": [
+          "source-profile.with-refusal"
+        ],
+        "oracle": {
+          "kind": "matching-refusal",
+          "rationale": "shipping-hermes-and-the-session-profile-both-refuse-with",
+          "direct": {
+            "outcome": "compile-error"
+          },
+          "lowered": {
+            "outcome": "checked-parser-error",
+            "messageIncludes": "The 'with' statement is not supported"
+          }
+        }
+      },
+      {
+        "id": "undefined-is-a-value",
+        "source": "void 0;",
+        "covers": [
+          "completion.undefined-value"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "legacy-seam-collapses-undefined-and-empty",
+          "direct": {
+            "outcome": "legacy-empty-or-undefined"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "undefined"
+          }
+        }
+      },
+      {
+        "id": "empty-completion-is-not-undefined",
+        "source": "let g3empty = 1;",
+        "covers": [
+          "completion.empty-discriminator"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "legacy-seam-collapses-undefined-and-empty",
+          "direct": {
+            "outcome": "legacy-empty-or-undefined"
+          },
+          "lowered": {
+            "outcome": "empty"
+          }
+        }
+      },
+      {
+        "id": "session-tdz-repairs-hermes",
+        "source": "g3tdz; let g3tdz = 1;",
+        "covers": [
+          "repair.session-tdz"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-has-no-session-lexical-tdz",
+          "direct": {
+            "outcome": "legacy-empty-or-undefined"
+          },
+          "lowered": {
+            "outcome": "throw",
+            "errorClass": "reference-error"
+          }
+        }
+      },
+      {
+        "id": "runtime-const-repairs-hermes",
+        "source": "const g3constant = 1; let g3constResult = ''; try { g3constant = 2; } catch (g3constError) { g3constResult = g3constError.name; } g3constResult === 'TypeError' && g3constant === 1;",
+        "covers": [
+          "repair.runtime-const"
+        ],
+        "oracle": {
+          "kind": "expected-difference",
+          "rationale": "hermes-rejects-const-assignment-before-runtime",
+          "direct": {
+            "outcome": "compile-error"
+          },
+          "lowered": {
+            "outcome": "value",
+            "display": "true"
+          }
+        }
+      }
+    ],
+    "directOracleExclusions": [
+      {
+        "id": "script-static-import",
+        "owner": "OBL-PARSER-GOAL",
+        "reason": "Hermes has no same-source Script-plus-static-import direct oracle; import ordering and binding publication use the §3/§4 source-goal fixture family."
+      },
+      {
+        "id": "dynamic-import-expression",
+        "owner": "OBL-PARSER-GOAL",
+        "reason": "Hermes has no same-source dynamic-import execution oracle; the importModule rewrite remains covered by dedicated loader and ingress fixtures rather than being counted as an equality row."
+      },
+      {
+        "id": "script-top-level-await",
+        "owner": "OBL-PARSER-GOAL",
+        "reason": "Hermes has no same-source top-level-await direct oracle; settlement and non-assimilation use the dedicated authenticated TLA fixtures."
+      },
+      {
+        "id": "script-plus-extensions-parser-goal",
+        "owner": "OBL-PARSER-GOAL",
+        "reason": "Gate 3 begins after the checked dual-parse frontend produces a Script outline; unmodified Hermes has no same-source sloppy Script-plus-import-plus-TLA goal, so the dedicated source-goal fixtures own this evidence."
+      }
+    ]
+  },
   "fixtures": [
     {
       "id": "var-created-then-lexical-shadows",
@@ -4905,9 +5548,9 @@
     }
   ],
   "limitations": [
-    "Gate 1 needs the production session implementation adapter before it can claim conformance.",
-    "Gate 2 needs the shipping Hermes engine and real session lowering; this artifact supplies only the exact restricted-class classifier.",
-    "Gate 3 needs the real parser/lowering and direct engine execution adapters.",
+    "The generated artifact records, but does not execute or attest a passing result from, the external Rust harnesses for Gates 1, 2, and 3.",
+    "Gate 2's self-contained portion is the exact restricted-class classifier; its named external harness supplies the shipping Hermes engine and production lowering.",
+    "Gate 3 is complete for the named ReferenceLowering/StatementLowering branch obligations after checked Script parsing; static/dynamic import and top-level await have no same-source direct-Hermes oracle, while the implemented dual-parse Script-plus-extensions frontend remains an explicit direct-oracle exclusion rather than a missing production parser goal.",
     "The action IR models declaration and environment semantics; it is not a JavaScript parser or a substitute for syntax-directed lowering tests.",
     "Import steps model visible ordering and interference but do not execute module code.",
     "The $_ accessor-identity model shares the pure-JavaScript exact-descriptor ABA limitation documented by LLP 0024."

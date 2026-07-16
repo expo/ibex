@@ -1,0 +1,794 @@
+{
+  "schema": "ibex/llp0023-vfs-error-precedence-corpus/1",
+  "sourceDigest": "sha256-RWpM9kEtgxr2TbvNG9R3pbtqXEAVfhHlMgZtnzLtkfE",
+  "abiVersion": 1,
+  "reasonCount": 13,
+  "pairCount": 78,
+  "perStageRule": [
+    "containment",
+    "authorization",
+    "existence"
+  ],
+  "pairs": [
+    {
+      "id": "stale-session-before-closed-operation",
+      "contenders": [
+        "stale-session",
+        "closed-operation"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-malformed-input",
+      "contenders": [
+        "stale-session",
+        "malformed-input"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-encoded-separator",
+      "contenders": [
+        "stale-session",
+        "encoded-separator"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-outside-mount",
+      "contenders": [
+        "stale-session",
+        "outside-mount"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-synthetic-node",
+      "contenders": [
+        "stale-session",
+        "synthetic-node"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-policy-denied",
+      "contenders": [
+        "stale-session",
+        "policy-denied"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-absent",
+      "contenders": [
+        "stale-session",
+        "absent"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-symlink-depth",
+      "contenders": [
+        "stale-session",
+        "symlink-depth"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-unmappable-link",
+      "contenders": [
+        "stale-session",
+        "unmappable-link"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-stale-identity",
+      "contenders": [
+        "stale-session",
+        "stale-identity"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-input-too-large",
+      "contenders": [
+        "stale-session",
+        "input-too-large"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "stale-session-before-host-error",
+      "contenders": [
+        "stale-session",
+        "host-error"
+      ],
+      "winner": "stale-session",
+      "winnerCode": "ERR_IBEX_STALE_SESSION",
+      "winnerDiscriminant": 2
+    },
+    {
+      "id": "closed-operation-before-malformed-input",
+      "contenders": [
+        "closed-operation",
+        "malformed-input"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-encoded-separator",
+      "contenders": [
+        "closed-operation",
+        "encoded-separator"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-outside-mount",
+      "contenders": [
+        "closed-operation",
+        "outside-mount"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-synthetic-node",
+      "contenders": [
+        "closed-operation",
+        "synthetic-node"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-policy-denied",
+      "contenders": [
+        "closed-operation",
+        "policy-denied"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-absent",
+      "contenders": [
+        "closed-operation",
+        "absent"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-symlink-depth",
+      "contenders": [
+        "closed-operation",
+        "symlink-depth"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-unmappable-link",
+      "contenders": [
+        "closed-operation",
+        "unmappable-link"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-stale-identity",
+      "contenders": [
+        "closed-operation",
+        "stale-identity"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-input-too-large",
+      "contenders": [
+        "closed-operation",
+        "input-too-large"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "closed-operation-before-host-error",
+      "contenders": [
+        "closed-operation",
+        "host-error"
+      ],
+      "winner": "closed-operation",
+      "winnerCode": "EPERM",
+      "winnerDiscriminant": 1
+    },
+    {
+      "id": "malformed-input-before-encoded-separator",
+      "contenders": [
+        "malformed-input",
+        "encoded-separator"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "malformed-input-before-outside-mount",
+      "contenders": [
+        "malformed-input",
+        "outside-mount"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "malformed-input-before-synthetic-node",
+      "contenders": [
+        "malformed-input",
+        "synthetic-node"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "malformed-input-before-policy-denied",
+      "contenders": [
+        "malformed-input",
+        "policy-denied"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "malformed-input-before-absent",
+      "contenders": [
+        "malformed-input",
+        "absent"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "malformed-input-before-symlink-depth",
+      "contenders": [
+        "malformed-input",
+        "symlink-depth"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "malformed-input-before-unmappable-link",
+      "contenders": [
+        "malformed-input",
+        "unmappable-link"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "malformed-input-before-stale-identity",
+      "contenders": [
+        "malformed-input",
+        "stale-identity"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "malformed-input-before-input-too-large",
+      "contenders": [
+        "malformed-input",
+        "input-too-large"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "malformed-input-before-host-error",
+      "contenders": [
+        "malformed-input",
+        "host-error"
+      ],
+      "winner": "malformed-input",
+      "winnerCode": "ERR_INVALID_ARG_VALUE",
+      "winnerDiscriminant": 3
+    },
+    {
+      "id": "encoded-separator-before-outside-mount",
+      "contenders": [
+        "encoded-separator",
+        "outside-mount"
+      ],
+      "winner": "encoded-separator",
+      "winnerCode": "ERR_INVALID_FILE_URL_PATH",
+      "winnerDiscriminant": 4
+    },
+    {
+      "id": "encoded-separator-before-synthetic-node",
+      "contenders": [
+        "encoded-separator",
+        "synthetic-node"
+      ],
+      "winner": "encoded-separator",
+      "winnerCode": "ERR_INVALID_FILE_URL_PATH",
+      "winnerDiscriminant": 4
+    },
+    {
+      "id": "encoded-separator-before-policy-denied",
+      "contenders": [
+        "encoded-separator",
+        "policy-denied"
+      ],
+      "winner": "encoded-separator",
+      "winnerCode": "ERR_INVALID_FILE_URL_PATH",
+      "winnerDiscriminant": 4
+    },
+    {
+      "id": "encoded-separator-before-absent",
+      "contenders": [
+        "encoded-separator",
+        "absent"
+      ],
+      "winner": "encoded-separator",
+      "winnerCode": "ERR_INVALID_FILE_URL_PATH",
+      "winnerDiscriminant": 4
+    },
+    {
+      "id": "encoded-separator-before-symlink-depth",
+      "contenders": [
+        "encoded-separator",
+        "symlink-depth"
+      ],
+      "winner": "encoded-separator",
+      "winnerCode": "ERR_INVALID_FILE_URL_PATH",
+      "winnerDiscriminant": 4
+    },
+    {
+      "id": "encoded-separator-before-unmappable-link",
+      "contenders": [
+        "encoded-separator",
+        "unmappable-link"
+      ],
+      "winner": "encoded-separator",
+      "winnerCode": "ERR_INVALID_FILE_URL_PATH",
+      "winnerDiscriminant": 4
+    },
+    {
+      "id": "encoded-separator-before-stale-identity",
+      "contenders": [
+        "encoded-separator",
+        "stale-identity"
+      ],
+      "winner": "encoded-separator",
+      "winnerCode": "ERR_INVALID_FILE_URL_PATH",
+      "winnerDiscriminant": 4
+    },
+    {
+      "id": "encoded-separator-before-input-too-large",
+      "contenders": [
+        "encoded-separator",
+        "input-too-large"
+      ],
+      "winner": "encoded-separator",
+      "winnerCode": "ERR_INVALID_FILE_URL_PATH",
+      "winnerDiscriminant": 4
+    },
+    {
+      "id": "encoded-separator-before-host-error",
+      "contenders": [
+        "encoded-separator",
+        "host-error"
+      ],
+      "winner": "encoded-separator",
+      "winnerCode": "ERR_INVALID_FILE_URL_PATH",
+      "winnerDiscriminant": 4
+    },
+    {
+      "id": "outside-mount-before-synthetic-node",
+      "contenders": [
+        "outside-mount",
+        "synthetic-node"
+      ],
+      "winner": "outside-mount",
+      "winnerCode": "ERR_IBEX_OUTSIDE_MOUNT",
+      "winnerDiscriminant": 5
+    },
+    {
+      "id": "outside-mount-before-policy-denied",
+      "contenders": [
+        "outside-mount",
+        "policy-denied"
+      ],
+      "winner": "outside-mount",
+      "winnerCode": "ERR_IBEX_OUTSIDE_MOUNT",
+      "winnerDiscriminant": 5
+    },
+    {
+      "id": "outside-mount-before-absent",
+      "contenders": [
+        "outside-mount",
+        "absent"
+      ],
+      "winner": "outside-mount",
+      "winnerCode": "ERR_IBEX_OUTSIDE_MOUNT",
+      "winnerDiscriminant": 5
+    },
+    {
+      "id": "outside-mount-before-symlink-depth",
+      "contenders": [
+        "outside-mount",
+        "symlink-depth"
+      ],
+      "winner": "outside-mount",
+      "winnerCode": "ERR_IBEX_OUTSIDE_MOUNT",
+      "winnerDiscriminant": 5
+    },
+    {
+      "id": "outside-mount-before-unmappable-link",
+      "contenders": [
+        "outside-mount",
+        "unmappable-link"
+      ],
+      "winner": "outside-mount",
+      "winnerCode": "ERR_IBEX_OUTSIDE_MOUNT",
+      "winnerDiscriminant": 5
+    },
+    {
+      "id": "outside-mount-before-stale-identity",
+      "contenders": [
+        "outside-mount",
+        "stale-identity"
+      ],
+      "winner": "outside-mount",
+      "winnerCode": "ERR_IBEX_OUTSIDE_MOUNT",
+      "winnerDiscriminant": 5
+    },
+    {
+      "id": "outside-mount-before-input-too-large",
+      "contenders": [
+        "outside-mount",
+        "input-too-large"
+      ],
+      "winner": "outside-mount",
+      "winnerCode": "ERR_IBEX_OUTSIDE_MOUNT",
+      "winnerDiscriminant": 5
+    },
+    {
+      "id": "outside-mount-before-host-error",
+      "contenders": [
+        "outside-mount",
+        "host-error"
+      ],
+      "winner": "outside-mount",
+      "winnerCode": "ERR_IBEX_OUTSIDE_MOUNT",
+      "winnerDiscriminant": 5
+    },
+    {
+      "id": "synthetic-node-before-policy-denied",
+      "contenders": [
+        "synthetic-node",
+        "policy-denied"
+      ],
+      "winner": "synthetic-node",
+      "winnerCode": "ERR_IBEX_SYNTHETIC_NODE",
+      "winnerDiscriminant": 6
+    },
+    {
+      "id": "synthetic-node-before-absent",
+      "contenders": [
+        "synthetic-node",
+        "absent"
+      ],
+      "winner": "synthetic-node",
+      "winnerCode": "ERR_IBEX_SYNTHETIC_NODE",
+      "winnerDiscriminant": 6
+    },
+    {
+      "id": "synthetic-node-before-symlink-depth",
+      "contenders": [
+        "synthetic-node",
+        "symlink-depth"
+      ],
+      "winner": "synthetic-node",
+      "winnerCode": "ERR_IBEX_SYNTHETIC_NODE",
+      "winnerDiscriminant": 6
+    },
+    {
+      "id": "synthetic-node-before-unmappable-link",
+      "contenders": [
+        "synthetic-node",
+        "unmappable-link"
+      ],
+      "winner": "synthetic-node",
+      "winnerCode": "ERR_IBEX_SYNTHETIC_NODE",
+      "winnerDiscriminant": 6
+    },
+    {
+      "id": "synthetic-node-before-stale-identity",
+      "contenders": [
+        "synthetic-node",
+        "stale-identity"
+      ],
+      "winner": "synthetic-node",
+      "winnerCode": "ERR_IBEX_SYNTHETIC_NODE",
+      "winnerDiscriminant": 6
+    },
+    {
+      "id": "synthetic-node-before-input-too-large",
+      "contenders": [
+        "synthetic-node",
+        "input-too-large"
+      ],
+      "winner": "synthetic-node",
+      "winnerCode": "ERR_IBEX_SYNTHETIC_NODE",
+      "winnerDiscriminant": 6
+    },
+    {
+      "id": "synthetic-node-before-host-error",
+      "contenders": [
+        "synthetic-node",
+        "host-error"
+      ],
+      "winner": "synthetic-node",
+      "winnerCode": "ERR_IBEX_SYNTHETIC_NODE",
+      "winnerDiscriminant": 6
+    },
+    {
+      "id": "policy-denied-before-absent",
+      "contenders": [
+        "policy-denied",
+        "absent"
+      ],
+      "winner": "policy-denied",
+      "winnerCode": "EACCES",
+      "winnerDiscriminant": 7
+    },
+    {
+      "id": "policy-denied-before-symlink-depth",
+      "contenders": [
+        "policy-denied",
+        "symlink-depth"
+      ],
+      "winner": "policy-denied",
+      "winnerCode": "EACCES",
+      "winnerDiscriminant": 7
+    },
+    {
+      "id": "policy-denied-before-unmappable-link",
+      "contenders": [
+        "policy-denied",
+        "unmappable-link"
+      ],
+      "winner": "policy-denied",
+      "winnerCode": "EACCES",
+      "winnerDiscriminant": 7
+    },
+    {
+      "id": "policy-denied-before-stale-identity",
+      "contenders": [
+        "policy-denied",
+        "stale-identity"
+      ],
+      "winner": "policy-denied",
+      "winnerCode": "EACCES",
+      "winnerDiscriminant": 7
+    },
+    {
+      "id": "policy-denied-before-input-too-large",
+      "contenders": [
+        "policy-denied",
+        "input-too-large"
+      ],
+      "winner": "policy-denied",
+      "winnerCode": "EACCES",
+      "winnerDiscriminant": 7
+    },
+    {
+      "id": "policy-denied-before-host-error",
+      "contenders": [
+        "policy-denied",
+        "host-error"
+      ],
+      "winner": "policy-denied",
+      "winnerCode": "EACCES",
+      "winnerDiscriminant": 7
+    },
+    {
+      "id": "absent-before-symlink-depth",
+      "contenders": [
+        "absent",
+        "symlink-depth"
+      ],
+      "winner": "absent",
+      "winnerCode": "ENOENT",
+      "winnerDiscriminant": 8
+    },
+    {
+      "id": "absent-before-unmappable-link",
+      "contenders": [
+        "absent",
+        "unmappable-link"
+      ],
+      "winner": "absent",
+      "winnerCode": "ENOENT",
+      "winnerDiscriminant": 8
+    },
+    {
+      "id": "absent-before-stale-identity",
+      "contenders": [
+        "absent",
+        "stale-identity"
+      ],
+      "winner": "absent",
+      "winnerCode": "ENOENT",
+      "winnerDiscriminant": 8
+    },
+    {
+      "id": "absent-before-input-too-large",
+      "contenders": [
+        "absent",
+        "input-too-large"
+      ],
+      "winner": "absent",
+      "winnerCode": "ENOENT",
+      "winnerDiscriminant": 8
+    },
+    {
+      "id": "absent-before-host-error",
+      "contenders": [
+        "absent",
+        "host-error"
+      ],
+      "winner": "absent",
+      "winnerCode": "ENOENT",
+      "winnerDiscriminant": 8
+    },
+    {
+      "id": "symlink-depth-before-unmappable-link",
+      "contenders": [
+        "symlink-depth",
+        "unmappable-link"
+      ],
+      "winner": "symlink-depth",
+      "winnerCode": "ELOOP",
+      "winnerDiscriminant": 9
+    },
+    {
+      "id": "symlink-depth-before-stale-identity",
+      "contenders": [
+        "symlink-depth",
+        "stale-identity"
+      ],
+      "winner": "symlink-depth",
+      "winnerCode": "ELOOP",
+      "winnerDiscriminant": 9
+    },
+    {
+      "id": "symlink-depth-before-input-too-large",
+      "contenders": [
+        "symlink-depth",
+        "input-too-large"
+      ],
+      "winner": "symlink-depth",
+      "winnerCode": "ELOOP",
+      "winnerDiscriminant": 9
+    },
+    {
+      "id": "symlink-depth-before-host-error",
+      "contenders": [
+        "symlink-depth",
+        "host-error"
+      ],
+      "winner": "symlink-depth",
+      "winnerCode": "ELOOP",
+      "winnerDiscriminant": 9
+    },
+    {
+      "id": "unmappable-link-before-stale-identity",
+      "contenders": [
+        "unmappable-link",
+        "stale-identity"
+      ],
+      "winner": "unmappable-link",
+      "winnerCode": "ERR_IBEX_UNMAPPABLE_LINK",
+      "winnerDiscriminant": 10
+    },
+    {
+      "id": "unmappable-link-before-input-too-large",
+      "contenders": [
+        "unmappable-link",
+        "input-too-large"
+      ],
+      "winner": "unmappable-link",
+      "winnerCode": "ERR_IBEX_UNMAPPABLE_LINK",
+      "winnerDiscriminant": 10
+    },
+    {
+      "id": "unmappable-link-before-host-error",
+      "contenders": [
+        "unmappable-link",
+        "host-error"
+      ],
+      "winner": "unmappable-link",
+      "winnerCode": "ERR_IBEX_UNMAPPABLE_LINK",
+      "winnerDiscriminant": 10
+    },
+    {
+      "id": "stale-identity-before-input-too-large",
+      "contenders": [
+        "stale-identity",
+        "input-too-large"
+      ],
+      "winner": "stale-identity",
+      "winnerCode": "ERR_IBEX_STALE_IDENTITY",
+      "winnerDiscriminant": 11
+    },
+    {
+      "id": "stale-identity-before-host-error",
+      "contenders": [
+        "stale-identity",
+        "host-error"
+      ],
+      "winner": "stale-identity",
+      "winnerCode": "ERR_IBEX_STALE_IDENTITY",
+      "winnerDiscriminant": 11
+    },
+    {
+      "id": "input-too-large-before-host-error",
+      "contenders": [
+        "input-too-large",
+        "host-error"
+      ],
+      "winner": "input-too-large",
+      "winnerCode": "ERR_IBEX_INPUT_TOO_LARGE",
+      "winnerDiscriminant": 12
+    }
+  ]
+}

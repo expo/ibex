@@ -37,6 +37,29 @@ typedef enum ExactEmbedderContext {
     EXACT_EMBEDDER_CONTEXT_AGENT = 2,
 } ExactEmbedderContext;
 
+/// Version-1 discriminants shared by every authenticated virtual-filesystem
+/// result. Functions return the fixed-width `uint32_t` representation rather
+/// than this C enum type so the ABI width cannot vary by compiler. Output
+/// pointers, where present, are initialized on every branch; nonempty byte
+/// buffers are caller-owned and released with `ex_host_free_buffer`.
+/// @ref LLP 0023#72-the-structured-result-and-its-error-classes
+typedef enum ExHostVfsResultDiscriminant {
+  EX_HOST_VFS_RESULT_OK = 0,
+  EX_HOST_VFS_RESULT_CLOSED_OPERATION = 1,
+  EX_HOST_VFS_RESULT_STALE_SESSION = 2,
+  EX_HOST_VFS_RESULT_MALFORMED_INPUT = 3,
+  EX_HOST_VFS_RESULT_ENCODED_SEPARATOR = 4,
+  EX_HOST_VFS_RESULT_OUTSIDE_MOUNT = 5,
+  EX_HOST_VFS_RESULT_SYNTHETIC_NODE = 6,
+  EX_HOST_VFS_RESULT_POLICY_DENIED = 7,
+  EX_HOST_VFS_RESULT_ABSENT = 8,
+  EX_HOST_VFS_RESULT_SYMLINK_DEPTH = 9,
+  EX_HOST_VFS_RESULT_UNMAPPABLE_LINK = 10,
+  EX_HOST_VFS_RESULT_STALE_IDENTITY = 11,
+  EX_HOST_VFS_RESULT_INPUT_TOO_LARGE = 12,
+  EX_HOST_VFS_RESULT_HOST_ERROR = 13
+} ExHostVfsResultDiscriminant;
+
 // =============================================================================
 // Runtime Lifecycle
 // =============================================================================
@@ -64,8 +87,9 @@ uint32_t ex_hermes_finish_bootstrap(ExactHermesRuntime* runtime);
 /// runtime factory. Returns the byte length, or -1 on failure.
 int32_t ex_hermes_engine_binary_path(char* out, size_t out_len);
 
-/// Return the device/inode identity of the mapped Hermes factory image when
-/// the platform can attest it (currently macOS). Returns 1 or -1.
+/// Return the device/inode identity of the mapping containing the Hermes
+/// factory when the platform can report it (macOS, Linux, and Android). This
+/// does not hash mapped executable pages. Returns 1 or -1.
 int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
                                       uint64_t* out_inode);
 
@@ -175,9 +199,32 @@ typedef enum ExHermesThrowMetadataStatus {
   EX_HERMES_THROW_METADATA_CAPTURED = 1
 } ExHermesThrowMetadataStatus;
 
+/// Closed, trap-free classification of a thrown Hermes JSError. The engine
+/// compares the JSError's internal direct prototype with its pinned intrinsic
+/// Error prototypes; it never reads a JavaScript property or walks a mutable
+/// prototype chain. UNCLASSIFIED covers arbitrary thrown values and subclasses
+/// whose direct prototype is not one of those exact intrinsic objects.
+typedef enum ExHermesErrorClass {
+  EX_HERMES_ERROR_CLASS_UNCLASSIFIED = 0,
+  EX_HERMES_ERROR_CLASS_ERROR = 1,
+  EX_HERMES_ERROR_CLASS_AGGREGATE_ERROR = 2,
+  EX_HERMES_ERROR_CLASS_EVAL_ERROR = 3,
+  EX_HERMES_ERROR_CLASS_RANGE_ERROR = 4,
+  EX_HERMES_ERROR_CLASS_REFERENCE_ERROR = 5,
+  EX_HERMES_ERROR_CLASS_SYNTAX_ERROR = 6,
+  EX_HERMES_ERROR_CLASS_TYPE_ERROR = 7,
+  EX_HERMES_ERROR_CLASS_URI_ERROR = 8,
+  EX_HERMES_ERROR_CLASS_TIMEOUT_ERROR = 9,
+  EX_HERMES_ERROR_CLASS_QUIT_ERROR = 10
+} ExHermesErrorClass;
+
 #define EX_HERMES_THROW_FIELD_MESSAGE (1u << 0)
 #define EX_HERMES_THROW_FIELD_STACK (1u << 1)
 #define EX_HERMES_THROW_FIELD_POSITIONS (1u << 2)
+#define EX_HERMES_THROW_FIELD_MESSAGE_TRUNCATED (1u << 3)
+#define EX_HERMES_THROW_FIELD_STACK_TRUNCATED (1u << 4)
+#define EX_HERMES_SAFE_TEXT_MAX_BYTES 16384u
+#define EX_HERMES_SAFE_TEXT_TRUNCATION_MARKER "...[truncated]"
 
 typedef enum ExHermesValueKind {
   EX_HERMES_VALUE_INVALID = 0,
@@ -314,7 +361,8 @@ typedef struct ExHermesEvaluationResult {
   uint64_t work_target_id;
   ExHermesValueHandle value;
   uint32_t throw_metadata_status;
-  uint32_t throw_metadata_fields; /* bit 0 message; bit 1 stack; bit 2 positions */
+  uint32_t throw_metadata_fields; /* bits 0-2 presence; bits 3-4 text truncation */
+  uint32_t throw_error_class; /* ExHermesErrorClass */
   int32_t lifecycle_exit_code;
   uint32_t capability_flags;
   ExHermesOwnedBytes message;
@@ -578,23 +626,32 @@ uint32_t ex_hermes_value_kind(
 /// Copy the Stage-1 text of a primitive rooted value without invoking
 /// JavaScript, property access, or user coercion. Object/function/array values
 /// intentionally return an empty payload and are displayed from value_kind.
+/// Text is bounded to EX_HERMES_SAFE_TEXT_MAX_BYTES including the trusted
+/// truncation marker. out_truncated is one exactly when that marker was added.
 /// The returned buffer is explicit-length UTF-8, NUL-terminated for allocator
 /// compatibility, and must be released with ex_hermes_free_string.
 uint32_t ex_hermes_value_stage1_text(
     ExactHermesRuntime* runtime,
     ExHermesValueHandle handle,
     uint8_t** out_data,
-    size_t* out_length);
+    size_t* out_length,
+    uint32_t* out_truncated);
 
 /// Copy trap-free Error metadata retained by Hermes for one rooted value.
-/// Ordinary Error objects return optional owned UTF-8 message and stack
-/// buffers; arbitrary values succeed with both buffers empty. No JavaScript
-/// property, accessor, Proxy trap, prepareStackTrace, or coercion is invoked.
-/// Buffers are released with ex_hermes_free_string.
+/// Ordinary Error objects return their closed direct-prototype error class and
+/// optional owned UTF-8 message and stack buffers; arbitrary values and Error
+/// subclasses with a non-intrinsic direct prototype return UNCLASSIFIED. No
+/// JavaScript property, accessor, Proxy trap, mutable prototype-chain walk,
+/// prepareStackTrace, or coercion is invoked. Buffers are released with
+/// ex_hermes_free_string. metadata_fields reports independent presence and
+/// truncation bits; every returned text field is bounded to
+/// EX_HERMES_SAFE_TEXT_MAX_BYTES including its trusted truncation marker.
 /// @ref LLP 0024#8-safe-inspection
 uint32_t ex_hermes_value_safe_throw_metadata(
     ExactHermesRuntime* runtime,
     ExHermesValueHandle handle,
+    uint32_t* metadata_fields,
+    uint32_t* error_class,
     ExHermesOwnedBytes* message,
     ExHermesOwnedBytes* stack);
 
@@ -1041,18 +1098,22 @@ int32_t ex_host_lifecycle_exit_code_set_stack(
 /// Authorize requested (stage=0), retained-fd commit (stage=1), repeated
 /// descriptor use (stage=2), path disclosure (stage=3), or pre-open effects
 /// (stage=4), or repeated descriptor metadata disclosure (stage=5) for
-/// fs.open. Stages after requested require `parent_fd`.
-int ex_host_authorize_typed_fs_stack(uint64_t module_id,
-                                    const uint64_t* module_ids,
-                                    size_t module_ids_len,
-                                    const char* path,
-                                    uint32_t stage,
-                                    uint32_t surface,
-                                    int32_t parent_fd,
-                                    int32_t fd,
-                                    int32_t needs_read,
-                                    int32_t needs_write,
-                                    const char* presented_handle_id);
+/// fs.open. Stages after requested require `parent_fd`. The runtime nonce is
+/// native generation identity, not JavaScript input. The return value is an
+/// `ExHostVfsResultDiscriminant`; this authorization-only call owns no output
+/// allocation.
+uint32_t ex_host_authorize_typed_fs_stack(uint64_t runtime_nonce,
+                                         uint64_t module_id,
+                                         const uint64_t* module_ids,
+                                         size_t module_ids_len,
+                                         const char* path,
+                                         uint32_t stage,
+                                         uint32_t surface,
+                                         int32_t parent_fd,
+                                         int32_t fd,
+                                         int32_t needs_read,
+                                         int32_t needs_write,
+                                         const char* presented_handle_id);
 
 /// Publish or revoke ceiling-bounded typed dynamic authority. Grant input is a
 /// strict JSON request object; revoke input is a strict JSON string grant ID.

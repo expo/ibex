@@ -142,6 +142,70 @@ fn transcript_utf8_eof_and_exit_status_contracts_are_executable() {
 
 #[test]
 #[ignore = "requires an independently verified production target advertisement"]
+fn file_program_keeps_orderly_lifecycle_and_failure_statuses_distinct() {
+    let project = project();
+    let entry = project.path().join("entry.mjs");
+    let entry_arg = entry.to_str().expect("UTF-8 fixture path");
+
+    std::fs::write(&entry, "process.exitCode = 5;\n").expect("orderly file program");
+    let orderly = run(project.path(), &[entry_arg], b"");
+    assert_eq!(
+        orderly.status.code(),
+        Some(5),
+        "orderly file exitCode: {}",
+        text(&orderly.stderr)
+    );
+
+    std::fs::write(&entry, "process.exit(7);\n").expect("lifecycle file program");
+    let lifecycle = run(project.path(), &[entry_arg], b"");
+    assert_eq!(
+        lifecycle.status.code(),
+        Some(7),
+        "explicit file lifecycle: {}",
+        text(&lifecycle.stderr)
+    );
+
+    // @ref LLP 0025#8-exit-and-lifecycle — the unhandled rejection is the
+    // primary termination cause, so an earlier orderly exitCode cannot win.
+    std::fs::write(
+        &entry,
+        "process.exitCode = 9; Promise.reject(new Error('file-async-boom'));\n",
+    )
+    .expect("async-failure file program");
+    let failed = run(project.path(), &[entry_arg], b"");
+    assert_eq!(
+        failed.status.code(),
+        Some(1),
+        "async file failure: {}",
+        text(&failed.stderr)
+    );
+    assert!(text(&failed.stderr).contains("file-async-boom"));
+
+    // A background failure can become reportable while top-level await keeps
+    // the foreground evaluation in flight. It must be drained before the later
+    // foreground outcome is classified, rather than disappearing when that
+    // outcome returns.
+    std::fs::write(
+        &entry,
+        "setTimeout(() => { throw new Error('file-async-before-outcome'); }, 0);\nawait new Promise(resolve => setTimeout(resolve, 10));\nprocess.exit(7);\n",
+    )
+    .expect("TLA async-before-lifecycle file program");
+    let async_before_lifecycle = run(project.path(), &[entry_arg], b"");
+    assert_eq!(
+        async_before_lifecycle.status.code(),
+        Some(1),
+        "an earlier asynchronous failure wins: {}",
+        text(&async_before_lifecycle.stderr)
+    );
+    assert!(
+        text(&async_before_lifecycle.stderr).contains("file-async-before-outcome"),
+        "the earlier structured failure must be reported exactly once: {}",
+        text(&async_before_lifecycle.stderr)
+    );
+}
+
+#[test]
+#[ignore = "requires an independently verified production target advertisement"]
 fn program_stdin_uses_one_strict_main_module_with_real_loader_edges() {
     let project = project();
     std::fs::write(

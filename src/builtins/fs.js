@@ -1,6 +1,11 @@
 var g = globalThis;
 var _exactFsInitialized = false;
 var _streamModule = null;
+// Manifest builtins may resolve implementation dependencies only while their
+// body is evaluating. Streams retain the completed fs module value assigned
+// below, never this builtin wrapper's require closure.
+// @ref LLP 0013#policy
+var _defaultFsStreamModule = null;
 var _exactPrivateBuiltinBridges =
   typeof __exactPrivateBuiltinBridges === 'object' && __exactPrivateBuiltinBridges
     ? __exactPrivateBuiltinBridges
@@ -784,7 +789,11 @@ function _makeFsError(err, syscall, path, dest) {
   err = err || {};
   var sourceMessage = typeof err.message === 'string' ? err.message : String(err);
   var code = typeof err.code === 'string' ? err.code : null;
-  if (!code || !Object.prototype.hasOwnProperty.call(_uvErrnoMessage, code)) {
+  // Native authenticated adapters return a stable typed reason. Preserve it
+  // even when it is intentionally outside Node's errno vocabulary; message
+  // parsing is a legacy fallback only for untyped compatibility errors.
+  // @ref LLP 0023#72-the-structured-result-and-its-error-classes
+  if (!code) {
     code = _extractFsCode(sourceMessage) || _uvCodeFromErrno(err.errno);
   }
   var resolvedSyscall = syscall;
@@ -4190,7 +4199,7 @@ function _initReadStream(rs, path, options) {
   ensureExactFs();
   var Stream = _getStreamModule();
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
-  var fsModule = opts.fs || require('fs');
+  var fsModule = opts.fs || _defaultFsStreamModule;
   // Prefer the true-async fs.read path when the worker-pool native exists so
   // stream reads never block the JS thread; the sync fast path remains for
   // backends without the async natives. (ENG-23497)
@@ -4585,7 +4594,7 @@ function _initWriteStream(ws, path, options) {
   _validateFlushOption(opts.flush);
   ensureExactFs();
   var Stream = _getStreamModule();
-  var fsModule = opts.fs || require('fs');
+  var fsModule = opts.fs || _defaultFsStreamModule;
   _validateFsOptions('options.fs', opts.fs, ['open', 'close', 'write', 'writev']);
   var flags = opts.flags || 'w';
   var mode = opts.mode || 438;
@@ -7425,6 +7434,7 @@ module.exports = {
   promises: promises,
   constants: constants
 };
+_defaultFsStreamModule = module.exports;
 
 // Add F_OK, R_OK, W_OK, X_OK as read-only properties (deprecated but still accessible)
 ['F_OK', 'R_OK', 'W_OK', 'X_OK'].forEach(function(name) {

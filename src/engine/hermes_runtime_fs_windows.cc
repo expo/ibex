@@ -398,6 +398,50 @@ FsAsyncResult fsAsyncUnsupported(const std::string& syscall, const std::string& 
       path);
 }
 
+enum class FsOperationLeaseState : uint8_t {
+  Queued,
+  Committed,
+  Canceled,
+  Completed,
+};
+
+// Windows uses the same exact-generation operation lease as the POSIX
+// adapter. The pool mutex serializes Queued -> Committed with teardown's
+// Queued -> Canceled transition, and the decided closure retains every native
+// handle/fact captured on the runtime thread.
+// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+struct FsOperationLease {
+  RuntimeCallbackTarget target;
+  std::shared_ptr<std::vector<uint64_t>> principalStack;
+  std::shared_ptr<std::function<FsAsyncResult()>> decidedWork;
+  std::atomic<FsOperationLeaseState> state{FsOperationLeaseState::Queued};
+
+  bool matches(RuntimeCallbackTarget candidate) const noexcept {
+    return target.runtime == candidate.runtime && target.nonce == candidate.nonce;
+  }
+
+  bool commit() noexcept {
+    auto expected = FsOperationLeaseState::Queued;
+    return state.compare_exchange_strong(
+        expected, FsOperationLeaseState::Committed,
+        std::memory_order_acq_rel, std::memory_order_acquire);
+  }
+
+  bool cancel() noexcept {
+    auto expected = FsOperationLeaseState::Queued;
+    return state.compare_exchange_strong(
+        expected, FsOperationLeaseState::Canceled,
+        std::memory_order_acq_rel, std::memory_order_acquire);
+  }
+
+  void complete() noexcept {
+    auto expected = FsOperationLeaseState::Committed;
+    (void)state.compare_exchange_strong(
+        expected, FsOperationLeaseState::Completed,
+        std::memory_order_release, std::memory_order_relaxed);
+  }
+};
+
 class FsWorkerPool {
  public:
   static FsWorkerPool& instance() {
@@ -405,7 +449,10 @@ class FsWorkerPool {
     return *pool;
   }
 
-  bool enqueue(std::function<void()> job, std::string& error) {
+  bool enqueue(
+      std::shared_ptr<FsOperationLease> lease,
+      std::function<void()> job,
+      std::string& error) {
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (queue_.size() >= kMaxQueue) {
@@ -413,18 +460,49 @@ class FsWorkerPool {
         return false;
       }
       spawnWorkerIfNeededLocked();
-      queue_.push_back(std::move(job));
+      queue_.push_back(QueuedJob{std::move(lease), std::move(job)});
     }
     cv_.notify_one();
     return true;
   }
 
+  size_t cancelQueued(RuntimeCallbackTarget target) noexcept {
+    size_t canceledCount = 0;
+    for (;;) {
+      QueuedJob canceled;
+      bool found = false;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto it = queue_.begin(); it != queue_.end(); ++it) {
+          if (it->lease && it->lease->matches(target) && it->lease->cancel()) {
+            canceled = std::move(*it);
+            queue_.erase(it);
+            found = true;
+            break;
+          }
+        }
+      }
+      if (!found) return canceledCount;
+      if (canceled.lease && canceled.lease->decidedWork) {
+        *canceled.lease->decidedWork = {};
+      }
+      // QueuedJob destruction on the runtime owner thread releases Promise
+      // roots, retained Windows handles, pending_fs_ops, and the runtime pin.
+      canceledCount += 1;
+    }
+  }
+
  private:
+  struct QueuedJob {
+    std::shared_ptr<FsOperationLease> lease;
+    std::function<void()> work;
+  };
+
   static constexpr size_t kMaxWorkers = 8;
   static constexpr size_t kMaxQueue = 1024;
   std::mutex mutex_;
   std::condition_variable cv_;
-  std::deque<std::function<void()>> queue_;
+  std::deque<QueuedJob> queue_;
   size_t idle_ = 0;
   size_t total_ = 0;
 
@@ -433,20 +511,32 @@ class FsWorkerPool {
       return;
     }
     total_ += 1;
-    std::thread([this]() {
-      for (;;) {
-        std::function<void()> job;
-        {
-          std::unique_lock<std::mutex> lock(mutex_);
-          idle_ += 1;
-          cv_.wait(lock, [this] { return !queue_.empty(); });
-          idle_ -= 1;
-          job = std::move(queue_.front());
-          queue_.pop_front();
+    try {
+      std::thread([this]() {
+        for (;;) {
+          QueuedJob job;
+          {
+            std::unique_lock<std::mutex> lock(mutex_);
+            idle_ += 1;
+            cv_.wait(lock, [this] { return !queue_.empty(); });
+            idle_ -= 1;
+            job = std::move(queue_.front());
+            queue_.pop_front();
+            if (!job.lease || !job.lease->commit()) continue;
+          }
+          try {
+            job.work();
+          } catch (...) {
+            // The detached pool is immortal; one broken adapter operation
+            // must not terminate its worker.
+          }
+          job.lease->complete();
         }
-        job();
-      }
-    }).detach();
+      }).detach();
+    } catch (...) {
+      total_ -= 1;
+      throw;
+    }
   }
 };
 
@@ -522,6 +612,10 @@ facebook::jsi::Value startFsAsync(
             std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
         auto target = exactRuntimeCallbackTarget(handle);
         auto lifetime = std::make_shared<FsAsyncLifetime>(target);
+        auto operationLease = std::make_shared<FsOperationLease>();
+        operationLease->target = target;
+        operationLease->principalStack = principalStack;
+        operationLease->decidedWork = workPtr;
         if (!exactPinRuntimeNativeWorker(target)) {
           throw facebook::jsi::JSError(rt, "FS async: runtime is shutting down");
         }
@@ -529,9 +623,12 @@ facebook::jsi::Value startFsAsync(
         lifetime->activate();
 
         std::string enqueueError;
-        bool queued = FsWorkerPool::instance().enqueue(
-            [handle, target, principal, principalStack, workPtr, resolve, reject,
-             lifetime]() mutable {
+        bool queued = false;
+        try {
+          queued = FsWorkerPool::instance().enqueue(
+              operationLease,
+              [handle, target, principal, principalStack, workPtr, resolve, reject,
+               lifetime]() mutable {
               exactTestDelayRuntimeProducer();
               ScopedRuntimeSecurityContext securityContext(handle);
               ScopedTypedPrincipalStack typedStack(*principalStack);
@@ -598,8 +695,13 @@ facebook::jsi::Value startFsAsync(
                       }
                     }
                   });
-            },
-            enqueueError);
+              },
+              enqueueError);
+        } catch (const std::exception& error) {
+          enqueueError = error.what();
+        } catch (...) {
+          enqueueError = "FS worker enqueue failed";
+        }
         if (!queued) {
           // A rejected Promise can retain its executor. Clear the unqueued
           // callable so any owned native resources are released immediately.
@@ -1169,6 +1271,11 @@ bool parseWindowsIoVecArguments(
 
 } // namespace
 
+void exactCancelQueuedFsOperations(RuntimeCallbackTarget target) {
+  if (!target) return;
+  (void)FsWorkerPool::instance().cancelQueued(target);
+}
+
 ExactArmedSqliteFile exactOpenArmedSqliteFile(
     facebook::jsi::Runtime& runtime,
     const ExactResolvedVfsPath&,
@@ -1257,10 +1364,18 @@ void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce) {
 // the SCM_RIGHTS process-IPC fd in the fd ownership registry so raw integers
 // don't become ambient authority (ENG-22883). Windows has no SCM_RIGHTS fd
 // passing and this file keeps no raw-fd registry (file access goes through
-// HANDLE-backed FileEntry records), so the platform-neutral call site in
-// hermes_runtime.cc (EXACT_IPC_FD bootstrap) links against this no-op.
-void exactRegisterProcessIpcFd(int fd) {
+// HANDLE-backed FileEntry records). The Rust construction bridge ignores the
+// POSIX-only IPC environment marker on Windows; this successful no-op exists
+// only to keep the platform-neutral call site and link contract uniform.
+bool exactRegisterProcessIpcFd(int fd) {
   (void)fd;
+  return true;
+}
+
+bool exactCloseProcessIpcFd(uint64_t runtimeNonce, int fd) {
+  (void)runtimeNonce;
+  (void)fd;
+  return false;
 }
 
 void installFsMutationGuardHostFunction(ExactHermesRuntime* handle) {
@@ -2197,33 +2312,39 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactFsStatAsync", std::move(fsStatAsyncFn));
 
-  auto installSync = [&rt](const char* name, const char* syscall, int32_t dataOnly) {
-    auto fn = facebook::jsi::Function::createFromHostFunction(
-        rt,
-        facebook::jsi::PropNameID::forAscii(rt, name),
-        1,
-        [name, syscall, dataOnly](
-            facebook::jsi::Runtime& runtime,
-            const facebook::jsi::Value&,
-            const facebook::jsi::Value* args,
-            size_t count) -> facebook::jsi::Value {
-          if (count == 0 || !args[0].isNumber()) {
-            throw facebook::jsi::JSError(runtime, std::string(name) + ": fd required");
-          }
-          auto entry = getFileEntry(runtime, fdFromValue(runtime, args[0]));
-          requireFileEntryWrite(runtime, entry);
-          auto file = entry.file;
-          std::lock_guard<std::mutex> ioLock(file->ioMutex);
-          if (ex_host_fs_sync(file->handle, dataOnly) != 0) {
-            throwFs(runtime, syscall, entry.path);
-          }
-          return facebook::jsi::Value::undefined();
-        });
-    rt.global().setProperty(rt, name, std::move(fn));
-  };
+  auto makeSync =
+      [&rt](const char* name, const char* syscall, int32_t dataOnly) {
+        return facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(rt, name),
+            1,
+            [name, syscall, dataOnly](
+                facebook::jsi::Runtime& runtime,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+              if (count == 0 || !args[0].isNumber()) {
+                throw facebook::jsi::JSError(
+                    runtime, std::string(name) + ": fd required");
+              }
+              auto entry =
+                  getFileEntry(runtime, fdFromValue(runtime, args[0]));
+              requireFileEntryWrite(runtime, entry);
+              auto file = entry.file;
+              std::lock_guard<std::mutex> ioLock(file->ioMutex);
+              if (ex_host_fs_sync(file->handle, dataOnly) != 0) {
+                throwFs(runtime, syscall, entry.path);
+              }
+              return facebook::jsi::Value::undefined();
+            });
+      };
   // The Rust-owned handle now exposes File::sync_all/sync_data, which map to
   // FlushFileBuffers on Windows. These must be real flushes: registering
   // no-op success here would violate Node's durability contract (ENG-22963).
-  installSync("__exactFsFsyncSync", "fsync", 0);
-  installSync("__exactFsFdatasyncSync", "fdatasync", 1);
+  rt.global().setProperty(
+      rt, "__exactFsFsyncSync", makeSync("__exactFsFsyncSync", "fsync", 0));
+  rt.global().setProperty(
+      rt,
+      "__exactFsFdatasyncSync",
+      makeSync("__exactFsFdatasyncSync", "fdatasync", 1));
 }

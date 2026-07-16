@@ -852,13 +852,32 @@ fn parent_ipc_decode_survives_multibyte_split_across_reads() {
     write_text(
         &dir.join("child.js"),
         r#"
-process.send({ type: 'blob', payload: '€'.repeat(120000) });
+function ipcCarrierHidden() {
+  if (typeof Reflect !== 'object' ||
+      typeof Reflect.ownKeys !== 'function') return false;
+  const spread = { ...globalThis };
+  const ownKeys = Reflect.ownKeys(globalThis);
+  const keys = ['__exactCompatModes', '__exactProcessIpcBootstrap'];
+  for (const key of keys) {
+    if (globalThis[key] !== undefined || ownKeys.indexOf(key) !== -1 ||
+        spread[key] !== undefined ||
+        Object.getOwnPropertyDescriptor(globalThis, key) !== undefined) return false;
+  }
+  return true;
+}
+process.send({
+  type: 'blob',
+  payload: '€'.repeat(120000),
+  ipcEnvHidden: process.env.EXACT_IPC_FD === undefined &&
+    process.env.EXACT_IPC_SERIALIZATION === undefined,
+  ipcCarrierHidden: ipcCarrierHidden()
+});
 setTimeout(function () { process.exit(0); }, 5000);
 "#,
     );
     let app = r#"
 const cp = require('child_process');
-const c = cp.fork(__dirname + '/child.js');
+const c = cp.fork(__dirname + '/child.js', [], { serialization: 'advanced' });
 let done = false;
 c.on('message', function (m) {
   if (!m || m.type !== 'blob') return;
@@ -866,7 +885,9 @@ c.on('message', function (m) {
   let replacements = 0;
   for (const ch of m.payload) if (ch === '�') replacements++;
   const ok = m.payload === '€'.repeat(120000);
-  console.log('RESULT|ok=' + ok + '|replacements=' + replacements + '|len=' + m.payload.length);
+  console.log('RESULT|ok=' + ok + '|replacements=' + replacements +
+    '|len=' + m.payload.length + '|ipcEnvHidden=' + m.ipcEnvHidden +
+    '|ipcCarrierHidden=' + m.ipcCarrierHidden);
   c.kill();
 });
 setTimeout(function () {
@@ -884,6 +905,160 @@ setTimeout(function () {
         field(line, "replacements="),
         Some("0"),
         "U+FFFD replacement characters leaked into the delivered payload: {line}"
+    );
+    assert_eq!(
+        field(line, "ipcEnvHidden="),
+        Some("true"),
+        "advanced IPC startup state leaked through the child principal environment: {line}"
+    );
+    assert_eq!(
+        field(line, "ipcCarrierHidden="),
+        Some("true"),
+        "the temporary IPC bootstrap carrier remained reflectively visible: {line}"
+    );
+}
+
+/// The fork child maps its process channel onto fd 3, which clears CLOEXEC.
+/// Runtime adoption must restore the flag before project code can spawn an
+/// unrelated grandchild. Otherwise that grandchild keeps the raw socket alive
+/// after the fork child exits, delaying the parent's disconnect event and
+/// inheriting authority that was hidden only at the environment layer.
+#[test]
+fn forked_child_ipc_socket_is_not_inherited_by_unrelated_grandchild() {
+    let dir = unique_dir("ipc-grandchild-cloexec");
+    write_text(
+        &dir.join("child.js"),
+        r#"
+const cp = require('child_process');
+const fs = require('fs');
+const statePath = __dirname + '/grandchild-state';
+const script = [
+  "if ( : >&3 ) 2>/dev/null && [ -S /dev/fd/3 ] 2>/dev/null; then state=open; else state=closed; fi",
+  "printf '%s,serialization=%s' \"$state\" \"${EXACT_IPC_SERIALIZATION-unset}\" > \"$1\"",
+  "exec /bin/sleep 5"
+].join('; ');
+const grandchild = cp.spawn('/bin/sh', ['-c', script, 'ipc-probe', statePath], {
+  env: { EXACT_IPC_SERIALIZATION: 'advanced' },
+  stdio: ['ignore', 'ignore', 'ignore']
+});
+grandchild.unref();
+
+function reportWhenReady() {
+  let state;
+  try { state = fs.readFileSync(statePath, 'utf8'); }
+  catch (_) { setTimeout(reportWhenReady, 10); return; }
+  process.send({ type: 'grandchild-ready', pid: grandchild.pid, state: state }, function () {
+    process.exit(0);
+  });
+  setTimeout(function () { process.exit(0); }, 500);
+}
+reportWhenReady();
+"#,
+    );
+    let app = r#"
+const cp = require('child_process');
+const child = cp.fork(__dirname + '/child.js');
+let readyAt = 0;
+let grandchildPid = 0;
+let state = 'missing';
+let done = false;
+child.on('message', function (message) {
+  if (!message || message.type !== 'grandchild-ready') return;
+  readyAt = Date.now();
+  grandchildPid = message.pid;
+  state = message.state;
+});
+child.on('disconnect', function () {
+  if (done) return;
+  done = true;
+  const disconnectMs = readyAt ? Date.now() - readyAt : -1;
+  let grandchildAlive = false;
+  try { process.kill(grandchildPid, 0); grandchildAlive = true; } catch (_) {}
+  try { if (grandchildPid) process.kill(grandchildPid, 'SIGKILL'); } catch (_) {}
+  console.log('RESULT|state=' + state + '|grandchildAlive=' + grandchildAlive +
+    '|disconnectMs=' + disconnectMs);
+  process.exit(0);
+});
+setTimeout(function () {
+  if (done) return;
+  done = true;
+  try { if (grandchildPid) process.kill(grandchildPid, 'SIGKILL'); } catch (_) {}
+  try { child.kill(); } catch (_) {}
+  console.log('RESULT|state=' + state + '|grandchildAlive=timeout|disconnectMs=-1');
+  process.exit(1);
+}, 30000);
+"#;
+
+    let run = run_app_in(&dir, app, Duration::from_secs(45));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "state="),
+        Some("closed,serialization=unset"),
+        "an unrelated grandchild inherited the raw IPC socket or stale serialization control: {line}"
+    );
+    assert_eq!(
+        field(line, "grandchildAlive="),
+        Some("true"),
+        "the channel closed only because the unrelated grandchild had already exited: {line}"
+    );
+    let disconnect_ms = field(line, "disconnectMs=")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(u64::MAX);
+    assert!(
+        disconnect_ms < 2_500,
+        "the unrelated grandchild retained parent-channel liveness for {disconnect_ms}ms: {line}"
+    );
+}
+
+/// `execSync` has its own direct fork/exec bridge rather than the spawn plan
+/// used by asynchronous children. It must apply the same construction-marker
+/// projection: an IPC child may use the native channel, but a shell launched by
+/// project code must not inherit either private bootstrap environment value.
+#[test]
+fn forked_child_exec_sync_strips_private_ipc_bootstrap_environment() {
+    let dir = unique_dir("ipc-exec-sync-env");
+    write_text(
+        &dir.join("child.js"),
+        r#"
+const cp = require('child_process');
+const command =
+  "printf '%s,%s' \"${EXACT_IPC_FD-unset}\" \"${EXACT_IPC_SERIALIZATION-unset}\"";
+const result = JSON.parse(globalThis.__exactExecSync(command, '{}'));
+const observed = String(result.stdout);
+process.send({ type: 'exec-sync-env', observed: observed }, function () {
+  process.exit(0);
+});
+setTimeout(function () { process.exit(1); }, 5000);
+"#,
+    );
+    let app = r#"
+const cp = require('child_process');
+const child = cp.fork(__dirname + '/child.js', [], { serialization: 'advanced' });
+let done = false;
+child.on('message', function (message) {
+  if (!message || message.type !== 'exec-sync-env') return;
+  done = true;
+  clearTimeout(watchdog);
+  console.log('RESULT|observed=' + message.observed);
+});
+child.on('exit', function () {
+  if (!done) console.log('RESULT|observed=missing');
+});
+const watchdog = setTimeout(function () {
+  if (done) return;
+  try { child.kill(); } catch (_) {}
+  console.log('RESULT|observed=timeout');
+  process.exit(1);
+}, 15000);
+"#;
+
+    let run = run_app_in(&dir, app, Duration::from_secs(25));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "observed="),
+        Some("unset,unset"),
+        "execSync disclosed the private IPC bootstrap environment: {line}\nstderr:\n{}",
+        run.stderr
     );
 }
 

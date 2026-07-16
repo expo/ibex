@@ -50,6 +50,15 @@ struct RequestState {
 std::mutex g_requests_mutex;
 std::unordered_map<uint32_t, std::shared_ptr<RequestState>> g_requests;
 
+#if defined(WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL) && defined(WINHTTP_PROTOCOL_FLAG_HTTP2)
+// Capture the compatibility-runner knob during process initialization. Fetch
+// operations consult only this immutable projection and never reread the host
+// environment after an armed runtime starts executing project code.
+// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+const bool kWinHttp2EnabledAtProcessStart =
+    GetEnvironmentVariableW(L"EXACT_WINHTTP_ENABLE_HTTP2", nullptr, 0) > 0;
+#endif
+
 // ENG-23499 — Windows fetch uses synchronous WinHTTP calls, so N concurrent
 // requests must not create N detached native threads. Keep the same bounded
 // 16-worker / 512-queued-job discipline as Linux's FetchWorkerPool and the
@@ -331,7 +340,7 @@ void performFetch(
       sizeof(disabled_features));
 
 #if defined(WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL) && defined(WINHTTP_PROTOCOL_FLAG_HTTP2)
-  if (GetEnvironmentVariableW(L"EXACT_WINHTTP_ENABLE_HTTP2", nullptr, 0) > 0) {
+  if (kWinHttp2EnabledAtProcessStart) {
     DWORD protocols = WINHTTP_PROTOCOL_FLAG_HTTP2;
     WinHttpSetOption(
         request,

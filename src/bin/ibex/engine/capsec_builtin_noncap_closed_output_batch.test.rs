@@ -502,6 +502,7 @@ async fn execute_loaded_rows(
     }
     let (host, digest) =
         build_armed_test_host_custom(None, true, true, true, Vec::new(), None, |snapshot| {
+            snapshot["bootstrapCompatibilityModes"] = json!(["bun"]);
             snapshot["principals"][0]["imports"]["builtins"] = Value::Array(imports.clone());
             snapshot["entry"] = json!({
                 "kind": "repl",
@@ -513,10 +514,6 @@ async fn execute_loaded_rows(
     let reset = HostResetGuard;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
         .expect("create source-bound builtin-output runtime");
-    engine
-        .eval_immediate("globalThis.__exactCompatModes = ['bun'];")
-        .await
-        .expect("select builtin-output compatibility profile");
     engine
         .load_runtime()
         .await

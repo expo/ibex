@@ -146,12 +146,21 @@ static int64_t clientCloseHandshakeGracePeriodNanos() {
     return 1000 * NSEC_PER_MSEC;
 }
 
-static bool shouldTrustLoopbackTls() {
+// WPT-only compatibility inputs are captured by global initialization. Armed
+// TLS challenges and close handling consult only these immutable projections.
+// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+static const bool gTrustLoopbackTlsAtProcessStart = []() {
     const char* value = std::getenv("EXACT_WPT_TRUST_LOOPBACK_TLS");
-    if (!value || !*value) {
-        return false;
-    }
-    return std::string(value) != "0";
+    return value && *value && std::strcmp(value, "0") != 0;
+}();
+
+static const bool gWptFixtureCloseSemanticsAtProcessStart = []() {
+    const char* value = std::getenv("EXACT_WPT_FIXTURE_CLOSE_SEMANTICS");
+    return value && *value && std::strcmp(value, "0") != 0;
+}();
+
+static bool shouldTrustLoopbackTls() {
+    return gTrustLoopbackTlsAtProcessStart;
 }
 
 static bool wptFixtureCloseSemanticsEnabled() {
@@ -159,11 +168,7 @@ static bool wptFixtureCloseSemanticsEnabled() {
     // ("/delayed-passive-close", "/passive-close-abort"). Production must not
     // change close semantics based on URL contents, so the sniffing only
     // applies when the compat runner opts in. @ref LLP 0003#the-platform-shims-map
-    const char* value = std::getenv("EXACT_WPT_FIXTURE_CLOSE_SEMANTICS");
-    if (!value || !*value) {
-        return false;
-    }
-    return std::string(value) != "0";
+    return gWptFixtureCloseSemanticsAtProcessStart;
 }
 
 static bool isLoopbackHost(NSString* host) {

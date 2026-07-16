@@ -5,7 +5,15 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-14 (ENG-24933 introduces the dedicated binary Exact app/agent ingress while preserving the unadvertised Apple target and records the remaining artifact/conformance gate); 2026-07-12 (ENG-24263: the complete exact-engine prerequisite matrix and artifact evidence now run in CI, which requires the incomplete candidate to remain unadvertised rather than treating expected refusal as conformance); 2026-07-12 (ENG-24278 bounds POSIX TCP/UDP repeat work with socket-identity, exact-peer/destination, principal-set, and mutable-generation leases); 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-12 (ENG-24462/ENG-24465 bind filesystem occurrences separately to every constrained principal and protect every authenticated package subtree lexically against writes; ENG-24464 makes production run nonces construction-fresh; ENG-24466 explicitly closes diagnostic file execution in the advertised registry pending authenticated ingress); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
+**Revised:** 2026-07-15 (ENG-24578 aligns non-recursive armed `mkdir`
+with LLP 0023's one-`mkdirat` contract: authorization retains the parent and
+preauthorizes the absent child, but a failed post-create commit never performs
+name-bound rollback that could unlink a racing replacement.)
+**Revised:** 2026-07-14 (ENG-24578 binds the armed environment to an explicitly
+empty base plus per-principal overlays, and replaces ambient compatibility
+switches with fixed, digest-bound bootstrap modes; the Bun facade remains absent
+unless the authenticated snapshot opts in.)
+**Revised:** 2026-07-14 (ENG-24578 constrains diagnostic child IPC to a private one-shot POSIX socket handoff while armed IPC remains closed and unadvertised); 2026-07-14 (ENG-24933 introduces the dedicated binary Exact app/agent ingress while preserving the unadvertised Apple target and records the remaining artifact/conformance gate); 2026-07-12 (ENG-24263: the complete exact-engine prerequisite matrix and artifact evidence now run in CI, which requires the incomplete candidate to remain unadvertised rather than treating expected refusal as conformance); 2026-07-12 (ENG-24278 bounds POSIX TCP/UDP repeat work with socket-identity, exact-peer/destination, principal-set, and mutable-generation leases); 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-12 (ENG-24462/ENG-24465 bind filesystem occurrences separately to every constrained principal and protect every authenticated package subtree lexically against writes; ENG-24464 makes production run nonces construction-fresh; ENG-24466 explicitly closes diagnostic file execution in the advertised registry pending authenticated ingress); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -530,7 +538,7 @@ must be promoted only from the checked conformance report. Missing artifacts,
 wrong targets, identity or registry mismatches, fixed/stale nonces, replayed
 input, and unadvertised rows all remain startup refusals.
 
-Implementation status (2026-07-14): the dedicated binary app/agent ingress and
+Implementation status (2026-07-15): the dedicated binary app/agent ingress and
 single-use completion path exist and are usable by an armed runtime without
 making `__hostCall` reachable. Its setter publishes an immutable method on the
 stable pre-captured `exact` object and atomically completes the one-shot package
@@ -543,8 +551,8 @@ an already-built pair against the checked registry, loaded engine, package
 graph/root objects, and protected artifacts, then replaces its construction
 nonce and digest; it cannot advertise a target. The package-side producer and
 normal Exact artifact publication, Apple/Windows conformance reports, and
-target advertisements remain incomplete. The refreshed catalog has 22,988
-required fixtures, 4,532 fully executable recipes, and 18,456 unresolved
+target advertisements remain incomplete. The refreshed catalog has 23,361
+required fixtures, 4,591 fully executable recipes, and 18,770 unresolved
 fixtures, so the existing Apple matrix remains unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
@@ -735,12 +743,29 @@ fresh 128-bit value with the operating-system CSPRNG, and finalizes the armed
 digest before handing the snapshot to the host and engine. Fixed nonces remain
 valid only in contract fixtures; RNG failure refuses construction.
 
+The same construction boundary owns every compatibility input that may affect
+trusted bootstrap shape. It reads an admitted launcher control at most once
+before arming, normalizes it into the closed, sorted
+`bootstrapCompatibilityModes` set, and includes that set in the final snapshot
+digest. After arming, native bootstrap receives only the authenticated fixed
+projection: it does not reread the launcher environment, and its temporary
+carrier is sealed before project code. These modes grant no authority and are
+not environment entries.
+
+The snapshot separately requires `environmentBase: []`. An armed runtime never
+copies the host process environment into JavaScript or falls through to it.
+Values created during execution live only in a runtime-scoped map keyed by the
+authenticated principal; exact-name read, write, and non-empty enumeration are
+independently authorized at their requested and commit stages.
+
 Acceptance:
 
 - The runtime refuses before project code on stale/mismatched policy, registry,
   engine target, package graph, or required target cell.
 - Mutable authored files and environment variables are not consulted after
   arming.
+- The environment base is explicitly empty, and compatibility shape is a
+  digest-bound fixed-mode projection rather than an environment backchannel.
 - Audit, denial, handle, and dynamic-permission records carry the loaded
   semantic identity and snapshot generation.
 
@@ -826,8 +851,10 @@ truncation, and recheck before each write/flush. The remaining path-based
 filesystem operations are still pending. Non-recursive synchronous and
 worker-backed directory creation now use the `mkdir` edge: they authorize the
 requested path, retain and verify the parent, preauthorize absent creation,
-create with `mkdirat`, and commit the opened directory identity, rolling the
-new directory back if commit fails. Recursive creation remains closed until
+and create exactly once with `mkdirat`. A failed post-create commit leaves the
+new, still-empty directory in place: reopening the name to verify and then
+calling `unlinkat` would permit a replacement race, so armed code deliberately
+performs no name-bound rollback. Recursive creation remains closed until
 every created component can run that full sequence independently. Path removal
 also remains closed in armed execution: retaining a target descriptor and then
 calling name-based `unlinkat` would still permit a swap between identity check
@@ -962,18 +989,26 @@ therefore no longer consult `PolicyFile` once armed.
 Armed runtime construction also rejects every inspector activation and
 configuration flag (`inspect`, wait/open/pause, host, and port), including the
 duplicate `run`-subcommand spellings, before reading arming artifacts or
-allocating the engine. The opt-in Bun compatibility facade is closed at the
-same boundary before its process-global environment marker can be installed.
-Hidden compatibility-fidelity controls that expose internals or alter
-process-wide stack/HTTP-parser configuration are rejected there as well,
-before armed artifact I/O.
+allocating the engine. Ambient compatibility switches do not survive that
+boundary as mutable controls. The trusted launcher may instead capture the
+closed fixed compatibility set into the snapshot before its digest is
+finalized; native bootstrap consumes only that authenticated projection and
+seals its temporary carrier. The Bun facade is absent by default. When, and
+only when, the snapshot includes `bun`, bootstrap installs `Bun` as the same
+object as `Exact`; that identity adds no effect authority and cannot be toggled
+by a later `process.env` write. Hidden compatibility-fidelity controls that
+expose internals or alter process-wide stack/HTTP-parser configuration remain
+rejected before armed artifact I/O.
 Ad-hoc eval/print, explicit or implicit REPL entry, and debug-registry commands
 are likewise rejected at the production dispatcher/runtime boundary before
 arming artifact I/O, engine allocation, or evaluation of supplied code.
-At runtime scalar broker-base environment reads use exact-name typed
-`env:read` decisions at requested and commit before disclosure. Environment
-enumeration remains explicitly closed and returns an empty object until it can
-authorize every concrete name without a wildcard. Process cwd disclosure now
+At runtime armed `process.env` has no broker-base branch. It begins at the
+snapshot's explicit empty base and projects only the current authenticated
+principal's runtime-scoped overlay. Scalar read, mutation, and each non-empty
+enumeration member take exact-name typed decisions at requested and commit;
+`env:read` and `env:write` remain independent. A write changes neither the host
+process environment nor another principal's overlay, and a fresh runtime starts
+empty. Process cwd disclosure now
 uses the same exact typed `sys:read`
 plane as other system information: requested and commit authorize the `cwd`
 selector before `getcwd`, while denial occurs before disclosure. Cwd mutation
@@ -988,6 +1023,22 @@ Diagnostic audit keeps the child-process compatibility suite executable without
 widening that production boundary. Its low-descriptor regression uses a plain
 POSIX child to exercise IPC and extra-stdio `dup2` mapping directly; it does not
 grant a nested Ibex runtime ambient ownership of inherited numeric descriptors.
+A diagnostic nested Ibex child may adopt exactly one inherited POSIX IPC socket,
+but only through a process-wide, construction-captured, one-shot lease released
+to the first claimed unarmed Host context. The socket is validated and bound to
+the runtime plus device/inode identity, its close-on-exec flag is restored before
+project code, both startup markers stay absent from the principal environment,
+and the temporary bootstrap carrier is removed after trusted runtime capture.
+The captured carrier exposes only a frozen zero-argument close hook bound to
+that runtime and socket identity. Trusted `process.disconnect()` consumes the
+hook once; runtime teardown is the exact-once fallback. Each close revalidates
+the native socket identity, so a stale or reused descriptor number revokes the
+old lease without ever closing the replacement object.
+Armed contexts, later runtimes, invalid descriptors, Windows, and unrelated
+grandchildren cannot consume or inherit that lease. This is diagnostic
+compatibility plumbing, not `ipc:channel` authority or target-conformance
+evidence; every armed IPC cell remains closed and unsupported until a typed,
+attributed channel design and its exact-target fixtures exist.
 Parent-side extra stdio is a bounded, backpressure-aware full-duplex stream:
 `end` half-closes writes, readable EOF gates the child `close` event, and
 `destroy` releases both directions. Production child environment and inherited
@@ -1029,7 +1080,8 @@ before enqueuing a line. Denial therefore cannot leak output through the
 best-effort mirror, and this public path no longer bypasses typed
 `stdio:write` authority.
 The initial profile therefore has no debugger protocol or compatibility-facade
-route into package memory or runtime internals.
+route that bypasses package attribution or typed authority. Snapshot-enabled
+`Bun` is only an identity alias of the already-governed `Exact` object.
 
 ### WP8 — Port handles, dynamic authority, and audit evidence
 
@@ -1151,8 +1203,10 @@ allow/deny overrides, environment-endowment widening, and advisory-attribution
 flags/environment inputs refuse instead of weakening production. Lockdown is
 installed structurally for both the ordinary CLI and direct `Runtime`
 construction, and missing lockdown, frame attribution, or package isolation is
-a hard enforce failure with no advisory override. Compatibility, inspector,
-and runtime-fidelity controls also refuse at ordinary host construction. The
+a hard enforce failure with no advisory override. Inspector and runtime-fidelity
+controls refuse at ordinary host construction. Compatibility inputs cannot
+remain ambient controls: the only admitted armed forms are launcher-captured,
+fixed modes bound into the finalized snapshot, and they grant no authority. The
 ordinary no-policy path now constructs an execution-bound immutable typed
 snapshot instead of the legacy host: it binds the actual project directory
 object, patched-Hermes binary digest, exact advertised target/features, empty
@@ -1337,10 +1391,12 @@ full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
 content-addressed attestation; the generator reopens and validates the report,
 the complete executable-recipe catalog, and a separate public-surface execution
-artifact. All three are immutable regular files addressed by their raw content,
-and the report and attestation bind the catalog and public-execution semantic
-digests. Adapter-probe evidence is a distinct diagnostic schema and is rejected
-at publication. `IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT` only selects the
+artifact, plus the loaded-engine output-disposition evidence. All four are
+immutable regular files addressed by their raw content, and the report and
+attestation bind the catalog and public-execution semantic digests together
+with the exact output-disposition evidence bytes. Adapter-probe evidence is a
+distinct diagnostic schema and is rejected at publication.
+`IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT` only selects the
 harness-owned diagnostic artifact destination; it never supplies authority,
 policy, a principal, a target claim, or production runtime input. The generator
 re-derives the exact required fixture set and
@@ -1348,7 +1404,7 @@ requires one passing authored public-surface invocation (or target-absence
 probe) with the selected terminal observation for every recipe, with zero
 residual, missing, duplicate, or failed rows. It then derives every cell and
 advertisement and permits no source changes after the reported revision except
-those three evidence files, the attestation, and generated publication
+those four evidence files, the attestation, and generated publication
 artifacts. Until every required fixture genuinely passes, production startup
 refuses before project code on every target.
 

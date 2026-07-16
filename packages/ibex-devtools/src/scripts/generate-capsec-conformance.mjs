@@ -15,8 +15,13 @@ import { validateRecipeCatalog } from "./capsec-conformance-recipes.mjs";
 import {
   validatePublicSurfaceExecutionArtifact,
 } from "./capsec-public-surface-evidence.mjs";
-import { canonicalJson, readJsonStrict } from "./capsec-contract.mjs";
+import {
+  canonicalJson,
+  parseJsonStrict,
+  readJsonStrict,
+} from "./capsec-contract.mjs";
 import { validateLoadedEngineIdentity } from "./capsec-engine-identity.mjs";
+import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -39,6 +44,9 @@ const enginePath = path.resolve(
 const executionsPath = option("--executions");
 const recipeCatalogPath = option("--recipe-catalog");
 const publicSurfaceExecutionsPath = option("--public-surface-executions");
+const outputDispositionEvidencePath = option(
+  "--output-disposition-evidence",
+);
 
 const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
@@ -96,6 +104,7 @@ if (
     git("rev-parse", "HEAD").toString("utf8").trim() ||
   executionArtifact.sourceTreeDigest !==
     taggedDigest(git("rev-parse", "HEAD^{tree}")) ||
+  canonicalJson(executionArtifact.target) !== canonicalJson(target) ||
   canonicalJson(executionArtifact.engine) !== canonicalJson(engineBinding)
 ) {
   throw new Error(
@@ -122,6 +131,58 @@ if (
 ) {
   throw new Error(
     "fixture execution artifact is not bound to the exact recipe/public-surface evidence",
+  );
+}
+let outputDispositionEvidenceRawContentDigest;
+if (outputDispositionEvidencePath) {
+  const evidenceBytes = fs.readFileSync(
+    path.resolve(repoRoot, outputDispositionEvidencePath),
+  );
+  const outputDispositionEvidence = parseJsonStrict(
+    evidenceBytes,
+    "output-disposition evidence artifact",
+  );
+  const validateOutputDispositionEvidence = ajv.getSchema(
+    "https://ibex.dev/capsec/schema/output-disposition-evidence.schema.json",
+  );
+  if (!validateOutputDispositionEvidence?.(outputDispositionEvidence)) {
+    throw new Error(
+      `invalid output-disposition evidence artifact: ${ajv.errorsText(validateOutputDispositionEvidence?.errors)}`,
+    );
+  }
+  const evidenceState = validatePromotableOutputDispositionEvidence({
+    catalog: readJsonStrict(
+      path.join(capsecRoot, "generated/output-shape-catalog.json"),
+    ),
+    dispositionRows: readJsonStrict(
+      path.join(capsecRoot, "generated/output-dispositions.json"),
+    ).rows,
+    evidence: outputDispositionEvidence,
+  });
+  if (
+    evidenceState.sourceRevision !== executionArtifact.sourceRevision ||
+    evidenceState.sourceTreeDigest !== executionArtifact.sourceTreeDigest ||
+    canonicalJson(evidenceState.target) !== canonicalJson(target) ||
+    canonicalJson(evidenceState.engine) !== canonicalJson(engineBinding)
+  ) {
+    throw new Error(
+      "output-disposition evidence source, target, or loaded-engine binding differs from this execution",
+    );
+  }
+  outputDispositionEvidenceRawContentDigest = taggedDigest(evidenceBytes);
+  if (
+    executionArtifact.outputDispositionEvidenceRawContentDigest !==
+    outputDispositionEvidenceRawContentDigest
+  ) {
+    throw new Error(
+      "fixture execution artifact is not bound to the exact output-disposition evidence bytes",
+    );
+  }
+} else if (
+  executionArtifact.outputDispositionEvidenceRawContentDigest !== undefined
+) {
+  throw new Error(
+    "fixture execution artifact binds output-disposition evidence that was not supplied",
   );
 }
 const vocabularyDigest = registryBundle.members.find(
@@ -151,6 +212,9 @@ const report = buildConformanceReport({
     recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
     publicSurfaceExecutionDigest:
       publicSurfaceExecutions.publicSurfaceExecutionDigest,
+    ...(outputDispositionEvidenceRawContentDigest === undefined
+      ? {}
+      : { outputDispositionEvidenceRawContentDigest }),
   },
   digestContract: rules.digestContract,
 });

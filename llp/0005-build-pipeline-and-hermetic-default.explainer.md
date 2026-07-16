@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
+**Revised:** 2026-07-15 (Hermes source-cache/asset identity binds every source receipt authority and the Darwin/Linux builders share one kernel-backed build lock); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -249,12 +249,15 @@ upstream toolchain breakage mid-bootstrap, the ENG-22565 failure class), so
 `download-hermes.sh` is download-first (ENG-23147): it derives the **artifact
 identity** `<hermes-commit-12>-<patch-digest-12>` — the pinned upstream commit
 plus a digest of the carried `patches/hermes/` stack, one shared derivation in
-`scripts/hermes-version.sh` (`ibex_hermes_patch_digest`), the same key
-`build-hermes.sh` uses for its local cache (ENG-23131) — and tries the GitHub
-Release `hermes-<identity>` on `ccheever/ibex` before building. Downloads are
+`scripts/hermes-version.sh` (`ibex_hermes_patch_digest`) — and tries the GitHub
+Release `hermes-<identity>` on `ccheever/ibex` before building. Each platform
+asset and local source cache use a stronger key derived from that identity plus
+the platform-builder and patch-application-authority digests. Downloads are
 sha256-verified against the published `.sha256`, and a bundle is rejected
-unless it carries the patched `ex_hermes_vm_current_package_id` export and a
-runnable `hermesc` (an unpatched engine would make the LLP 0013
+unless any applicable mapped-object source-profile receipt names that exact
+stronger key, it carries the patched `ex_hermes_vm_current_package_id` export,
+and it has a runnable
+`hermesc` (an unpatched engine would make the LLP 0013
 frame-attribution suite skip vacuously). On Darwin the bundle is unpacked into
 `build-hermes.sh`'s cache and installed through its cache-hit path, so
 downloaded and built installs share one codepath. Any miss, checksum mismatch,
@@ -267,11 +270,18 @@ Bundles are published by `.github/workflows/hermes-artifacts.yml` (manual
 dispatch, or push to `main` touching the pin, the patch stack, or the build
 scripts). It builds via the same `build-hermes*.sh` builders (so the patch
 stack is applied), asserts the patched export with `nm` before uploading, and
-uploads per-platform tarballs + checksums idempotently (`--clobber`) to a
+uploads authority-keyed per-platform tarballs + checksums idempotently (`--clobber`) to a
 prerelease tagged `hermes-<identity>` — clearly an artifact cache, not a
 product release. Because the identity includes the patch digest, editing a
 patch or bumping the pin makes downloads miss (falling back to source builds)
-until the workflow publishes the new identity. The download path only serves
+until the workflow publishes the new identity; editing either builder, the
+patch-application verifier, or the shared receipt/identity derivation selects a
+new asset within that release and a new local cache key on both platforms.
+Darwin and Linux source builders hold one kernel advisory file lock across
+their complete checkout/patch/compile/cache/receipt mutation, and the downloader
+joins it while installing a prebuilt bundle. The lock's inherited descriptor
+survives while build descendants run and kernel close-on-exit recovers crashes
+without an unlink or stale-owner race. The download path only serves
 the pinned-commit, default-configuration build; non-default configurations
 (`HERMES_ENABLE_DEBUGGER=false`, Linux `HERMES_ENABLE_INTL=true`) and
 `IBEX_HERMES_FORCE_BUILD=1` go straight to source `[observed]`

@@ -713,7 +713,7 @@ fn install_native_public_test_host(
         !deny || !floor.is_empty(),
         "an explicit native public denial requires an exact selector"
     );
-    let denials = deny.then(|| floor.clone()).unwrap_or_default();
+    let denials = if deny { floor.clone() } else { Vec::new() };
     let uses_project_path = floor.iter().any(|selector| {
         matches!(
             selector["resource"]["kind"].as_str(),
@@ -721,10 +721,10 @@ fn install_native_public_test_host(
         ) && selector["resource"]["path"]["root"] == "project"
     });
     let mutate = move |value: &mut serde_json::Value| {
-            if !denials.is_empty() {
-                value["principals"][0]["denials"] = serde_json::Value::Array(denials);
-            }
-        };
+        if !denials.is_empty() {
+            value["principals"][0]["denials"] = serde_json::Value::Array(denials);
+        }
+    };
     let (host, digest) = if uses_project_path {
         build_armed_test_host_control(
             Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))),
@@ -794,7 +794,10 @@ async fn run_native_setup(
                 source_descriptor_digest,
             } => {
                 assert_eq!(global_name, "__exactSqliteOpen");
-                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(
+                    source_descriptor_digest,
+                    &tagged_value_digest(source_descriptor)
+                );
                 assert_eq!(source_descriptor["kind"], "native-global-function");
                 assert_eq!(source_descriptor["globalName"], global_name.as_str());
                 assert_eq!(source_descriptor["arity"], 2);
@@ -825,7 +828,10 @@ async fn run_native_setup(
                 source_descriptor_digest,
             } => {
                 assert_eq!(global_name, "__exactSqlitePrepare");
-                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(
+                    source_descriptor_digest,
+                    &tagged_value_digest(source_descriptor)
+                );
                 assert_eq!(source_descriptor["kind"], "native-global-function");
                 assert_eq!(source_descriptor["globalName"], global_name.as_str());
                 assert_eq!(source_descriptor["arity"], 2);
@@ -862,13 +868,16 @@ async fn run_native_setup(
                 source_descriptor_digest,
             } => {
                 assert_eq!(global_name, "__exactTcpConnect");
-                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(
+                    source_descriptor_digest,
+                    &tagged_value_digest(source_descriptor)
+                );
                 assert_eq!(source_descriptor["kind"], "native-global-function");
                 assert_eq!(source_descriptor["globalName"], global_name.as_str());
                 assert_eq!(source_descriptor["arity"], 4);
                 assert!(state.tcp_loopback_client_handle.is_none());
-                let port = listener_port
-                    .expect("loopback client setup requires an owned listener port");
+                let port =
+                    listener_port.expect("loopback client setup requires an owned listener port");
                 let encoded = engine
                     .eval_immediate(&setup_script(
                         global_name,
@@ -1089,7 +1098,10 @@ fn validate_global_read_descriptor(
     assert_eq!(descriptor.kind, "global-property-read");
     assert_eq!(descriptor.source_key, "shared_runtime");
     assert_eq!(descriptor.global_name, invocation.global_name);
-    assert!(matches!(descriptor.value_shape.as_str(), "accessor" | "data"));
+    assert!(matches!(
+        descriptor.value_shape.as_str(),
+        "accessor" | "data"
+    ));
     assert!(!descriptor.member_kinds.is_empty());
     assert!(is_sorted_set(&descriptor.member_kinds));
     assert!(!descriptor.source_refs.is_empty());
@@ -1109,9 +1121,7 @@ fn validate_global_read_descriptor(
         chars.next().is_some_and(|first| {
             (first == '_' || first == '$' || first.is_ascii_alphabetic())
                 && chars.all(|character| {
-                    character == '_'
-                        || character == '$'
-                        || character.is_ascii_alphanumeric()
+                    character == '_' || character == '$' || character.is_ascii_alphanumeric()
                 })
         })
     }));
@@ -1184,10 +1194,7 @@ fn validate_native_runtime_observation(
         } else {
             format!("native-op:global:{}", invocation.global_name)
         };
-        assert_eq!(
-            probe.surface_observed_key,
-            expected_observed_key
-        );
+        assert_eq!(probe.surface_observed_key, expected_observed_key);
     }
     assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
     assert!(
@@ -1527,7 +1534,10 @@ async fn execute_native_public_recipe(
 }
 
 fn take_host_sqlite_json(pointer: *mut std::ffi::c_char) -> serde_json::Value {
-    assert!(!pointer.is_null(), "host SQLite operation returned no result");
+    assert!(
+        !pointer.is_null(),
+        "host SQLite operation returned no result"
+    );
     let text = unsafe { std::ffi::CStr::from_ptr(pointer) }
         .to_str()
         .expect("host SQLite result must be UTF-8");
@@ -1551,15 +1561,23 @@ async fn execute_host_abi_public_recipe(
         .expect("host ABI executor received another invocation schema");
     assert_eq!(recipe.status, "fully-executable");
     assert_eq!(recipe.classification, "effects");
-    assert!(matches!(recipe.scenario.as_str(), "branch-selection" | "no-effect"));
+    assert!(matches!(
+        recipe.scenario.as_str(),
+        "branch-selection" | "no-effect"
+    ));
     assert!(recipe.action_ids.is_empty());
     assert_eq!(recipe.edge_ids.len(), 1);
     assert_eq!(probe.kind, "public-surface-invocation");
-    assert_eq!(probe.surface_observed_key, format!("host-abi:{}", invocation.function_name));
+    assert_eq!(
+        probe.surface_observed_key,
+        format!("host-abi:{}", invocation.function_name)
+    );
     assert_eq!(probe.surface_observed_key, recipe.terminal_observed_key);
-    assert!(recipe.route.alternatives.iter().any(|alternative| {
-        alternative.terminal_observed_key == probe.surface_observed_key
-    }));
+    assert!(recipe
+        .route
+        .alternatives
+        .iter()
+        .any(|alternative| { alternative.terminal_observed_key == probe.surface_observed_key }));
     assert_eq!(invocation.kind, "host-abi-function");
     assert_eq!(invocation.expected_result, "return");
     assert_eq!(invocation.expected_typed_decision_count, 0);
@@ -1595,9 +1613,7 @@ async fn execute_host_abi_public_recipe(
     );
 
     let session_id = format!("public-host-abi:{}", recipe.plan_digest);
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-        &session_id
-    ));
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     let memory = std::ffi::CString::new(":memory:").unwrap();
     let select = std::ffi::CString::new("SELECT 1 AS value").unwrap();
     let create = std::ffi::CString::new("CREATE TABLE value(id INTEGER)").unwrap();
@@ -1830,9 +1846,8 @@ async fn capsec_public_native_recipe_batch() {
                 .load_runtime()
                 .await
                 .expect("load runtime before host-ABI public recipe");
-            executions.push(
-                execute_host_abi_public_recipe(recipe, &identity_before.binary_digest).await,
-            );
+            executions
+                .push(execute_host_abi_public_recipe(recipe, &identity_before.binary_digest).await);
         }
         eprintln!("CapSec native public fixture passed: {}", recipe.fixture_id);
     }

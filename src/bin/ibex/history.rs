@@ -104,6 +104,7 @@ impl fmt::Display for HistoryDiagnostic {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub(crate) struct HistoryStartup<'a> {
     pub(crate) mode: HistoryMode,
@@ -294,6 +295,7 @@ impl HistorySession {
         }
     }
 
+    #[cfg(test)]
     fn open_at(
         startup: HistoryStartup<'_>,
         data_root: &Path,
@@ -399,6 +401,7 @@ impl HistorySession {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn entries(&self) -> &[String] {
         &self.entries
     }
@@ -407,6 +410,10 @@ impl HistorySession {
         &self.startup_diagnostics
     }
 
+    // Retain the strength projection alongside the captured scope so a
+    // supervisor diagnostic can distinguish durable object identity from the
+    // specified canonical-path fallback without re-deriving either identity.
+    #[allow(dead_code)]
     pub(crate) fn scope_strength(&self) -> Option<HistoryScopeStrength> {
         self.scope_strength
     }
@@ -976,18 +983,18 @@ fn project_object_identity_for_handle(
         } else {
             ObjectPlatform::Unix
         };
-        return Ok(ObjectIdentity {
+        Ok(ObjectIdentity {
             platform,
             volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
                 .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?,
             file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
                 .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?,
-        });
+        })
     }
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        return Ok(ObjectIdentity {
+        Ok(ObjectIdentity {
             platform: ObjectPlatform::Windows,
             volume: NonEmptyString::new(format!(
                 "volume:{}",
@@ -996,7 +1003,7 @@ fn project_object_identity_for_handle(
             .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?,
             file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))
                 .map_err(|message| io::Error::new(io::ErrorKind::InvalidData, message))?,
-        });
+        })
     }
 }
 
@@ -1164,6 +1171,7 @@ fn open_directory_no_follow(path: &Path) -> io::Result<File> {
 }
 
 struct SecureDirectory {
+    #[cfg(any(windows, test))]
     path: PathBuf,
     #[cfg(unix)]
     handle: File,
@@ -1181,6 +1189,7 @@ impl SecureDirectory {
             let ibex = ensure_child_directory(&root, "ibex")?;
             let history = ensure_child_directory(&ibex, STORE_DIRECTORY)?;
             Ok(Self {
+                #[cfg(test)]
                 path: canonical.join("ibex").join(STORE_DIRECTORY),
                 handle: history,
             })

@@ -99,10 +99,11 @@ function privateResolverPath(handle: string) {
   };
 }
 
-function makeLoader() {
+function makeLoader(options: { deniedSpecifier?: string } = {}) {
   const resolutions: string[] = [];
   const resolverReferrers: Array<{ specifier: string; referrer: string }> = [];
   const metadataResolverCalls: Array<{ specifier: string; referrer: string }> = [];
+  const importGateCalls: Array<{ hint: number; specifier: string }> = [];
   const packageRegistrations: Array<{
     id: number;
     selector: string;
@@ -158,6 +159,15 @@ function makeLoader() {
         ].join('\n'),
       ));
     }
+    if (specifier === 'resolve-denied-probe.js') {
+      return JSON.stringify(authenticatedRecord(
+        '/project/resolve-denied-probe.js',
+        [
+          "try { require.resolve('blocked-pkg'); }",
+          "catch (error) { module.exports = { code: error.code, message: error.message }; }",
+        ].join('\n'),
+      ));
+    }
     if (specifier === 'private-package.js') {
       return JSON.stringify({
         schema: 'ibex/module-resolution/1',
@@ -190,6 +200,10 @@ function makeLoader() {
   sandbox.__exactNativeModuleResolve = exactResolve;
   sandbox.__exactModuleResolveMeta = exactResolveMeta;
   sandbox.__exactNativeModuleResolveMeta = exactResolveMeta;
+  sandbox.__exactCheckImport = (hint: number, specifier: string) => {
+    importGateCalls.push({ hint, specifier });
+    return specifier !== options.deniedSpecifier;
+  };
   sandbox.__ibexBarePackageName = (identity: string) => identity.split('@')[0];
   sandbox.__exactRegisterPackage = (
     id: number,
@@ -213,10 +227,40 @@ function makeLoader() {
     resolutions,
     resolverReferrers,
     metadataResolverCalls,
+    importGateCalls,
     packageRegistrations,
     capturedStaticImport,
   };
 }
+
+test('every require.resolve alias denies before metadata resolution', () => {
+  const { sandbox, metadataResolverCalls, importGateCalls } = makeLoader({
+    deniedSpecifier: 'blocked-pkg',
+  });
+  const assertDenied = (resolve: (specifier: string) => unknown) => {
+    try {
+      resolve('blocked-pkg');
+      throw new Error('expected import denial');
+    } catch (error: any) {
+      expect(error.code).toBe('ERR_IBEX_IMPORT_DENIED');
+    }
+  };
+
+  assertDenied(sandbox.require.resolve);
+  assertDenied(sandbox.__exactRequire.resolve);
+  const createRequire = sandbox.require('node:module').createRequire;
+  assertDenied(createRequire('/project/tools/config.js').resolve);
+
+  const local = sandbox.require('resolve-denied-probe.js');
+  expect(local.code).toBe('ERR_IBEX_IMPORT_DENIED');
+  expect(local.message).toContain("Import denied: 'blocked-pkg'");
+  expect(
+    metadataResolverCalls.some(({ specifier }) => specifier === 'blocked-pkg'),
+  ).toBe(false);
+  expect(
+    importGateCalls.filter(({ specifier }) => specifier === 'blocked-pkg'),
+  ).toHaveLength(4);
+});
 
 test('aliased require and require.resolve reject a second argument without reading it or resolving', () => {
   const { sandbox, resolutions } = makeLoader();

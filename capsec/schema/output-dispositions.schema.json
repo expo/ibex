@@ -115,7 +115,9 @@
           "type": "string",
           "pattern": "^[0-9a-f]{40}$"
         },
-        "engineBinaryDigest": { "$ref": "#/$defs/digest" }
+        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+        "target": { "$ref": "#/$defs/target" },
+        "engine": { "$ref": "#/$defs/engine" }
       },
       "allOf": [
         {
@@ -128,7 +130,9 @@
             "properties": {
               "reason": { "$ref": "#/$defs/nonEmptyString" },
               "sourceRevision": false,
-              "engineBinaryDigest": false
+              "sourceTreeDigest": false,
+              "target": false,
+              "engine": false
             }
           }
         },
@@ -138,19 +142,78 @@
             "required": ["status"]
           },
           "then": {
-            "required": ["sourceRevision", "engineBinaryDigest"],
+            "required": [
+              "sourceRevision",
+              "sourceTreeDigest",
+              "target",
+              "engine"
+            ],
             "properties": {
               "reason": false,
               "sourceRevision": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{40}$"
               },
-              "engineBinaryDigest": { "$ref": "#/$defs/digest" }
+              "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+              "target": { "$ref": "#/$defs/target" },
+              "engine": { "$ref": "#/$defs/engine" }
             }
           }
         }
       ],
       "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "features": { "$ref": "#/$defs/stableIdSet" }
+      },
+      "additionalProperties": false
+    },
+    "engine": {
+      "type": "object",
+      "required": [
+        "engineArtifactPath",
+        "kind",
+        "binaryDigest",
+        "object",
+        "targetArchitecture",
+        "structuralFeatures"
+      ],
+      "properties": {
+        "engineArtifactPath": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": { "const": "hermes" },
+        "binaryDigest": { "$ref": "#/$defs/digest" },
+        "object": {
+          "type": "object",
+          "required": ["platform", "volume", "file"],
+          "properties": {
+            "platform": { "enum": ["android", "apple", "unix", "windows"] },
+            "volume": { "$ref": "#/$defs/nonEmptyString" },
+            "file": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "additionalProperties": false
+        },
+        "targetArchitecture": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "structuralFeatures": { "$ref": "#/$defs/stableIdSet" }
+      },
+      "additionalProperties": false
+    },
+    "stableIdSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9.-]*$"
+      }
     },
     "counts": {
       "type": "object",

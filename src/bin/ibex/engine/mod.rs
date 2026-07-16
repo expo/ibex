@@ -37,6 +37,53 @@ pub enum AuthenticatedDisplayKind {
 pub struct AuthenticatedDisplay {
     pub kind: AuthenticatedDisplayKind,
     pub text: String,
+    /// The native primitive was clipped at the fixed safe-text byte bound.
+    /// Terminal rendering represents this as a separate trusted truncation
+    /// node; it is never inferred from hostile payload text.
+    pub truncated: bool,
+}
+
+impl AuthenticatedDisplay {
+    pub(crate) fn diagnostic_text(&self) -> std::borrow::Cow<'_, str> {
+        if self.truncated {
+            std::borrow::Cow::Owned(format!(
+                "{} {}",
+                self.text,
+                ibex_runtime::engine::hermes_structured::SAFE_TEXT_TRUNCATION_MARKER
+            ))
+        } else {
+            std::borrow::Cow::Borrowed(&self.text)
+        }
+    }
+
+    pub(crate) fn validate_wire(&self) -> Result<()> {
+        use ibex_runtime::engine::hermes_structured::SAFE_TEXT_MAX_BYTES;
+
+        if self.kind == AuthenticatedDisplayKind::JsonData {
+            anyhow::ensure!(!self.truncated, "JSON display cannot be Stage-1 truncated");
+            return Ok(());
+        }
+        // A JSON-quoted Stage-1 string can expand each admitted input byte to a
+        // six-byte escape plus the two trusted quotes. Other primitive forms
+        // are smaller, so this is one conservative hostile-wire ceiling.
+        const MAX_FORMATTED_STAGE1_BYTES: usize = SAFE_TEXT_MAX_BYTES * 6 + 2;
+        anyhow::ensure!(
+            self.text.len() <= MAX_FORMATTED_STAGE1_BYTES,
+            "Stage-1 display exceeded its formatted byte bound"
+        );
+        if self.truncated {
+            anyhow::ensure!(
+                matches!(
+                    self.kind,
+                    AuthenticatedDisplayKind::String
+                        | AuthenticatedDisplayKind::Symbol
+                        | AuthenticatedDisplayKind::BigInt
+                ),
+                "non-textual Stage-1 display carried a truncation signal"
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -60,6 +107,44 @@ pub enum AuthenticatedCapabilityStratum {
     RichInspection,
 }
 
+/// Serializable projection of the engine's trap-free direct-prototype Error
+/// classification. `Unclassified` never falls back to stack or message text.
+/// @ref LLP 0024#8-safe-inspection
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthenticatedErrorClass {
+    Unclassified,
+    Error,
+    AggregateError,
+    EvalError,
+    RangeError,
+    ReferenceError,
+    SyntaxError,
+    TypeError,
+    UriError,
+    TimeoutError,
+    QuitError,
+}
+
+impl AuthenticatedErrorClass {
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    pub const fn name(self) -> Option<&'static str> {
+        match self {
+            Self::Unclassified => None,
+            Self::Error => Some("Error"),
+            Self::AggregateError => Some("AggregateError"),
+            Self::EvalError => Some("EvalError"),
+            Self::RangeError => Some("RangeError"),
+            Self::ReferenceError => Some("ReferenceError"),
+            Self::SyntaxError => Some("SyntaxError"),
+            Self::TypeError => Some("TypeError"),
+            Self::UriError => Some("URIError"),
+            Self::TimeoutError => Some("TimeoutError"),
+            Self::QuitError => Some("QuitError"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AuthenticatedSourcePosition {
@@ -80,13 +165,24 @@ pub enum AuthenticatedThrowMetadata {
         required_stratum: AuthenticatedCapabilityStratum,
     },
     Captured {
+        error_class: AuthenticatedErrorClass,
         message: Option<String>,
+        message_truncated: bool,
         stack: Option<String>,
+        stack_truncated: bool,
         positions: Vec<AuthenticatedSourcePosition>,
     },
 }
 
 impl AuthenticatedThrowMetadata {
+    #[cfg(test)]
+    pub fn error_class(&self) -> Option<AuthenticatedErrorClass> {
+        match self {
+            Self::Captured { error_class, .. } => Some(*error_class),
+            Self::Unavailable { .. } => None,
+        }
+    }
+
     pub fn message(&self) -> Option<&str> {
         match self {
             Self::Captured { message, .. } => message.as_deref(),
@@ -107,6 +203,85 @@ impl AuthenticatedThrowMetadata {
             Self::Unavailable { .. } => &[],
         }
     }
+
+    // These accessors mirror the independently authenticated wire
+    // discriminants even though current renderers validate the fields in one
+    // pass. Keep the projection API explicit for non-text consumers.
+    #[allow(dead_code)]
+    pub fn message_truncated(&self) -> bool {
+        matches!(
+            self,
+            Self::Captured {
+                message_truncated: true,
+                ..
+            }
+        )
+    }
+
+    #[allow(dead_code)]
+    pub fn stack_truncated(&self) -> bool {
+        matches!(
+            self,
+            Self::Captured {
+                stack_truncated: true,
+                ..
+            }
+        )
+    }
+
+    fn validate_wire(&self) -> Result<()> {
+        use ibex_runtime::engine::hermes_structured::{
+            SAFE_TEXT_MAX_BYTES, SAFE_TEXT_TRUNCATION_MARKER,
+        };
+
+        let Self::Captured {
+            message,
+            message_truncated,
+            stack,
+            stack_truncated,
+            ..
+        } = self
+        else {
+            return Ok(());
+        };
+        for (name, text, truncated) in [
+            ("message", message.as_deref(), *message_truncated),
+            ("stack", stack.as_deref(), *stack_truncated),
+        ] {
+            if let Some(text) = text {
+                anyhow::ensure!(
+                    text.len() <= SAFE_TEXT_MAX_BYTES,
+                    "throw {name} exceeded its safe-text byte bound"
+                );
+                anyhow::ensure!(
+                    !truncated || text.ends_with(SAFE_TEXT_TRUNCATION_MARKER),
+                    "truncated throw {name} omitted its trusted marker"
+                );
+            } else {
+                anyhow::ensure!(
+                    !truncated,
+                    "throw {name} truncation signal was present without text"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+impl AuthenticatedThrow {
+    pub(crate) fn validate_wire(&self) -> Result<()> {
+        self.value.validate_wire()?;
+        self.metadata.validate_wire()
+    }
+}
+
+pub(crate) fn decode_authenticated_throw(detail: &[u8]) -> Result<AuthenticatedThrow> {
+    let thrown: AuthenticatedThrow = serde_json::from_slice(detail)
+        .map_err(|error| anyhow::anyhow!("throw envelope is malformed: {error}"))?;
+    thrown.validate_wire().map_err(|error| {
+        anyhow::anyhow!("throw envelope violated safe-text invariants: {error}")
+    })?;
+    Ok(thrown)
 }
 
 /// Closed schedule-time attribution carried by an asynchronous failure. An
@@ -148,6 +323,13 @@ pub enum AuthenticatedAsyncFailure {
     PreReceiptLoss {
         count: u64,
     },
+    /// Supervisor-local report: authenticated events were received and
+    /// sequenced, but their closed payloads exceeded the bounded delivery
+    /// lane. `validate_wire` rejects this arm from a worker envelope.
+    PostReceiptLoss {
+        count: u64,
+        highest_dropped_sequence: u64,
+    },
 }
 
 impl AuthenticatedAsyncFailure {
@@ -155,6 +337,20 @@ impl AuthenticatedAsyncFailure {
         Self::CaptureUnavailable {
             summary: summary.into(),
         }
+    }
+
+    pub(crate) fn validate_wire(&self) -> Result<()> {
+        match self {
+            Self::Captured { thrown, .. } => thrown.validate_wire()?,
+            Self::PreReceiptLoss { count: 0 } => {
+                anyhow::bail!("pre-receipt loss count must be nonzero")
+            }
+            Self::PostReceiptLoss { .. } => {
+                anyhow::bail!("post-receipt loss is supervisor-local")
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 
@@ -170,7 +366,7 @@ impl std::fmt::Display for AuthenticatedAsyncFailure {
                 write!(
                     formatter,
                     "{} (owner {owning_principal:?}, event {event_identity}",
-                    thrown.value.text
+                    thrown.value.diagnostic_text()
                 )?;
                 if let Some(evaluation) = associated_evaluation {
                     write!(formatter, ", evaluation {evaluation}")?;
@@ -200,6 +396,13 @@ impl std::fmt::Display for AuthenticatedAsyncFailure {
                     "lost {count} asynchronous failure event(s) before receipt"
                 )
             }
+            Self::PostReceiptLoss {
+                count,
+                highest_dropped_sequence,
+            } => write!(
+                formatter,
+                "lost {count} asynchronous failure event(s) after receipt through sequence {highest_dropped_sequence}"
+            ),
         }
     }
 }

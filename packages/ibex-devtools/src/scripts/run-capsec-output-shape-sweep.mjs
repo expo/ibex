@@ -3,6 +3,9 @@
 // @ref LLP 0023#6-path-bearing-observables — promotion evidence is produced
 // only from a clean committed tree, an exact mapped Hermes image, and the
 // bidirectionally complete output-shape executor batch.
+// Host-ABI rows are first partitioned to their dedicated native executor and
+// target-absence author. Until every residual is closed and those artifacts
+// are composed, this command writes an unpromotable report and stops.
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -14,11 +17,14 @@ import {
   engineLoaderEnvironment,
   validateLoadedEngineIdentity,
 } from "./capsec-engine-identity.mjs";
+import { selectCandidateTarget } from "./capsec-conformance.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
+import { authoredTargetAbsenceOutputBindings } from "./capsec-target-absence-output-templates.mjs";
+import { validateCurrentSourceRecipeCatalog } from "./capsec-conformance-recipes.mjs";
 import {
   buildOutputShapeSweepArtifactFromExecutorBatch,
+  buildOutputShapeSweepExecutionPartition,
   buildOutputShapeSweepPlan,
-  buildOutputShapeSweepProbes,
   buildVerifiedOutputDispositionEvidence,
 } from "./capsec-output-shape-sweep.mjs";
 
@@ -31,7 +37,14 @@ const options = new Map();
 for (let index = 0; index < args.length; index += 2) {
   const name = args[index];
   const value = args[index + 1];
-  if (!new Set(["--engine-artifact", "--output-directory"]).has(name)) {
+  if (
+    !new Set([
+      "--engine-artifact",
+      "--output-directory",
+      "--recipe-catalog",
+      "--target",
+    ]).has(name)
+  ) {
     throw new Error(`unknown output-shape runner option ${JSON.stringify(name)}`);
   }
   if (options.has(name)) {
@@ -52,8 +65,18 @@ const outputDirectory = path.resolve(
   repoRoot,
   options.get("--output-directory") ?? "target/capsec-output-shape-sweep",
 );
+const recipeCatalogOption = options.get("--recipe-catalog");
+if (!recipeCatalogOption) {
+  throw new Error(
+    "output-shape execution requires --recipe-catalog so platform-only Host ABI rows can be bound to exact target-absence recipes",
+  );
+}
+const recipeCatalogPath = path.resolve(repoRoot, recipeCatalogOption);
 if (!fs.existsSync(engineArtifactPath)) {
   throw new Error(`bound runtime engine artifact not found: ${engineArtifactPath}`);
+}
+if (!fs.existsSync(recipeCatalogPath)) {
+  throw new Error(`executable recipe catalog not found: ${recipeCatalogPath}`);
 }
 
 const taggedDigest = (bytes) =>
@@ -133,13 +156,147 @@ function writeNewJson(filePath, value) {
   }
 }
 
+const planPath = path.join(outputDirectory, "output-shape-sweep-plan.json");
+const batchPath = path.join(outputDirectory, "output-shape-executor-batch.json");
+const reportPath = path.join(
+  outputDirectory,
+  "output-shape-executor-report.json",
+);
+const artifactPath = path.join(
+  outputDirectory,
+  "output-shape-sweep-artifact.json",
+);
+const evidencePath = path.join(
+  outputDirectory,
+  "output-disposition-evidence.json",
+);
+const partitionPath = path.join(
+  outputDirectory,
+  "output-shape-execution-partition.json",
+);
+const hostAbiPlanPath = path.join(
+  outputDirectory,
+  "host-abi-output-plan.json",
+);
+
 const rules = readOwnedJson(
   path.join(repoRoot, "capsec/registry/policy-rules.json"),
   "CapSec policy rules",
 );
-const target = rules.initialProfile?.candidateTargets?.[0];
-if (!target) throw new Error("no candidate target is declared");
+const target = selectCandidateTarget(rules, options.get("--target"));
 const engineBinaryDigest = taggedDigest(fs.readFileSync(engineArtifactPath));
+const completeCatalog = readOwnedJson(
+  path.join(repoRoot, "capsec/generated/output-shape-catalog.json"),
+  "output-shape catalog",
+);
+const dispositionDataset = readOwnedJson(
+  path.join(repoRoot, "capsec/generated/output-dispositions.json"),
+  "output-disposition dataset",
+);
+const coverage = readOwnedJson(
+  path.join(repoRoot, "capsec/registry/coverage-edges.json"),
+  "coverage registry",
+);
+const recipeCatalog = readOwnedJson(
+  recipeCatalogPath,
+  "executable recipe catalog",
+);
+const sourceInventory = await discoverRepositorySurfaces(repoRoot);
+validateCurrentSourceRecipeCatalog(recipeCatalog, {
+  coverage,
+  implementation: readOwnedJson(
+    path.join(repoRoot, "capsec/generated/implementation-manifest.json"),
+    "implementation manifest",
+  ),
+  inventory: sourceInventory,
+  occurrenceExamples: readOwnedJson(
+    path.join(
+      repoRoot,
+      "capsec/examples/effect-occurrences.canonical.json",
+    ),
+    "effect occurrence examples",
+  ),
+  selectorExamples: readOwnedJson(
+    path.join(
+      repoRoot,
+      "capsec/examples/authority-selectors.canonical.json",
+    ),
+    "authority selector examples",
+  ),
+  capabilityDefinitions: readOwnedJson(
+    path.join(repoRoot, "capsec/registry/capability-definitions.json"),
+    "capability definitions",
+  ),
+  target,
+});
+const targetAbsenceBindings = authoredTargetAbsenceOutputBindings({
+  catalog: completeCatalog,
+  recipeCatalog,
+  coverage,
+  target,
+}).filter((binding) => binding.key.sourceKind === "host-abi");
+const executionPartition = buildOutputShapeSweepExecutionPartition({
+  catalog: completeCatalog,
+  coverage,
+  surfaces: sourceInventory.surfaces,
+  target,
+  targetAbsenceBindings,
+});
+const hostAbiResidualReasons = Object.fromEntries(
+  [...Map.groupBy(executionPartition.hostAbi.residuals, (row) => row.reason)]
+    .map(([reason, rows]) => [reason, rows.length])
+    .sort(([left], [right]) => left.localeCompare(right, "en-US")),
+);
+const partitionSummary = {
+  outputShapeExecutionPartitionSchema:
+    executionPartition.outputShapeExecutionPartitionSchema,
+  completeCatalogKeyDigest: executionPartition.completeCatalogKeyDigest,
+  completeCatalogRows: completeCatalog.rows.length,
+  genericLoadedJsRows: executionPartition.genericCatalog.rows.length,
+  hostAbi: {
+    executableRows: executionPartition.hostAbi.rows.length,
+    targetAbsenceRows:
+      executionPartition.hostAbi.targetAbsenceBindings.length,
+    residualRows: executionPartition.hostAbi.residuals.length,
+    residualReasons: hostAbiResidualReasons,
+  },
+};
+writeNewJson(partitionPath, partitionSummary);
+writeNewJson(hostAbiPlanPath, {
+  hostAbiOutputPlanSchema: "ibex/capsec-host-abi-output-plan/1",
+  hostAbiOutputPartitionSchema:
+    executionPartition.hostAbi.hostAbiOutputPartitionSchema,
+  targetAbsenceBindings: executionPartition.hostAbi.targetAbsenceBindings,
+  rows: executionPartition.hostAbi.rows,
+  residuals: executionPartition.hostAbi.residuals,
+});
+
+const delegatedHostAbiRows =
+  executionPartition.hostAbi.targetAbsenceBindings.length +
+  executionPartition.hostAbi.rows.length +
+  executionPartition.hostAbi.residuals.length;
+if (delegatedHostAbiRows > 0) {
+  const reason =
+    executionPartition.hostAbi.residuals.length > 0
+      ? `complete output evidence is blocked by ${executionPartition.hostAbi.residuals.length} honest Host ABI residual rows`
+      : "complete output evidence requires composition of the dedicated Host ABI and target-absence executor artifacts";
+  writeNewJson(reportPath, {
+    outputShapeExecutorReportSchema:
+      "ibex/capsec-output-shape-executor-report/1",
+    status: "unpromotable",
+    sourceRevision: initialSource.revision,
+    sourceTreeDigest: taggedDigest(
+      Buffer.from(`${initialSource.tree}\n`, "utf8"),
+    ),
+    engineBinaryDigest,
+    partition: partitionSummary,
+    reason,
+  });
+  throw new Error(
+    `output-shape sweep is unpromotable; inspect ${reportPath}: ${reason}`,
+  );
+}
+
 const exactEngineEnvironment = {
   ...engineLoaderEnvironment(engineArtifactPath),
   IBEX_CAPSEC_ENGINE_ARTIFACT: fs.realpathSync(engineArtifactPath),
@@ -188,28 +345,12 @@ const engine = validateLoadedEngineIdentity({
   binaryDigest: engineBinaryDigest,
   target,
 });
-const catalog = readOwnedJson(
-  path.join(repoRoot, "capsec/generated/output-shape-catalog.json"),
-  "output-shape catalog",
-);
-const dispositionDataset = readOwnedJson(
-  path.join(repoRoot, "capsec/generated/output-dispositions.json"),
-  "output-disposition dataset",
-);
-const coverage = readOwnedJson(
-  path.join(repoRoot, "capsec/registry/coverage-edges.json"),
-  "coverage registry",
-);
-const sourceInventory = await discoverRepositorySurfaces(repoRoot);
-const probes = buildOutputShapeSweepProbes({
-  catalog,
-  coverage,
-  surfaces: sourceInventory.surfaces,
-  target,
-});
+const catalog = executionPartition.genericCatalog;
+const probes = executionPartition.genericProbes;
 const bindings = {
   sourceRevision: initialSource.revision,
   sourceTreeDigest: taggedDigest(Buffer.from(`${initialSource.tree}\n`, "utf8")),
+  target,
   engine,
 };
 const plan = buildOutputShapeSweepPlan({
@@ -217,14 +358,6 @@ const plan = buildOutputShapeSweepPlan({
   probes,
   ...bindings,
 });
-const planPath = path.join(outputDirectory, "output-shape-sweep-plan.json");
-const batchPath = path.join(outputDirectory, "output-shape-executor-batch.json");
-const reportPath = path.join(outputDirectory, "output-shape-executor-report.json");
-const artifactPath = path.join(outputDirectory, "output-shape-sweep-artifact.json");
-const evidencePath = path.join(
-  outputDirectory,
-  "output-disposition-evidence.json",
-);
 writeNewJson(planPath, plan);
 
 execFileSync(
@@ -291,7 +424,8 @@ try {
     status: "unpromotable",
     sourceRevision: bindings.sourceRevision,
     sourceTreeDigest: bindings.sourceTreeDigest,
-    engineBinaryDigest: bindings.engine.binaryDigest,
+    target: bindings.target,
+    loadedEngineIdentity: bindings.engine,
     sweepPlanDigest: plan.sweepPlanDigest,
     proofCounts,
     unexercisableRows: batch.unexercisable ?? [],
@@ -316,7 +450,8 @@ writeNewJson(reportPath, {
   status: "verified",
   sourceRevision: bindings.sourceRevision,
   sourceTreeDigest: bindings.sourceTreeDigest,
-  engineBinaryDigest: bindings.engine.binaryDigest,
+  target: bindings.target,
+  loadedEngineIdentity: bindings.engine,
   sweepPlanDigest: plan.sweepPlanDigest,
   sweepArtifactDigest: artifact.sweepArtifactDigest,
   proofCounts,

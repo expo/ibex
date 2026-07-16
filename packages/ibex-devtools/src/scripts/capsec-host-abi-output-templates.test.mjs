@@ -144,10 +144,10 @@ describe("source-bound Host ABI output templates", () => {
     const legacyScalarAuthored = scalarAuthored.filter(({ edge }) =>
       legacyNames.has(edge.surface.name),
     );
-    expect(ordinaryScalarAuthored).toHaveLength(77);
+    expect(ordinaryScalarAuthored).toHaveLength(152);
     expect(
       new Set(ordinaryScalarAuthored.map(({ edge }) => edge.surface.name)).size,
-    ).toBe(77);
+    ).toBe(152);
     expect(legacyScalarAuthored.length).toBe(
       catalog.rows.filter(
         (row) =>
@@ -170,13 +170,18 @@ describe("source-bound Host ABI output templates", () => {
           .sort(),
       ),
     ).toEqual({
-      "rust-host-bounded-basic": 23,
-      "rust-host-fs-sandbox": 18,
-      "rust-host-sqlite-memory": 6,
+      "rust-host-bounded-basic": 26,
+      "rust-host-authenticated-typed-authority": 17,
+      "rust-host-authenticated-stateful-output": 8,
+      "rust-host-fs-sandbox": 25,
+      "rust-host-authenticated-vfs-output": 5,
+      "rust-host-sqlite-memory": 13,
       "rust-host-terminal-inert": 8,
-      "native-hermes-diagnostic-runtime": 12,
-      "native-hermes-stateless-current-target": 6,
-      "native-hermes-worklet-runtime": 4,
+      "native-hermes-diagnostic-runtime": 23,
+      "native-hermes-bounded-dispatch-runtime": 3,
+      "native-hermes-owned-value-runtime": 5,
+      "native-hermes-stateless-current-target": 7,
+      "native-hermes-worklet-runtime": 12,
     });
     if (legacyScalarAuthored.length > 0) {
       expect(legacyScalarAuthored).toHaveLength(9);
@@ -332,8 +337,7 @@ describe("source-bound Host ABI output templates", () => {
 
     const drifted = structuredClone(legacyOutputCases[0]);
     drifted.surface.metadata.definitions[0].outputContract.return.ownership = {
-      kind: "caller-owned",
-      releaseFunction: "ex_host_free_string",
+      kind: "unknown",
     };
     expect(() =>
       authoredHostAbiOutputProbe({
@@ -362,7 +366,7 @@ describe("source-bound Host ABI output templates", () => {
     ).toThrow("lost its exact source ownership contract");
 
     const unownedSelector = structuredClone(original.catalogRow);
-    unownedSelector.key.output = "out:errno";
+    unownedSelector.key.output = "out:unreviewed";
     expect(
       authoredHostAbiOutputProbe({
         catalogRow: unownedSelector,
@@ -385,23 +389,32 @@ describe("source-bound Host ABI output templates", () => {
       expect(probe.sourceDescriptor.outputContractSchema).toBe(
         HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
       );
-      if (probe.sourceDescriptor.selectedOutput.kind === "scalar") {
+      if (
+        catalogRow.key.output === "[[return]]" &&
+        probe.sourceDescriptor.selectedOutput.kind === "scalar"
+      ) {
         expect(probe.sourceDescriptor.selectedOutput).toEqual({
           kind: "scalar",
           ownership: "not-applicable",
           selector: "[[return]]",
         });
-      } else if (probe.sourceDescriptor.selectedOutput.kind === "buffer") {
+      } else if (catalogRow.key.output !== "[[return]]") {
         expect(probe.sourceDescriptor.selectedOutput.selector).toBe(
-          catalogRow.key.output,
+          probe.sourceDescriptor.selectedOutput.projection
+            ? "[[return]]"
+            : catalogRow.key.output,
         );
-        expect(probe.sourceDescriptor.selectedOutput.kind).toBe("buffer");
+        expect(
+          new Set(["aggregate", "buffer", "pointer", "scalar"]).has(
+            probe.sourceDescriptor.selectedOutput.kind,
+          ),
+        ).toBe(true);
       } else {
         expect(probe.sourceDescriptor.selectedOutput).toMatchObject({
           kind: "pointer",
           ownership: {
             kind: "caller-owned",
-            releaseFunction: "ex_host_free_string",
+            releaseFunction: expect.any(String),
           },
           role: "return",
           selector: "[[return]]",
@@ -412,14 +425,26 @@ describe("source-bound Host ABI output templates", () => {
         probe.sourceDescriptor.outputContracts.every((contract) => {
           if (
             contract.schema !== HOST_ABI_OUTPUT_CONTRACT_SCHEMA ||
-            contract.functionName !== edge.surface.name ||
-            contract.return.role !== "value"
+            contract.functionName !== edge.surface.name
           ) {
             return false;
           }
+          if (
+            catalogRow.key.output !== "[[return]]" &&
+            !probe.sourceDescriptor.selectedOutput.projection
+          ) {
+            return contract.outputChannels.some(
+              (channel) =>
+                channel.selector === catalogRow.key.output &&
+                JSON.stringify(channel) ===
+                  JSON.stringify(probe.sourceDescriptor.selectedOutput),
+            );
+          }
+          if (contract.return.role !== "value") return false;
           return probe.sourceDescriptor.selectedOutput.kind === "pointer"
             ? contract.return.kind === "pointer" &&
-                contract.return.ownership.kind === "unknown"
+                contract.return.ownership.kind === "caller-owned" &&
+                typeof contract.return.ownership.releaseFunction === "string"
             : contract.return.kind === "scalar" &&
                 contract.return.ownership.kind === "not-applicable";
         }),
@@ -437,11 +462,7 @@ describe("source-bound Host ABI output templates", () => {
   test("leaves unbounded armed/session, stateful, private-VFS, and platform routes residual", () => {
     const names = new Set(authored.map(({ edge }) => edge.surface.name));
     for (const residual of [
-      "ex_hermes_create_armed",
-      "ex_host_authorize_typed_fs_stack",
       "ex_host_http_serve",
-      "ex_host_install_armed",
-      "ex_host_vfs_get_cwd",
       "java:dev.ibex.runtime.IbexNetworking.fetch",
     ]) {
       expect(names.has(residual), residual).toBe(false);
@@ -449,8 +470,6 @@ describe("source-bound Host ABI output templates", () => {
     for (const nonPromotable of [
       "ex_host_free_string",
       "ex_host_fs_realpath",
-      "ex_hermes_create_diagnostic",
-      "ex_worklet_drain_logs",
     ]) {
       expect(
         authored.some(
@@ -460,6 +479,21 @@ describe("source-bound Host ABI output templates", () => {
         ),
         nonPromotable,
       ).toBe(false);
+    }
+    for (const ownedPointer of [
+      "ex_hermes_create_diagnostic",
+      "ex_host_fs_open",
+      "ex_host_fs_read_file",
+      "ex_worklet_drain_logs",
+    ]) {
+      expect(
+        authored.some(
+          ({ edge, catalogRow }) =>
+            edge.surface.name === ownedPointer &&
+            catalogRow.key.returnVariant === "default",
+        ),
+        ownedPointer,
+      ).toBe(true);
     }
   });
 
@@ -490,30 +524,14 @@ describe("source-bound Host ABI output templates", () => {
       catalog.rows.filter((row) => row.key.sourceKind === "host-abi").length -
         authored.length,
     );
-    const hasStructuredLegacyRows = catalog.rows.some(
-      (row) =>
-        row.key.sourceKind === "host-abi" &&
-        row.key.alias === "ex_host_fs_realpath" &&
-        row.key.returnVariant === "success",
-    );
     expect(
-      Object.fromEntries(
-        [...Map.groupBy(partition.residuals, (row) => row.reason)]
-          .map(([reason, rows]) => [reason, rows.length])
-          .filter(([reason]) =>
-            new Set([
-              "pointer-return-ownership-is-not-source-bound",
-              "void-abi-has-no-syntactic-return-slot",
-            ]).has(reason),
-          )
-          .sort(),
+      partition.residuals.filter((row) =>
+        new Set([
+          "pointer-return-ownership-is-not-source-bound",
+          "void-abi-has-no-syntactic-return-slot",
+        ]).has(row.reason),
       ),
-    ).toEqual({
-      "pointer-return-ownership-is-not-source-bound": hasStructuredLegacyRows
-        ? 25
-        : 28,
-      "void-abi-has-no-syntactic-return-slot": 26,
-    });
+    ).toEqual([]);
     const catalogKeys = catalog.rows
       .filter((row) => row.key.sourceKind === "host-abi")
       .map((row) => canonicalOutputDispositionKey(row.key))

@@ -23,6 +23,7 @@
     "schema/output-shape-catalog.schema.json",
     "schema/policy-rules.schema.json",
     "schema/root-global-disposition-manifest.schema.json",
+    "schema/runtime-environment-inventory.schema.json",
     "schema/target-advertisements.schema.json",
     "schema/target-attestations.schema.json",
     "schema/target-cell.schema.json"
@@ -35,6 +36,7 @@
     "registry/output-disposition-evidence.json",
     "registry/output-disposition-policy.json",
     "registry/policy-rules.json",
+    "registry/runtime-environment-inventory.json",
     "registry/target-cells.json"
   ],
   "examples": [

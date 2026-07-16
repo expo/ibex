@@ -27,7 +27,9 @@ use ibex_runtime::engine::hermes_structured::Stage1DisplayReceipt;
 /// The REPL's only production evaluator. Keeping the engine and its closed
 /// ingress together prevents a command handler from falling back to a bare
 /// string evaluator or cross-pairing a request with another runtime.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum ReplEvaluationSession {
+    #[allow(dead_code)]
     Local {
         engine: Arc<dyn Engine>,
         ingress: ReplSessionIngress,
@@ -175,6 +177,7 @@ fn repl_interrupt_work_kind(kind: crate::session_worker::WorkUnitKind) -> ReplIn
 }
 
 impl ReplEvaluationSession {
+    #[allow(dead_code)]
     fn from_runtime(runtime: &Runtime) -> Result<Self> {
         Ok(Self::Local {
             engine: runtime.engine(),
@@ -229,6 +232,16 @@ impl ReplEvaluationSession {
         match self {
             Self::Local { .. } => None,
             Self::Worker(worker) => Some(worker.terminal_control()),
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn worker_runtime_control(
+        &self,
+    ) -> Option<crate::session_worker_runtime::SupervisorRuntimeControl> {
+        match self {
+            Self::Local { .. } => None,
+            Self::Worker(worker) => Some(worker.runtime_control()),
         }
     }
 
@@ -313,6 +326,14 @@ impl ReplEvaluationSession {
     }
 
     #[cfg(unix)]
+    pub(crate) fn quiesce_worker_preserving_lifecycle(&self) -> Result<()> {
+        match self {
+            Self::Local { .. } => Ok(()),
+            Self::Worker(worker) => worker.quiesce_preserving_lifecycle(),
+        }
+    }
+
+    #[cfg(unix)]
     pub(crate) fn take_worker_lifecycle_barrier(&mut self) -> Option<(u64, u64)> {
         match self {
             Self::Local { .. } => None,
@@ -387,6 +408,7 @@ async fn evaluate_timed_submission(
 }
 
 /// Start the armed REPL through the production session adapter.
+#[allow(dead_code)]
 pub async fn start(runtime: &Runtime) -> Result<i32> {
     let plan = runtime
         .session_io_plan()

@@ -52,6 +52,18 @@ fn expected_legacy_output_contract(
     mode: &str,
     return_variant: &str,
 ) -> Option<ExpectedLegacyOutputContract> {
+    let mode: &'static str = match mode {
+        "all" => "all",
+        "armed" => "armed",
+        "unarmed" => "unarmed",
+        _ => return None,
+    };
+    let return_variant: &'static str = match return_variant {
+        "error" => "error",
+        "refused" => "refused",
+        "success" => "success",
+        _ => return None,
+    };
     let contract = match (function_name, selector, alias, mode, return_variant) {
         (
             "ex_host_fs_mkdir_recursive_result",
@@ -198,7 +210,7 @@ fn expected_legacy_source_safety_binding(function_name: &str) -> Result<Value, S
         if precedes.iter().any(|token| {
             function_source
                 .find(token)
-                .map_or(true, |index| index <= guard_index)
+                .is_none_or(|index| index <= guard_index)
         }) {
             return Err(format!(
                 "{function_name}: armed refusal no longer precedes path decode, lookup, randomness, or mutation"
@@ -296,13 +308,307 @@ fn expected_path_selected_output(contract: ExpectedPathOutputContract, selector:
     })
 }
 
+const EVALUATION_RESULT_SELECTORS: &[&str] = &[
+    "out:result.abi_version",
+    "out:result.capability_flags",
+    "out:result.fault",
+    "out:result.lifecycle_exit_code",
+    "out:result.message.data",
+    "out:result.outcome_tag",
+    "out:result.positions",
+    "out:result.positions[].column",
+    "out:result.positions[].line",
+    "out:result.positions[].source_label.data",
+    "out:result.stack.data",
+    "out:result.struct_size",
+    "out:result.throw_error_class",
+    "out:result.throw_metadata_fields",
+    "out:result.throw_metadata_status",
+    "out:result.value.handle_id",
+    "out:result.value.runtime_nonce",
+    "out:result.work_target_id",
+];
+
+fn is_evaluation_result_selector(function_name: &str, selector: &str) -> bool {
+    let supported_function = matches!(
+        function_name,
+        "ex_hermes_eval_structured_diagnostic"
+            | "ex_hermes_evaluation_result_dispose"
+            | "ex_hermes_evaluation_result_init"
+    );
+    supported_function
+        && EVALUATION_RESULT_SELECTORS.contains(&selector)
+        && (function_name == "ex_hermes_eval_structured_diagnostic"
+            || !selector.starts_with("out:result.positions[]."))
+}
+
+fn is_bounded_family_output_selector(function_name: &str, selector: &str) -> bool {
+    is_evaluation_result_selector(function_name, selector)
+        || matches!(
+            (function_name, selector),
+            ("ex_host_fs_pread", "out:buf")
+                | ("ex_host_fs_read", "out:buf")
+                | ("ex_host_fs_read_file", "out:errno" | "out:len")
+                | (
+                    "ex_host_terminal_session_stdio_query",
+                    "out:columns" | "out:is_tty" | "out:rows"
+                )
+                | ("ex_hermes_engine_mapped_object", "out:device" | "out:inode")
+                | (
+                    "ex_host_vfs_chdir" | "ex_host_vfs_get_cwd" | "ex_host_vfs_resolve_path",
+                    "out:errno"
+                )
+                | ("ex_hermes_eval", "out:value")
+                | (
+                    "ex_hermes_take_async_failure_event",
+                    "out:event.associated_evaluation"
+                        | "out:event.dropped_count"
+                        | "out:event.event_id"
+                        | "out:event.host_context_id"
+                        | "out:event.kind"
+                        | "out:event.owning_principal_id"
+                        | "out:event.principal_status"
+                        | "out:event.value.handle_id"
+                        | "out:event.value.runtime_nonce"
+                )
+                | (
+                    "ex_hermes_take_cancellation_event",
+                    "out:event.resolution" | "out:event.target_id"
+                )
+                | (
+                    "ex_hermes_take_work_unit_event",
+                    "out:event.kind"
+                        | "out:event.phase"
+                        | "out:event.scheduling_id"
+                        | "out:event.target_id"
+                )
+                | ("ex_worklet_install", "out:error")
+                | ("ex_worklet_invoke", "out:result_json")
+                | (
+                    "ex_worklet_bind_shared_value_accessors",
+                    "callback:read_callback/0.epoch"
+                        | "callback:read_callback/0.generation"
+                        | "callback:read_callback/0.slot"
+                        | "callback:read_callback/2"
+                        | "callback:write_callback/0.epoch"
+                        | "callback:write_callback/0.generation"
+                        | "callback:write_callback/0.slot"
+                        | "callback:write_callback/1"
+                        | "callback:write_callback/2"
+                )
+                | ("ex_worklet_drain_scheduled_typed", "out:calls")
+                | ("ex_worklet_install_metrics", "out:metrics")
+                | ("ex_worklet_install_typed", "out:error" | "out:identity")
+                | (
+                    "ex_worklet_invoke_typed",
+                    "out:output_count" | "out:outputs"
+                )
+                | (
+                    "ex_worklet_set_measure_callback",
+                    "callback:callback/0" | "callback:callback/2"
+                )
+                | ("ex_host_authorize_typed_lifecycle_exit_stack", "out:code")
+                | ("ex_host_lifecycle_exit_code_get_stack", "out:code")
+                | (
+                    "ex_host_typed_generations",
+                    "out:dynamic" | "out:handle" | "out:negative"
+                )
+                | ("ex_host_env_get", "out:buf")
+                | ("ex_host_random_fill", "out:buf")
+                | ("ex_hermes_dispatch_worklet_calls", "out:delivered")
+                | (
+                    "ex_hermes_value_safe_throw_metadata",
+                    "out:error_class"
+                        | "out:message.data"
+                        | "out:metadata_fields"
+                        | "out:stack.data"
+                )
+                | ("ex_hermes_value_stage1_text", "out:data" | "out:truncated")
+                | (
+                    "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+                    "callback:callback/0"
+                )
+                | (
+                    "ex_hermes_set_host_call",
+                    "callback:callback/0" | "callback:callback/1"
+                )
+                | (
+                    "ex_hermes_set_host_call_async",
+                    "callback:callback/0"
+                        | "callback:callback/1"
+                        | "callback:callback/2"
+                        | "callback:callback/3"
+                )
+                | (
+                    "ex_hermes_set_exact_host_call_async",
+                    "callback:callback/0"
+                        | "callback:callback/1"
+                        | "callback:callback/2"
+                        | "callback:callback/3"
+                        | "callback:callback/5"
+                )
+                | ("ex_hermes_set_host_wake_hook", "callback:hook/0")
+        )
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NativeOwnedBytes {
+    data: *mut u8,
+    length: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NativeSourcePosition {
+    source_label: NativeOwnedBytes,
+    line: u32,
+    column: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NativeValueHandle {
+    runtime_nonce: u64,
+    handle_id: u64,
+}
+
+#[repr(C)]
+struct NativeEvaluationResult {
+    abi_version: u32,
+    struct_size: u32,
+    outcome_tag: u32,
+    fault: u32,
+    work_target_id: u64,
+    value: NativeValueHandle,
+    throw_metadata_status: u32,
+    throw_metadata_fields: u32,
+    throw_error_class: u32,
+    lifecycle_exit_code: i32,
+    capability_flags: u32,
+    message: NativeOwnedBytes,
+    stack: NativeOwnedBytes,
+    positions: *mut NativeSourcePosition,
+    position_count: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct NativeWorkletSharedValueHandle {
+    slot: u32,
+    generation: u32,
+    epoch: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct NativeWorkletCapture {
+    kind: u32,
+    scalar: f32,
+    shared_value: NativeWorkletSharedValueHandle,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct NativeWorkletScheduledCall {
+    source_identity: u64,
+    source_sequence: u64,
+    generation: u64,
+    callback_identity: u32,
+    argument_count: u32,
+    arguments: [f32; 8],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct NativeWorkletInstallMetrics {
+    source_install_count: u64,
+    reused_install_count: u64,
+    source_install_total_ns: u64,
+    source_install_max_ns: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct NativeMotionRatedPublishSample {
+    channel_identity: u64,
+    dirty_generation: u64,
+    sample_time_ns: u64,
+    value_count: u32,
+    flags: u32,
+    values: [f32; 8],
+}
+
+impl NativeEvaluationResult {
+    fn zeroed() -> Self {
+        Self {
+            abi_version: 0,
+            struct_size: 0,
+            outcome_tag: 0,
+            fault: 0,
+            work_target_id: 0,
+            value: NativeValueHandle {
+                runtime_nonce: 0,
+                handle_id: 0,
+            },
+            throw_metadata_status: 0,
+            throw_metadata_fields: 0,
+            throw_error_class: 0,
+            lifecycle_exit_code: 0,
+            capability_flags: 0,
+            message: NativeOwnedBytes {
+                data: std::ptr::null_mut(),
+                length: 0,
+            },
+            stack: NativeOwnedBytes {
+                data: std::ptr::null_mut(),
+                length: 0,
+            },
+            positions: std::ptr::null_mut(),
+            position_count: 0,
+        }
+    }
+}
+
 extern "C" {
     fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
     fn ex_hermes_engine_binary_path(out: *mut std::os::raw::c_char, out_len: usize) -> i32;
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
     fn ex_hermes_bytecode_version() -> u32;
-    fn ex_hermes_evaluation_result_init(result: *mut std::ffi::c_void);
-    fn ex_hermes_evaluation_result_dispose(result: *mut std::ffi::c_void);
+    fn ex_hermes_evaluation_result_init(result: *mut NativeEvaluationResult);
+    fn ex_hermes_evaluation_result_dispose(result: *mut NativeEvaluationResult);
+    fn ex_hermes_eval_structured_diagnostic(
+        runtime: *mut HermesRuntimeOpaque,
+        source: *const u8,
+        source_length: usize,
+        source_label: *const u8,
+        source_label_length: usize,
+        result: *mut NativeEvaluationResult,
+    ) -> i32;
+    fn ex_hermes_value_release(runtime: *mut HermesRuntimeOpaque, handle: NativeValueHandle)
+        -> u32;
+    fn ex_hermes_value_kind(runtime: *mut HermesRuntimeOpaque, handle: NativeValueHandle) -> u32;
+    fn ex_hermes_value_stage1_text(
+        runtime: *mut HermesRuntimeOpaque,
+        handle: NativeValueHandle,
+        out_data: *mut *mut u8,
+        out_length: *mut usize,
+        out_truncated: *mut u32,
+    ) -> u32;
+    fn ex_hermes_value_safe_throw_metadata(
+        runtime: *mut HermesRuntimeOpaque,
+        handle: NativeValueHandle,
+        metadata_fields: *mut u32,
+        error_class: *mut u32,
+        message: *mut NativeOwnedBytes,
+        stack: *mut NativeOwnedBytes,
+    ) -> u32;
+    fn ex_hermes_session_display_ack(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+        handle: NativeValueHandle,
+        displayed: bool,
+    ) -> u32;
     fn ex_hermes_callback_backlog(runtime: *mut HermesRuntimeOpaque) -> u32;
     fn ex_hermes_set_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque, enabled: i32);
     fn ex_hermes_gc(runtime: *mut HermesRuntimeOpaque);
@@ -330,10 +636,47 @@ extern "C" {
         args_json: *const std::os::raw::c_char,
         out_result_json: *mut *mut std::os::raw::c_char,
     ) -> i32;
-    fn ex_worklet_bind_shared_values(
+    fn ex_worklet_install_typed(
         runtime: *mut HermesRuntimeOpaque,
-        slab: *mut std::ffi::c_void,
-        slot_count: usize,
+        install_format: u32,
+        artifact: *const u8,
+        artifact_len: usize,
+        captures: *const NativeWorkletCapture,
+        capture_count: u32,
+        generation: u64,
+        out_identity: *mut u64,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    fn ex_worklet_invoke_typed(
+        runtime: *mut HermesRuntimeOpaque,
+        identity: u64,
+        inputs: *const f32,
+        input_count: u32,
+        outputs: *mut f32,
+        output_capacity: u32,
+        out_output_count: *mut u32,
+    ) -> i32;
+    fn ex_worklet_install_metrics(
+        runtime: *mut HermesRuntimeOpaque,
+        out_metrics: *mut NativeWorkletInstallMetrics,
+    ) -> i32;
+    fn ex_worklet_bind_shared_value_accessors(
+        runtime: *mut HermesRuntimeOpaque,
+        read_callback: Option<
+            extern "C" fn(
+                handle: NativeWorkletSharedValueHandle,
+                out_value: *mut f32,
+                context: *mut std::ffi::c_void,
+            ) -> u32,
+        >,
+        write_callback: Option<
+            extern "C" fn(
+                handle: NativeWorkletSharedValueHandle,
+                value: f32,
+                context: *mut std::ffi::c_void,
+            ) -> u32,
+        >,
+        context: *mut std::ffi::c_void,
     ) -> i32;
     fn ex_worklet_set_measure_callback(
         runtime: *mut HermesRuntimeOpaque,
@@ -348,6 +691,34 @@ extern "C" {
     );
     fn ex_worklet_drain_logs(runtime: *mut HermesRuntimeOpaque) -> *mut std::os::raw::c_char;
     fn ex_worklet_drain_scheduled(runtime: *mut HermesRuntimeOpaque) -> *mut std::os::raw::c_char;
+    fn ex_worklet_drain_scheduled_typed(
+        runtime: *mut HermesRuntimeOpaque,
+        out_calls: *mut NativeWorkletScheduledCall,
+        capacity: u32,
+    ) -> u32;
+    fn ex_worklet_take_scheduled_drop_count(runtime: *mut HermesRuntimeOpaque) -> u64;
+    fn ex_hermes_dispatch_worklet_calls(
+        runtime: *mut HermesRuntimeOpaque,
+        calls: *const NativeWorkletScheduledCall,
+        count: u32,
+        out_delivered: *mut u32,
+    ) -> i32;
+    fn ex_hermes_dispatch_worklet_json_batch(
+        runtime: *mut HermesRuntimeOpaque,
+        batch_json: *const u8,
+        batch_len: usize,
+        generation: u64,
+    ) -> i32;
+    fn ex_hermes_dispatch_motion_rated_publish(
+        runtime: *mut HermesRuntimeOpaque,
+        sample: *const NativeMotionRatedPublishSample,
+    ) -> i32;
+    fn ex_hermes_schedule_watchdog_heartbeat_for_generation(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        callback: extern "C" fn(context: *mut std::ffi::c_void),
+        context: *mut std::ffi::c_void,
+    );
 }
 
 fn tagged_bytes_digest(bytes: &[u8]) -> String {
@@ -437,6 +808,102 @@ fn take_hermes_string(pointer: *mut std::os::raw::c_char) -> Option<String> {
 
 fn raw_hermes_string(pointer: *mut std::os::raw::c_char) -> Value {
     take_hermes_string(pointer).map_or_else(returned_null, returned_string)
+}
+
+fn native_owned_bytes_value(bytes: NativeOwnedBytes) -> Result<Value, String> {
+    if bytes.data.is_null() {
+        return if bytes.length == 0 {
+            Ok(Value::Null)
+        } else {
+            Err("structured result had a null buffer with nonzero length".into())
+        };
+    }
+    if bytes.length > 1 << 20 {
+        return Err("structured result buffer exceeded the evidence bound".into());
+    }
+    // SAFETY: the result owns `length` bytes until the enclosing result is
+    // disposed; callers invoke this helper before disposal.
+    let value = unsafe { std::slice::from_raw_parts(bytes.data, bytes.length) };
+    Ok(json!(value))
+}
+
+fn evaluation_result_observation(
+    result: &NativeEvaluationResult,
+    selector: &str,
+) -> Result<Value, String> {
+    let positions = if result.positions.is_null() {
+        if result.position_count != 0 {
+            return Err("structured result had null positions with a nonzero count".into());
+        }
+        &[][..]
+    } else {
+        if result.position_count > 1024 {
+            return Err("structured result exceeded the position evidence bound".into());
+        }
+        // SAFETY: the result owns `position_count` initialized position rows
+        // until disposal, which happens only after this projection returns.
+        unsafe { std::slice::from_raw_parts(result.positions, result.position_count) }
+    };
+    let observation = match selector {
+        "out:result.abi_version" => returned_number(result.abi_version),
+        "out:result.capability_flags" => returned_number(result.capability_flags),
+        "out:result.fault" => returned_number(result.fault),
+        "out:result.lifecycle_exit_code" => returned_number(result.lifecycle_exit_code),
+        "out:result.message.data" => match native_owned_bytes_value(result.message)? {
+            Value::Null => returned_null(),
+            value => raw("return", "array", value),
+        },
+        "out:result.outcome_tag" => returned_number(result.outcome_tag),
+        "out:result.positions" => {
+            let rows = positions
+                .iter()
+                .map(|position| {
+                    Ok(json!({
+                        "column": position.column,
+                        "line": position.line,
+                        "sourceLabel": native_owned_bytes_value(position.source_label)?,
+                    }))
+                })
+                .collect::<Result<Vec<Value>, String>>()?;
+            raw("return", "array", json!(rows))
+        }
+        "out:result.positions[].column" => raw(
+            "return",
+            "array",
+            json!(positions
+                .iter()
+                .map(|position| position.column)
+                .collect::<Vec<_>>()),
+        ),
+        "out:result.positions[].line" => raw(
+            "return",
+            "array",
+            json!(positions
+                .iter()
+                .map(|position| position.line)
+                .collect::<Vec<_>>()),
+        ),
+        "out:result.positions[].source_label.data" => {
+            let labels = positions
+                .iter()
+                .map(|position| native_owned_bytes_value(position.source_label))
+                .collect::<Result<Vec<_>, _>>()?;
+            raw("return", "array", json!(labels))
+        }
+        "out:result.stack.data" => match native_owned_bytes_value(result.stack)? {
+            Value::Null => returned_null(),
+            value => raw("return", "array", value),
+        },
+        "out:result.struct_size" => returned_number(result.struct_size),
+        "out:result.throw_error_class" => returned_number(result.throw_error_class),
+        "out:result.throw_metadata_fields" => returned_number(result.throw_metadata_fields),
+        "out:result.throw_metadata_status" => returned_number(result.throw_metadata_status),
+        "out:result.value.handle_id" => returned_number(result.value.handle_id),
+        "out:result.value.runtime_nonce" => returned_number(result.value.runtime_nonce),
+        "out:result.work_target_id" => returned_number(result.work_target_id),
+        other => return Err(format!("unsupported structured result selector {other}")),
+    };
+    Ok(observation)
 }
 
 struct FsSandbox {
@@ -534,8 +1001,11 @@ unsafe fn take_owned_host_buffer(data: *mut u8, len: u64) -> Result<Vec<u8>, Str
 }
 
 struct OwnedAuthenticatedVfsRuntime {
-    raw: *mut HermesRuntimeOpaque,
+    bound: std::cell::Cell<bool>,
+    context_id: u64,
+    previous_context: u64,
     root: PathBuf,
+    runtime_nonce: u64,
     _reset: super::HostResetGuard,
     _engine_lock: tokio::sync::MutexGuard<'static, ()>,
 }
@@ -549,33 +1019,46 @@ impl OwnedAuthenticatedVfsRuntime {
             install_armed_test_host_at(Some(&sandbox.root), true, true, true, Vec::new());
         let digest =
             CString::new(digest).map_err(|_| "armed Host digest contained NUL".to_string())?;
-        let raw = unsafe { ex_hermes_create_armed(digest.as_ptr()) };
-        if raw.is_null() {
-            return Err("authenticated Hermes/VFS runtime construction was rejected".into());
+        let context_id = unsafe { crate::host::abi::ex_host_claim_armed_context(digest.as_ptr()) };
+        if context_id == 0 {
+            return Err("authenticated VFS Host context could not be claimed".into());
         }
-        let runtime_nonce = unsafe { ex_hermes_runtime_nonce(raw) };
-        if runtime_nonce == 0 {
-            unsafe { ex_hermes_destroy(raw) };
-            return Err("authenticated Hermes/VFS runtime has no generation nonce".into());
+        let runtime_nonce = 0x4341_5053_4543_5646_u64;
+        if crate::host::abi::ex_host_vfs_bind_runtime(context_id, runtime_nonce) != 0 {
+            crate::host::abi::ex_host_release_context(context_id);
+            return Err("authenticated VFS Host context could not bind its runtime nonce".into());
+        }
+        let previous_context = crate::host::abi::ex_host_enter_context(context_id);
+        if previous_context == u64::MAX {
+            let _ = crate::host::abi::ex_host_vfs_unbind_runtime(runtime_nonce);
+            crate::host::abi::ex_host_release_context(context_id);
+            return Err("authenticated VFS Host context could not become active".into());
         }
         Ok(Self {
-            raw,
+            bound: std::cell::Cell::new(true),
+            context_id,
+            previous_context,
             root: sandbox.root.clone(),
+            runtime_nonce,
             _reset: reset,
             _engine_lock: engine_lock,
         })
     }
 
     fn runtime_nonce(&self) -> u64 {
-        unsafe { ex_hermes_runtime_nonce(self.raw) }
+        self.runtime_nonce
     }
 }
 
 impl Drop for OwnedAuthenticatedVfsRuntime {
     fn drop(&mut self) {
-        if !self.raw.is_null() {
-            unsafe { ex_hermes_destroy(self.raw) };
-            self.raw = std::ptr::null_mut();
+        if self.context_id != 0 {
+            crate::host::abi::ex_host_restore_context(self.previous_context);
+            if self.bound.replace(false) {
+                let _ = crate::host::abi::ex_host_vfs_unbind_runtime(self.runtime_nonce);
+            }
+            crate::host::abi::ex_host_release_context(self.context_id);
+            self.context_id = 0;
         }
     }
 }
@@ -611,6 +1094,16 @@ fn execute_vfs_path_output(
     let runtime_nonce = runtime.runtime_nonce();
     if runtime_nonce == 0 {
         return Err("authenticated VFS runtime became stale".into());
+    }
+    if function_name == "ex_host_vfs_bind_runtime" {
+        return Ok(returned_number(crate::host::abi::EX_HOST_VFS_RESULT_OK));
+    }
+    if function_name == "ex_host_vfs_unbind_runtime" {
+        let status = crate::host::abi::ex_host_vfs_unbind_runtime(runtime_nonce);
+        if status == crate::host::abi::EX_HOST_VFS_RESULT_OK {
+            runtime.bound.set(false);
+        }
+        return Ok(returned_number(status));
     }
     let root_principals = [0_u64];
     let mut backing_data = std::ptr::null_mut();
@@ -670,6 +1163,12 @@ fn execute_vfs_path_output(
             "authenticated VFS output call failed with status {status} and errno {host_errno}"
         ));
     }
+    if selector == "[[return]]" {
+        return Ok(returned_number(status));
+    }
+    if selector == "out:errno" {
+        return Ok(returned_number(host_errno));
+    }
     let normalized_class = match selector {
         "out:virtual" => {
             validate_virtual_absolute(&virtual_path)?;
@@ -686,6 +1185,548 @@ fn execute_vfs_path_output(
         }
     };
     Ok(returned_string(normalized_class.into()))
+}
+
+struct OwnedAuthenticatedTypedContext {
+    context_id: u64,
+    runtime_nonce: u64,
+    digest: String,
+    previous_context: u64,
+    _reset: super::HostResetGuard,
+    _engine_lock: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl OwnedAuthenticatedTypedContext {
+    fn new(sandbox: &FsSandbox) -> Result<Self, String> {
+        let engine_lock = hermes_engine_test_lock().blocking_lock();
+        std::fs::create_dir_all(sandbox.root.join("node_modules/image-lib"))
+            .map_err(|error| format!("create typed-authority package fixture: {error}"))?;
+        let (reset, digest) =
+            install_armed_test_host_at(Some(&sandbox.root), true, true, true, Vec::new());
+        Self::claim(reset, digest, engine_lock)
+    }
+
+    fn new_exact() -> Result<Self, String> {
+        let engine_lock = hermes_engine_test_lock().blocking_lock();
+        let (reset, digest) = install_armed_exact_test_host();
+        Self::claim(reset, digest, engine_lock)
+    }
+
+    fn claim(
+        reset: super::HostResetGuard,
+        digest: String,
+        engine_lock: tokio::sync::MutexGuard<'static, ()>,
+    ) -> Result<Self, String> {
+        let digest_c = CString::new(digest.as_str())
+            .map_err(|_| "armed Host digest contained NUL".to_string())?;
+        let context_id =
+            unsafe { crate::host::abi::ex_host_claim_armed_context(digest_c.as_ptr()) };
+        if context_id == 0 {
+            return Err("typed-authority Host context could not be claimed".into());
+        }
+        let previous_context = crate::host::abi::ex_host_enter_context(context_id);
+        if previous_context == u64::MAX {
+            crate::host::abi::ex_host_release_context(context_id);
+            return Err("typed-authority Host context could not become active".into());
+        }
+        let candidate = context_id ^ 0x5646_5354_5950_4544_u64;
+        let runtime_nonce = if candidate == 0 { 1 } else { candidate };
+        if crate::host::abi::ex_host_vfs_bind_runtime(context_id, runtime_nonce)
+            != crate::host::abi::EX_HOST_VFS_RESULT_OK
+        {
+            crate::host::abi::ex_host_restore_context(previous_context);
+            crate::host::abi::ex_host_release_context(context_id);
+            return Err("typed-authority VFS generation could not be bound".into());
+        }
+        Ok(Self {
+            context_id,
+            runtime_nonce,
+            digest,
+            previous_context,
+            _reset: reset,
+            _engine_lock: engine_lock,
+        })
+    }
+
+    fn context_id(&self) -> u64 {
+        self.context_id
+    }
+
+    fn digest(&self) -> &str {
+        &self.digest
+    }
+
+    fn runtime_nonce(&self) -> u64 {
+        self.runtime_nonce
+    }
+}
+
+impl Drop for OwnedAuthenticatedTypedContext {
+    fn drop(&mut self) {
+        if self.context_id != 0 {
+            let _ = crate::host::abi::ex_host_vfs_unbind_runtime(self.runtime_nonce);
+            crate::host::abi::ex_host_restore_context(self.previous_context);
+            crate::host::abi::ex_host_release_context(self.context_id);
+            self.context_id = 0;
+        }
+    }
+}
+
+fn root_principal_json() -> Value {
+    json!({"kind": "root", "identity": "project-root"})
+}
+
+fn typed_process_spawn_authority_json() -> Value {
+    json!({
+        "cap": "process:spawn",
+        "resource": {
+            "kind": "executable",
+            "logicalName": "git",
+            "path": {
+                "root": "absolute",
+                "components": [
+                    {"encoding": "utf8", "value": "usr"},
+                    {"encoding": "utf8", "value": "bin"},
+                    {"encoding": "utf8", "value": "git"},
+                ],
+                "hostBound": true,
+            },
+            "contentDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        },
+    })
+}
+
+fn typed_handle_request_bytes() -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "actor": root_principal_json(),
+        "holder": root_principal_json(),
+        "authority": {
+            "cap": "fs:read",
+            "resource": {
+                "kind": "path-tree",
+                "path": {"root": "project", "components": []},
+            },
+        },
+    }))
+    .expect("serialize bounded typed handle request")
+}
+
+fn mint_bounded_typed_handle() -> Result<String, String> {
+    let root = [0_u64];
+    let request = typed_handle_request_bytes();
+    let returned = unsafe {
+        crate::host::abi::ex_host_typed_handle_mint(
+            0,
+            root.as_ptr(),
+            root.len(),
+            request.as_ptr(),
+            request.len(),
+        )
+    };
+    let envelope = take_host_string(returned)
+        .ok_or("typed handle mint returned NULL in an authenticated context")?;
+    let parsed: Value = serde_json::from_str(&envelope)
+        .map_err(|error| format!("typed handle mint returned invalid JSON: {error}"))?;
+    parsed["handleId"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("typed handle mint did not succeed: {envelope}"))
+}
+
+fn execute_typed_authority(
+    function_name: &str,
+    selector: &str,
+    sandbox: &FsSandbox,
+) -> Result<Value, String> {
+    let context = OwnedAuthenticatedTypedContext::new(sandbox)?;
+    let root = [0_u64];
+    let observation = match function_name {
+        "ex_host_authorize_typed_environment_read_stack" => {
+            let name = b"PATH";
+            returned_number(unsafe {
+                crate::host::abi::ex_host_authorize_typed_environment_read_stack(
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    0,
+                    0,
+                    name.as_ptr(),
+                    name.len(),
+                )
+            })
+        }
+        "ex_host_authorize_typed_environment_write_stack" => {
+            let name = b"IBEX_CAPSEC_OUTPUT";
+            returned_number(unsafe {
+                crate::host::abi::ex_host_authorize_typed_environment_write_stack(
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    0,
+                    name.as_ptr(),
+                    name.len(),
+                )
+            })
+        }
+        "ex_host_authorize_typed_fs_stack" => {
+            let path = sandbox.root.join("typed-authority-input.txt");
+            std::fs::write(&path, b"typed-authority")
+                .map_err(|error| format!("write typed-authority fixture: {error}"))?;
+            let path = c_string(&path);
+            returned_number(unsafe {
+                crate::host::abi::ex_host_authorize_typed_fs_stack(
+                    context.runtime_nonce(),
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    path.as_ptr(),
+                    0,
+                    1,
+                    -1,
+                    -1,
+                    1,
+                    0,
+                    std::ptr::null(),
+                )
+            })
+        }
+        "ex_host_authorize_typed_lifecycle_exit_stack" => {
+            let mut code = i32::MIN;
+            let status = unsafe {
+                crate::host::abi::ex_host_authorize_typed_lifecycle_exit_stack(
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    1,
+                    7,
+                    1,
+                    &mut code,
+                )
+            };
+            if selector == "out:code" {
+                if status != 1 || code == i32::MIN {
+                    return Err(format!(
+                        "typed lifecycle exit did not initialize out:code (status {status})"
+                    ));
+                }
+                returned_number(code)
+            } else {
+                returned_number(status)
+            }
+        }
+        "ex_host_authorize_typed_listen_stack" => {
+            let host = CString::new("127.0.0.1").unwrap();
+            returned_number(unsafe {
+                crate::host::abi::ex_host_authorize_typed_listen_stack(
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    0,
+                    host.as_ptr(),
+                    3000,
+                    0,
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    0,
+                )
+            })
+        }
+        "ex_host_authorize_typed_network_stack" => {
+            let host = CString::new("127.0.0.1").unwrap();
+            let candidates = CString::new("[]").unwrap();
+            returned_number(unsafe {
+                crate::host::abi::ex_host_authorize_typed_network_stack(
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    1,
+                    host.as_ptr(),
+                    443,
+                    0,
+                    candidates.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    0,
+                )
+            })
+        }
+        "ex_host_authorize_typed_print_stack" => returned_number(unsafe {
+            crate::host::abi::ex_host_authorize_typed_print_stack(0, root.as_ptr(), root.len(), 0)
+        }),
+        "ex_host_authorize_typed_system_info_stack" => returned_number(unsafe {
+            crate::host::abi::ex_host_authorize_typed_system_info_stack(
+                0,
+                root.as_ptr(),
+                root.len(),
+                0,
+                2,
+                0,
+            )
+        }),
+        "ex_host_authorize_typed_udp_datagram_stack" => {
+            let host = CString::new("127.0.0.1").unwrap();
+            let connection = CString::new("capsec-output-udp").unwrap();
+            returned_number(unsafe {
+                crate::host::abi::ex_host_authorize_typed_udp_datagram_stack(
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    host.as_ptr(),
+                    5353,
+                    connection.as_ptr(),
+                )
+            })
+        }
+        "ex_host_evaluate_typed_decision" => {
+            let decision = b"{}";
+            let gates = b"[]";
+            raw_host_string(unsafe {
+                crate::host::abi::ex_host_evaluate_typed_decision(
+                    decision.as_ptr(),
+                    decision.len(),
+                    gates.as_ptr(),
+                    gates.len(),
+                )
+            })
+        }
+        "ex_host_lifecycle_exit_code_get_stack" => {
+            let _ = unsafe {
+                crate::host::abi::ex_host_lifecycle_exit_code_set_stack(
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    73,
+                )
+            };
+            let mut code = i32::MIN;
+            let status = unsafe {
+                crate::host::abi::ex_host_lifecycle_exit_code_get_stack(
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    &mut code,
+                )
+            };
+            if selector == "out:code" {
+                if status != 1 || code == i32::MIN {
+                    return Err(format!(
+                        "typed lifecycle getter did not initialize out:code (status {status})"
+                    ));
+                }
+                returned_number(code)
+            } else {
+                returned_number(status)
+            }
+        }
+        "ex_host_lifecycle_exit_code_set_stack" => returned_number(unsafe {
+            crate::host::abi::ex_host_lifecycle_exit_code_set_stack(
+                0,
+                root.as_ptr(),
+                root.len(),
+                73,
+            )
+        }),
+        "ex_host_typed_dynamic_grant" => {
+            let request = serde_json::to_vec(&json!({
+                "grantId": "capsec-output-grant",
+                "principal": root_principal_json(),
+                "authority": typed_process_spawn_authority_json(),
+            }))
+            .expect("serialize bounded dynamic grant request");
+            returned_number(unsafe {
+                crate::host::abi::ex_host_typed_dynamic_grant(0, request.as_ptr(), request.len())
+            })
+        }
+        "ex_host_typed_dynamic_revoke" => {
+            let request = br#""capsec-output-missing-grant""#;
+            returned_number(unsafe {
+                crate::host::abi::ex_host_typed_dynamic_revoke(0, request.as_ptr(), request.len())
+            })
+        }
+        "ex_host_typed_generations" => {
+            let mut negative = u64::MAX;
+            let mut dynamic = u64::MAX;
+            let mut handle = u64::MAX;
+            let status = unsafe {
+                crate::host::abi::ex_host_typed_generations(
+                    &mut negative,
+                    &mut dynamic,
+                    &mut handle,
+                )
+            };
+            if selector != "[[return]]" && status != 1 {
+                return Err("typed generation call did not initialize caller storage".into());
+            }
+            match selector {
+                "out:negative" => returned_number(negative),
+                "out:dynamic" => returned_number(dynamic),
+                "out:handle" => returned_number(handle),
+                _ => returned_number(status),
+            }
+        }
+        "ex_host_typed_handle_mint" => {
+            let request = typed_handle_request_bytes();
+            raw_host_string(unsafe {
+                crate::host::abi::ex_host_typed_handle_mint(
+                    0,
+                    root.as_ptr(),
+                    root.len(),
+                    request.as_ptr(),
+                    request.len(),
+                )
+            })
+        }
+        "ex_host_typed_handle_revoke" => {
+            let handle = mint_bounded_typed_handle()?;
+            let request = serde_json::to_vec(&handle)
+                .map_err(|error| format!("serialize bounded handle revocation: {error}"))?;
+            returned_number(unsafe {
+                crate::host::abi::ex_host_typed_handle_revoke(0, request.as_ptr(), request.len())
+            })
+        }
+        other => return Err(format!("unsupported typed-authority Host ABI {other}")),
+    };
+    Ok(observation)
+}
+
+fn execute_authenticated_stateful_host(
+    function_name: &str,
+    selector: &str,
+    sandbox: &FsSandbox,
+) -> Result<Value, String> {
+    let context = if function_name == "ex_host_authorize_exact_endowment" {
+        OwnedAuthenticatedTypedContext::new_exact()?
+    } else {
+        OwnedAuthenticatedTypedContext::new(sandbox)?
+    };
+    let observation = match function_name {
+        "ex_host_authorize_exact_endowment" => {
+            let manifest =
+                CString::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+            let operations = [7_u32, 11_u32];
+            let status = unsafe {
+                crate::host::abi::ex_host_authorize_exact_endowment(
+                    context.context_id(),
+                    1,
+                    manifest.as_ptr(),
+                    operations.as_ptr(),
+                    operations.len(),
+                )
+            };
+            if status != 1 {
+                return Err(format!(
+                    "claimed Exact endowment was not authorized (status {status})"
+                ));
+            }
+            returned_number(status)
+        }
+        "ex_host_env_get" => {
+            let key = CString::new("PATH").unwrap();
+            let mut buffer = [0_i8; 8192];
+            let length = crate::host::abi::ex_host_env_get(
+                key.as_ptr(),
+                buffer.as_mut_ptr(),
+                buffer.len() as u32,
+            );
+            if length < 0 || length as usize >= buffer.len() {
+                return Err(format!(
+                    "bounded environment read failed or exceeded its buffer ({length})"
+                ));
+            }
+            let bytes = buffer[..length as usize]
+                .iter()
+                .map(|byte| *byte as u8)
+                .collect::<Vec<_>>();
+            if selector == "out:buf" {
+                raw("return", "array", json!(bytes))
+            } else {
+                returned_number(length)
+            }
+        }
+        "ex_host_install_armed" => {
+            let invalid_snapshot = b"{}";
+            let invalid_expected = b"{}";
+            returned_number(unsafe {
+                crate::host::abi::ex_host_install_armed(
+                    invalid_snapshot.as_ptr(),
+                    invalid_snapshot.len(),
+                    invalid_expected.as_ptr(),
+                    invalid_expected.len(),
+                )
+            })
+        }
+        "ex_host_matches_armed_snapshot_digest" => {
+            let digest = CString::new(context.digest()).unwrap();
+            let status =
+                unsafe { crate::host::abi::ex_host_matches_armed_snapshot_digest(digest.as_ptr()) };
+            if status != 1 {
+                return Err("claimed Host did not match its authenticated digest".into());
+            }
+            returned_number(status)
+        }
+        "ex_host_prepare_armed_embedder_artifacts" => {
+            let snapshot = b"{}";
+            let expected = b"{}";
+            raw_host_string(unsafe {
+                crate::host::abi::ex_host_prepare_armed_embedder_artifacts(
+                    snapshot.as_ptr(),
+                    snapshot.len(),
+                    expected.as_ptr(),
+                    expected.len(),
+                )
+            })
+        }
+        "ex_host_random_fill" => {
+            let mut buffer = [0_u8; 32];
+            let status =
+                crate::host::abi::ex_host_random_fill(buffer.as_mut_ptr(), buffer.len() as u32);
+            if status != 0 {
+                return Err(format!("Host random fill failed with status {status}"));
+            }
+            if selector == "out:buf" {
+                raw("return", "array", json!(buffer))
+            } else {
+                returned_number(status)
+            }
+        }
+        "ex_host_session_static_import_resolve" | "ex_host_session_static_import_resolve_meta" => {
+            let referrer = serde_json::to_vec(&json!({
+                "root": "project",
+                "components": [],
+            }))
+            .expect("serialize bounded logical referrer");
+            let specifier = b"node:path";
+            let output = if function_name == "ex_host_session_static_import_resolve" {
+                crate::host::abi::ex_host_session_static_import_resolve(
+                    referrer.as_ptr(),
+                    referrer.len(),
+                    specifier.as_ptr(),
+                    specifier.len(),
+                )
+            } else {
+                crate::host::abi::ex_host_session_static_import_resolve_meta(
+                    referrer.as_ptr(),
+                    referrer.len(),
+                    specifier.as_ptr(),
+                    specifier.len(),
+                )
+            };
+            raw_host_string(output)
+        }
+        other => return Err(format!("unsupported authenticated Host ABI {other}")),
+    };
+    if selector != "[[return]]"
+        && !matches!(function_name, "ex_host_env_get" | "ex_host_random_fill")
+    {
+        return Err(format!(
+            "unsupported authenticated Host output {function_name}:{selector}"
+        ));
+    }
+    Ok(observation)
 }
 
 fn expect_null_host_string_with_errno(
@@ -806,7 +1847,7 @@ fn execute_legacy_path_error(function_name: &str, sandbox: &FsSandbox) -> Result
             HOST_ABI_EEXIST
         }
         "ex_host_fs_mkdtemp" => {
-            crate::host::abi::install_host(crate::host::Host::strict());
+            crate::host::abi::install_host(crate::host::Host::closed_unarmed());
             if crate::host::abi::ex_host_is_armed() != 0 {
                 return Err("mkdtemp error fixture unexpectedly installed an armed Host".into());
             }
@@ -980,7 +2021,7 @@ fn open_fixture(path: &Path, flags: u32) -> *mut crate::host::abi::ExactFileHand
     handle
 }
 
-fn execute_fs(function_name: &str, sandbox: &FsSandbox) -> Result<Value, String> {
+fn execute_fs(function_name: &str, selector: &str, sandbox: &FsSandbox) -> Result<Value, String> {
     let file = sandbox.reset_file(&format!("{function_name}.txt"));
     let path = c_string(&file);
     let bytes = b"bounded";
@@ -1061,7 +2102,14 @@ fn execute_fs(function_name: &str, sandbox: &FsSandbox) -> Result<Value, String>
                 crate::host::abi::ex_host_fs_read(handle, buffer.as_mut_ptr(), buffer.len() as u32)
             };
             crate::host::abi::ex_host_fs_close(handle);
-            returned_number(value)
+            if selector == "out:buf" {
+                let written = usize::try_from(value)
+                    .map_err(|_| format!("{function_name}: bounded read failed"))?
+                    .min(buffer.len());
+                raw("return", "array", json!(&buffer[..written]))
+            } else {
+                returned_number(value)
+            }
         }
         "ex_host_fs_pwrite" | "ex_host_fs_write" => {
             let handle = open_fixture(&file, 3);
@@ -1078,13 +2126,18 @@ fn execute_fs(function_name: &str, sandbox: &FsSandbox) -> Result<Value, String>
             let mut errno = 0_i32;
             let pointer =
                 crate::host::abi::ex_host_fs_read_file(path.as_ptr(), &mut length, &mut errno);
-            if pointer.is_null() {
-                returned_null()
+            let value = if pointer.is_null() {
+                None
             } else {
                 let value =
                     unsafe { std::slice::from_raw_parts(pointer, length as usize) }.to_vec();
                 crate::host::abi::ex_host_free_buffer(pointer, length);
-                raw("return", "array", json!(value))
+                Some(value)
+            };
+            match selector {
+                "out:errno" => returned_number(errno),
+                "out:len" => returned_number(length),
+                _ => value.map_or_else(returned_null, |value| raw("return", "array", json!(value))),
             }
         }
         "ex_host_fs_readdir" => {
@@ -1272,7 +2325,7 @@ fn execute_sqlite(function_name: &str, sandbox: &FsSandbox) -> Result<Value, Str
     Ok(result)
 }
 
-fn execute_terminal(function_name: &str) -> Result<Value, String> {
+fn execute_terminal(function_name: &str, selector: &str) -> Result<Value, String> {
     let result = match function_name {
         "ex_host_session_descriptor_alias_source_route" => {
             returned_number(crate::host::abi::ex_host_session_descriptor_alias_source_route(0))
@@ -1297,14 +2350,20 @@ fn execute_terminal(function_name: &str) -> Result<Value, String> {
         }
         "ex_host_terminal_session_stdio_query" => {
             let (mut tty, mut columns, mut rows) = (0_i32, 0_u16, 0_u16);
-            returned_number(unsafe {
+            let status = unsafe {
                 crate::host::abi::ex_host_terminal_session_stdio_query(
                     0,
                     &mut tty,
                     &mut columns,
                     &mut rows,
                 )
-            })
+            };
+            match selector {
+                "out:is_tty" => returned_number(tty),
+                "out:columns" => returned_number(columns),
+                "out:rows" => returned_number(rows),
+                _ => returned_number(status),
+            }
         }
         other => return Err(format!("unsupported inert terminal Host ABI {other}")),
     };
@@ -1329,6 +2388,9 @@ fn execute_basic(function_name: &str) -> Result<Value, String> {
     let event = CString::new("output-shape").unwrap();
     let root_stack = [0_u64];
     let result = match function_name {
+        "ex_host_armed_bootstrap_compatibility_flags" => {
+            returned_number(crate::host::abi::ex_host_armed_bootstrap_compatibility_flags())
+        }
         "ex_host_armed_endowments" => raw_host_string(crate::host::abi::ex_host_armed_endowments()),
         "ex_host_check_capability" => returned_number(crate::host::abi::ex_host_check_capability(
             0,
@@ -1357,6 +2419,7 @@ fn execute_basic(function_name: &str) -> Result<Value, String> {
         "ex_host_check_import" => returned_number(crate::host::abi::ex_host_check_import(
             0,
             specifier.as_ptr(),
+            std::ptr::null(),
         )),
         "ex_host_claim_armed_context" => returned_number(unsafe {
             crate::host::abi::ex_host_claim_armed_context(integrity.as_ptr())
@@ -1534,22 +2597,391 @@ impl Drop for OwnedDiagnosticRuntime {
     }
 }
 
+fn execute_authenticated_armed_create(sandbox: &FsSandbox) -> Result<Value, String> {
+    let _engine_lock = hermes_engine_test_lock().blocking_lock();
+    std::fs::create_dir_all(sandbox.root.join("node_modules/image-lib"))
+        .map_err(|error| format!("create armed-runtime package fixture: {error}"))?;
+    let (_reset, digest) =
+        install_armed_test_host_at(Some(&sandbox.root), true, true, true, Vec::new());
+    let digest = CString::new(digest).unwrap();
+    let runtime = unsafe { ex_hermes_create_armed(digest.as_ptr()) };
+    if runtime.is_null() {
+        return Err("ex_hermes_create_armed returned NULL for its claimed Host context".into());
+    }
+    unsafe { ex_hermes_destroy(runtime) };
+    Ok(returned_object())
+}
+
+fn execute_bounded_dispatch(function_name: &str, selector: &str) -> Result<Value, String> {
+    let runtime = OwnedDiagnosticRuntime::new()?;
+    let observation = match function_name {
+        "ex_hermes_dispatch_worklet_calls" => {
+            let call = NativeWorkletScheduledCall {
+                source_identity: 11,
+                source_sequence: 1,
+                generation: 1,
+                callback_identity: 17,
+                argument_count: 2,
+                arguments: [1.5, 2.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            };
+            let mut delivered = u32::MAX;
+            let status =
+                unsafe { ex_hermes_dispatch_worklet_calls(runtime.raw, &call, 1, &mut delivered) };
+            if delivered == u32::MAX {
+                return Err("worklet dispatch did not initialize out:delivered".into());
+            }
+            if selector == "out:delivered" {
+                returned_number(delivered)
+            } else {
+                returned_number(status)
+            }
+        }
+        "ex_hermes_dispatch_worklet_json_batch" => {
+            let batch = br#"[{"name":"bounded","args":[1]}]"#;
+            returned_number(unsafe {
+                ex_hermes_dispatch_worklet_json_batch(runtime.raw, batch.as_ptr(), batch.len(), 1)
+            })
+        }
+        "ex_hermes_dispatch_motion_rated_publish" => {
+            let sample = NativeMotionRatedPublishSample {
+                channel_identity: 23,
+                dirty_generation: 1,
+                sample_time_ns: 101,
+                value_count: 2,
+                flags: 1,
+                values: [3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            };
+            returned_number(unsafe {
+                ex_hermes_dispatch_motion_rated_publish(runtime.raw, &sample)
+            })
+        }
+        other => return Err(format!("unsupported bounded dispatch ABI {other}")),
+    };
+    Ok(observation)
+}
+
+fn free_native_owned_bytes(bytes: NativeOwnedBytes) {
+    if !bytes.data.is_null() {
+        unsafe { ex_hermes_free_string(bytes.data.cast()) };
+    }
+}
+
+fn execute_owned_value(function_name: &str, selector: &str) -> Result<Value, String> {
+    let runtime = OwnedDiagnosticRuntime::new()?;
+    let source: &[u8] = match function_name {
+        "ex_hermes_value_safe_throw_metadata" => b"throw new Error('bounded safe throw metadata')",
+        "ex_hermes_value_stage1_text" => b"'bounded stage one text'",
+        _ => b"({answer:42})",
+    };
+    let source_label = b"ibex:capsec-host-abi-owned-value";
+    let mut result = NativeEvaluationResult::zeroed();
+    unsafe { ex_hermes_evaluation_result_init(&mut result) };
+    let evaluation_status = unsafe {
+        ex_hermes_eval_structured_diagnostic(
+            runtime.raw,
+            source.as_ptr(),
+            source.len(),
+            source_label.as_ptr(),
+            source_label.len(),
+            &mut result,
+        )
+    };
+    if evaluation_status != 0 || result.value.handle_id == 0 {
+        unsafe { ex_hermes_evaluation_result_dispose(&mut result) };
+        return Err(format!(
+            "diagnostic value fixture failed with status {evaluation_status} and handle {}",
+            result.value.handle_id
+        ));
+    }
+    let handle = result.value;
+    let mut released = false;
+    let observation: Result<Value, String> = match function_name {
+        "ex_hermes_session_display_ack" => Ok(returned_number(unsafe {
+            ex_hermes_session_display_ack(runtime.raw, 1, handle, true)
+        })),
+        "ex_hermes_value_kind" => Ok(returned_number(unsafe {
+            ex_hermes_value_kind(runtime.raw, handle)
+        })),
+        "ex_hermes_value_release" => {
+            let status = unsafe { ex_hermes_value_release(runtime.raw, handle) };
+            released = true;
+            Ok(returned_number(status))
+        }
+        "ex_hermes_value_safe_throw_metadata" => {
+            let mut metadata_fields = 0_u32;
+            let mut error_class = 0_u32;
+            let mut message = NativeOwnedBytes {
+                data: std::ptr::null_mut(),
+                length: 0,
+            };
+            let mut stack = NativeOwnedBytes {
+                data: std::ptr::null_mut(),
+                length: 0,
+            };
+            let status = unsafe {
+                ex_hermes_value_safe_throw_metadata(
+                    runtime.raw,
+                    handle,
+                    &mut metadata_fields,
+                    &mut error_class,
+                    &mut message,
+                    &mut stack,
+                )
+            };
+            let projected = match selector {
+                "out:error_class" => Ok(raw("return", "number", Value::from(error_class))),
+                "out:metadata_fields" => Ok(returned_number(metadata_fields)),
+                "out:message.data" => native_owned_bytes_value(message).map(|value| {
+                    if value.is_null() {
+                        returned_null()
+                    } else {
+                        raw("return", "array", value)
+                    }
+                }),
+                "out:stack.data" => native_owned_bytes_value(stack).map(|value| {
+                    if value.is_null() {
+                        returned_null()
+                    } else {
+                        raw("return", "array", value)
+                    }
+                }),
+                _ => Ok(returned_number(status)),
+            };
+            free_native_owned_bytes(message);
+            free_native_owned_bytes(stack);
+            projected
+        }
+        "ex_hermes_value_stage1_text" => {
+            let mut data = std::ptr::null_mut();
+            let mut length = 0_usize;
+            let mut truncated = 0_u32;
+            let status = unsafe {
+                ex_hermes_value_stage1_text(
+                    runtime.raw,
+                    handle,
+                    &mut data,
+                    &mut length,
+                    &mut truncated,
+                )
+            };
+            let projected = match selector {
+                "out:data" => {
+                    if data.is_null() {
+                        Ok(returned_null())
+                    } else if length > 1 << 20 {
+                        Err("Stage-1 text exceeded the evidence bound".into())
+                    } else {
+                        let bytes = unsafe { std::slice::from_raw_parts(data, length) };
+                        Ok(raw("return", "array", json!(bytes)))
+                    }
+                }
+                "out:length" => Ok(returned_number(length)),
+                "out:truncated" => Ok(returned_number(truncated)),
+                _ => Ok(returned_number(status)),
+            };
+            if !data.is_null() {
+                unsafe { ex_hermes_free_string(data.cast()) };
+            }
+            projected
+        }
+        other => Err(format!("unsupported owned value ABI {other}")),
+    };
+    if !released {
+        let _ = unsafe { ex_hermes_value_release(runtime.raw, handle) };
+    }
+    unsafe { ex_hermes_evaluation_result_dispose(&mut result) };
+    observation
+}
+
+fn copied_callback_c_string(value: *const std::os::raw::c_char) -> Option<String> {
+    if value.is_null() {
+        None
+    } else {
+        // SAFETY: each native callback contract lends a NUL-terminated string
+        // for the duration of the callback. Copy it before returning.
+        Some(
+            unsafe { CStr::from_ptr(value) }
+                .to_string_lossy()
+                .into_owned(),
+        )
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct BoundedSyncHostCallObservation {
+    invoked: bool,
+    operation: Option<String>,
+    arguments_json: Option<String>,
+}
+
+fn bounded_sync_host_call_observation() -> &'static std::sync::Mutex<BoundedSyncHostCallObservation>
+{
+    static OBSERVATION: std::sync::OnceLock<std::sync::Mutex<BoundedSyncHostCallObservation>> =
+        std::sync::OnceLock::new();
+    OBSERVATION.get_or_init(|| std::sync::Mutex::new(BoundedSyncHostCallObservation::default()))
+}
+
 extern "C" fn bounded_sync_host_call(
-    _op: *const std::os::raw::c_char,
-    _args_json: *const std::os::raw::c_char,
+    op: *const std::os::raw::c_char,
+    args_json: *const std::os::raw::c_char,
 ) -> *mut std::os::raw::c_char {
+    let mut observation = bounded_sync_host_call_observation()
+        .lock()
+        .expect("bounded sync host-call observation lock poisoned");
+    observation.invoked = true;
+    observation.operation = copied_callback_c_string(op);
+    observation.arguments_json = copied_callback_c_string(args_json);
+    // NULL is a documented successful callback result and requires no cross-
+    // allocator ownership assumption. The callback payload inputs are the
+    // outputs under test here.
     std::ptr::null_mut()
 }
 
-extern "C" fn bounded_async_host_call(
-    _runtime: *mut HermesRuntimeOpaque,
-    _call_id: u64,
-    _op: *const std::os::raw::c_char,
-    _args_json: *const std::os::raw::c_char,
-) {
+#[derive(Clone, Debug, Default)]
+struct BoundedAsyncHostCallObservation {
+    invoked: bool,
+    expected_runtime: usize,
+    actual_runtime: usize,
+    call_id: u64,
+    operation: Option<String>,
+    arguments_json: Option<String>,
 }
 
-fn execute_hermes_stateless(function_name: &str) -> Result<Value, String> {
+fn bounded_async_host_call_observation(
+) -> &'static std::sync::Mutex<BoundedAsyncHostCallObservation> {
+    static OBSERVATION: std::sync::OnceLock<std::sync::Mutex<BoundedAsyncHostCallObservation>> =
+        std::sync::OnceLock::new();
+    OBSERVATION.get_or_init(|| std::sync::Mutex::new(BoundedAsyncHostCallObservation::default()))
+}
+
+extern "C" fn bounded_async_host_call(
+    runtime: *mut HermesRuntimeOpaque,
+    call_id: u64,
+    op: *const std::os::raw::c_char,
+    args_json: *const std::os::raw::c_char,
+) {
+    let mut observation = bounded_async_host_call_observation()
+        .lock()
+        .expect("bounded async host-call observation lock poisoned");
+    observation.invoked = true;
+    observation.actual_runtime = runtime as usize;
+    observation.call_id = call_id;
+    observation.operation = copied_callback_c_string(op);
+    observation.arguments_json = copied_callback_c_string(args_json);
+}
+
+#[derive(Debug, Default)]
+struct BoundedExactHostCallObservation {
+    invoked: bool,
+    expected_runtime: usize,
+    actual_runtime: usize,
+    call_id: u64,
+    operation_id: u32,
+    payload: Vec<u8>,
+    expected_context: usize,
+    actual_context: usize,
+}
+
+extern "C" fn bounded_exact_host_call(
+    runtime: *mut HermesRuntimeOpaque,
+    call_id: u64,
+    operation_id: u32,
+    payload: *const u8,
+    payload_len: usize,
+    context: *mut std::ffi::c_void,
+) {
+    if context.is_null() {
+        return;
+    }
+    // SAFETY: the executor owns this state on the runtime thread, passes its
+    // exact address as the callback context, and keeps it alive through the
+    // synchronous Promise-executor callback.
+    let observation = unsafe { &mut *context.cast::<BoundedExactHostCallObservation>() };
+    observation.invoked = true;
+    observation.actual_runtime = runtime as usize;
+    observation.call_id = call_id;
+    observation.operation_id = operation_id;
+    observation.actual_context = context as usize;
+    observation.payload = if payload.is_null() {
+        Vec::new()
+    } else {
+        // SAFETY: the callback lends `payload_len` readable bytes for this
+        // invocation; copy them before returning.
+        unsafe { std::slice::from_raw_parts(payload, payload_len) }.to_vec()
+    };
+}
+
+#[derive(Debug)]
+struct BoundedOpaqueCallbackObservation {
+    marker: u64,
+    expected_context: usize,
+    actual_context: usize,
+    invoked: bool,
+}
+
+extern "C" fn bounded_opaque_callback(context: *mut std::ffi::c_void) {
+    if context.is_null() {
+        return;
+    }
+    // SAFETY: wake and watchdog recipes keep this state alive until the
+    // synchronous notification/poll has delivered the queued callback.
+    let observation = unsafe { &mut *context.cast::<BoundedOpaqueCallbackObservation>() };
+    observation.actual_context = context as usize;
+    observation.invoked = true;
+}
+
+fn evaluate_bounded_callback_source(
+    runtime: *mut HermesRuntimeOpaque,
+    source: &[u8],
+) -> Result<(), String> {
+    let source_url = CString::new("ibex:capsec-host-abi-callback-output").unwrap();
+    let mut output = std::ptr::null_mut();
+    let status = unsafe {
+        ex_hermes_eval(
+            runtime,
+            source.as_ptr(),
+            source.len(),
+            source_url.as_ptr(),
+            0,
+            &mut output,
+        )
+    };
+    let detail = take_hermes_string(output);
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "bounded callback trigger failed with status {status}: {}",
+            detail.unwrap_or_else(|| "missing Hermes diagnostic".into())
+        ))
+    }
+}
+
+fn execute_host_wake_hook_callback(selector: &str) -> Result<Value, String> {
+    if selector != "callback:hook/0" {
+        return Err(format!("unsupported host wake-hook selector {selector}"));
+    }
+    let mut observation = BoundedOpaqueCallbackObservation {
+        marker: 0x4952_4558,
+        expected_context: 0,
+        actual_context: 0,
+        invoked: false,
+    };
+    let context = (&mut observation as *mut BoundedOpaqueCallbackObservation).cast();
+    observation.expected_context = context as usize;
+    ibex_runtime::engine::ex_hermes_set_host_wake_hook(Some(bounded_opaque_callback), context);
+    ibex_runtime::engine::ex_hermes_notify_callback();
+    ibex_runtime::engine::ex_hermes_set_host_wake_hook(None, std::ptr::null_mut());
+    if !observation.invoked
+        || observation.actual_context != observation.expected_context
+        || observation.marker != 0x4952_4558
+    {
+        return Err("host wake hook did not receive its exact live context".into());
+    }
+    Ok(returned_object())
+}
+
+fn execute_hermes_stateless(function_name: &str, selector: &str) -> Result<Value, String> {
     let result = match function_name {
         "ex_hermes_bytecode_version" => returned_number(unsafe { ex_hermes_bytecode_version() }),
         "ex_hermes_create" => {
@@ -1573,15 +3005,27 @@ fn execute_hermes_stateless(function_name: &str) -> Result<Value, String> {
         }
         "ex_hermes_engine_mapped_object" => {
             let (mut device, mut inode) = (0_u64, 0_u64);
-            returned_number(unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) })
+            let status = unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) };
+            match selector {
+                "out:device" => returned_number(device),
+                "out:inode" => returned_number(inode),
+                _ => returned_number(status),
+            }
         }
         "ex_hermes_evaluation_result_dispose" => {
-            unsafe { ex_hermes_evaluation_result_dispose(std::ptr::null_mut()) };
-            returned_undefined()
+            let mut result = NativeEvaluationResult::zeroed();
+            unsafe {
+                ex_hermes_evaluation_result_init(&mut result);
+                ex_hermes_evaluation_result_dispose(&mut result);
+            }
+            evaluation_result_observation(&result, selector)?
         }
         "ex_hermes_evaluation_result_init" => {
-            unsafe { ex_hermes_evaluation_result_init(std::ptr::null_mut()) };
-            returned_undefined()
+            let mut result = NativeEvaluationResult::zeroed();
+            unsafe { ex_hermes_evaluation_result_init(&mut result) };
+            let observation = evaluation_result_observation(&result, selector)?;
+            unsafe { ex_hermes_evaluation_result_dispose(&mut result) };
+            observation
         }
         "ex_hermes_free_string" => {
             unsafe { ex_hermes_free_string(std::ptr::null_mut()) };
@@ -1593,7 +3037,7 @@ fn execute_hermes_stateless(function_name: &str) -> Result<Value, String> {
     Ok(result)
 }
 
-fn execute_hermes_diagnostic(function_name: &str) -> Result<Value, String> {
+fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Value, String> {
     let runtime = OwnedDiagnosticRuntime::new()?;
     let result = match function_name {
         "ex_hermes_callback_backlog" => {
@@ -1603,6 +3047,34 @@ fn execute_hermes_diagnostic(function_name: &str) -> Result<Value, String> {
             returned_number(unsafe { ex_hermes_cancel_structured_work_target(runtime.raw, 0) })
         }
         "ex_hermes_create_diagnostic" => returned_object(),
+        "ex_hermes_debugger_enable" => {
+            returned_number(unsafe { ex_hermes_debugger_enable(runtime.raw) })
+        }
+        "ex_hermes_debugger_eval" => {
+            let _ = unsafe { ex_hermes_debugger_enable(runtime.raw) };
+            let expression = CString::new("1 + 1").unwrap();
+            raw_hermes_string(unsafe {
+                ex_hermes_debugger_eval(runtime.raw, expression.as_ptr(), 0)
+            })
+        }
+        "ex_hermes_debugger_get_script_source" => {
+            let _ = unsafe { ex_hermes_debugger_enable(runtime.raw) };
+            raw_hermes_string(unsafe { ex_hermes_debugger_get_script_source(runtime.raw, 0) })
+        }
+        "ex_hermes_debugger_get_scripts" => {
+            let _ = unsafe { ex_hermes_debugger_enable(runtime.raw) };
+            raw_hermes_string(unsafe { ex_hermes_debugger_get_scripts(runtime.raw) })
+        }
+        "ex_hermes_debugger_next_event" => {
+            let _ = unsafe { ex_hermes_debugger_enable(runtime.raw) };
+            raw_hermes_string(unsafe { ex_hermes_debugger_next_event(runtime.raw) })
+        }
+        "ex_hermes_debugger_set_breakpoint" => {
+            let _ = unsafe { ex_hermes_debugger_enable(runtime.raw) };
+            raw_hermes_string(unsafe {
+                ex_hermes_debugger_set_breakpoint(runtime.raw, 0, 1, 1, std::ptr::null())
+            })
+        }
         "ex_hermes_destroy" => {
             runtime.destroy();
             return Ok(returned_undefined());
@@ -1621,8 +3093,38 @@ fn execute_hermes_diagnostic(function_name: &str) -> Result<Value, String> {
                     &mut output,
                 )
             };
-            let _ = take_hermes_string(output);
-            returned_number(status)
+            let output = raw_hermes_string(output);
+            if selector == "out:value" {
+                output
+            } else {
+                returned_number(status)
+            }
+        }
+        "ex_hermes_eval_structured_diagnostic" => {
+            let source = b"throw new Error('bounded structured output')";
+            let source_label = b"ibex:capsec-host-abi-structured-output";
+            let mut output = NativeEvaluationResult::zeroed();
+            unsafe { ex_hermes_evaluation_result_init(&mut output) };
+            let status = unsafe {
+                ex_hermes_eval_structured_diagnostic(
+                    runtime.raw,
+                    source.as_ptr(),
+                    source.len(),
+                    source_label.as_ptr(),
+                    source_label.len(),
+                    &mut output,
+                )
+            };
+            let observation = if selector == "[[return]]" {
+                returned_number(status)
+            } else {
+                evaluation_result_observation(&output, selector)?
+            };
+            if output.value.handle_id != 0 {
+                let _ = unsafe { ex_hermes_value_release(runtime.raw, output.value) };
+            }
+            unsafe { ex_hermes_evaluation_result_dispose(&mut output) };
+            observation
         }
         "ex_hermes_finish_bootstrap" => {
             returned_number(unsafe { ex_hermes_finish_bootstrap(runtime.raw) })
@@ -1652,13 +3154,169 @@ fn execute_hermes_diagnostic(function_name: &str) -> Result<Value, String> {
         "ex_hermes_runtime_nonce" => {
             returned_number(unsafe { ex_hermes_runtime_nonce(runtime.raw) })
         }
+        "ex_hermes_schedule_watchdog_heartbeat_for_generation" => {
+            let mut observation = BoundedOpaqueCallbackObservation {
+                marker: 0x5741_5443,
+                expected_context: 0,
+                actual_context: 0,
+                invoked: false,
+            };
+            let context = (&mut observation as *mut BoundedOpaqueCallbackObservation).cast();
+            observation.expected_context = context as usize;
+            let nonce = unsafe { ex_hermes_runtime_nonce(runtime.raw) };
+            unsafe {
+                ex_hermes_schedule_watchdog_heartbeat_for_generation(
+                    runtime.raw,
+                    nonce,
+                    bounded_opaque_callback,
+                    context,
+                )
+            };
+            let _ = unsafe { ex_hermes_poll(runtime.raw, ex_hermes_now_ms()) };
+            if !observation.invoked
+                || observation.actual_context != observation.expected_context
+                || observation.marker != 0x5741_5443
+            {
+                return Err(
+                    "generation-bearing watchdog did not deliver its exact live context".into(),
+                );
+            }
+            returned_object()
+        }
+        "ex_hermes_set_exact_host_call_async" => {
+            let mut observation = BoundedExactHostCallObservation {
+                expected_runtime: runtime.raw as usize,
+                ..Default::default()
+            };
+            let context = (&mut observation as *mut BoundedExactHostCallObservation).cast();
+            observation.expected_context = context as usize;
+            let operations = [7_u32];
+            let status = unsafe {
+                ex_hermes_set_exact_host_call_async(
+                    runtime.raw,
+                    1,
+                    operations.as_ptr(),
+                    operations.len(),
+                    std::ptr::null(),
+                    bounded_exact_host_call,
+                    context,
+                )
+            };
+            if selector == "[[return]]" {
+                returned_number(status)
+            } else {
+                if status != 0 {
+                    return Err(format!(
+                        "Exact host-call callback install failed with status {status}"
+                    ));
+                }
+                evaluate_bounded_callback_source(
+                    runtime.raw,
+                    b"exact.invokeHostAsync(7, new Uint8Array([3, 5, 8])); void 0",
+                )?;
+                if !observation.invoked {
+                    return Err("Exact host-call callback was not invoked".into());
+                }
+                match selector {
+                    "callback:callback/0"
+                        if observation.actual_runtime == observation.expected_runtime =>
+                    {
+                        returned_object()
+                    }
+                    "callback:callback/1" => returned_number(observation.call_id),
+                    "callback:callback/2" => returned_number(observation.operation_id),
+                    "callback:callback/3" => raw("return", "array", json!(observation.payload)),
+                    "callback:callback/5"
+                        if observation.actual_context == observation.expected_context =>
+                    {
+                        returned_object()
+                    }
+                    other => {
+                        return Err(format!(
+                            "unsupported or mismatched Exact host-call callback selector {other}"
+                        ))
+                    }
+                }
+            }
+        }
         "ex_hermes_set_host_call" => {
+            *bounded_sync_host_call_observation()
+                .lock()
+                .expect("bounded sync host-call observation lock poisoned") =
+                BoundedSyncHostCallObservation::default();
             unsafe { ex_hermes_set_host_call(runtime.raw, bounded_sync_host_call) };
-            returned_undefined()
+            evaluate_bounded_callback_source(
+                runtime.raw,
+                b"__hostCall('bounded.sync', {answer: 42})",
+            )?;
+            let observation = bounded_sync_host_call_observation()
+                .lock()
+                .expect("bounded sync host-call observation lock poisoned")
+                .clone();
+            if !observation.invoked {
+                return Err("synchronous host-call callback was not invoked".into());
+            }
+            match selector {
+                "callback:callback/0" => returned_string(
+                    observation
+                        .operation
+                        .ok_or("synchronous host-call callback received a null operation")?,
+                ),
+                "callback:callback/1" => returned_string(
+                    observation
+                        .arguments_json
+                        .ok_or("synchronous host-call callback received null arguments")?,
+                ),
+                other => {
+                    return Err(format!(
+                        "unsupported synchronous host-call callback selector {other}"
+                    ))
+                }
+            }
         }
         "ex_hermes_set_host_call_async" => {
+            *bounded_async_host_call_observation()
+                .lock()
+                .expect("bounded async host-call observation lock poisoned") =
+                BoundedAsyncHostCallObservation {
+                    expected_runtime: runtime.raw as usize,
+                    ..BoundedAsyncHostCallObservation::default()
+                };
             unsafe { ex_hermes_set_host_call_async(runtime.raw, bounded_async_host_call) };
-            returned_undefined()
+            evaluate_bounded_callback_source(
+                runtime.raw,
+                b"__hostCallAsync('bounded.async', [2, 4, 6]); void 0",
+            )?;
+            let observation = bounded_async_host_call_observation()
+                .lock()
+                .expect("bounded async host-call observation lock poisoned")
+                .clone();
+            if !observation.invoked {
+                return Err("asynchronous host-call callback was not invoked".into());
+            }
+            match selector {
+                "callback:callback/0"
+                    if observation.actual_runtime == observation.expected_runtime =>
+                {
+                    returned_object()
+                }
+                "callback:callback/1" => returned_number(observation.call_id),
+                "callback:callback/2" => returned_string(
+                    observation
+                        .operation
+                        .ok_or("asynchronous host-call callback received a null operation")?,
+                ),
+                "callback:callback/3" => returned_string(
+                    observation
+                        .arguments_json
+                        .ok_or("asynchronous host-call callback received null arguments")?,
+                ),
+                other => {
+                    return Err(format!(
+                        "unsupported or mismatched async host-call callback selector {other}"
+                    ))
+                }
+            }
         }
         "ex_hermes_set_keep_alive_on_async_error" => {
             unsafe { ex_hermes_set_keep_alive_on_async_error(runtime.raw, 1) };
@@ -1669,15 +3327,39 @@ fn execute_hermes_diagnostic(function_name: &str) -> Result<Value, String> {
         }
         "ex_hermes_take_async_failure_event" => {
             let mut event = NativeAsyncFailureEvent::current();
-            returned_number(unsafe { ex_hermes_take_async_failure_event(runtime.raw, &mut event) })
+            let status = unsafe { ex_hermes_take_async_failure_event(runtime.raw, &mut event) };
+            match selector {
+                "out:event.associated_evaluation" => returned_number(event.associated_evaluation),
+                "out:event.dropped_count" => returned_number(event.dropped_count),
+                "out:event.event_id" => returned_number(event.event_id),
+                "out:event.host_context_id" => returned_number(event.host_context_id),
+                "out:event.kind" => returned_number(event.kind),
+                "out:event.owning_principal_id" => returned_number(event.owning_principal_id),
+                "out:event.principal_status" => returned_number(event.principal_status),
+                "out:event.value.handle_id" => returned_number(event.value_handle_id),
+                "out:event.value.runtime_nonce" => returned_number(event.value_runtime_nonce),
+                _ => returned_number(status),
+            }
         }
         "ex_hermes_take_cancellation_event" => {
             let mut event = NativeCancellationEvent::current();
-            returned_number(unsafe { ex_hermes_take_cancellation_event(runtime.raw, &mut event) })
+            let status = unsafe { ex_hermes_take_cancellation_event(runtime.raw, &mut event) };
+            match selector {
+                "out:event.resolution" => returned_number(event.resolution),
+                "out:event.target_id" => returned_number(event.target_id),
+                _ => returned_number(status),
+            }
         }
         "ex_hermes_take_work_unit_event" => {
             let mut event = NativeWorkUnitEvent::current();
-            returned_number(unsafe { ex_hermes_take_work_unit_event(runtime.raw, &mut event) })
+            let status = unsafe { ex_hermes_take_work_unit_event(runtime.raw, &mut event) };
+            match selector {
+                "out:event.kind" => returned_number(event.kind),
+                "out:event.phase" => returned_number(event.phase),
+                "out:event.scheduling_id" => returned_number(event.scheduling_id),
+                "out:event.target_id" => returned_number(event.target_id),
+                _ => returned_number(status),
+            }
         }
         other => return Err(format!("unsupported diagnostic Hermes ABI {other}")),
     };
@@ -1739,14 +3421,248 @@ fn install_bounded_worklet(
     }
 }
 
-fn execute_worklet(function_name: &str) -> Result<Value, String> {
+fn install_bounded_typed_worklet(
+    runtime: *mut HermesRuntimeOpaque,
+    source: &[u8],
+    captures: &[NativeWorkletCapture],
+) -> Result<(i32, u64, Option<String>), String> {
+    let mut identity = 0_u64;
+    let mut error = std::ptr::null_mut();
+    let status = unsafe {
+        ex_worklet_install_typed(
+            runtime,
+            1,
+            source.as_ptr(),
+            source.len(),
+            captures.as_ptr(),
+            captures.len() as u32,
+            1,
+            &mut identity,
+            &mut error,
+        )
+    };
+    let detail = take_hermes_string(error);
+    if status != 0 && detail.is_none() {
+        return Err(format!(
+            "typed worklet install returned {status} without a diagnostic"
+        ));
+    }
+    Ok((status, identity, detail))
+}
+
+fn require_bounded_typed_worklet(
+    runtime: *mut HermesRuntimeOpaque,
+    source: &[u8],
+    captures: &[NativeWorkletCapture],
+) -> Result<u64, String> {
+    let (status, identity, detail) = install_bounded_typed_worklet(runtime, source, captures)?;
+    if status != 0 || identity == 0 {
+        return Err(format!(
+            "bounded typed worklet install failed: {}",
+            detail.unwrap_or_else(|| format!("status {status}"))
+        ));
+    }
+    Ok(identity)
+}
+
+fn invoke_bounded_typed_worklet(
+    runtime: *mut HermesRuntimeOpaque,
+    identity: u64,
+) -> Result<(i32, [f32; 4], u32), String> {
+    let inputs = [2.0_f32, 3.0_f32];
+    let mut outputs = [f32::NAN; 4];
+    let mut output_count = 0_u32;
+    let status = unsafe {
+        ex_worklet_invoke_typed(
+            runtime,
+            identity,
+            inputs.as_ptr(),
+            inputs.len() as u32,
+            outputs.as_mut_ptr(),
+            outputs.len() as u32,
+            &mut output_count,
+        )
+    };
+    if status != 0 || output_count > outputs.len() as u32 {
+        return Err(format!(
+            "bounded typed worklet invocation failed with status {status} and count {output_count}"
+        ));
+    }
+    Ok((status, outputs, output_count))
+}
+
+#[derive(Default)]
+struct BoundedSharedValueCallbackState {
+    read_context_matches: bool,
+    read_handle: Option<NativeWorkletSharedValueHandle>,
+    write_context_matches: bool,
+    write_handle: Option<NativeWorkletSharedValueHandle>,
+    write_value: Option<f32>,
+}
+
+extern "C" fn bounded_shared_value_read(
+    handle: NativeWorkletSharedValueHandle,
+    out_value: *mut f32,
+    context: *mut std::ffi::c_void,
+) -> u32 {
+    if context.is_null() || out_value.is_null() {
+        return 1;
+    }
+    // SAFETY: the executor passes a live callback state for the duration of
+    // the synchronous typed invocation, and the worklet runtime does not
+    // retain callback invocations past that call.
+    let state = unsafe { &mut *context.cast::<BoundedSharedValueCallbackState>() };
+    state.read_context_matches = true;
+    state.read_handle = Some(handle);
+    unsafe { *out_value = 7.5 };
+    0
+}
+
+extern "C" fn bounded_shared_value_write(
+    handle: NativeWorkletSharedValueHandle,
+    value: f32,
+    context: *mut std::ffi::c_void,
+) -> u32 {
+    if context.is_null() {
+        return 1;
+    }
+    // SAFETY: see `bounded_shared_value_read`.
+    let state = unsafe { &mut *context.cast::<BoundedSharedValueCallbackState>() };
+    state.write_context_matches = true;
+    state.write_handle = Some(handle);
+    state.write_value = Some(value);
+    0
+}
+
+fn execute_shared_value_callback(
+    selector: &str,
+    runtime: *mut HermesRuntimeOpaque,
+) -> Result<Value, String> {
+    let mut state = BoundedSharedValueCallbackState::default();
+    let context = (&mut state as *mut BoundedSharedValueCallbackState).cast();
+    let bind_status = unsafe {
+        ex_worklet_bind_shared_value_accessors(
+            runtime,
+            Some(bounded_shared_value_read),
+            Some(bounded_shared_value_write),
+            context,
+        )
+    };
+    if bind_status != 0 {
+        return Err(format!(
+            "shared-value accessor bind failed with status {bind_status}"
+        ));
+    }
+    let capture = NativeWorkletCapture {
+        kind: 3,
+        scalar: 0.0,
+        shared_value: NativeWorkletSharedValueHandle {
+            slot: 17,
+            generation: 23,
+            epoch: 31,
+        },
+    };
+    let source = b"(function(){var value=worklet.captureGet(0);worklet.captureSet(0,value+1);worklet.output(0,value);})";
+    let identity = require_bounded_typed_worklet(runtime, source, &[capture])?;
+    let _ = invoke_bounded_typed_worklet(runtime, identity)?;
+    unsafe {
+        let _ = ex_worklet_bind_shared_value_accessors(runtime, None, None, std::ptr::null_mut());
+    }
+    let read = state
+        .read_handle
+        .ok_or("typed worklet did not invoke the shared-value read callback")?;
+    let write = state
+        .write_handle
+        .ok_or("typed worklet did not invoke the shared-value write callback")?;
+    let observation = match selector {
+        "callback:read_callback/0.slot" => returned_number(read.slot),
+        "callback:read_callback/0.generation" => returned_number(read.generation),
+        "callback:read_callback/0.epoch" => returned_number(read.epoch),
+        "callback:read_callback/2" if state.read_context_matches => returned_object(),
+        "callback:write_callback/0.slot" => returned_number(write.slot),
+        "callback:write_callback/0.generation" => returned_number(write.generation),
+        "callback:write_callback/0.epoch" => returned_number(write.epoch),
+        "callback:write_callback/1" => returned_number(
+            state
+                .write_value
+                .ok_or("shared-value write callback did not receive a value")?,
+        ),
+        "callback:write_callback/2" if state.write_context_matches => returned_object(),
+        other => {
+            return Err(format!(
+                "unsupported shared-value callback selector {other}"
+            ))
+        }
+    };
+    Ok(observation)
+}
+
+#[derive(Default)]
+struct BoundedMeasureCallbackState {
+    context_matches: bool,
+    node_id: Option<u32>,
+}
+
+extern "C" fn bounded_measure_callback(
+    node_id: u32,
+    out_frame4: *mut f32,
+    context: *mut std::ffi::c_void,
+) -> i32 {
+    if context.is_null() || out_frame4.is_null() {
+        return 0;
+    }
+    // SAFETY: the executor keeps both callback state and the four-float
+    // caller buffer alive for the synchronous typed invocation.
+    let state = unsafe { &mut *context.cast::<BoundedMeasureCallbackState>() };
+    state.context_matches = true;
+    state.node_id = Some(node_id);
+    let frame = [1.0_f32, 2.0, 3.0, 4.0];
+    unsafe { std::ptr::copy_nonoverlapping(frame.as_ptr(), out_frame4, frame.len()) };
+    1
+}
+
+fn execute_measure_callback(
+    selector: &str,
+    runtime: *mut HermesRuntimeOpaque,
+) -> Result<Value, String> {
+    let mut state = BoundedMeasureCallbackState::default();
+    let context = (&mut state as *mut BoundedMeasureCallbackState).cast();
+    unsafe { ex_worklet_set_measure_callback(runtime, Some(bounded_measure_callback), context) };
+    let source =
+        b"(function(){var frame=measure(41);worklet.output(0,frame===null?-1:frame.width);})";
+    let identity = require_bounded_typed_worklet(runtime, source, &[])?;
+    let _ = invoke_bounded_typed_worklet(runtime, identity)?;
+    unsafe { ex_worklet_set_measure_callback(runtime, None, std::ptr::null_mut()) };
+    match selector {
+        "callback:callback/0" => {
+            Ok(returned_number(state.node_id.ok_or(
+                "typed worklet did not invoke the measure callback",
+            )?))
+        }
+        "callback:callback/2" if state.context_matches => Ok(returned_object()),
+        other => Err(format!("unsupported measure callback selector {other}")),
+    }
+}
+
+fn execute_worklet(function_name: &str, selector: &str) -> Result<Value, String> {
     let runtime = OwnedWorkletRuntime::new()?;
     unsafe { ex_worklet_set_generation(runtime.raw, 1) };
     let worklet_id = CString::new("capsec-host-abi-output").unwrap();
     let result = match function_name {
-        "ex_worklet_bind_shared_values" => returned_number(unsafe {
-            ex_worklet_bind_shared_values(runtime.raw, std::ptr::null_mut(), 0)
-        }),
+        "ex_worklet_bind_shared_value_accessors" => {
+            if selector == "[[return]]" {
+                returned_number(unsafe {
+                    ex_worklet_bind_shared_value_accessors(
+                        runtime.raw,
+                        None,
+                        None,
+                        std::ptr::null_mut(),
+                    )
+                })
+            } else {
+                execute_shared_value_callback(selector, runtime.raw)?
+            }
+        }
         "ex_worklet_create" => returned_object(),
         "ex_worklet_destroy" => {
             runtime.destroy();
@@ -1756,8 +3672,92 @@ fn execute_worklet(function_name: &str) -> Result<Value, String> {
         "ex_worklet_drain_scheduled" => {
             raw_hermes_string(unsafe { ex_worklet_drain_scheduled(runtime.raw) })
         }
+        "ex_worklet_drain_scheduled_typed" => {
+            let source = b"(function(){worklet.runOnJS(77,1.5,2.5);})";
+            let identity = require_bounded_typed_worklet(runtime.raw, source, &[])?;
+            let _ = invoke_bounded_typed_worklet(runtime.raw, identity)?;
+            let mut calls = [NativeWorkletScheduledCall::default(); 2];
+            let count = unsafe {
+                ex_worklet_drain_scheduled_typed(
+                    runtime.raw,
+                    calls.as_mut_ptr(),
+                    calls.len() as u32,
+                )
+            };
+            if selector == "out:calls" {
+                raw(
+                    "return",
+                    "array",
+                    json!(calls[..count as usize]
+                        .iter()
+                        .map(|call| json!({
+                            "argumentCount": call.argument_count,
+                            "arguments": &call.arguments[..call.argument_count as usize],
+                            "callbackIdentity": call.callback_identity,
+                            "generation": call.generation,
+                            "sourceIdentity": call.source_identity,
+                            "sourceSequence": call.source_sequence,
+                        }))
+                        .collect::<Vec<_>>()),
+                )
+            } else {
+                returned_number(count)
+            }
+        }
         "ex_worklet_generation" => returned_number(unsafe { ex_worklet_generation(runtime.raw) }),
-        "ex_worklet_install" => returned_number(install_bounded_worklet(runtime.raw, &worklet_id)?),
+        "ex_worklet_install" => {
+            if selector == "out:error" {
+                let invalid_source = b"not valid JavaScript }";
+                let mut error = std::ptr::null_mut();
+                let _status = unsafe {
+                    ex_worklet_install(
+                        runtime.raw,
+                        worklet_id.as_ptr(),
+                        invalid_source.as_ptr(),
+                        invalid_source.len(),
+                        1,
+                        &mut error,
+                    )
+                };
+                raw_hermes_string(error)
+            } else {
+                returned_number(install_bounded_worklet(runtime.raw, &worklet_id)?)
+            }
+        }
+        "ex_worklet_install_metrics" => {
+            let source = b"(function(){worklet.output(0,1);})";
+            let _ = require_bounded_typed_worklet(runtime.raw, source, &[])?;
+            let mut metrics = NativeWorkletInstallMetrics::default();
+            let status = unsafe { ex_worklet_install_metrics(runtime.raw, &mut metrics) };
+            if selector == "out:metrics" {
+                raw(
+                    "return",
+                    "object",
+                    json!({
+                        "reusedInstallCount": metrics.reused_install_count,
+                        "sourceInstallCount": metrics.source_install_count,
+                        "sourceInstallMaxNs": metrics.source_install_max_ns,
+                        "sourceInstallTotalNs": metrics.source_install_total_ns,
+                    }),
+                )
+            } else {
+                returned_number(status)
+            }
+        }
+        "ex_worklet_install_typed" => {
+            let source = if selector == "out:error" {
+                &b"not valid JavaScript }"[..]
+            } else {
+                &b"(function(){worklet.output(0,1);})"[..]
+            };
+            let (status, identity, error) =
+                install_bounded_typed_worklet(runtime.raw, source, &[])?;
+            match selector {
+                "out:error" => error.map_or_else(returned_null, returned_string),
+                "out:identity" => returned_number(identity),
+                _ => returned_number(status),
+            }
+        }
         "ex_worklet_invoke" => {
             if install_bounded_worklet(runtime.raw, &worklet_id)? != 0 {
                 return Err("bounded worklet was not installed at the active generation".into());
@@ -1767,16 +3767,31 @@ fn execute_worklet(function_name: &str) -> Result<Value, String> {
             let status = unsafe {
                 ex_worklet_invoke(runtime.raw, worklet_id.as_ptr(), args.as_ptr(), &mut output)
             };
-            let _ = take_hermes_string(output);
-            returned_number(status)
+            if selector == "out:result_json" {
+                raw_hermes_string(output)
+            } else {
+                let _ = take_hermes_string(output);
+                returned_number(status)
+            }
+        }
+        "ex_worklet_invoke_typed" => {
+            let source = b"(function(a,b){worklet.output(0,a+b);worklet.output(1,a*b);})";
+            let identity = require_bounded_typed_worklet(runtime.raw, source, &[])?;
+            let (status, outputs, output_count) =
+                invoke_bounded_typed_worklet(runtime.raw, identity)?;
+            match selector {
+                "out:output_count" => returned_number(output_count),
+                "out:outputs" => raw("return", "array", json!(outputs)),
+                _ => returned_number(status),
+            }
         }
         "ex_worklet_set_generation" => {
             unsafe { ex_worklet_set_generation(runtime.raw, 2) };
             returned_undefined()
         }
-        "ex_worklet_set_measure_callback" => {
-            unsafe { ex_worklet_set_measure_callback(runtime.raw, None, std::ptr::null_mut()) };
-            returned_undefined()
+        "ex_worklet_set_measure_callback" => execute_measure_callback(selector, runtime.raw)?,
+        "ex_worklet_take_scheduled_drop_count" => {
+            returned_number(unsafe { ex_worklet_take_scheduled_drop_count(runtime.raw) })
         }
         other => return Err(format!("unsupported worklet Hermes ABI {other}")),
     };
@@ -1808,7 +3823,9 @@ struct ValidatedRow {
     function_name: String,
     mode: String,
     operation: String,
+    release_function: Option<String>,
     return_variant: String,
+    selected_output_kind: String,
     selector: String,
 }
 
@@ -1859,6 +3876,7 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
     if selector != "[[return]]"
         && expected_path_contract.is_none()
         && expected_legacy_contract.is_none()
+        && !is_bounded_family_output_selector(function_name, selector)
     {
         return Err(format!(
             "{function_name}: output selector has no bounded native executor"
@@ -1976,17 +3994,107 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
     let output_contracts = descriptor["outputContracts"]
         .as_array()
         .ok_or("missing source-derived output contracts")?;
-    let expected_selected_output = if let Some(contract) = expected_path_contract {
-        expected_path_selected_output(contract, selector)
-    } else if let Some(contract) = expected_legacy_contract {
-        expected_legacy_selected_output(contract)
-    } else {
-        json!({
-            "kind": "scalar",
-            "ownership": "not-applicable",
-            "selector": "[[return]]"
-        })
-    };
+    let selected_output = &descriptor["selectedOutput"];
+    let (expected_selected_output, selected_output_kind, release_function) =
+        if let Some(contract) = expected_path_contract {
+            (
+                expected_path_selected_output(contract, selector),
+                contract.kind.to_owned(),
+                contract.release_function.map(str::to_owned),
+            )
+        } else if let Some(contract) = expected_legacy_contract {
+            (
+                expected_legacy_selected_output(contract),
+                "pointer".to_owned(),
+                Some("ex_host_free_string".to_owned()),
+            )
+        } else if selector == "[[return]]" {
+            match selected_output["kind"].as_str() {
+                Some("scalar") => (
+                    json!({
+                        "kind": "scalar",
+                        "ownership": "not-applicable",
+                        "selector": "[[return]]"
+                    }),
+                    "scalar".to_owned(),
+                    None,
+                ),
+                Some("pointer") => {
+                    let release = selected_output["ownership"]["releaseFunction"]
+                        .as_str()
+                        .ok_or_else(|| {
+                            format!("{function_name}: owned pointer return has no release function")
+                        })?;
+                    if !matches!(
+                        release,
+                        "ex_host_free_buffer"
+                            | "ex_host_free_string"
+                            | "ex_host_fs_close"
+                            | "ex_hermes_destroy"
+                            | "ex_hermes_free_string"
+                            | "ex_worklet_destroy"
+                    ) {
+                        return Err(format!(
+                            "{function_name}: unreviewed pointer return release function {release}"
+                        ));
+                    }
+                    (
+                        json!({
+                            "kind": "pointer",
+                            "ownership": {
+                                "kind": "caller-owned",
+                                "releaseFunction": release,
+                            },
+                            "role": "return",
+                            "selector": "[[return]]",
+                        }),
+                        "pointer".to_owned(),
+                        Some(release.to_owned()),
+                    )
+                }
+                _ => {
+                    return Err(format!(
+                        "{function_name}: unsupported selected return output contract"
+                    ))
+                }
+            }
+        } else {
+            let kind = selected_output["kind"]
+                .as_str()
+                .ok_or_else(|| format!("{function_name}: selected output has no kind"))?;
+            let role = selected_output["role"]
+                .as_str()
+                .ok_or_else(|| format!("{function_name}: selected output has no role"))?;
+            let ownership = selected_output["ownership"]["kind"]
+                .as_str()
+                .ok_or_else(|| format!("{function_name}: selected output has no ownership"))?;
+            if selected_output["selector"] != selector
+                || !matches!(kind, "aggregate" | "buffer" | "pointer" | "scalar")
+                || !matches!(role, "callback-payload" | "output" | "inout")
+                || !matches!(
+                    ownership,
+                    "borrowed" | "caller-owned" | "caller-storage" | "not-applicable"
+                )
+            {
+                return Err(format!(
+                    "{function_name}: unsupported bounded non-return output contract"
+                ));
+            }
+            let release = selected_output["ownership"]["releaseFunction"]
+                .as_str()
+                .map(str::to_owned);
+            if ownership == "caller-owned"
+                && !matches!(
+                    release.as_deref(),
+                    Some("ex_hermes_evaluation_result_dispose" | "ex_hermes_free_string")
+                )
+            {
+                return Err(format!(
+                    "{function_name}: bounded non-return ownership has an unreviewed release"
+                ));
+            }
+            (selected_output.clone(), kind.to_owned(), release)
+        };
     if descriptor["outputContractSchema"] != OUTPUT_CONTRACT_SCHEMA
         || descriptor["selectedOutput"] != expected_selected_output
         || output_contracts.len() != selected_definitions.len()
@@ -2016,7 +4124,7 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
         let output_drift = if let Some(expected) = expected_path_contract {
             contract["status"] != "resolved"
                 || contract["unresolved"] != json!([])
-                || selected_channel.map_or(true, |channel| {
+                || selected_channel.is_none_or(|channel| {
                     channel["kind"] != expected.kind
                         || channel["role"] != "output"
                         || channel["parameter"] != expected.parameter
@@ -2028,21 +4136,45 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
                         }
                 })
         } else if expected_legacy_contract.is_some() {
-            contract["status"] != "unresolved"
-                || contract["unresolved"] != json!(["return-pointer-ownership"])
+            contract["status"] != "resolved"
+                || contract["unresolved"] != json!([])
                 || contract["return"]["role"] != "value"
                 || contract["return"]["kind"] != "pointer"
-                || contract["return"]["ownership"]["kind"] != "unknown"
-                || selected_channel.map_or(true, |channel| {
+                || contract["return"]["ownership"]["kind"] != "caller-owned"
+                || contract["return"]["ownership"]["releaseFunction"] != "ex_host_free_string"
+                || selected_channel.is_none_or(|channel| {
                     channel["role"] != "return"
                         || channel["kind"] != "pointer"
-                        || channel["ownership"]["kind"] != "unknown"
+                        || channel["ownership"]["kind"] != "caller-owned"
+                        || channel["ownership"]["releaseFunction"] != "ex_host_free_string"
+                })
+        } else if selector != "[[return]]" {
+            contract["status"] != "resolved"
+                || contract["unresolved"] != json!([])
+                || selected_channel != Some(selected_output)
+        } else if selected_output_kind == "pointer" {
+            let release = release_function
+                .as_deref()
+                .expect("validated pointer selected a release function");
+            contract["status"] != "resolved"
+                || contract["unresolved"] != json!([])
+                || contract["return"]["role"] != "value"
+                || contract["return"]["kind"] != "pointer"
+                || contract["return"]["ownership"]["kind"] != "caller-owned"
+                || contract["return"]["ownership"]["releaseFunction"] != release
+                || selected_channel.is_none_or(|channel| {
+                    channel["role"] != "return"
+                        || channel["kind"] != "pointer"
+                        || channel["ownership"]["kind"] != "caller-owned"
+                        || channel["ownership"]["releaseFunction"] != release
                 })
         } else {
-            contract["return"]["role"] != "value"
+            contract["status"] != "resolved"
+                || contract["unresolved"] != json!([])
+                || contract["return"]["role"] != "value"
                 || contract["return"]["kind"] != "scalar"
                 || contract["return"]["ownership"]["kind"] != "not-applicable"
-                || selected_channel.map_or(true, |channel| {
+                || selected_channel.is_none_or(|channel| {
                     channel["role"] != "return" || channel["kind"] != "scalar"
                 })
         };
@@ -2056,7 +4188,9 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
         function_name: function_name.to_owned(),
         mode: mode.to_owned(),
         operation: operation.to_owned(),
+        release_function,
         return_variant: return_variant.to_owned(),
+        selected_output_kind,
         selector: selector.to_owned(),
     })
 }
@@ -2129,7 +4263,7 @@ fn validate_bounded_observation(validated: &ValidatedRow, raw: Value) -> Result<
             || !raw["errorCode"].is_null()
             || names.is_empty()
             || names.iter().any(|name| {
-                name.as_str().map_or(true, |name| {
+                name.as_str().is_none_or(|name| {
                     name.is_empty()
                         || matches!(name, "." | "..")
                         || name.contains('/')
@@ -2143,9 +4277,75 @@ fn validate_bounded_observation(validated: &ValidatedRow, raw: Value) -> Result<
     }
 
     if validated.selector == "[[return]]" {
-        if raw["kind"] != "return" || raw["rawValueShape"] != "number" {
+        let shape_is_valid = match (
+            validated.selected_output_kind.as_str(),
+            validated.release_function.as_deref(),
+        ) {
+            ("scalar", None) => raw["rawValueShape"] == "number",
+            ("pointer", Some("ex_host_free_string" | "ex_hermes_free_string")) => {
+                raw["rawValueShape"] == "string" || raw["rawValueShape"] == "null"
+            }
+            ("pointer", Some("ex_host_free_buffer")) => {
+                raw["rawValueShape"] == "array" || raw["rawValueShape"] == "null"
+            }
+            ("pointer", Some("ex_host_fs_close" | "ex_hermes_destroy" | "ex_worklet_destroy")) => {
+                raw["rawValueShape"] == "object" || raw["rawValueShape"] == "null"
+            }
+            _ => false,
+        };
+        if raw["kind"] != "return" || !shape_is_valid || !raw["errorCode"].is_null() {
             return Err(format!(
-                "{}: scalar return contract produced a non-number runtime fact",
+                "{}: selected return ownership produced an incompatible runtime fact",
+                validated.function_name
+            ));
+        }
+        return Ok(raw);
+    }
+
+    if is_bounded_family_output_selector(&validated.function_name, &validated.selector) {
+        let shape_is_valid = if validated.selector.contains("[]") {
+            raw["rawValueShape"] == "array"
+        } else if matches!(
+            (
+                validated.function_name.as_str(),
+                validated.selector.as_str()
+            ),
+            (
+                "ex_worklet_bind_shared_value_accessors",
+                "callback:read_callback/2" | "callback:write_callback/2"
+            ) | ("ex_worklet_set_measure_callback", "callback:callback/2")
+                | ("ex_worklet_install_metrics", "out:metrics")
+                | (
+                    "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+                    "callback:callback/0"
+                )
+                | ("ex_hermes_set_host_call_async", "callback:callback/0")
+                | (
+                    "ex_hermes_set_exact_host_call_async",
+                    "callback:callback/0" | "callback:callback/5"
+                )
+                | ("ex_hermes_set_host_wake_hook", "callback:hook/0")
+        ) {
+            raw["rawValueShape"] == "object"
+        } else if (
+            validated.function_name.as_str(),
+            validated.selector.as_str(),
+        ) == ("ex_worklet_drain_scheduled_typed", "out:calls")
+        {
+            raw["rawValueShape"] == "array"
+        } else {
+            match validated.selected_output_kind.as_str() {
+                "scalar" => raw["rawValueShape"] == "number",
+                "aggregate" | "buffer" => {
+                    raw["rawValueShape"] == "array" || raw["rawValueShape"] == "null"
+                }
+                "pointer" => raw["rawValueShape"] == "string" || raw["rawValueShape"] == "null",
+                _ => false,
+            }
+        };
+        if raw["kind"] != "return" || !shape_is_valid || !raw["errorCode"].is_null() {
+            return Err(format!(
+                "{}: bounded non-return output produced an incompatible runtime fact",
                 validated.function_name
             ));
         }
@@ -2178,19 +4378,34 @@ fn execute_immediate_host_abi_output(
 ) -> Result<Value, String> {
     let function_name = validated.function_name.as_str();
     let raw = match validated.operation.as_str() {
-        "rust-host-fs-sandbox" => execute_fs(function_name, sandbox),
+        "rust-host-fs-sandbox" => execute_fs(function_name, &validated.selector, sandbox),
         "rust-host-sqlite-memory" => execute_sqlite(function_name, sandbox),
-        "rust-host-terminal-inert" => execute_terminal(function_name),
+        "rust-host-terminal-inert" => execute_terminal(function_name, &validated.selector),
         "rust-host-bounded-basic" => execute_basic(function_name),
-        "native-hermes-stateless-current-target" => execute_hermes_stateless(function_name),
-        "native-hermes-diagnostic-runtime" => execute_hermes_diagnostic(function_name),
-        "native-hermes-worklet-runtime" => execute_worklet(function_name),
+        "native-hermes-stateless-current-target" => {
+            execute_hermes_stateless(function_name, &validated.selector)
+        }
+        "native-hermes-diagnostic-runtime" => {
+            execute_hermes_diagnostic(function_name, &validated.selector)
+        }
+        "native-hermes-authenticated-armed-create" => execute_authenticated_armed_create(sandbox),
+        "native-hermes-bounded-dispatch-runtime" => {
+            execute_bounded_dispatch(function_name, &validated.selector)
+        }
+        "native-hermes-owned-value-runtime" => {
+            execute_owned_value(function_name, &validated.selector)
+        }
+        "rust-host-wake-hook-callback" => execute_host_wake_hook_callback(&validated.selector),
+        "native-hermes-worklet-runtime" => execute_worklet(function_name, &validated.selector),
         "native-hermes-stateless-path-output" => {
             execute_engine_path_output(function_name, &validated.selector)
         }
-        "rust-host-authenticated-vfs-path-output" => {
+        "rust-host-authenticated-stateful-output"
+        | "rust-host-authenticated-typed-authority"
+        | "rust-host-authenticated-vfs-output"
+        | "rust-host-authenticated-vfs-path-output" => {
             return Err(format!(
-                "{function_name}: authenticated VFS output was scheduled as an immediate call"
+                "{function_name}: authenticated Host output was scheduled as an immediate call"
             ))
         }
         "rust-host-legacy-path-output" | "rust-host-legacy-directory-output" => {
@@ -2217,7 +4432,12 @@ pub(super) fn execute_host_abi_output_rows(rows: &[Value]) -> (Vec<Value>, Vec<V
     for (index, validation) in validated.iter().enumerate() {
         match validation {
             Err(reason) => executions[index] = Some(Err(reason.clone())),
-            Ok(row) if row.operation != "rust-host-authenticated-vfs-path-output" => {
+            Ok(row)
+                if row.operation != "rust-host-authenticated-vfs-path-output"
+                    && row.operation != "rust-host-authenticated-vfs-output"
+                    && row.operation != "rust-host-authenticated-typed-authority"
+                    && row.operation != "rust-host-authenticated-stateful-output" =>
+            {
                 executions[index] = Some(execute_immediate_host_abi_output(row, &sandbox));
             }
             Ok(_) => {}
@@ -2231,7 +4451,10 @@ pub(super) fn execute_host_abi_output_rows(rows: &[Value]) -> (Vec<Value>, Vec<V
             validation
                 .as_ref()
                 .ok()
-                .filter(|row| row.operation == "rust-host-authenticated-vfs-path-output")
+                .filter(|row| {
+                    row.operation == "rust-host-authenticated-vfs-path-output"
+                        || row.operation == "rust-host-authenticated-vfs-output"
+                })
                 .map(|_| index)
         })
         .collect::<Vec<_>>();
@@ -2254,6 +4477,47 @@ pub(super) fn execute_host_abi_output_rows(rows: &[Value]) -> (Vec<Value>, Vec<V
                 }
             }
         }
+    }
+
+    let typed_indices = validated
+        .iter()
+        .enumerate()
+        .filter_map(|(index, validation)| {
+            validation
+                .as_ref()
+                .ok()
+                .filter(|row| row.operation == "rust-host-authenticated-typed-authority")
+                .map(|_| index)
+        })
+        .collect::<Vec<_>>();
+    for index in typed_indices {
+        let row = validated[index]
+            .as_ref()
+            .expect("typed-authority index was selected from validated rows");
+        let execution = execute_typed_authority(&row.function_name, &row.selector, &sandbox)
+            .and_then(|raw| validate_bounded_observation(row, raw));
+        executions[index] = Some(execution);
+    }
+
+    let stateful_indices = validated
+        .iter()
+        .enumerate()
+        .filter_map(|(index, validation)| {
+            validation
+                .as_ref()
+                .ok()
+                .filter(|row| row.operation == "rust-host-authenticated-stateful-output")
+                .map(|_| index)
+        })
+        .collect::<Vec<_>>();
+    for index in stateful_indices {
+        let row = validated[index]
+            .as_ref()
+            .expect("stateful Host index was selected from validated rows");
+        let execution =
+            execute_authenticated_stateful_host(&row.function_name, &row.selector, &sandbox)
+                .and_then(|raw| validate_bounded_observation(row, raw));
+        executions[index] = Some(execution);
     }
 
     let mut observations = Vec::with_capacity(rows.len());
@@ -2396,14 +4660,20 @@ fn authored_legacy_test_row(
         "language": "rust",
         "outputChannels": [{
             "kind": "pointer",
-            "ownership": {"kind": "unknown"},
+            "ownership": {
+                "kind": "caller-owned",
+                "releaseFunction": "ex_host_free_string",
+            },
             "role": "return",
             "selector": "[[return]]",
         }],
         "parameters": [],
         "return": {
             "kind": "pointer",
-            "ownership": {"kind": "unknown"},
+            "ownership": {
+                "kind": "caller-owned",
+                "releaseFunction": "ex_host_free_string",
+            },
             "role": "value",
             "type": {
                 "canonical": "* mut c_char",
@@ -2412,8 +4682,8 @@ fn authored_legacy_test_row(
         },
         "schema": OUTPUT_CONTRACT_SCHEMA,
         "sourceRef": source_ref,
-        "status": "unresolved",
-        "unresolved": ["return-pointer-ownership"],
+        "status": "resolved",
+        "unresolved": [],
     });
     let definition = json!({
         "language": "rust",

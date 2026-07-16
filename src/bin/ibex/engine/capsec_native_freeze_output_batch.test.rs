@@ -8,7 +8,6 @@ use std::collections::BTreeSet;
 
 const SOURCE_DESCRIPTOR_KIND: &str = "authored-native-freeze-invocation";
 const INVOCATION_SCHEMA: &str = "ibex/capsec-native-freeze-output-invocation/1";
-const HARNESS: &str = include_str!("capsec_native_freeze_output_invocation.js");
 
 pub(super) fn is_surface(row: &Value) -> bool {
     row["probe"]["sourceDescriptor"]["kind"] == SOURCE_DESCRIPTOR_KIND
@@ -144,47 +143,42 @@ fn invocation(row: &Value) -> &Value {
     invocation
 }
 
-fn invocation_script(row: &Value) -> String {
-    format!(
-        "JSON.stringify(({})({}))",
-        HARNESS.trim(),
-        serde_json::to_string(invocation(row)).expect("serialize native freeze invocation"),
-    )
+fn observation_bit(row: &Value) -> u32 {
+    invocation(row);
+    match (row["key"]["alias"].as_str(), row["key"]["mode"].as_str()) {
+        (Some("__exactDeepFreeze"), Some("primitive-sentinel")) => 1,
+        (Some("__exactDeepFreeze"), Some("object-sentinel")) => 2,
+        (Some("__exactNativeFreeze"), Some("primitive-sentinel")) => 4,
+        (Some("__exactNativeFreeze"), Some("object-sentinel")) => 8,
+        other => panic!("unsupported native freeze observation row {other:?}"),
+    }
 }
 
 pub(super) async fn results(engine: &HermesEngine, rows: &[Value]) -> Vec<Value> {
+    let mask = engine
+        .native_freeze_observation()
+        .await
+        .expect("read loaded Hermes pre-seal native-freeze observation");
+    assert_eq!(mask & 0x10, 0x10, "native-freeze observer did not complete");
     let mut observed = Vec::with_capacity(rows.len());
     for row in rows {
-        let encoded = engine
-            .eval_immediate(&invocation_script(row))
-            .await
-            .expect("execute native freeze identity invocation")
-            .expect("native freeze identity invocation returned no result");
-        let result: Value = serde_json::from_str(&encoded)
-            .expect("native freeze identity invocation returned invalid JSON");
-        assert_eq!(
-            result["kind"], "return",
-            "native freeze identity invocation failed: {result}"
+        let bit = observation_bit(row);
+        assert_ne!(
+            mask & bit,
+            0,
+            "loaded Hermes pre-seal native-freeze observation failed for {} / {}; mask={mask:#06b}",
+            row["key"]["alias"],
+            row["key"]["mode"]
         );
-        assert_eq!(result["sourceOperationAttempted"], true);
-        assert_eq!(result["identityProven"], true);
-        assert_eq!(result["freezingSemanticsProven"], true);
-        let raw = &result["rawOutput"];
-        assert_exact_keys(
-            raw,
-            &["kind", "rawValueShape", "value", "errorCode"],
-            "native freeze raw output",
-        );
-        assert_eq!(
-            raw,
-            &json!({
+        observed.push(super::return_record_result(
+            row,
+            json!({
                 "kind": "return",
                 "rawValueShape": "argument-identity",
                 "value": "same-as-argument-0",
                 "errorCode": null,
-            })
-        );
-        observed.push(super::return_record_result(row, raw.clone()));
+            }),
+        ));
     }
     observed
 }

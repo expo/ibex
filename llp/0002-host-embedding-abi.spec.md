@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-14 (named aggregate/member output schemas and direction-exact nested callback contracts close ABI output membership); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment); 2026-07-14 (source-derived ABI output signatures, roles, selectors, buffer pairs, ownership, Java/JNI declaration reconciliation, and opaque input-handle accounting); 2026-07-14 (Hermes-safe Error metadata and poll-checkpoint Promise rejection publication complete asynchronous-failure ABI v1, including schedule-time job provenance and top-level-await de-duplication); 2026-07-14 (owner-thread structured asynchronous-failure publication ABI v1 with rooted values, authenticated schedule-time attribution, and explicit bounded loss); 2026-07-14 (structured-evaluation result ABI v2 adds owned, length-bearing source-position records while keeping unimplemented safe-throw/source-position capability bits off); 2026-07-14 (source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (bounded any-thread work-unit publication ABI, including timer due/undue scheduling identities); 2026-07-13 (structured-session import plan v2 carries the authenticated entry SourceId used by the private module cache); 2026-07-13 (normative structured-evaluation result ABI v1, migration rules, and the lowered-session extension's versioned static-import plan); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-15 (structured throw metadata now carries a closed, trap-free native Error class derived from the JSError's internal direct-prototype identity); 2026-07-15 (the independent C11 consumer now executes the adversarial structured-value and cancellation ABI cases at runtime in the conformance profile); 2026-07-14 (named aggregate/member output schemas and direction-exact nested callback contracts close ABI output membership); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment); 2026-07-14 (source-derived ABI output signatures, roles, selectors, buffer pairs, ownership, Java/JNI declaration reconciliation, and opaque input-handle accounting); 2026-07-14 (Hermes-safe Error metadata and poll-checkpoint Promise rejection publication complete asynchronous-failure ABI v1, including schedule-time job provenance and top-level-await de-duplication); 2026-07-14 (owner-thread structured asynchronous-failure publication ABI v1 with rooted values, authenticated schedule-time attribution, and explicit bounded loss); 2026-07-14 (structured-evaluation result ABI v2 adds owned, length-bearing source-position records while keeping unimplemented safe-throw/source-position capability bits off); 2026-07-14 (source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (bounded any-thread work-unit publication ABI, including timer due/undue scheduling identities); 2026-07-13 (structured-session import plan v2 carries the authenticated entry SourceId used by the private module cache); 2026-07-13 (normative structured-evaluation result ABI v1, migration rules, and the lowered-session extension's versioned static-import plan); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -92,11 +92,11 @@ layout:
 | `ExHermesOwnedBytes` | `uint8_t *data`; `size_t length` |
 | `ExHermesSourcePosition` | `ExHermesOwnedBytes source_label`; `uint32_t line`; `uint32_t column` |
 | `ExHermesValueHandle` | `uint64_t runtime_nonce`; `uint64_t handle_id` |
-| `ExHermesEvaluationResult` | `uint32_t abi_version`; `uint32_t struct_size`; `uint32_t outcome_tag`; `uint32_t fault`; `uint64_t work_target_id`; `ExHermesValueHandle value`; `uint32_t throw_metadata_status`; `uint32_t throw_metadata_fields`; `int32_t lifecycle_exit_code`; `uint32_t capability_flags`; `ExHermesOwnedBytes message`; `ExHermesOwnedBytes stack`; `ExHermesSourcePosition *positions`; `size_t position_count` |
+| `ExHermesEvaluationResult` | `uint32_t abi_version`; `uint32_t struct_size`; `uint32_t outcome_tag`; `uint32_t fault`; `uint64_t work_target_id`; `ExHermesValueHandle value`; `uint32_t throw_metadata_status`; `uint32_t throw_metadata_fields`; `uint32_t throw_error_class`; `int32_t lifecycle_exit_code`; `uint32_t capability_flags`; `ExHermesOwnedBytes message`; `ExHermesOwnedBytes stack`; `ExHermesSourcePosition *positions`; `size_t position_count` |
 
 On the supported 64-bit ABI this gives result offsets `0, 4, 8, 12, 16, 24,
-40, 44, 48, 52, 56, 72, 88, 96` respectively and
-`sizeof(ExHermesEvaluationResult) == 104`; `ExHermesValueHandle` is 16 bytes,
+40, 44, 48, 52, 56, 64, 80, 96, 104` respectively and
+`sizeof(ExHermesEvaluationResult) == 112`; `ExHermesValueHandle` is 16 bytes,
 each `ExHermesOwnedBytes` is 16 bytes, and `ExHermesSourcePosition` is 24 bytes
 with its line and column at offsets 16 and 20. A target with a different pointer
 width uses its ordinary C ABI layout and must pass its own exact `sizeof` in
@@ -123,37 +123,62 @@ Payload and ownership rules are:
   when its runtime is destroyed, and is rejected on a wrong owner thread or
   runtime. The owner releases it exactly once with `ex_hermes_value_release`,
   or settles a pending display receipt with `ex_hermes_session_display_ack`.
-- `message` and `stack` are independently length-bearing byte buffers. Embedded
-  NUL is data, not a terminator. A present buffer is allocated by the native
-  side and freed by `ex_hermes_evaluation_result_dispose`; an absent buffer is
-  `{NULL, 0}`. Disposing does not release a value handle.
+- `message` and `stack` are independently length-bearing byte buffers, each
+  capped at `EX_HERMES_SAFE_TEXT_MAX_BYTES` (16 KiB) of valid UTF-8 including
+  the static `EX_HERMES_SAFE_TEXT_TRUNCATION_MARKER`. Embedded NUL is data, not
+  a terminator. A present buffer is allocated by the native side and freed by
+  `ex_hermes_evaluation_result_dispose`; an absent buffer is `{NULL, 0}`.
+  Disposing does not release a value handle.
 - `positions` is either `{NULL, 0}` or a native-allocated array whose every
   record owns its explicit-length UTF-8 `source_label`; `line` and `column` are
   one-based and nonzero. Result disposal frees every nested label and then the
   array. The third `throw_metadata_fields` bit is present only for a nonempty
   position array.
-- `throw_metadata_status == Captured` permits only the message/stack/positions
-  presence bits named by `throw_metadata_fields`; `Unavailable` carries none.
+- `throw_metadata_status == Captured` permits message/stack/positions presence
+  bits 0–2 plus independent message/stack truncation bits 3–4 in
+  `throw_metadata_fields`; a truncation bit requires its presence bit and the
+  exact trusted marker suffix. `Unavailable` carries no bits or owned payload.
   Throw metadata supplements the raw thrown handle and never replaces or
   coerces it.
+- `throw_error_class` is the closed `ExHermesErrorClass` discriminant. Hermes
+  derives it by comparing an internally branded JSError's **direct** prototype
+  pointer with the pinned intrinsic Error prototypes. It never reads
+  `.name`/`.constructor`, invokes a trap, or walks a mutable prototype chain;
+  arbitrary values and subclass prototypes are `Unclassified`. Unknown values
+  are protocol errors, and `Unavailable` metadata must carry `Unclassified`.
 - `Lifecycle` alone carries `lifecycle_exit_code`. `capability_flags` advertises
   the exact supported stratum (`Base`, safe throw capture, source positions,
   rich inspection); a consumer must require the strata it uses.
-- Allocation failure produces the named out-of-memory engine fault with no
-  fabricated payload. Cancellation racing a normal return has one terminal
-  typed outcome for the exact work target; stale-target cancellation cannot
-  land on a successor.
+- Allocation failure before an outcome value is rooted produces the named
+  out-of-memory engine fault with no fabricated payload. Once a Throw handle
+  is rooted, failure while capturing or copying optional safe metadata keeps
+  the Throw and returns empty `Captured`/`Unclassified` metadata when
+  `SafeThrow` was advertised; that no-throw fallback cannot cross the C ABI or
+  rewrite the language outcome. Cancellation racing a normal return has one
+  terminal typed outcome for the exact work target; stale-target cancellation
+  cannot land on a successor.
 
 The pinned Hermes patch stack exposes both trap-free raw thrown-value capture
 and engine-owned Error metadata extraction. The latter reads only an actual
-Hermes `JSError`'s own plain message slot and internal stack records; it never
-consults JavaScript `.stack`, accessors, proxies, `prepareStackTrace`, or string
-coercion. The evaluator therefore advertises `Base | SafeThrow`: an ordinary
-Error carries captured message/stack fields, while an arbitrary thrown value is
-still the original rooted handle with `Captured` and no fabricated fields.
+Hermes `JSError`'s own plain message slot, internal stack records, and direct
+prototype pointer; it never consults JavaScript `.stack`, `.name`,
+`.constructor`, accessors, proxies, `prepareStackTrace`, a mutable prototype
+chain, or string coercion. The evaluator therefore advertises `Base |
+SafeThrow`: an ordinary Error carries its closed class plus captured
+message/stack fields, while an arbitrary thrown value is still the original
+rooted handle with `Captured`, `Unclassified`, and no fabricated fields.
 Lowered session source maps are supplied to Hermes' source-map-aware evaluator,
 but the independent owned source-position records remain unimplemented, so
 `SourcePositions` stays off.
+
+`ex_hermes_value_stage1_text` returns an additional exact `0`/`1`
+`out_truncated` scalar. String, Symbol, and BigInt text is produced directly
+from bounded engine storage and is never larger than 16 KiB including the
+trusted marker. `ex_hermes_value_safe_throw_metadata` likewise returns
+`metadata_fields` alongside the closed error class and owned buffers, so direct
+throws and asynchronous failures carry identical independent truncation facts.
+All outputs, including these scalars, are zeroed before wrong-thread,
+stale-handle, unavailable-profile, allocation-failure, and engine-fault exits.
 
 The source buffers consumed by structured diagnostic/session evaluators are
 borrowed, explicit-length UTF-8. Empty source is valid and embedded NUL in
@@ -173,6 +198,18 @@ must not cast a structured
 result to the legacy `char **out_value`, infer throw-vs-fault from text, or retry
 an armed request through `ex_hermes_eval`. LLP 0000 records this explicit
 semver-major migration surface while retaining the five legacy declarations.
+
+**Independent C evidence.** The C11 consumer in
+`src/engine/exact_runtime_c_abi_check.c` owns both its public-ABI calls and its
+behavioral assertions. In the conformance-observer profile it executes the
+embedded-NUL output, typed allocation-failure/no-payload, stale, wrong-runtime,
+wrong-thread, exact-once release, runtime-destruction cleanup, and
+normal-return cancellation-race cases. Rust supplies only the foreign thread
+and runtime-driving orchestration. The deterministic allocation and destruction
+controls are conformance-only symbols: they are neither declared by this public
+header nor compiled into production artifacts `[observed]`
+(`src/engine/exact_runtime_c_abi_check.c`; `src/engine/hermes_runtime.cc`;
+`src/engine/mod.rs`; `src/bin/ibex/engine/hermes.rs`).
 
 ### Native work-unit publication ABI v1
 
@@ -295,9 +332,11 @@ binding-read failure therefore publishes no declaration `[observed]`
 (`src/engine/hermes_runtime.cc`; `src/engine/bootstrap/module-loader.js`;
 `src/host/abi.rs`).
 
-`EX_HERMES_SESSION_IMPORT_PLAN_ABI_VERSION` is currently `2`; v2 appends the
-borrowed, explicit-length SourceId field used for the direct-entry cache
-reservation. The independent
+`EX_HERMES_SESSION_IMPORT_PLAN_ABI_VERSION` is currently `4`. Version 2
+introduced the borrowed, explicit-length SourceId used for the direct-entry
+cache reservation; the current v4 tail also carries the generated-entry
+provenance record and closed structured-source kind. Native validation requires
+the exact v4 size and rejects older or partially initialized layouts. The independent
 C11 consumer `src/engine/exact_runtime_c_abi_check.c` compile-checks the version,
 field layout, and exact function-pointer type in addition to the Rust/C++
 consumers. Input pointers remain borrowed for the call; structured result-owned

@@ -7,8 +7,6 @@
 //! parent watchdog remain serviceable while JavaScript is stuck.
 //! @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
 
-#![cfg(unix)]
-
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
@@ -22,6 +20,12 @@ use crate::engine::{
 };
 use crate::runtime::{AuthenticatedEvaluationFailure, Runtime};
 use crate::session_worker::{
+    authenticated_frame_charge,
+    bounded_lane::{
+        self, BoundedLaneReceiver, BoundedLaneSender, ControllerFaultReason, LaneDelivery,
+        LaneLimits, PostReceiptLoss, PushErrorKind, SequencedLaneDelivery, SequencedLaneLease,
+        SequencedLaneReceiver, SequencedLaneSender, SequencedReceiveTimeoutError, TryReceiveError,
+    },
     AuthenticatedWorkerCommand, CancellationResolution, ControlMessage, DisplayAckDisposition,
     EvaluationOutcomeKind, ProtectedWorkerBootstrap, SessionInputMode, SubmissionKind,
     VerifiedWorkerEndpoint, WorkUnitKind, WorkUnitPhase, WorkerApplicationRole,
@@ -43,6 +47,9 @@ const CONTROL_DELIVERY_TIMED_OUT: u8 = 1;
 const CONTROL_DELIVERY_ACKNOWLEDGED: u8 = 2;
 const IDLE_PUMP: Duration = Duration::from_millis(10);
 const STEP_MOUNTS: u8 = 1;
+const WORKER_EVENT_DRAIN_BUDGET: usize = 1;
+const WORKER_NATIVE_DRAIN_BUDGET: usize = 1;
+const SUPERVISOR_COMMAND_DRAIN_BUDGET: usize = 64;
 
 enum EvaluationCommand {
     Start(SessionInputMode),
@@ -92,6 +99,208 @@ enum EvaluationEvent {
     Stopped(i32),
 }
 
+type EvaluationEventSender = BoundedLaneSender<EvaluationEvent, u64>;
+type EvaluationEventReceiver = BoundedLaneReceiver<EvaluationEvent, u64>;
+type SupervisorEventSender = SequencedLaneSender<crate::session_worker::SupervisorEventPayload>;
+type SupervisorEventReceiver = SequencedLaneReceiver<crate::session_worker::SupervisorEventPayload>;
+
+fn evaluation_lane_limits() -> LaneLimits {
+    LaneLimits {
+        lossy_bytes: ibex_runtime::session_constants::BROKER_QUEUE_BOUND_BYTES,
+        // One maximum display tree plus a full event-sized reserve leaves
+        // lifecycle, outcome, and terminal records independent of async load.
+        required_bytes: ibex_runtime::session_constants::DISPLAY_TREE_MAX_SERIALIZED_BYTES
+            .checked_add(ibex_runtime::session_constants::BROKER_QUEUE_BOUND_BYTES)
+            .expect("session event lane constants fit usize"),
+        loss_records: ibex_runtime::session_constants::BROKER_QUEUE_BOUND_BYTES
+            / std::mem::size_of::<EvaluationEvent>().max(1),
+    }
+}
+
+fn supervisor_event_lane_limits() -> LaneLimits {
+    LaneLimits {
+        lossy_bytes: ibex_runtime::session_constants::BROKER_QUEUE_BOUND_BYTES,
+        required_bytes: ibex_runtime::session_constants::DISPLAY_TREE_MAX_SERIALIZED_BYTES
+            .checked_add(ibex_runtime::session_constants::BROKER_QUEUE_BOUND_BYTES)
+            .expect("supervisor event lane constants fit usize"),
+        loss_records: ibex_runtime::session_constants::BROKER_QUEUE_BOUND_BYTES
+            / std::mem::size_of::<crate::session_worker::SupervisorEventPayload>().max(1),
+    }
+}
+
+fn supervisor_post_receipt_loss(
+    loss: PostReceiptLoss,
+) -> crate::session_worker::SupervisorEventPayload {
+    crate::session_worker::SupervisorEventPayload::PostReceiptLoss {
+        count: loss.count,
+        highest_dropped_sequence: loss.highest_dropped_sequence,
+    }
+}
+
+fn supervisor_controller_fault(
+    reason: ControllerFaultReason,
+) -> crate::session_worker::SupervisorEventPayload {
+    crate::session_worker::SupervisorEventPayload::ControllerFault(reason)
+}
+
+fn supervisor_event_charge(
+    event: &crate::session_worker::SupervisorEventPayload,
+) -> std::result::Result<usize, WorkerProtocolError> {
+    let payload = match event {
+        crate::session_worker::SupervisorEventPayload::Worker(message) => {
+            return message
+                .encoded_frame_size()?
+                .checked_add(std::mem::size_of::<
+                    crate::session_worker::SupervisorEventPayload,
+                >())
+                .ok_or(WorkerProtocolError::Oversize)
+        }
+        crate::session_worker::SupervisorEventPayload::WorkerDied(_)
+        | crate::session_worker::SupervisorEventPayload::PostReceiptLoss { .. }
+        | crate::session_worker::SupervisorEventPayload::ControllerFault(_) => 32,
+    };
+    authenticated_frame_charge(payload)?
+        .checked_add(std::mem::size_of::<
+            crate::session_worker::SupervisorEventPayload,
+        >())
+        .ok_or(WorkerProtocolError::Oversize)
+}
+
+fn supervisor_event_is_lossy(
+    event: &crate::session_worker::SupervisorEventPayload,
+    allow_lossy_async: bool,
+) -> bool {
+    allow_lossy_async
+        && matches!(
+            event,
+            crate::session_worker::SupervisorEventPayload::Worker(
+                ControlMessage::AsyncFailure { detail, .. }
+            ) if encoded_async_failure_is_ordinary(detail)
+        )
+}
+
+fn publish_supervisor_event(
+    events: &SupervisorEventSender,
+    event: crate::session_worker::SupervisorEventPayload,
+    allow_lossy_async: bool,
+) -> std::result::Result<(), PushErrorKind> {
+    let charge =
+        supervisor_event_charge(&event).map_err(|_| PushErrorKind::RequiredCapacityExceeded)?;
+    let result = if supervisor_event_is_lossy(&event, allow_lossy_async) {
+        events.try_push_lossy(event, charge)
+    } else {
+        events.try_push_required(event, charge)
+    };
+    result.map(|_| ()).map_err(|error| error.kind)
+}
+
+fn evaluation_event_charge(
+    event: &EvaluationEvent,
+) -> std::result::Result<usize, WorkerProtocolError> {
+    let payload_bytes = match event {
+        EvaluationEvent::Message(message) => {
+            return message
+                .encoded_frame_size()?
+                .checked_add(std::mem::size_of::<EvaluationEvent>())
+                .ok_or(WorkerProtocolError::Oversize)
+        }
+        EvaluationEvent::Outcome { detail, .. } => 33usize.checked_add(detail.len()),
+        EvaluationEvent::AsyncFailure { detail, .. } => 20usize.checked_add(detail.len()),
+        EvaluationEvent::Display { tree, .. } => 28usize.checked_add(tree.len()),
+        EvaluationEvent::ExitCodeMirror { .. } => Some(12),
+        EvaluationEvent::LifecycleCommit { .. } => Some(28),
+        EvaluationEvent::ReadyCheckpoint { .. } => Some(24),
+        EvaluationEvent::Stopped(_) => Some(4),
+    }
+    .ok_or(WorkerProtocolError::Oversize)?;
+    authenticated_frame_charge(payload_bytes)?
+        .checked_add(std::mem::size_of::<EvaluationEvent>())
+        .ok_or(WorkerProtocolError::Oversize)
+}
+
+fn encoded_async_failure_is_ordinary(detail: &[u8]) -> bool {
+    matches!(
+        decode_async_failure(detail),
+        Ok(AuthenticatedAsyncFailure::Captured { .. }
+            | AuthenticatedAsyncFailure::CaptureUnavailable { .. })
+    )
+}
+
+fn evaluation_event_is_lossy(event: &EvaluationEvent) -> bool {
+    matches!(
+        event,
+        EvaluationEvent::Message(ControlMessage::AsyncFailure { detail, .. })
+            if encoded_async_failure_is_ordinary(detail)
+    )
+}
+
+fn evaluation_lane_fault_detail(kind: PushErrorKind) -> &'static [u8] {
+    match kind {
+        PushErrorKind::Closed => b"bounded evaluator event lane closed",
+        PushErrorKind::RequiredCapacityExceeded => {
+            b"bounded evaluator event lane exhausted its required reserve"
+        }
+        PushErrorKind::PrioritySlotOccupied => {
+            b"bounded evaluator event lane lifecycle slot was already occupied"
+        }
+        PushErrorKind::LossAccountingExhausted => {
+            b"bounded evaluator event lane exhausted loss accounting"
+        }
+        PushErrorKind::LossCounterOverflow => {
+            b"bounded evaluator event lane loss counter overflowed"
+        }
+        PushErrorKind::SequenceExhausted => b"bounded evaluator event lane sequence exhausted",
+    }
+}
+
+fn latch_evaluation_lane_fault(events: &EvaluationEventSender, kind: PushErrorKind) {
+    let _ = events.latch_terminal(EvaluationEvent::Message(ControlMessage::WorkerFault {
+        stdout_cutoff: 0,
+        stderr_cutoff: 0,
+        detail: evaluation_lane_fault_detail(kind).to_vec(),
+    }));
+}
+
+fn publish_evaluation_event(
+    events: &EvaluationEventSender,
+    event: EvaluationEvent,
+) -> std::result::Result<(), WorkerProtocolError> {
+    let charge = match evaluation_event_charge(&event) {
+        Ok(charge) => charge,
+        Err(error) => {
+            latch_evaluation_lane_fault(events, PushErrorKind::RequiredCapacityExceeded);
+            return Err(error);
+        }
+    };
+    let result = if matches!(event, EvaluationEvent::LifecycleCommit { .. }) {
+        events.try_push_priority(event)
+    } else if evaluation_event_is_lossy(&event) {
+        events
+            .try_push_lossy(event, charge, 1u64, |count, next| {
+                *count = count.checked_add(next).ok_or(())?;
+                Ok(())
+            })
+            .map(|_| ())
+    } else {
+        events.try_push_required(event, charge)
+    };
+    result.map_err(|error| {
+        latch_evaluation_lane_fault(events, error.kind);
+        match error.kind {
+            PushErrorKind::Closed => WorkerProtocolError::WorkerDied,
+            PushErrorKind::RequiredCapacityExceeded | PushErrorKind::PrioritySlotOccupied => {
+                WorkerProtocolError::Backpressure
+            }
+            PushErrorKind::LossAccountingExhausted | PushErrorKind::LossCounterOverflow => {
+                WorkerProtocolError::Malformed("evaluator event loss accounting failed closed")
+            }
+            PushErrorKind::SequenceExhausted => {
+                WorkerProtocolError::Malformed("evaluator event sequence exhausted")
+            }
+        }
+    })
+}
+
 struct WorkerStartup {
     binding: crate::session_worker::ArmedSessionBinding,
     root: capsec_semantics::model::ObjectIdentity,
@@ -99,8 +308,13 @@ struct WorkerStartup {
 }
 
 enum WorkerIngress {
-    Repl(crate::runtime::ReplSessionIngress),
-    Inline(crate::runtime::AuthenticatedInlineIngress),
+    Repl(Box<crate::runtime::ReplSessionIngress>),
+    Inline(Box<crate::runtime::AuthenticatedInlineIngress>),
+}
+
+struct EvaluationSettlementPorts<'a> {
+    events: &'a EvaluationEventSender,
+    output_cutoffs: &'a crate::terminal_session::WorkerOutputCutoffPort,
 }
 
 /// Construct Runtime on its permanent owner thread, complete both bootstrap
@@ -110,7 +324,7 @@ pub(crate) fn run_authenticated_runtime_worker(protected: ProtectedWorkerBootstr
     let configuration = protected.configuration().clone();
     let output_cutoffs = protected.output_cutoff_port();
     let (commands_tx, commands_rx) = mpsc::channel();
-    let (events_tx, events_rx) = mpsc::channel();
+    let (events_tx, events_rx) = bounded_lane::channel(evaluation_lane_limits());
     let (startup_tx, startup_rx) = mpsc::sync_channel(1);
     let lifecycle_events = events_tx.clone();
     let mirror_events = events_tx.clone();
@@ -120,12 +334,14 @@ pub(crate) fn run_authenticated_runtime_worker(protected: ProtectedWorkerBootstr
     let lifecycle_port = crate::host::abi::AuthenticatedWorkerLifecyclePort::new(
         move |mutation| {
             let (reply_tx, reply_rx) = mpsc::sync_channel(1);
-            if mirror_events
-                .send(EvaluationEvent::ExitCodeMirror {
+            if publish_evaluation_event(
+                &mirror_events,
+                EvaluationEvent::ExitCodeMirror {
                     status: mutation.status(),
                     reply: reply_tx,
-                })
-                .is_err()
+                },
+            )
+            .is_err()
             {
                 return crate::host::abi::WorkerLifecycleAcknowledgement::Unacknowledged;
             }
@@ -141,15 +357,17 @@ pub(crate) fn run_authenticated_runtime_worker(protected: ProtectedWorkerBootstr
                 }
             };
             let (reply_tx, reply_rx) = mpsc::sync_channel(1);
-            if lifecycle_events
-                .send(EvaluationEvent::LifecycleCommit {
+            if publish_evaluation_event(
+                &lifecycle_events,
+                EvaluationEvent::LifecycleCommit {
                     request_id: commit.request_id(),
                     status: commit.status(),
                     stdout_cutoff: cutoffs.stdout(),
                     stderr_cutoff: cutoffs.stderr(),
                     reply: reply_tx,
-                })
-                .is_err()
+                },
+            )
+            .is_err()
             {
                 return crate::host::abi::WorkerLifecycleAcknowledgement::Unacknowledged;
             }
@@ -163,21 +381,19 @@ pub(crate) fn run_authenticated_runtime_worker(protected: ProtectedWorkerBootstr
             .context("failed to install the authenticated worker lifecycle port")?;
     let evaluator_configuration = configuration.clone();
     let evaluator_output_cutoffs = output_cutoffs.clone();
+    let evaluator_fault_events = events_tx.clone();
     let evaluator = std::thread::Builder::new()
         .name("ibex-authenticated-session-engine".to_owned())
         .spawn(move || {
-            let result = run_evaluator_owner(
-                evaluator_configuration,
-                commands_rx,
-                events_tx,
-                startup_tx,
-                evaluator_output_cutoffs,
-            );
-            if let Err(error) = result {
-                // Startup errors are delivered on the startup channel. A later
-                // owner-thread fault is an authenticated WorkerFault event.
-                let _ = error;
-            }
+            run_evaluator_owner_guarded(evaluator_fault_events, move || {
+                run_evaluator_owner(
+                    evaluator_configuration,
+                    commands_rx,
+                    events_tx,
+                    startup_tx,
+                    evaluator_output_cutoffs,
+                )
+            });
         })
         .context("failed to start the authenticated engine owner thread")?;
 
@@ -198,16 +414,37 @@ pub(crate) fn run_authenticated_runtime_worker(protected: ProtectedWorkerBootstr
     // A cooperative lifecycle callback may deliberately leave the evaluator
     // parked. The supervisor disposes the worker process; never join a live
     // parked owner thread on that path.
-    if result.is_err() || evaluator.is_finished() {
+    if evaluator.is_finished() {
         let _ = evaluator.join();
     }
     result.map_err(anyhow::Error::new)
 }
 
+/// Convert every abnormal evaluator-owner return into the authenticated event
+/// lane before the thread disappears. The control owner deliberately remains a
+/// separate thread so it can relay this fault even when the runtime owner
+/// unwinds; the supervisor can then quiesce the worker before releasing its
+/// output capture.
+/// @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
+fn run_evaluator_owner_guarded(events: EvaluationEventSender, run: impl FnOnce() -> Result<()>) {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => emit_fault(
+            &events,
+            &format!("authenticated evaluator owner failed: {error:#}"),
+        ),
+        Err(_) => emit_fault(&events, "authenticated evaluator owner panicked"),
+    }
+    // Lifecycle callbacks retain sender clones for the process lifetime, so
+    // clone disconnection cannot prove that the sole Runtime owner survived.
+    // The owner closes admission explicitly after its final required record.
+    events.close();
+}
+
 fn run_evaluator_owner(
     configuration: WorkerBootstrapConfiguration,
     commands: mpsc::Receiver<EvaluationCommand>,
-    events: mpsc::Sender<EvaluationEvent>,
+    events: EvaluationEventSender,
     startup: mpsc::SyncSender<Result<WorkerStartup>>,
     output_cutoffs: crate::terminal_session::WorkerOutputCutoffPort,
 ) -> Result<()> {
@@ -264,10 +501,10 @@ fn run_evaluator_owner(
                     }
                     ingress = Some(match configuration.role {
                         WorkerApplicationRole::Repl => {
-                            WorkerIngress::Repl(runtime.repl_session_ingress()?)
+                            WorkerIngress::Repl(Box::new(runtime.repl_session_ingress()?))
                         }
                         WorkerApplicationRole::Inline => {
-                            WorkerIngress::Inline(runtime.authenticated_inline_ingress()?)
+                            WorkerIngress::Inline(Box::new(runtime.authenticated_inline_ingress()?))
                         }
                         WorkerApplicationRole::File => {
                             emit_fault(&events, "file execution is not a session-worker role");
@@ -292,8 +529,10 @@ fn run_evaluator_owner(
                         submission_id,
                         kind,
                         source,
-                        &events,
-                        &output_cutoffs,
+                        EvaluationSettlementPorts {
+                            events: &events,
+                            output_cutoffs: &output_cutoffs,
+                        },
                     )
                     .await;
                 }
@@ -303,7 +542,10 @@ fn run_evaluator_owner(
                         break;
                     }
                     drive_ready_and_emit_async_failures(engine.as_ref(), &events).await;
-                    let _ = events.send(EvaluationEvent::Message(ControlMessage::Quiescent));
+                    let _ = publish_evaluation_event(
+                        &events,
+                        EvaluationEvent::Message(ControlMessage::Quiescent),
+                    );
                 }
                 Ok(EvaluationCommand::ReadyCheckpoint(checkpoint_id)) => {
                     if !started || !matches!(ingress, Some(WorkerIngress::Repl(_))) {
@@ -311,12 +553,15 @@ fn run_evaluator_owner(
                         break;
                     }
                     drive_ready_and_emit_async_failures(engine.as_ref(), &events).await;
-                    // MPSC order makes every report produced by this ready
-                    // turn precede the acknowledgement on the control lane.
-                    let _ = events.send(EvaluationEvent::ReadyCheckpoint { checkpoint_id });
+                    // Lane order makes every retained report or explicit loss
+                    // marker precede this required acknowledgement.
+                    let _ = publish_evaluation_event(
+                        &events,
+                        EvaluationEvent::ReadyCheckpoint { checkpoint_id },
+                    );
                 }
                 Ok(EvaluationCommand::Shutdown(status)) => {
-                    let _ = events.send(EvaluationEvent::Stopped(status));
+                    let _ = publish_evaluation_event(&events, EvaluationEvent::Stopped(status));
                     break;
                 }
                 Err(mpsc::TryRecvError::Empty) => {
@@ -332,10 +577,7 @@ fn run_evaluator_owner(
     })
 }
 
-async fn drive_ready_and_emit_async_failures(
-    engine: &dyn Engine,
-    events: &mpsc::Sender<EvaluationEvent>,
-) {
+async fn drive_ready_and_emit_async_failures(engine: &dyn Engine, events: &EvaluationEventSender) {
     let drive_error = engine.drive_ready_tasks().await.err();
     let mut failures = collect_engine_async_failures(engine).await;
     if let Some(error) = drive_error {
@@ -344,11 +586,14 @@ async fn drive_ready_and_emit_async_failures(
         )));
     }
     for failure in failures {
-        let _ = events.send(EvaluationEvent::Message(ControlMessage::AsyncFailure {
-            stdout_cutoff: 0,
-            stderr_cutoff: 0,
-            detail: encode_async_failure(&failure),
-        }));
+        let _ = publish_evaluation_event(
+            events,
+            EvaluationEvent::Message(ControlMessage::AsyncFailure {
+                stdout_cutoff: 0,
+                stderr_cutoff: 0,
+                detail: encode_async_failure(&failure),
+            }),
+        );
     }
 }
 
@@ -384,9 +629,12 @@ async fn evaluate_submission(
     submission_id: u64,
     kind: SubmissionKind,
     source: Vec<u8>,
-    events: &mpsc::Sender<EvaluationEvent>,
-    output_cutoffs: &crate::terminal_session::WorkerOutputCutoffPort,
+    settlement: EvaluationSettlementPorts<'_>,
 ) {
+    let EvaluationSettlementPorts {
+        events,
+        output_cutoffs,
+    } = settlement;
     match (ingress, kind) {
         (WorkerIngress::Repl(ingress), SubmissionKind::Inline) => {
             let evaluation = ingress.evaluate_inline(engine, source).await;
@@ -421,11 +669,14 @@ async fn evaluate_submission(
             });
             match capsec_semantics::canonical::to_jcs_bytes(&payload) {
                 Ok(payload) => {
-                    let _ = events.send(EvaluationEvent::Message(ControlMessage::Step {
-                        submission_id,
-                        kind: STEP_MOUNTS,
-                        payload,
-                    }));
+                    let _ = publish_evaluation_event(
+                        events,
+                        EvaluationEvent::Message(ControlMessage::Step {
+                            submission_id,
+                            kind: STEP_MOUNTS,
+                            payload,
+                        }),
+                    );
                     send_outcome(
                         events,
                         submission_id,
@@ -493,15 +744,18 @@ async fn settle_repl_evaluation(
     engine: &dyn Engine,
     submission_id: u64,
     evaluation: std::result::Result<AuthenticatedEvaluation, crate::runtime::ReplEvaluationFailure>,
-    events: &mpsc::Sender<EvaluationEvent>,
+    events: &EvaluationEventSender,
     output_cutoffs: &crate::terminal_session::WorkerOutputCutoffPort,
 ) {
     for failure in collect_engine_async_failures(engine).await {
-        let _ = events.send(EvaluationEvent::Message(ControlMessage::AsyncFailure {
-            stdout_cutoff: 0,
-            stderr_cutoff: 0,
-            detail: encode_async_failure(&failure),
-        }));
+        let _ = publish_evaluation_event(
+            events,
+            EvaluationEvent::Message(ControlMessage::AsyncFailure {
+                stdout_cutoff: 0,
+                stderr_cutoff: 0,
+                detail: encode_async_failure(&failure),
+            }),
+        );
     }
     match evaluation {
         Err(error) => send_failure(events, submission_id, error),
@@ -571,16 +825,21 @@ async fn settle_repl_evaluation(
                 }
             };
             let (reply_tx, reply_rx) = mpsc::sync_channel(1);
-            if events
-                .send(EvaluationEvent::Display {
+            if publish_evaluation_event(
+                events,
+                EvaluationEvent::Display {
                     submission_id,
                     tree,
                     stdout_cutoff: cutoffs.stdout(),
                     stderr_cutoff: cutoffs.stderr(),
                     reply: reply_tx,
-                })
-                .is_err()
+                },
+            )
+            .is_err()
             {
+                if let Some(receipt) = receipt {
+                    let _ = engine.release_undisplayed_value(receipt).await;
+                }
                 return;
             }
             let disposition = match reply_rx.recv() {
@@ -616,7 +875,7 @@ async fn settle_program_evaluation(
     engine: &dyn Engine,
     submission_id: u64,
     evaluation: std::result::Result<AuthenticatedEvaluation, AuthenticatedEvaluationFailure>,
-    events: &mpsc::Sender<EvaluationEvent>,
+    events: &EvaluationEventSender,
 ) {
     let async_failures = collect_engine_async_failures(engine).await;
     if !async_failures.is_empty() {
@@ -628,10 +887,13 @@ async fn settle_program_evaluation(
             let _ = engine.release_undisplayed_value(receipt).await;
         }
         for (index, failure) in async_failures.into_iter().enumerate() {
-            let _ = events.send(EvaluationEvent::AsyncFailure {
-                submission_id: (index == 0).then_some(submission_id),
-                detail: encode_async_failure(&failure),
-            });
+            let _ = publish_evaluation_event(
+                events,
+                EvaluationEvent::AsyncFailure {
+                    submission_id: (index == 0).then_some(submission_id),
+                    detail: encode_async_failure(&failure),
+                },
+            );
         }
         return;
     }
@@ -700,10 +962,13 @@ async fn settle_program_evaluation(
     let async_failures = collect_engine_async_failures(engine).await;
     if !async_failures.is_empty() {
         for (index, failure) in async_failures.into_iter().enumerate() {
-            let _ = events.send(EvaluationEvent::AsyncFailure {
-                submission_id: (index == 0).then_some(submission_id),
-                detail: encode_async_failure(&failure),
-            });
+            let _ = publish_evaluation_event(
+                events,
+                EvaluationEvent::AsyncFailure {
+                    submission_id: (index == 0).then_some(submission_id),
+                    detail: encode_async_failure(&failure),
+                },
+            );
         }
         return;
     }
@@ -728,10 +993,13 @@ async fn settle_program_evaluation(
             }
         }
         Err(AuthenticatedProgramDrainFailure::Unhandled(error)) => {
-            let _ = events.send(EvaluationEvent::AsyncFailure {
-                submission_id: Some(submission_id),
-                detail: unavailable_async_failure(format!("{error:#}")),
-            });
+            let _ = publish_evaluation_event(
+                events,
+                EvaluationEvent::AsyncFailure {
+                    submission_id: Some(submission_id),
+                    detail: unavailable_async_failure(format!("{error:#}")),
+                },
+            );
         }
         Err(AuthenticatedProgramDrainFailure::EngineFault(error)) => send_outcome(
             events,
@@ -744,7 +1012,7 @@ async fn settle_program_evaluation(
 }
 
 fn send_failure(
-    events: &mpsc::Sender<EvaluationEvent>,
+    events: &EvaluationEventSender,
     submission_id: u64,
     error: AuthenticatedEvaluationFailure,
 ) {
@@ -763,30 +1031,52 @@ fn send_failure(
 }
 
 fn send_outcome(
-    events: &mpsc::Sender<EvaluationEvent>,
+    events: &EvaluationEventSender,
     submission_id: u64,
     kind: EvaluationOutcomeKind,
     status: i32,
     detail: Vec<u8>,
 ) {
-    let _ = events.send(EvaluationEvent::Outcome {
-        submission_id,
-        kind,
-        status,
-        detail,
-    });
+    const MAX_WORKER_EVENT_DETAIL_BYTES: usize = 1024 * 1024;
+    let (kind, status, detail) = if detail.len() <= MAX_WORKER_EVENT_DETAIL_BYTES {
+        (kind, status, detail)
+    } else {
+        (
+            EvaluationOutcomeKind::EngineFault,
+            70,
+            b"worker outcome exceeded the bounded control-envelope payload".to_vec(),
+        )
+    };
+    let _ = publish_evaluation_event(
+        events,
+        EvaluationEvent::Outcome {
+            submission_id,
+            kind,
+            status,
+            detail,
+        },
+    );
 }
 
 fn encode_async_failure(failure: &AuthenticatedAsyncFailure) -> Vec<u8> {
+    const MAX_WORKER_EVENT_DETAIL_BYTES: usize = 1024 * 1024;
     // Both arms contain only ordinary strings/closed data, so serialization
     // cannot encounter a user-defined hook. Keep a deterministic explicit
     // fallback instead of replacing a background report with silence.
-    serde_json::to_vec(failure).unwrap_or_else(|error| {
+    let encoded = serde_json::to_vec(failure).unwrap_or_else(|error| {
         serde_json::to_vec(&AuthenticatedAsyncFailure::capture_unavailable(format!(
             "asynchronous failure envelope encoding failed: {error}"
         )))
         .expect("static asynchronous failure fallback is serializable")
-    })
+    });
+    if encoded.len() <= MAX_WORKER_EVENT_DETAIL_BYTES {
+        encoded
+    } else {
+        serde_json::to_vec(&AuthenticatedAsyncFailure::capture_unavailable(
+            "asynchronous failure exceeded the bounded control-envelope payload",
+        ))
+        .expect("static asynchronous failure size fallback is serializable")
+    }
 }
 
 fn unavailable_async_failure(error: impl std::fmt::Display) -> Vec<u8> {
@@ -796,15 +1086,23 @@ fn unavailable_async_failure(error: impl std::fmt::Display) -> Vec<u8> {
 }
 
 fn decode_async_failure(detail: &[u8]) -> Result<AuthenticatedAsyncFailure> {
-    serde_json::from_slice(detail).context("worker asynchronous failure envelope is malformed")
+    let failure: AuthenticatedAsyncFailure = serde_json::from_slice(detail)
+        .context("worker asynchronous failure envelope is malformed")?;
+    failure
+        .validate_wire()
+        .context("worker asynchronous failure envelope violated safe-text invariants")?;
+    Ok(failure)
 }
 
-fn emit_fault(events: &mpsc::Sender<EvaluationEvent>, detail: &str) {
-    let _ = events.send(EvaluationEvent::Message(ControlMessage::WorkerFault {
-        stdout_cutoff: 0,
-        stderr_cutoff: 0,
-        detail: detail.as_bytes().to_vec(),
-    }));
+fn emit_fault(events: &EvaluationEventSender, detail: &str) {
+    let _ = publish_evaluation_event(
+        events,
+        EvaluationEvent::Message(ControlMessage::WorkerFault {
+            stdout_cutoff: 0,
+            stderr_cutoff: 0,
+            detail: detail.as_bytes().to_vec(),
+        }),
+    );
 }
 
 fn stamp_worker_diagnostic_cutoffs(
@@ -980,7 +1278,7 @@ fn drain_native_publications(
     // adversarial callback storm. The native queue has its own hard bound and
     // reports overflow explicitly, so this does not turn backpressure into
     // silent loss.
-    for _ in 0..256 {
+    for _ in 0..WORKER_NATIVE_DRAIN_BUDGET {
         let event = engine
             .next_authenticated_work_unit()
             .map_err(|_| WorkerProtocolError::Malformed("native work-unit publication failed"))?;
@@ -989,7 +1287,7 @@ fn drain_native_publications(
         };
         endpoint.emit(&work_unit_control_message(event)?)?;
     }
-    for _ in 0..256 {
+    for _ in 0..WORKER_NATIVE_DRAIN_BUDGET {
         let event = engine.next_authenticated_cancellation().map_err(|_| {
             WorkerProtocolError::Malformed("native terminal-cancellation publication failed")
         })?;
@@ -1007,7 +1305,7 @@ fn run_control_loop(
     configuration: WorkerBootstrapConfiguration,
     engine: Arc<dyn Engine>,
     commands: mpsc::Sender<EvaluationCommand>,
-    events: mpsc::Receiver<EvaluationEvent>,
+    events: EvaluationEventReceiver,
     output_cutoffs: crate::terminal_session::WorkerOutputCutoffPort,
 ) -> std::result::Result<i32, WorkerProtocolError> {
     let mut started = false;
@@ -1022,7 +1320,10 @@ fn run_control_loop(
         // is None, and still must become an exact cancellation target.
         // @ref LLP 0025#6-interruption-and-cancellation
         drain_native_publications(&mut endpoint, &engine, &mut pending_cancellations)?;
-        while let Ok(event) = events.try_recv() {
+        for _ in 0..WORKER_EVENT_DRAIN_BUDGET {
+            let Some(event) = next_evaluation_event(&events)? else {
+                break;
+            };
             // The owner publishes a native End before it sends an application
             // outcome. Close that cross-channel race by draining again after
             // receipt and before forwarding the application event.
@@ -1237,6 +1538,23 @@ fn run_control_loop(
     }
 }
 
+/// A disconnected evaluator event lane is terminal, not equivalent to an idle
+/// lane. Treating both as `try_recv`'s empty case leaves the authenticated
+/// control process responsive while the supervisor waits forever for an
+/// outcome that no owner can produce.
+fn next_evaluation_event(
+    events: &EvaluationEventReceiver,
+) -> std::result::Result<Option<EvaluationEvent>, WorkerProtocolError> {
+    match events.try_recv() {
+        Ok(LaneDelivery::Event(event) | LaneDelivery::Terminal(event)) => Ok(Some(event)),
+        Ok(LaneDelivery::Loss(count)) => Ok(Some(EvaluationEvent::Message(
+            ControlMessage::PreReceiptLoss { count },
+        ))),
+        Err(TryReceiveError::Empty) => Ok(None),
+        Err(TryReceiveError::Disconnected) => Err(WorkerProtocolError::WorkerDied),
+    }
+}
+
 enum SupervisorCommand {
     Send {
         message: ControlMessage,
@@ -1262,6 +1580,9 @@ enum SupervisorCommand {
     ContinueTerminal {
         deadline: std::time::Instant,
         state: Arc<std::sync::atomic::AtomicU8>,
+        reply: mpsc::SyncSender<std::result::Result<(), WorkerProtocolError>>,
+    },
+    Quiesce {
         reply: mpsc::SyncSender<std::result::Result<(), WorkerProtocolError>>,
     },
     Dispose {
@@ -1342,6 +1663,7 @@ impl SupervisorRuntimeControl {
         })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn end_of_input(&self) -> Result<()> {
         self.send(ControlMessage::EndOfInput)
     }
@@ -1350,6 +1672,7 @@ impl SupervisorRuntimeControl {
         self.send(ControlMessage::ReadyCheckpoint { checkpoint_id })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn shutdown(&self, status: i32) -> Result<()> {
         self.send(ControlMessage::Shutdown { status })
     }
@@ -1423,6 +1746,17 @@ impl SupervisorRuntimeControl {
             .context("session worker controller did not acknowledge bounded disposal")??;
         Ok(())
     }
+
+    pub(crate) fn quiesce_preserving_lifecycle(&self) -> Result<()> {
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        self.commands
+            .send(SupervisorCommand::Quiesce { reply: reply_tx })
+            .context("session worker controller stopped")?;
+        reply_rx
+            .recv_timeout(SUPERVISOR_CONTROL_ACK)
+            .context("session worker controller did not acknowledge bounded quiescence")??;
+        Ok(())
+    }
 }
 
 /// Narrow terminal-owner authority. It cannot submit source, acknowledge a
@@ -1452,18 +1786,14 @@ impl WorkerTerminalControl {
 /// supervisor's stdout/stderr directly.
 pub(crate) struct SpawnedSessionWorker {
     pub(crate) control: SupervisorRuntimeControl,
-    pub(crate) events: mpsc::Receiver<
-        std::result::Result<
-            crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>,
-            WorkerProtocolError,
-        >,
-    >,
+    pub(crate) events: SupervisorEventReceiver,
     pub(crate) relays: crate::session_worker::WorkerRelays,
     pub(crate) history_startup: crate::history::HistoryStartupCapture,
     _controller: std::thread::JoinHandle<()>,
 }
 
 impl SpawnedSessionWorker {
+    #[allow(dead_code)]
     pub(crate) fn next_event(
         &self,
         timeout: Duration,
@@ -1471,10 +1801,12 @@ impl SpawnedSessionWorker {
         Option<crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>>,
     > {
         match self.events.recv_timeout(timeout) {
-            Ok(Ok(event)) => Ok(Some(event)),
-            Ok(Err(error)) => Err(anyhow::Error::new(error)),
-            Err(mpsc::RecvTimeoutError::Timeout) => Ok(None),
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
+            Ok(event) => Ok(Some(event)),
+            Err(SequencedReceiveTimeoutError::Timeout) => Ok(None),
+            Err(
+                SequencedReceiveTimeoutError::Disconnected
+                | SequencedReceiveTimeoutError::SequenceExhausted,
+            ) => {
                 anyhow::bail!("session worker event controller stopped")
             }
         }
@@ -1517,7 +1849,7 @@ impl SpawnedSessionWorker {
                 pending_outcome_barrier: None,
                 pending_lifecycle_barrier: None,
                 pending_mounts: None,
-                async_failures: std::collections::VecDeque::new(),
+                async_failures: BoundedRemoteAsyncBuffer::default(),
                 cancellation,
                 _controller: self._controller,
             },
@@ -1637,12 +1969,7 @@ impl RemoteProgramOutcome {
 
 pub(crate) struct RemoteProgramSession {
     control: SupervisorRuntimeControl,
-    events: mpsc::Receiver<
-        std::result::Result<
-            crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>,
-            WorkerProtocolError,
-        >,
-    >,
+    events: SupervisorEventReceiver,
     lifecycle: ibex_runtime::session_lifecycle::SessionLifecyclePort,
     active_target: Arc<std::sync::atomic::AtomicU64>,
     cancellations: SharedRemoteCancellationLedger,
@@ -1666,6 +1993,14 @@ impl RemoteProgramSession {
         }
     }
 
+    /// Retain only the supervisor-side authority needed to stop the worker
+    /// while the owning session remains alive. Teardown guards use this clone
+    /// during unwinding so a producer cannot outlive the output capture that
+    /// drains its authenticated relays.
+    pub(crate) fn runtime_control(&self) -> SupervisorRuntimeControl {
+        self.control.clone()
+    }
+
     pub(crate) fn cancellation_port(&self) -> RemoteCancellationPort {
         self.cancellation.clone()
     }
@@ -1684,13 +2019,7 @@ impl RemoteProgramSession {
             .submit(SUBMISSION_ID, SubmissionKind::Inline, source)?;
         loop {
             let event = match self.events.recv() {
-                Ok(Ok(event)) => event,
-                Ok(Err(error)) => {
-                    if let Some(outcome) = self.accepted_lifecycle_outcome()? {
-                        return Ok(outcome);
-                    }
-                    return Err(anyhow::Error::new(error));
-                }
+                Ok(event) => event,
                 Err(_) => {
                     if let Some(outcome) = self.accepted_lifecycle_outcome()? {
                         return Ok(outcome);
@@ -1698,6 +2027,7 @@ impl RemoteProgramSession {
                     anyhow::bail!("session worker stopped before program settlement");
                 }
             };
+            let event_sequence = event.sequence;
             let message = match event.payload {
                 crate::session_worker::SupervisorEventPayload::Worker(message) => message,
                 crate::session_worker::SupervisorEventPayload::WorkerDied(death) => {
@@ -1709,6 +2039,35 @@ impl RemoteProgramSession {
                         death.status,
                         death.signal
                     );
+                }
+                crate::session_worker::SupervisorEventPayload::PostReceiptLoss {
+                    count,
+                    highest_dropped_sequence,
+                } => {
+                    anyhow::ensure!(
+                        count > 0
+                            && highest_dropped_sequence > 0
+                            && highest_dropped_sequence < event_sequence,
+                        "supervisor produced an invalid post-receipt loss window"
+                    );
+                    return Ok(RemoteProgramOutcome::AsyncFailure {
+                        failure: AuthenticatedAsyncFailure::PostReceiptLoss {
+                            count,
+                            highest_dropped_sequence,
+                        },
+                        stdout_cutoff: 0,
+                        stderr_cutoff: 0,
+                    });
+                }
+                crate::session_worker::SupervisorEventPayload::ControllerFault(reason) => {
+                    if let Some(outcome) = self.accepted_lifecycle_outcome()? {
+                        return Ok(outcome);
+                    }
+                    return Ok(RemoteProgramOutcome::EngineFault {
+                        detail: format!("session worker controller fault: {reason:?}").into_bytes(),
+                        stdout_cutoff: 0,
+                        stderr_cutoff: 0,
+                    });
                 }
             };
             match message {
@@ -1807,8 +2166,19 @@ impl RemoteProgramSession {
                     stderr_cutoff,
                     detail,
                 } => {
+                    let failure = decode_async_failure(&detail)?;
+                    if matches!(failure, AuthenticatedAsyncFailure::PreReceiptLoss { .. }) {
+                        if let Some(outcome) = self.accepted_lifecycle_outcome()? {
+                            return Ok(outcome);
+                        }
+                        return Ok(RemoteProgramOutcome::EngineFault {
+                            detail: failure.to_string().into_bytes(),
+                            stdout_cutoff,
+                            stderr_cutoff,
+                        });
+                    }
                     return Ok(RemoteProgramOutcome::AsyncFailure {
-                        failure: decode_async_failure(&detail)?,
+                        failure,
                         stdout_cutoff,
                         stderr_cutoff,
                     });
@@ -1818,10 +2188,26 @@ impl RemoteProgramSession {
                     stderr_cutoff,
                     detail,
                 } => {
+                    if let Some(outcome) = self.accepted_lifecycle_outcome()? {
+                        return Ok(outcome);
+                    }
                     return Ok(RemoteProgramOutcome::EngineFault {
                         detail,
                         stdout_cutoff,
                         stderr_cutoff,
+                    });
+                }
+                ControlMessage::PreReceiptLoss { count } => {
+                    if let Some(outcome) = self.accepted_lifecycle_outcome()? {
+                        return Ok(outcome);
+                    }
+                    return Ok(RemoteProgramOutcome::EngineFault {
+                        detail: format!(
+                            "session worker lost {count} asynchronous failure event(s) before supervisor receipt"
+                        )
+                        .into_bytes(),
+                        stdout_cutoff: 0,
+                        stderr_cutoff: 0,
                     });
                 }
                 other => anyhow::bail!(
@@ -1845,6 +2231,11 @@ impl RemoteProgramSession {
     pub(crate) fn dispose_preserving_lifecycle(&self) -> Result<()> {
         self.close_cancellation_state();
         self.control.dispose_preserving_lifecycle()
+    }
+
+    pub(crate) fn quiesce_preserving_lifecycle(&self) -> Result<()> {
+        self.close_cancellation_state();
+        self.control.quiesce_preserving_lifecycle()
     }
 }
 
@@ -2200,8 +2591,7 @@ impl RemoteCancellationPort {
 
     pub(crate) fn terminate_worker(&self) -> Result<()> {
         close_remote_cancellation_state(&self.active_target, &self.closed, &self.cancellations);
-        let result = self.control.terminate_for_interrupt();
-        result
+        self.control.terminate_for_interrupt()
     }
 
     #[cfg(test)]
@@ -2215,12 +2605,7 @@ impl RemoteCancellationPort {
 
 pub(crate) struct RemoteReplSession {
     control: SupervisorRuntimeControl,
-    events: mpsc::Receiver<
-        std::result::Result<
-            crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>,
-            WorkerProtocolError,
-        >,
-    >,
+    events: SupervisorEventReceiver,
     plan: crate::terminal_session::SessionIoPlan,
     lifecycle: ibex_runtime::session_lifecycle::SessionLifecyclePort,
     active_target: Arc<std::sync::atomic::AtomicU64>,
@@ -2232,9 +2617,85 @@ pub(crate) struct RemoteReplSession {
     pending_outcome_barrier: Option<(u64, u64)>,
     pending_lifecycle_barrier: Option<(u64, u64)>,
     pending_mounts: Option<crate::runtime::ReplMountsDescription>,
-    async_failures: std::collections::VecDeque<AuthenticatedAsyncFailure>,
+    async_failures: BoundedRemoteAsyncBuffer,
     cancellation: RemoteCancellationPort,
     _controller: std::thread::JoinHandle<()>,
+}
+
+struct SequencedRemoteAsyncFailure {
+    epoch: u64,
+    sequence: u64,
+    failure: AuthenticatedAsyncFailure,
+    _lease: Option<SequencedLaneLease<crate::session_worker::SupervisorEventPayload>>,
+}
+
+#[derive(Default)]
+struct BoundedRemoteAsyncBuffer {
+    queue: std::collections::VecDeque<SequencedRemoteAsyncFailure>,
+}
+
+impl BoundedRemoteAsyncBuffer {
+    fn push(
+        &mut self,
+        epoch: u64,
+        sequence: u64,
+        failure: AuthenticatedAsyncFailure,
+        lease: Option<SequencedLaneLease<crate::session_worker::SupervisorEventPayload>>,
+    ) {
+        self.queue.push_back(SequencedRemoteAsyncFailure {
+            epoch,
+            sequence,
+            failure,
+            _lease: lease,
+        });
+    }
+
+    fn drain(&mut self) -> Vec<AuthenticatedAsyncFailure> {
+        let mut failures = Vec::with_capacity(self.queue.len());
+        while let Some(record) = self.queue.pop_front() {
+            debug_assert_ne!(record.epoch, 0);
+            debug_assert_ne!(record.sequence, 0);
+            failures.push(record.failure);
+        }
+        failures
+    }
+
+    #[cfg(test)]
+    fn bytes(&self) -> usize {
+        self.queue
+            .iter()
+            .filter_map(|record| record._lease.as_ref())
+            .map(SequencedLaneLease::charge)
+            .sum()
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.queue.len()
+    }
+}
+
+enum RemoteReceivedEvent {
+    Event(SequencedLaneDelivery<crate::session_worker::SupervisorEventPayload>),
+    Lifecycle(i32),
+}
+
+impl From<crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>>
+    for RemoteReceivedEvent
+{
+    fn from(
+        event: crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>,
+    ) -> Self {
+        Self::Event(SequencedLaneDelivery::unleased(event))
+    }
+}
+
+impl From<SequencedLaneDelivery<crate::session_worker::SupervisorEventPayload>>
+    for RemoteReceivedEvent
+{
+    fn from(event: SequencedLaneDelivery<crate::session_worker::SupervisorEventPayload>) -> Self {
+        Self::Event(event)
+    }
 }
 
 impl RemoteReplSession {
@@ -2246,20 +2707,16 @@ impl RemoteReplSession {
         );
     }
 
-    fn receive_event(
-        &self,
-        stopped_context: &'static str,
-    ) -> Result<crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>>
-    {
-        match self.events.recv() {
-            Ok(Ok(event)) => Ok(event),
-            Ok(Err(error)) => {
-                self.close_cancellation_state();
-                Err(anyhow::Error::new(error).context(stopped_context))
-            }
+    fn receive_event(&mut self, stopped_context: &'static str) -> Result<RemoteReceivedEvent> {
+        match self.events.recv_with_lease() {
+            Ok(event) => Ok(RemoteReceivedEvent::Event(event)),
             Err(error) => {
                 self.close_cancellation_state();
-                Err(anyhow::Error::new(error).context(stopped_context))
+                if let Some(status) = self.accepted_lifecycle_status()? {
+                    Ok(RemoteReceivedEvent::Lifecycle(status))
+                } else {
+                    Err(anyhow::anyhow!("{error:?}").context(stopped_context))
+                }
             }
         }
     }
@@ -2288,10 +2745,19 @@ impl RemoteReplSession {
         }
     }
 
+    /// Retain only bounded supervisor teardown authority for an unwind guard.
+    pub(crate) fn runtime_control(&self) -> SupervisorRuntimeControl {
+        self.control.clone()
+    }
+
     pub(crate) fn dispose_preserving_lifecycle(&self) -> Result<()> {
         self.close_cancellation_state();
-        let result = self.control.dispose_preserving_lifecycle();
-        result
+        self.control.dispose_preserving_lifecycle()
+    }
+
+    pub(crate) fn quiesce_preserving_lifecycle(&self) -> Result<()> {
+        self.close_cancellation_state();
+        self.control.quiesce_preserving_lifecycle()
     }
 
     pub(crate) fn take_lifecycle_barrier(&mut self) -> Option<(u64, u64)> {
@@ -2312,15 +2778,25 @@ impl RemoteReplSession {
         });
     }
 
-    fn accepted_lifecycle_status(&self) -> Result<Option<i32>> {
-        if let Some(request) = self.lifecycle.latched_request() {
-            return Ok(Some(request.status));
+    fn extend_lifecycle_barrier(&mut self, stdout_cutoff: u64, stderr_cutoff: u64) {
+        self.pending_lifecycle_barrier = Some(match self.pending_lifecycle_barrier.take() {
+            Some((pending_stdout, pending_stderr)) => (
+                pending_stdout.max(stdout_cutoff),
+                pending_stderr.max(stderr_cutoff),
+            ),
+            None => (stdout_cutoff, stderr_cutoff),
+        });
+    }
+
+    fn accepted_lifecycle_status(&mut self) -> Result<Option<i32>> {
+        if let Some(record) = self.control.lifecycle()?.accepted_lifecycle().cloned() {
+            self.extend_lifecycle_barrier(record.stdout_cutoff, record.stderr_cutoff);
+            return Ok(Some(record.status));
         }
         Ok(self
-            .control
-            .lifecycle()?
-            .accepted_lifecycle()
-            .map(|record| record.status))
+            .lifecycle
+            .latched_request()
+            .map(|request| request.status))
     }
 
     pub(crate) async fn evaluate_inline(
@@ -2548,7 +3024,7 @@ impl RemoteReplSession {
                 _ => {}
             }
         }
-        Ok(self.async_failures.drain(..).collect())
+        Ok(self.async_failures.drain())
     }
 
     pub(crate) async fn wait_for_pending_tasks(&mut self) {
@@ -2557,9 +3033,12 @@ impl RemoteReplSession {
 
     fn apply_event(
         &mut self,
-        event: crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>,
+        event: impl Into<RemoteReceivedEvent>,
     ) -> Result<Option<RemoteEvent>> {
-        let result = self.apply_event_inner(event);
+        let result = match event.into() {
+            RemoteReceivedEvent::Event(event) => self.apply_event_inner(event),
+            RemoteReceivedEvent::Lifecycle(status) => Ok(Some(RemoteEvent::Lifecycle(status))),
+        };
         if result.is_err() {
             self.close_cancellation_state();
         }
@@ -2568,10 +3047,13 @@ impl RemoteReplSession {
 
     fn apply_event_inner(
         &mut self,
-        event: crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>,
+        event: SequencedLaneDelivery<crate::session_worker::SupervisorEventPayload>,
     ) -> Result<Option<RemoteEvent>> {
         use ibex_runtime::session_lifecycle::{LifecyclePrincipal, LifecycleSetDisposition};
 
+        let (event, lease) = event.into_parts();
+        let epoch = event.epoch;
+        let sequence = event.sequence;
         let message = match event.payload {
             crate::session_worker::SupervisorEventPayload::Worker(message) => message,
             crate::session_worker::SupervisorEventPayload::WorkerDied(death) => {
@@ -2584,6 +3066,34 @@ impl RemoteReplSession {
                     death.status,
                     death.signal
                 );
+            }
+            crate::session_worker::SupervisorEventPayload::PostReceiptLoss {
+                count,
+                highest_dropped_sequence,
+            } => {
+                anyhow::ensure!(
+                    count > 0
+                        && highest_dropped_sequence > 0
+                        && highest_dropped_sequence < sequence,
+                    "supervisor produced an invalid post-receipt loss window"
+                );
+                self.async_failures.push(
+                    epoch,
+                    sequence,
+                    AuthenticatedAsyncFailure::PostReceiptLoss {
+                        count,
+                        highest_dropped_sequence,
+                    },
+                    lease,
+                );
+                return Ok(None);
+            }
+            crate::session_worker::SupervisorEventPayload::ControllerFault(reason) => {
+                self.close_cancellation_state();
+                if let Some(status) = self.accepted_lifecycle_status()? {
+                    return Ok(Some(RemoteEvent::Lifecycle(status)));
+                }
+                anyhow::bail!("session worker controller fault: {reason:?}");
             }
         };
         match message {
@@ -2634,7 +3144,7 @@ impl RemoteReplSession {
                 let _ = self
                     .lifecycle
                     .request_exit(LifecyclePrincipal::Root, record.status);
-                self.pending_lifecycle_barrier = Some((record.stdout_cutoff, record.stderr_cutoff));
+                self.extend_lifecycle_barrier(record.stdout_cutoff, record.stderr_cutoff);
                 Ok(Some(RemoteEvent::Lifecycle(record.status)))
             }
             ControlMessage::Display {
@@ -2661,8 +3171,6 @@ impl RemoteReplSession {
                     submission_id,
                     kind,
                     status,
-                    stdout_cutoff,
-                    stderr_cutoff,
                     detail,
                 }))
             }
@@ -2683,15 +3191,26 @@ impl RemoteReplSession {
                 // barrier is sufficient to order all reports accumulated for
                 // the next ready-work checkpoint.
                 self.extend_outcome_barrier(stdout_cutoff, stderr_cutoff);
-                self.async_failures
-                    .push_back(decode_async_failure(&detail)?);
+                let failure = decode_async_failure(&detail)?;
+                if matches!(failure, AuthenticatedAsyncFailure::PreReceiptLoss { .. }) {
+                    self.close_cancellation_state();
+                    if let Some(status) = self.accepted_lifecycle_status()? {
+                        return Ok(Some(RemoteEvent::Lifecycle(status)));
+                    }
+                    anyhow::bail!("{failure}");
+                }
+                self.async_failures.push(epoch, sequence, failure, lease);
                 Ok(None)
             }
             ControlMessage::Quiescent | ControlMessage::Pong { .. } => Ok(None),
             ControlMessage::PreReceiptLoss { count } => {
-                self.async_failures
-                    .push_back(AuthenticatedAsyncFailure::PreReceiptLoss { count });
-                Ok(None)
+                self.close_cancellation_state();
+                if let Some(status) = self.accepted_lifecycle_status()? {
+                    return Ok(Some(RemoteEvent::Lifecycle(status)));
+                }
+                anyhow::bail!(
+                    "session worker lost {count} asynchronous failure event(s) before supervisor receipt"
+                )
             }
             ControlMessage::WorkerFault {
                 stdout_cutoff,
@@ -2740,8 +3259,6 @@ enum RemoteEvent {
         submission_id: u64,
         kind: EvaluationOutcomeKind,
         status: i32,
-        stdout_cutoff: u64,
-        stderr_cutoff: u64,
         detail: Vec<u8>,
     },
     Lifecycle(i32),
@@ -2760,12 +3277,11 @@ fn decode_repl_outcome(
     match kind {
         EvaluationOutcomeKind::Empty => Ok(crate::repl::ReplEvaluation::Empty),
         EvaluationOutcomeKind::Throw => {
-            let thrown = serde_json::from_slice::<crate::engine::AuthenticatedThrow>(&detail)
-                .map_err(|error| {
-                    crate::runtime::AuthenticatedEvaluationFailure::EngineFault(anyhow::anyhow!(
-                        "worker throw envelope is malformed: {error}"
-                    ))
-                })?;
+            let thrown = crate::engine::decode_authenticated_throw(&detail).map_err(|error| {
+                crate::runtime::AuthenticatedEvaluationFailure::EngineFault(anyhow::anyhow!(
+                    "worker throw envelope is invalid: {error}"
+                ))
+            })?;
             Ok(crate::repl::ReplEvaluation::Throw(thrown))
         }
         EvaluationOutcomeKind::Cancelled => Ok(crate::repl::ReplEvaluation::Cancelled),
@@ -2868,6 +3384,7 @@ pub(crate) fn spawn_session_worker(
     worker
         .await_ready(Duration::from_secs(30))
         .context("authenticated session worker did not become ready")?;
+    let event_sequencer = worker.sequence_allocator();
     let relays = worker.take_relays().map_err(anyhow::Error::new)?;
     let mode = match plan.route.mode {
         capsec_semantics::arming::ArmedExecutionMode::Interactive => SessionInputMode::Interactive,
@@ -2893,11 +3410,17 @@ pub(crate) fn spawn_session_worker(
     }
 
     let (commands_tx, commands_rx) = mpsc::channel();
-    let (events_tx, events_rx) = mpsc::channel();
+    let (events_tx, events_rx) = bounded_lane::sequenced_channel(
+        supervisor_event_lane_limits(),
+        event_sequencer,
+        supervisor_post_receipt_loss,
+        supervisor_controller_fault,
+    );
     let lifecycle = worker.lifecycle_handle();
+    let allow_lossy_async = role == WorkerApplicationRole::Repl;
     let controller = std::thread::Builder::new()
         .name("ibex-session-worker-supervisor".to_owned())
-        .spawn(move || supervisor_controller(worker, commands_rx, events_tx))
+        .spawn(move || supervisor_controller(worker, commands_rx, events_tx, allow_lossy_async))
         .context("failed to start the session worker controller")?;
     Ok(SpawnedSessionWorker {
         control: SupervisorRuntimeControl {
@@ -2964,20 +3487,21 @@ fn await_control_delivery(
 fn supervisor_controller(
     mut worker: crate::session_worker::SupervisorWorker,
     commands: mpsc::Receiver<SupervisorCommand>,
-    events: mpsc::Sender<
-        std::result::Result<
-            crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>,
-            WorkerProtocolError,
-        >,
-    >,
+    events: SupervisorEventSender,
+    allow_lossy_async: bool,
 ) {
+    let mut quiesced = false;
     loop {
-        loop {
+        for _ in 0..SUPERVISOR_COMMAND_DRAIN_BUDGET {
             let command = match commands.try_recv() {
                 Ok(command) => command,
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    let _ = worker.terminate_preserving_lifecycle();
+                    if quiesced {
+                        let _ = worker.reap_preserving_lifecycle();
+                    } else {
+                        let _ = worker.terminate_preserving_lifecycle();
+                    }
                     return;
                 }
             };
@@ -3237,26 +3761,67 @@ fn supervisor_controller(
                     }
                     let _ = reply.send(Ok(()));
                 }
+                SupervisorCommand::Quiesce { reply } => {
+                    let result = if quiesced {
+                        Ok(())
+                    } else {
+                        worker.quiesce_preserving_lifecycle()
+                    };
+                    if result.is_ok() {
+                        quiesced = true;
+                    }
+                    let _ = reply.send(result);
+                }
                 SupervisorCommand::Dispose { reply } => {
-                    let result = worker.terminate_preserving_lifecycle().map(|_| ());
+                    let result = if quiesced {
+                        worker.reap_preserving_lifecycle().map(|_| ())
+                    } else {
+                        worker.terminate_preserving_lifecycle().map(|_| ())
+                    };
                     let _ = reply.send(result);
                     return;
                 }
             }
         }
-        match worker.receive_event_timeout(CONTROL_POLL) {
+        if quiesced {
+            std::thread::sleep(CONTROL_POLL);
+            continue;
+        }
+        match worker.receive_event_payload_timeout(CONTROL_POLL) {
             Ok(Some(event)) => {
                 let died = matches!(
-                    event.payload,
+                    event,
                     crate::session_worker::SupervisorEventPayload::WorkerDied(_)
                 );
-                if events.send(Ok(event)).is_err() || died {
+                if let Err(kind) = publish_supervisor_event(&events, event, allow_lossy_async) {
+                    let reason = match kind {
+                        PushErrorKind::Closed => return,
+                        PushErrorKind::RequiredCapacityExceeded
+                        | PushErrorKind::PrioritySlotOccupied => {
+                            ControllerFaultReason::RequiredLaneOverflow
+                        }
+                        PushErrorKind::LossAccountingExhausted => {
+                            ControllerFaultReason::LossAccountingExhausted
+                        }
+                        PushErrorKind::LossCounterOverflow => {
+                            ControllerFaultReason::LossCounterOverflow
+                        }
+                        PushErrorKind::SequenceExhausted => {
+                            ControllerFaultReason::SequenceExhausted
+                        }
+                    };
+                    let _ = events.latch_fault(reason);
+                    let _ = worker.terminate_preserving_lifecycle();
+                    return;
+                }
+                if died {
                     return;
                 }
             }
             Ok(None) => {}
-            Err(error) => {
-                let _ = events.send(Err(error));
+            Err(_) => {
+                let _ = events.latch_fault(ControllerFaultReason::WorkerProtocol);
+                let _ = worker.terminate_preserving_lifecycle();
                 return;
             }
         }
@@ -3266,6 +3831,311 @@ fn supervisor_controller(
 #[cfg(test)]
 mod work_unit_tests {
     use super::*;
+
+    fn worker_fault_detail(events: &EvaluationEventReceiver) -> Vec<u8> {
+        let event = events
+            .recv_timeout(Duration::from_secs(1))
+            .expect("guarded evaluator owner must publish its terminal fault");
+        let LaneDelivery::Event(event) = event else {
+            panic!("guarded evaluator owner fault was not a required event")
+        };
+        let EvaluationEvent::Message(ControlMessage::WorkerFault { detail, .. }) = event else {
+            panic!("guarded evaluator owner published a non-fault event")
+        };
+        detail
+    }
+
+    #[test]
+    fn evaluator_owner_error_and_panic_publish_authenticated_worker_faults() {
+        let (error_tx, error_rx) = bounded_lane::channel(evaluation_lane_limits());
+        run_evaluator_owner_guarded(error_tx, || {
+            anyhow::bail!("injected evaluator-owner failure")
+        });
+        assert_eq!(
+            worker_fault_detail(&error_rx),
+            b"authenticated evaluator owner failed: injected evaluator-owner failure"
+        );
+
+        let (panic_tx, panic_rx) = bounded_lane::channel(evaluation_lane_limits());
+        run_evaluator_owner_guarded(panic_tx, || -> Result<()> {
+            panic!("injected evaluator-owner panic")
+        });
+        assert_eq!(
+            worker_fault_detail(&panic_rx),
+            b"authenticated evaluator owner panicked"
+        );
+    }
+
+    #[test]
+    fn disconnected_evaluator_event_lane_is_a_worker_death() {
+        let (events_tx, events_rx) = bounded_lane::channel(evaluation_lane_limits());
+        assert!(next_evaluation_event(&events_rx).unwrap().is_none());
+        drop(events_tx);
+        assert!(matches!(
+            next_evaluation_event(&events_rx),
+            Err(WorkerProtocolError::WorkerDied)
+        ));
+    }
+
+    fn ordinary_async_event(summary: &str) -> EvaluationEvent {
+        EvaluationEvent::Message(ControlMessage::AsyncFailure {
+            stdout_cutoff: 0,
+            stderr_cutoff: 0,
+            detail: unavailable_async_failure(summary),
+        })
+    }
+
+    #[test]
+    fn production_evaluator_lane_bounds_async_and_orders_pre_receipt_loss_before_outcome() {
+        let first = ordinary_async_event("first");
+        let lossy_bytes = evaluation_event_charge(&first).unwrap();
+        let outcome = EvaluationEvent::Outcome {
+            submission_id: 7,
+            kind: EvaluationOutcomeKind::Empty,
+            status: 0,
+            detail: Vec::new(),
+        };
+        let required_bytes = evaluation_event_charge(&outcome).unwrap();
+        let (sender, receiver) = bounded_lane::channel(LaneLimits {
+            lossy_bytes,
+            required_bytes,
+            loss_records: 1,
+        });
+
+        publish_evaluation_event(&sender, first).unwrap();
+        publish_evaluation_event(&sender, ordinary_async_event("second")).unwrap();
+        publish_evaluation_event(&sender, ordinary_async_event("third")).unwrap();
+        publish_evaluation_event(&sender, outcome).unwrap();
+
+        assert!(matches!(
+            next_evaluation_event(&receiver).unwrap(),
+            Some(EvaluationEvent::Message(
+                ControlMessage::AsyncFailure { .. }
+            ))
+        ));
+        assert!(matches!(
+            next_evaluation_event(&receiver).unwrap(),
+            Some(EvaluationEvent::Message(ControlMessage::PreReceiptLoss {
+                count: 2
+            }))
+        ));
+        assert!(matches!(
+            next_evaluation_event(&receiver).unwrap(),
+            Some(EvaluationEvent::Outcome {
+                submission_id: 7,
+                ..
+            })
+        ));
+        assert_eq!(receiver.snapshot().lossy_bytes, 0);
+        assert_eq!(receiver.snapshot().required_bytes, 0);
+    }
+
+    #[test]
+    fn program_async_settlement_is_required_at_evaluator_hop() {
+        let first = EvaluationEvent::AsyncFailure {
+            submission_id: Some(7),
+            detail: unavailable_async_failure("first program settlement"),
+        };
+        let second = EvaluationEvent::AsyncFailure {
+            submission_id: None,
+            detail: unavailable_async_failure("second program settlement"),
+        };
+        let required_bytes = evaluation_event_charge(&first)
+            .unwrap()
+            .checked_add(evaluation_event_charge(&second).unwrap())
+            .unwrap();
+        let (sender, receiver) = bounded_lane::channel(LaneLimits {
+            lossy_bytes: 0,
+            required_bytes,
+            loss_records: 1,
+        });
+
+        publish_evaluation_event(&sender, first).unwrap();
+        publish_evaluation_event(&sender, second).unwrap();
+
+        assert!(matches!(
+            next_evaluation_event(&receiver).unwrap(),
+            Some(EvaluationEvent::AsyncFailure {
+                submission_id: Some(7),
+                ..
+            })
+        ));
+        assert!(matches!(
+            next_evaluation_event(&receiver).unwrap(),
+            Some(EvaluationEvent::AsyncFailure {
+                submission_id: None,
+                ..
+            })
+        ));
+        assert!(next_evaluation_event(&receiver).unwrap().is_none());
+        assert_eq!(receiver.snapshot().lossy_bytes, 0);
+        assert_eq!(receiver.snapshot().required_bytes, 0);
+        assert_eq!(receiver.snapshot().loss_records, 0);
+    }
+
+    #[test]
+    fn production_evaluator_lane_admits_lifecycle_when_required_reserve_is_full() {
+        let required = EvaluationEvent::Outcome {
+            submission_id: 7,
+            kind: EvaluationOutcomeKind::Empty,
+            status: 0,
+            detail: Vec::new(),
+        };
+        let required_bytes = evaluation_event_charge(&required).unwrap();
+        let (sender, receiver) = bounded_lane::channel(LaneLimits {
+            lossy_bytes: 0,
+            required_bytes,
+            loss_records: 1,
+        });
+        publish_evaluation_event(&sender, required).unwrap();
+        assert_eq!(receiver.snapshot().required_bytes, required_bytes);
+
+        let (reply, _ack) = mpsc::sync_channel(1);
+        publish_evaluation_event(
+            &sender,
+            EvaluationEvent::LifecycleCommit {
+                request_id: 11,
+                status: 23,
+                stdout_cutoff: 29,
+                stderr_cutoff: 31,
+                reply,
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(
+            next_evaluation_event(&receiver).unwrap(),
+            Some(EvaluationEvent::LifecycleCommit {
+                request_id: 11,
+                status: 23,
+                stdout_cutoff: 29,
+                stderr_cutoff: 31,
+                ..
+            })
+        ));
+        assert_eq!(receiver.snapshot().required_bytes, required_bytes);
+        assert!(matches!(
+            next_evaluation_event(&receiver).unwrap(),
+            Some(EvaluationEvent::Outcome {
+                submission_id: 7,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn native_pre_receipt_loss_is_required_and_never_recounted_as_one() {
+        let kept = ordinary_async_event("kept");
+        let lossy_bytes = evaluation_event_charge(&kept).unwrap();
+        let native_loss = EvaluationEvent::Message(ControlMessage::AsyncFailure {
+            stdout_cutoff: 0,
+            stderr_cutoff: 0,
+            detail: encode_async_failure(&AuthenticatedAsyncFailure::PreReceiptLoss {
+                count: 1025,
+            }),
+        });
+        let required_bytes = evaluation_event_charge(&native_loss).unwrap();
+        let (sender, receiver) = bounded_lane::channel(LaneLimits {
+            lossy_bytes,
+            required_bytes,
+            loss_records: 1,
+        });
+        publish_evaluation_event(&sender, kept).unwrap();
+        publish_evaluation_event(&sender, native_loss).unwrap();
+
+        let _ = next_evaluation_event(&receiver).unwrap().unwrap();
+        let EvaluationEvent::Message(ControlMessage::AsyncFailure { detail, .. }) =
+            next_evaluation_event(&receiver).unwrap().unwrap()
+        else {
+            panic!("native loss marker was not retained as a required async envelope")
+        };
+        assert_eq!(
+            decode_async_failure(&detail).unwrap(),
+            AuthenticatedAsyncFailure::PreReceiptLoss { count: 1025 }
+        );
+    }
+
+    fn supervisor_async_event(summary: &str) -> crate::session_worker::SupervisorEventPayload {
+        crate::session_worker::SupervisorEventPayload::Worker(ControlMessage::AsyncFailure {
+            stdout_cutoff: 0,
+            stderr_cutoff: 0,
+            detail: unavailable_async_failure(summary),
+        })
+    }
+
+    #[test]
+    fn production_supervisor_lane_sequences_post_receipt_loss_before_required_event() {
+        let first = supervisor_async_event("first");
+        let lossy_bytes = supervisor_event_charge(&first).unwrap();
+        let required = crate::session_worker::SupervisorEventPayload::Worker(
+            ControlMessage::ReadyCheckpointAck {
+                checkpoint_id: 7,
+                stdout_cutoff: 0,
+                stderr_cutoff: 0,
+            },
+        );
+        let required_bytes = supervisor_event_charge(&required).unwrap();
+        let (sender, receiver) = bounded_lane::sequenced_channel(
+            LaneLimits {
+                lossy_bytes,
+                required_bytes,
+                loss_records: 1,
+            },
+            crate::session_worker::SupervisorSequenceAllocator::new(4).unwrap(),
+            supervisor_post_receipt_loss,
+            supervisor_controller_fault,
+        );
+        publish_supervisor_event(&sender, first, true).unwrap();
+        publish_supervisor_event(&sender, supervisor_async_event("second"), true).unwrap();
+        publish_supervisor_event(&sender, supervisor_async_event("third"), true).unwrap();
+        publish_supervisor_event(&sender, required, true).unwrap();
+
+        assert_eq!(receiver.recv().unwrap().sequence, 1);
+        let marker = receiver.recv().unwrap();
+        assert_eq!(marker.sequence, 4);
+        assert!(matches!(
+            marker.payload,
+            crate::session_worker::SupervisorEventPayload::PostReceiptLoss {
+                count: 2,
+                highest_dropped_sequence: 3,
+            }
+        ));
+        let checkpoint = receiver.recv().unwrap();
+        assert_eq!(checkpoint.sequence, 5);
+        assert!(matches!(
+            checkpoint.payload,
+            crate::session_worker::SupervisorEventPayload::Worker(
+                ControlMessage::ReadyCheckpointAck {
+                    checkpoint_id: 7,
+                    ..
+                }
+            )
+        ));
+    }
+
+    #[test]
+    fn program_async_settlement_is_required_not_lossy() {
+        let async_event = supervisor_async_event("program settlement");
+        let charge = supervisor_event_charge(&async_event).unwrap();
+        let (sender, receiver) = bounded_lane::sequenced_channel(
+            LaneLimits {
+                lossy_bytes: 0,
+                required_bytes: charge,
+                loss_records: 1,
+            },
+            crate::session_worker::SupervisorSequenceAllocator::new(1).unwrap(),
+            supervisor_post_receipt_loss,
+            supervisor_controller_fault,
+        );
+        publish_supervisor_event(&sender, async_event, false).unwrap();
+        assert!(matches!(
+            receiver.recv().unwrap().payload,
+            crate::session_worker::SupervisorEventPayload::Worker(
+                ControlMessage::AsyncFailure { .. }
+            )
+        ));
+        assert_eq!(receiver.snapshot().loss_records, 0);
+    }
 
     fn test_repl_plan() -> crate::terminal_session::SessionIoPlan {
         crate::terminal_session::SessionIoPlan {
@@ -3288,15 +4158,7 @@ mod work_unit_tests {
 
     fn remote_repl_harness(
         accepted_lifecycle: Option<crate::session_worker::LifecycleRecord>,
-    ) -> (
-        RemoteReplSession,
-        mpsc::Sender<
-            std::result::Result<
-                crate::session_worker::Sequenced<crate::session_worker::SupervisorEventPayload>,
-                WorkerProtocolError,
-            >,
-        >,
-    ) {
+    ) -> (RemoteReplSession, SupervisorEventSender) {
         let (commands, _command_rx) = mpsc::channel();
         let supervisor_lifecycle = Arc::new(Mutex::new(
             crate::session_worker::SupervisorLifecycleState::default(),
@@ -3325,7 +4187,12 @@ mod work_unit_tests {
             request_gate: cancellation_request_gate,
             next_request,
         };
-        let (events_tx, events) = mpsc::channel();
+        let (events_tx, events) = bounded_lane::sequenced_channel(
+            supervisor_event_lane_limits(),
+            crate::session_worker::SupervisorSequenceAllocator::new(1).unwrap(),
+            supervisor_post_receipt_loss,
+            supervisor_controller_fault,
+        );
         (
             RemoteReplSession {
                 control,
@@ -3341,7 +4208,7 @@ mod work_unit_tests {
                 pending_outcome_barrier: None,
                 pending_lifecycle_barrier: None,
                 pending_mounts: None,
-                async_failures: std::collections::VecDeque::new(),
+                async_failures: BoundedRemoteAsyncBuffer::default(),
                 cancellation,
                 _controller: std::thread::spawn(|| {}),
             },
@@ -3359,6 +4226,15 @@ mod work_unit_tests {
         }
     }
 
+    fn send_worker_event(events: &SupervisorEventSender, message: ControlMessage) {
+        publish_supervisor_event(
+            events,
+            crate::session_worker::SupervisorEventPayload::Worker(message),
+            false,
+        )
+        .unwrap();
+    }
+
     fn remote_program_harness(message: ControlMessage) -> RemoteProgramSession {
         let (commands, command_rx) = mpsc::channel();
         let lifecycle = Arc::new(Mutex::new(
@@ -3368,8 +4244,18 @@ mod work_unit_tests {
             commands,
             lifecycle,
         };
-        let (events_tx, events) = mpsc::channel();
-        events_tx.send(Ok(worker_event(message))).unwrap();
+        let (events_tx, events) = bounded_lane::sequenced_channel(
+            supervisor_event_lane_limits(),
+            crate::session_worker::SupervisorSequenceAllocator::new(1).unwrap(),
+            supervisor_post_receipt_loss,
+            supervisor_controller_fault,
+        );
+        publish_supervisor_event(
+            &events_tx,
+            crate::session_worker::SupervisorEventPayload::Worker(message),
+            false,
+        )
+        .unwrap();
         let controller = std::thread::spawn(move || {
             if let Ok(SupervisorCommand::Send { state, reply, .. }) = command_rx.recv() {
                 let _ = state.compare_exchange(
@@ -3710,7 +4596,12 @@ mod work_unit_tests {
             request_gate: Arc::new(Mutex::new(())),
             next_request: Arc::new(std::sync::atomic::AtomicU64::new(1)),
         };
-        let (events_tx, events) = mpsc::channel();
+        let (events_tx, events) = bounded_lane::sequenced_channel(
+            supervisor_event_lane_limits(),
+            crate::session_worker::SupervisorSequenceAllocator::new(1).unwrap(),
+            supervisor_post_receipt_loss,
+            supervisor_controller_fault,
+        );
         let program = RemoteProgramSession {
             control,
             events,
@@ -3726,14 +4617,15 @@ mod work_unit_tests {
             program.execute(b"while (true) {}".to_vec())
         });
 
-        events_tx
-            .send(Ok(worker_event(ControlMessage::WorkUnit {
+        send_worker_event(
+            &events_tx,
+            ControlMessage::WorkUnit {
                 target_id: 41,
                 scheduling_id: 0,
                 kind: WorkUnitKind::Evaluation,
                 phase: WorkUnitPhase::Begin,
-            })))
-            .unwrap();
+            },
+        );
         let deadline = std::time::Instant::now() + Duration::from_secs(1);
         while cancellation.interrupt_work_snapshot().executing
             != Some((41, WorkUnitKind::Evaluation))
@@ -3762,16 +4654,17 @@ mod work_unit_tests {
             ObservedControl::Terminate
         );
 
-        events_tx
-            .send(Ok(worker_event(ControlMessage::Outcome {
+        send_worker_event(
+            &events_tx,
+            ControlMessage::Outcome {
                 submission_id: 1,
                 kind: EvaluationOutcomeKind::Cancelled,
                 status: ibex_runtime::session_constants::EXIT_STATUS_INTERRUPT,
                 stdout_cutoff: 0,
                 stderr_cutoff: 0,
                 detail: Vec::new(),
-            })))
-            .unwrap();
+            },
+        );
         assert!(matches!(
             execution.join().unwrap().unwrap(),
             RemoteProgramOutcome::Cancelled { .. }
@@ -4070,6 +4963,20 @@ mod work_unit_tests {
         assert!(terminate.join().unwrap().is_err());
         drop(terminate_reply);
 
+        let quiesce = {
+            let control = control.clone();
+            std::thread::spawn(move || control.quiesce_preserving_lifecycle())
+        };
+        let SupervisorCommand::Quiesce {
+            reply: quiesce_reply,
+        } = command_rx.recv().unwrap()
+        else {
+            panic!("expected bounded worker quiescence")
+        };
+        std::thread::sleep(SUPERVISOR_CONTROL_ACK + Duration::from_millis(25));
+        assert!(quiesce.join().unwrap().is_err());
+        drop(quiesce_reply);
+
         let dispose = std::thread::spawn(move || control.dispose_preserving_lifecycle());
         let SupervisorCommand::Dispose {
             reply: dispose_reply,
@@ -4207,7 +5114,7 @@ mod work_unit_tests {
 
     #[test]
     fn supervisor_event_channel_teardown_fails_pending_requests() {
-        let (repl, events) = remote_repl_harness(None);
+        let (mut repl, events) = remote_repl_harness(None);
         repl.cancellations
             .lock()
             .unwrap()
@@ -4286,6 +5193,20 @@ mod work_unit_tests {
                 ..
             }
         ));
+
+        let mut pre_receipt_program = remote_program_harness(ControlMessage::AsyncFailure {
+            stdout_cutoff: 37,
+            stderr_cutoff: 41,
+            detail: encode_async_failure(&AuthenticatedAsyncFailure::PreReceiptLoss { count: 7 }),
+        });
+        assert!(matches!(
+            pre_receipt_program.execute(Vec::new()).unwrap(),
+            RemoteProgramOutcome::EngineFault {
+                stdout_cutoff: 37,
+                stderr_cutoff: 41,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -4294,10 +5215,14 @@ mod work_unit_tests {
             value: crate::engine::AuthenticatedDisplay {
                 kind: crate::engine::AuthenticatedDisplayKind::String,
                 text: "left\0right".to_owned(),
+                truncated: false,
             },
             metadata: crate::engine::AuthenticatedThrowMetadata::Captured {
+                error_class: crate::engine::AuthenticatedErrorClass::TypeError,
                 message: Some("boom\0after".to_owned()),
+                message_truncated: false,
                 stack: Some("at run (repl:9:3:7)\0tail".to_owned()),
+                stack_truncated: false,
                 positions: vec![crate::engine::AuthenticatedSourcePosition {
                     source_label: "repl:9:/project/src/input.ts".to_owned(),
                     line: 3,
@@ -4312,9 +5237,111 @@ mod work_unit_tests {
             panic!("expected throw outcome")
         };
         assert_eq!(decoded, thrown);
+        assert_eq!(
+            decoded.metadata.error_class(),
+            Some(crate::engine::AuthenticatedErrorClass::TypeError)
+        );
         assert_eq!(decoded.metadata.message(), Some("boom\0after"));
         assert_eq!(decoded.metadata.positions()[0].line, 3);
         assert_eq!(decoded.metadata.positions()[0].column, 7);
+    }
+
+    #[test]
+    fn worst_case_safe_text_json_stays_inside_the_control_envelope() {
+        use ibex_runtime::engine::hermes_structured::{
+            SAFE_TEXT_MAX_BYTES, SAFE_TEXT_TRUNCATION_MARKER,
+        };
+
+        let bounded = format!(
+            "{}{}",
+            "\0".repeat(SAFE_TEXT_MAX_BYTES - SAFE_TEXT_TRUNCATION_MARKER.len()),
+            SAFE_TEXT_TRUNCATION_MARKER
+        );
+        let thrown = crate::engine::AuthenticatedThrow {
+            value: crate::engine::AuthenticatedDisplay {
+                kind: crate::engine::AuthenticatedDisplayKind::String,
+                text: serde_json::to_string(&bounded).unwrap(),
+                truncated: true,
+            },
+            metadata: crate::engine::AuthenticatedThrowMetadata::Captured {
+                error_class: crate::engine::AuthenticatedErrorClass::Error,
+                message: Some(bounded.clone()),
+                message_truncated: true,
+                stack: Some(bounded),
+                stack_truncated: true,
+                positions: Vec::new(),
+            },
+        };
+        thrown.validate_wire().unwrap();
+        let detail = serde_json::to_vec(&thrown).unwrap();
+        assert!(detail.len() < 1024 * 1024);
+        assert!(decode_repl_outcome(EvaluationOutcomeKind::Throw, 1, detail).is_ok());
+
+        let async_failure = AuthenticatedAsyncFailure::Captured {
+            thrown,
+            owning_principal: crate::engine::AuthenticatedAsyncFailureOwner::Unavailable,
+            event_identity: "bounded:1".to_owned(),
+            associated_evaluation: None,
+        };
+        let encoded = encode_async_failure(&async_failure);
+        assert!(encoded.len() < 1024 * 1024);
+        assert_eq!(decode_async_failure(&encoded).unwrap(), async_failure);
+    }
+
+    #[test]
+    fn hostile_truncation_flags_without_markers_fail_closed() {
+        let thrown = crate::engine::AuthenticatedThrow {
+            value: crate::engine::AuthenticatedDisplay {
+                kind: crate::engine::AuthenticatedDisplayKind::Object,
+                text: "[Object]".to_owned(),
+                truncated: false,
+            },
+            metadata: crate::engine::AuthenticatedThrowMetadata::Captured {
+                error_class: crate::engine::AuthenticatedErrorClass::Error,
+                message: Some("not marked".to_owned()),
+                message_truncated: true,
+                stack: None,
+                stack_truncated: false,
+                positions: Vec::new(),
+            },
+        };
+        let detail = serde_json::to_vec(&thrown).unwrap();
+        assert!(decode_repl_outcome(EvaluationOutcomeKind::Throw, 1, detail).is_err());
+
+        let async_failure = AuthenticatedAsyncFailure::Captured {
+            thrown,
+            owning_principal: crate::engine::AuthenticatedAsyncFailureOwner::Unavailable,
+            event_identity: "hostile:1".to_owned(),
+            associated_evaluation: None,
+        };
+        assert!(decode_async_failure(&serde_json::to_vec(&async_failure).unwrap()).is_err());
+    }
+
+    #[test]
+    fn oversized_outcome_becomes_reserved_engine_fault_70() {
+        let (events, receiver) = bounded_lane::channel(evaluation_lane_limits());
+        send_outcome(
+            &events,
+            7,
+            EvaluationOutcomeKind::Throw,
+            1,
+            vec![0; 1024 * 1024 + 1],
+        );
+        let EvaluationEvent::Outcome {
+            kind,
+            status,
+            detail,
+            ..
+        } = next_evaluation_event(&receiver).unwrap().unwrap()
+        else {
+            panic!("expected bounded outcome")
+        };
+        assert_eq!(kind, EvaluationOutcomeKind::EngineFault);
+        assert_eq!(status, 70);
+        assert_eq!(
+            detail,
+            b"worker outcome exceeded the bounded control-envelope payload"
+        );
     }
 
     #[test]
@@ -4326,6 +5353,7 @@ mod work_unit_tests {
                 value: crate::engine::AuthenticatedDisplay {
                     kind: crate::engine::AuthenticatedDisplayKind::Object,
                     text: "[Object]".to_owned(),
+                    truncated: false,
                 },
                 metadata: crate::engine::AuthenticatedThrowMetadata::Unavailable {
                     required_stratum: crate::engine::AuthenticatedCapabilityStratum::SafeThrow,
@@ -4363,9 +5391,8 @@ mod work_unit_tests {
                     ControlMessage::PreReceiptLoss { count: 17 },
                 ),
             })
-            .unwrap()
-            .is_none());
-        assert_eq!(repl.async_failures.pop_front(), Some(loss));
+            .is_err());
+        assert!(repl.async_failures.drain().is_empty());
         assert!(decode_async_failure(b"not-json").is_err());
     }
 
@@ -4389,19 +5416,146 @@ mod work_unit_tests {
             .unwrap();
         }
         assert_eq!(repl.async_failures.len(), 2);
+        // Directly injected records have no supervisor-lane lease. Production
+        // receipt/lease transfer is covered by the storm test below.
+        assert_eq!(repl.async_failures.bytes(), 0);
         assert_eq!(repl.take_outcome_barrier(), Some((13, 11)));
+    }
+
+    #[test]
+    fn remote_repl_retains_distinct_sequenced_post_receipt_loss() {
+        let (mut repl, _events) = remote_repl_harness(None);
+        repl.apply_event(crate::session_worker::Sequenced {
+            epoch: 4,
+            sequence: 12,
+            payload: crate::session_worker::SupervisorEventPayload::PostReceiptLoss {
+                count: 9,
+                highest_dropped_sequence: 11,
+            },
+        })
+        .unwrap();
+        assert_eq!(
+            repl.async_failures.drain(),
+            vec![AuthenticatedAsyncFailure::PostReceiptLoss {
+                count: 9,
+                highest_dropped_sequence: 11,
+            }]
+        );
+        assert_eq!(repl.async_failures.bytes(), 0);
+    }
+
+    #[test]
+    fn worker_pre_receipt_loss_is_fatal_but_accepted_lifecycle_still_wins() {
+        let (mut faulted, _events) = remote_repl_harness(None);
+        assert!(faulted
+            .apply_event(worker_event(ControlMessage::PreReceiptLoss { count: 3 }))
+            .is_err());
+
+        let (mut native_faulted, _events) = remote_repl_harness(None);
+        assert!(native_faulted
+            .apply_event(worker_event(ControlMessage::AsyncFailure {
+                stdout_cutoff: 2,
+                stderr_cutoff: 4,
+                detail: encode_async_failure(&AuthenticatedAsyncFailure::PreReceiptLoss {
+                    count: 5,
+                }),
+            }))
+            .is_err());
+
+        let record = crate::session_worker::LifecycleRecord {
+            request_id: 7,
+            status: 23,
+            stdout_cutoff: 5,
+            stderr_cutoff: 8,
+        };
+        let (mut lifecycle, _events) = remote_repl_harness(Some(record));
+        assert!(matches!(
+            lifecycle
+                .apply_event(worker_event(ControlMessage::PreReceiptLoss { count: 3 }))
+                .unwrap(),
+            Some(RemoteEvent::Lifecycle(23))
+        ));
+        assert_eq!(lifecycle.take_lifecycle_barrier(), Some((5, 8)));
+    }
+
+    #[test]
+    fn supervisor_lease_bounds_remote_storm_until_checkpoint_drain_then_reopens_capacity() {
+        let (mut repl, events) = remote_repl_harness(None);
+        let detail = unavailable_async_failure("x".repeat(512 * 1024));
+        let event = || {
+            crate::session_worker::SupervisorEventPayload::Worker(ControlMessage::AsyncFailure {
+                stdout_cutoff: 0,
+                stderr_cutoff: 0,
+                detail: detail.clone(),
+            })
+        };
+        let charge = supervisor_event_charge(&event()).unwrap();
+        let bound = ibex_runtime::session_constants::BROKER_QUEUE_BOUND_BYTES;
+        let kept = bound / charge;
+        assert!(kept > 0);
+
+        for _ in 0..kept {
+            publish_supervisor_event(&events, event(), true).unwrap();
+            let received = repl.receive_event("storm receipt").unwrap();
+            assert!(repl.apply_event(received).unwrap().is_none());
+        }
+        assert_eq!(repl.async_failures.bytes(), kept * charge);
+        assert_eq!(events.snapshot().lossy_bytes, kept * charge);
+
+        for _ in 0..3 {
+            publish_supervisor_event(&events, event(), true).unwrap();
+        }
+        assert!((kept + 3) * charge > bound);
+        publish_supervisor_event(
+            &events,
+            crate::session_worker::SupervisorEventPayload::Worker(
+                ControlMessage::ReadyCheckpointAck {
+                    checkpoint_id: 9,
+                    stdout_cutoff: 0,
+                    stderr_cutoff: 0,
+                },
+            ),
+            true,
+        )
+        .unwrap();
+
+        let loss_marker = repl.receive_event("loss marker").unwrap();
+        assert!(repl.apply_event(loss_marker).unwrap().is_none());
+        let checkpoint = repl.receive_event("checkpoint").unwrap();
+        assert!(matches!(
+            repl.apply_event(checkpoint).unwrap(),
+            Some(RemoteEvent::ReadyCheckpoint {
+                checkpoint_id: 9,
+                ..
+            })
+        ));
+        let drained = repl.async_failures.drain();
+        assert_eq!(drained.len(), kept + 1);
+        assert!(matches!(
+            drained.last(),
+            Some(AuthenticatedAsyncFailure::PostReceiptLoss { count: 3, .. })
+        ));
+        assert_eq!(events.snapshot().lossy_bytes, 0);
+
+        publish_supervisor_event(&events, event(), true).unwrap();
+        let received = repl.receive_event("subsequent evaluation").unwrap();
+        assert!(repl.apply_event(received).unwrap().is_none());
+        assert_eq!(repl.async_failures.bytes(), charge);
+        assert_eq!(repl.async_failures.drain().len(), 1);
+        assert_eq!(events.snapshot().lossy_bytes, 0);
     }
 
     #[test]
     fn foreground_repl_worker_fault_and_death_are_typed_engine_faults() {
         let (mut faulted, fault_events) = remote_repl_harness(None);
-        fault_events
-            .send(Ok(worker_event(ControlMessage::WorkerFault {
+        send_worker_event(
+            &fault_events,
+            ControlMessage::WorkerFault {
                 stdout_cutoff: 37,
                 stderr_cutoff: 41,
                 detail: b"native fault".to_vec(),
-            })))
-            .unwrap();
+            },
+        );
         assert!(matches!(
             faulted.wait_for_evaluation(1),
             Err(crate::runtime::AuthenticatedEvaluationFailure::EngineFault(
@@ -4416,18 +5570,17 @@ mod work_unit_tests {
             .unwrap()
             .insert_pending(11, 97)
             .unwrap();
-        death_events
-            .send(Ok(crate::session_worker::Sequenced {
-                epoch: 1,
-                sequence: 1,
-                payload: crate::session_worker::SupervisorEventPayload::WorkerDied(
-                    crate::session_worker::WorkerDeath {
-                        status: None,
-                        signal: Some(libc::SIGKILL),
-                    },
-                ),
-            }))
-            .unwrap();
+        publish_supervisor_event(
+            &death_events,
+            crate::session_worker::SupervisorEventPayload::WorkerDied(
+                crate::session_worker::WorkerDeath {
+                    status: None,
+                    signal: Some(libc::SIGKILL),
+                },
+            ),
+            false,
+        )
+        .unwrap();
         assert!(matches!(
             died.wait_for_evaluation(1),
             Err(crate::runtime::AuthenticatedEvaluationFailure::EngineFault(
@@ -4451,21 +5604,39 @@ mod work_unit_tests {
                 stdout_cutoff: 2,
                 stderr_cutoff: 3,
             }));
-        events
-            .send(Ok(crate::session_worker::Sequenced {
-                epoch: 1,
-                sequence: 1,
-                payload: crate::session_worker::SupervisorEventPayload::WorkerDied(
-                    crate::session_worker::WorkerDeath {
-                        status: Some(69),
-                        signal: None,
-                    },
-                ),
-            }))
-            .unwrap();
+        publish_supervisor_event(
+            &events,
+            crate::session_worker::SupervisorEventPayload::WorkerDied(
+                crate::session_worker::WorkerDeath {
+                    status: Some(69),
+                    signal: None,
+                },
+            ),
+            false,
+        )
+        .unwrap();
         assert!(matches!(
             repl.wait_for_evaluation(1),
             Ok(crate::repl::ReplEvaluation::Lifecycle(9))
         ));
+        assert_eq!(repl.take_lifecycle_barrier(), Some((2, 3)));
+    }
+
+    #[test]
+    fn accepted_lifecycle_and_cutoffs_survive_event_channel_disconnect() {
+        let (mut repl, events) =
+            remote_repl_harness(Some(crate::session_worker::LifecycleRecord {
+                request_id: 1,
+                status: 17,
+                stdout_cutoff: 19,
+                stderr_cutoff: 23,
+            }));
+        drop(events);
+        let disconnected = repl.receive_event("disconnected after lifecycle").unwrap();
+        assert!(matches!(
+            repl.apply_event(disconnected).unwrap(),
+            Some(RemoteEvent::Lifecycle(17))
+        ));
+        assert_eq!(repl.take_lifecycle_barrier(), Some((19, 23)));
     }
 }

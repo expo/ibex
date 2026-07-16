@@ -11,7 +11,6 @@ import {
   BUILTIN_NONCAP_CLOSED_OUTPUT_INVOCATION_SCHEMA,
   authoredBuiltinNoncapClosedOutputInvocation,
   builtinNoncapClosedOutputRouteManifest,
-  hasBuiltinNoncapClosedDescriptorResidualRoute,
 } from "./capsec-builtin-noncap-closed-output-templates.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 
@@ -80,6 +79,14 @@ async function residualInvocations() {
   const edges = new Map(coverage.edges.map((edge) => [edge.id, edge]));
   return catalog.rows.flatMap((row) => {
     const coverageEdge = edges.get(row.key.surfaceId);
+    if (
+      row.key.sourceKind !== "builtin" ||
+      !new Set(["non-capability", "closed"]).has(
+        coverageEdge?.classification,
+      )
+    ) {
+      return [];
+    }
     const surface = coverageEdge
       ? surfaces.get(
           `${coverageEdge.surface.kind}:${coverageEdge.surface.name}`,
@@ -89,27 +96,7 @@ async function residualInvocations() {
       coverageEdge,
       target,
     });
-    if (
-      row.key.sourceKind !== "builtin" ||
-      !new Set(["non-capability", "closed"]).has(
-        coverageEdge?.classification,
-      ) ||
-      !new Set(["compiled-registrar", "loaded-engine-descriptor"]).has(
-        genericKind,
-      )
-    ) {
-      return [];
-    }
-    if (
-      genericKind === "loaded-engine-descriptor" &&
-      !hasBuiltinNoncapClosedDescriptorResidualRoute({
-        catalogKey: row.key,
-        surface,
-        target,
-      })
-    ) {
-      return [];
-    }
+    if (genericKind !== "loaded-engine-descriptor") return [];
     const invocation = authoredBuiltinNoncapClosedOutputInvocation({
       catalogKey: row.key,
       coverageEdge,
@@ -131,7 +118,7 @@ const loaded = residualInvocations();
 describe("builtin non-capability/closed output recipes", () => {
   test("accounts for the exact callable/accessor and descriptor residual universe", async () => {
     const rows = await loaded;
-    expect(rows).toHaveLength(716);
+    expect(rows).toHaveLength(543);
     expect(
       Object.fromEntries(
         ["non-capability", "closed"].map((classification) => [
@@ -141,18 +128,20 @@ describe("builtin non-capability/closed output recipes", () => {
           ).length,
         ]),
       ),
-    ).toEqual({ "non-capability": 487, closed: 229 });
+    ).toEqual({ "non-capability": 363, closed: 180 });
     expect(
       builtinNoncapClosedOutputRouteManifest(rows.map((row) => row.invocation)),
     ).toMatchObject({
-      total: 716,
+      total: 543,
       operations: {
-        call: 355,
-        construct: 52,
-        get: 86,
+        call: 330,
+        construct: 35,
         "import-refusal": 22,
-        "import-return": 18,
-        unexercisable: 183,
+        unexercisable: 156,
+      },
+      residualReasons: {
+        "receiver-needs-external-or-network-lifecycle": 95,
+        "runtime-inspection-or-escape-surface-has-no-safe-receiver": 61,
       },
     });
     // Duplex now owns an explicit `_undestroy` descriptor, so its invocation
@@ -269,28 +258,21 @@ describe("builtin non-capability/closed output recipes", () => {
         row.invocation,
       ]),
     );
-    expect(byExport.get("node_buffer:Buffer.offset").route).toMatchObject({
-      operation: "get",
-      receiver: { kind: "buffer-owner", ownerExportName: "Buffer" },
-    });
     expect(byExport.get("node_fs:Dirent.isFile").route).toMatchObject({
       operation: "call",
       receiver: { kind: "fs-dirent" },
     });
-    expect(
-      byExport.get("node_fs:ReadStream.destroy").sourceDescriptor.access,
-    ).toMatchObject({ kind: "inherited-prototype-property" });
-    expect(
-      byExport.get("node_fs:WriteStream._emitClose").sourceDescriptor.access,
-    ).toMatchObject({ kind: "inherited-prototype-property" });
-    expect(byExport.get("node_console:Console").route).toMatchObject({
-      operation: "construct",
-      arguments: [{ kind: "console-writable-sink" }],
-    });
-    expect(byExport.get("exact_sqlite:Database._closed").route).toMatchObject({
-      operation: "get",
-      receiver: { kind: "sqlite-database" },
-    });
+    // These rows are now handled by the earlier exact public-return author,
+    // so the residual author must not duplicate their proof route.
+    for (const independentlyAuthored of [
+      "node_buffer:Buffer.offset",
+      "node_fs:ReadStream.destroy",
+      "node_fs:WriteStream._emitClose",
+      "node_console:Console",
+      "exact_sqlite:Database._closed",
+    ]) {
+      expect(byExport.has(independentlyAuthored)).toBe(false);
+    }
     expect(byExport.get("node_timers:setTimeout").route).toMatchObject({
       operation: "call",
       cleanup: { kind: "returned-timer-handle" },
@@ -326,15 +308,12 @@ describe("builtin non-capability/closed output recipes", () => {
       operation: "import-refusal",
       cleanup: { kind: "none" },
     });
-    const bootstrapInternal = (await loaded).find(
-      (row) =>
-        row.invocation.sourceDescriptor.importReachability ===
-        "bootstrap-internal",
-    );
-    expect(bootstrapInternal).toBeDefined();
-    expect(bootstrapInternal.invocation.route).toMatchObject({
-      operation: "unexercisable",
-      reasonCode: "bootstrap-shadowed-manifest-export",
-    });
+    expect(
+      (await loaded).some(
+        (row) =>
+          row.invocation.sourceDescriptor.importReachability ===
+          "bootstrap-internal",
+      ),
+    ).toBe(false);
   }, 30_000);
 });

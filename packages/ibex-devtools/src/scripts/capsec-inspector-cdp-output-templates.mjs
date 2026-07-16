@@ -214,7 +214,9 @@ let run_inspector = matches!(
             ..
         })
 );
-if cli.compat.is_some()
+let external_arming_artifact_supplied =
+    cli.capsec_armed_snapshot.is_some() || cli.capsec_arming_identity.is_some();
+if (cli.compat.is_some() && external_arming_artifact_supplied)
     || cli.inspect
     || cli.inspect_wait
     || cli.inspect_open
@@ -652,12 +654,8 @@ export function validateInspectorCdpStructuralAccount(
       surface.observedKey === proof.observedKey &&
       canonicalJson(structuralSourceRefs(surface)) ===
         canonicalJson(proof.sourceRefs) &&
-      coverageEdge?.classification === "closed" &&
       coverageEdge.surface?.kind === "native-op" &&
       coverageEdge.surface.name === surface.name &&
-      new Set(["inspector:activate", "runtime:inspect"]).has(
-        coverageEdge.cap,
-      ) &&
       account.structuralAccountSchema ===
         INSPECTOR_CDP_STRUCTURAL_ACCOUNT_SCHEMA &&
       account.surfaceId === coverageEdge.id &&
@@ -729,8 +727,6 @@ export function validateInspectorCdpStructuralCatalog({
     const account = accounts.get(edge?.id);
     requireCondition(
       edge?.surface?.name === surfaceName &&
-        edge.classification === "closed" &&
-        new Set(["inspector:activate", "runtime:inspect"]).has(edge.cap) &&
         account?.status === "structural-only" &&
         account.reasonCode === INSPECTOR_CDP_STRUCTURAL_REASON_CODE &&
         Array.isArray(account.outputKinds) &&

@@ -80,7 +80,8 @@ bool appendOwnDescriptor(
 // This source file is omitted from ordinary builds, and every Rust caller is
 // additionally cfg(test). The function cannot evaluate source, return live
 // values, or mutate the runtime; it exposes only declarative metadata,
-// provenance sets, and own-descriptor flags for names selected by the harness.
+// provenance sets, global extensibility, and own-descriptor flags for names
+// selected by the harness.
 // @ref LLP 0024#77-deviations-and-the-four-gates-that-prove-them
 extern "C" char* ibex_test_observe_session_metadata(
     ExactHermesRuntime* runtime,
@@ -89,6 +90,7 @@ extern "C" char* ibex_test_observe_session_metadata(
   if (!runtime || !runtime->armed || !runtime->structured_session_bound ||
       runtime->runtime_thread != std::this_thread::get_id() ||
       !runtime->structured_object_get_own_descriptor ||
+      !runtime->structured_object_is_extensible ||
       (requested_name_count != 0 && !requested_names) ||
       requested_name_count > 1024) {
     return nullptr;
@@ -128,6 +130,11 @@ extern "C" char* ibex_test_observe_session_metadata(
     appendSortedStringSet(out, runtime->structured_session_var_declared_names);
     out << ",\"sessionCreatedVars\":";
     appendSortedStringSet(out, runtime->structured_session_created_vars);
+    auto extensible = runtime->structured_object_is_extensible->call(
+        *runtime->runtime, runtime->runtime->global());
+    if (!extensible.isBool()) return nullptr;
+    out << ",\"globalExtensible\":"
+        << (extensible.getBool() ? "true" : "false");
     out << ",\"own\":{";
     bool firstDescriptor = true;
     for (const auto& name : names) {

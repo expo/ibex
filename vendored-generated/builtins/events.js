@@ -5,6 +5,7 @@ var eventTargetEventsSymbol = typeof Symbol === "function" && typeof Symbol.for 
 var objectToString = Object.prototype.toString;
 var __AsyncResource;
 var _captureRejections = false;
+var _exactDebugEmitListener = typeof process === "object" && process && process.env && process.env.EXACT_DEBUG_EMIT_LISTENER === "1";
 try {
 	__AsyncResource = require("async_hooks").AsyncResource;
 } catch (e) {
@@ -380,14 +381,14 @@ EventEmitter.prototype.emit = function emit(eventName) {
 	var args = [];
 	for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
 	if (typeof handler === "function") {
-		if (process && process.env && process.env.EXACT_DEBUG_EMIT_LISTENER === "1" && typeof handler !== "function") {
+		if (_exactDebugEmitListener && typeof handler !== "function") {
 			console.error("[stream-debug] emit non-function handler", eventName, typeof handler, handler);
 			console.error((/* @__PURE__ */ new Error()).stack);
 		}
 		_maybeCaptureRejection(this, _invokeListener(handler, this, args), eventName, args);
 	} else {
 		var current = handler.slice();
-		if (process && process.env && process.env.EXACT_DEBUG_EMIT_LISTENER === "1") {
+		if (_exactDebugEmitListener) {
 			for (var i = 0; i < current.length; i++) if (typeof current[i] !== "function") {
 				console.error("[stream-debug] emit list non-function handler", eventName, i, typeof current[i], current[i]);
 				console.error((/* @__PURE__ */ new Error()).stack);

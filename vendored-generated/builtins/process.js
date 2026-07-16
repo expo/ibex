@@ -46,10 +46,8 @@ function _resolveCwd(path) {
 }
 function _readNativeCwd() {
 	if (typeof _exactGetVirtualCwd !== "function") return null;
-	try {
-		var value = _exactGetVirtualCwd();
-		if (typeof value === "string" && value.length > 0) return _normalizeCwdPath(value);
-	} catch (_) {}
+	var value = _exactGetVirtualCwd();
+	if (typeof value === "string" && value.length > 0) return _normalizeCwdPath(value);
 	return null;
 }
 function cwd() {
@@ -66,16 +64,15 @@ function _coerceChdirError(err, path) {
 		var lower = message.toLowerCase();
 		var code;
 		if (lower.indexOf("no such file") !== -1 || lower.indexOf("does not exist") !== -1) code = "ENOENT";
-		else if (lower.indexOf("permission denied") !== -1) code = "EACCES";
+		else if (lower.indexOf("permission denied") !== -1 || lower.indexOf("eacces:") === 0) code = "EACCES";
 		else if (lower.indexOf("not a directory") !== -1) code = "ENOTDIR";
 		if (code) {
 			var mapped = /* @__PURE__ */ new Error(message + " '" + path + "'");
 			mapped.code = code;
-			var fallbackErrno = _uvErrnoMap && _uvErrnoMap[code];
-			if (fallbackErrno === void 0) fallbackErrno = _uvErrnoMapFallback[code];
+			var fallbackErrno = _uvErrnoMapFallback[code];
 			if (fallbackErrno !== void 0) mapped.errno = -fallbackErrno;
 			mapped.syscall = "chdir";
-			mapped.path = cwd();
+			mapped.path = path;
 			mapped.dest = path;
 			return mapped;
 		}
@@ -83,7 +80,7 @@ function _coerceChdirError(err, path) {
 	var fallback = /* @__PURE__ */ new Error("process.chdir failed");
 	fallback.code = "EINVAL";
 	fallback.syscall = "chdir";
-	fallback.path = cwd();
+	fallback.path = path;
 	fallback.dest = path;
 	return fallback;
 }
@@ -105,7 +102,7 @@ function chdir(path) {
 	}
 	try {
 		_exactSetVirtualCwd(resolvedPath);
-		_processCwd = _readNativeCwd() || resolvedPath;
+		_processCwd = resolvedPath;
 	} catch (e) {
 		throw _coerceChdirError(e, resolvedPath);
 	}
@@ -338,27 +335,30 @@ function execve(execPath, args, envObj) {
 }
 if (typeof globalThis !== "undefined" && globalThis.process) {
 	var proc = globalThis.process;
-	if (typeof proc._umask === "undefined") proc._umask = _umask;
-	proc.umask = function umask(mask) {
-		if (arguments.length === 0) return proc._umask;
-		if (typeof mask === "string") {
-			if (!/^(0o?)?[0-7]+$/i.test(mask)) {
-				var ve = /* @__PURE__ */ new TypeError("[ERR_INVALID_ARG_VALUE]: The argument 'mask' is invalid. Received '" + mask + "'");
-				ve.code = "ERR_INVALID_ARG_VALUE";
-				throw ve;
+	var umaskDescriptor = Object.getOwnPropertyDescriptor(proc, "umask");
+	if (!(umaskDescriptor && umaskDescriptor.writable === false && umaskDescriptor.configurable === false)) {
+		if (typeof proc._umask === "undefined") proc._umask = _umask;
+		proc.umask = function umask(mask) {
+			if (arguments.length === 0) return proc._umask;
+			if (typeof mask === "string") {
+				if (!/^(0o?)?[0-7]+$/i.test(mask)) {
+					var ve = /* @__PURE__ */ new TypeError("[ERR_INVALID_ARG_VALUE]: The argument 'mask' is invalid. Received '" + mask + "'");
+					ve.code = "ERR_INVALID_ARG_VALUE";
+					throw ve;
+				}
+				var stripped = mask.replace(/^0o/i, "").replace(/^0+(?=\d)/, "");
+				mask = parseInt(stripped || "0", 8);
+			} else if (typeof mask !== "number" || mask !== (mask | 0)) {
+				var te = /* @__PURE__ */ new TypeError("[ERR_INVALID_ARG_TYPE]: The \"mask\" argument must be of type number. Received type " + typeof mask);
+				te.code = "ERR_INVALID_ARG_TYPE";
+				throw te;
 			}
-			var stripped = mask.replace(/^0o/i, "").replace(/^0+(?=\d)/, "");
-			mask = parseInt(stripped || "0", 8);
-		} else if (typeof mask !== "number" || mask !== (mask | 0)) {
-			var te = /* @__PURE__ */ new TypeError("[ERR_INVALID_ARG_TYPE]: The \"mask\" argument must be of type number. Received type " + typeof mask);
-			te.code = "ERR_INVALID_ARG_TYPE";
-			throw te;
-		}
-		mask = mask & 4095;
-		var old = proc._umask;
-		proc._umask = mask;
-		return old;
-	};
+			mask = mask & 4095;
+			var old = proc._umask;
+			proc._umask = mask;
+			return old;
+		};
+	}
 	proc.chdir = chdir;
 	proc.cwd = cwd;
 	if (typeof proc.getuid !== "function") proc.getuid = function getuid() {
@@ -463,7 +463,7 @@ if (typeof globalThis !== "undefined" && globalThis.process) {
 	_installReadableStdinFallback(proc);
 	if (typeof Proxy === "function") {
 		var _rawEnv = proc.env;
-		if (!_rawEnv || typeof _rawEnv === "object" && Object.keys(_rawEnv).length === 0) _rawEnv = env;
+		if (!_rawEnv || typeof _rawEnv === "object" && !_rawEnv.__exactEnvProxy && Object.keys(_rawEnv).length === 0) _rawEnv = env;
 		if (!_rawEnv.__exactEnvProxy) {
 			var _envProxy = new Proxy(_rawEnv, {
 				get: function(target, key) {

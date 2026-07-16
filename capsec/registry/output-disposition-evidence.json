@@ -1,8 +1,8 @@
 {
-  "outputDispositionEvidenceSchema": "ibex/capsec-output-disposition-evidence/2",
+  "outputDispositionEvidenceSchema": "ibex/capsec-output-disposition-evidence/3",
   "profile": "ibex/capsec/1",
   "status": "unpromotable",
-  "requiredExecutor": "ibex-public-surface-harness/output-shape-sweep-v2",
-  "reason": "The loaded-engine output-shape-sweep-v2 harness has not yet emitted a verified, digest-bound observation for every retained seven-part catalog key; compiled registrar coverage proves only full surface-account provenance and cannot satisfy a value row.",
+  "requiredExecutor": "ibex-public-surface-harness/output-shape-sweep-v3",
+  "reason": "The output corpus remains unpromotable: three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes both account families; compiled registrar coverage proves only surface-account provenance and cannot satisfy either live-value requirement.",
   "observations": []
 }

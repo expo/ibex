@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   buildOutputShapeCatalog,
   outputExecutionContextsForRows,
+  outputParameterizedBindingDigest,
   outputShapeCatalogKeyDigest,
 } from "./capsec-output-dispositions.mjs";
 import {
@@ -17,6 +18,7 @@ import {
 import {
   OUTPUT_SHAPE_SWEEP_EXECUTOR,
   buildOutputShapeSweepArtifactFromExecutorBatch,
+  buildOutputShapeSweepExecutionPartition,
   buildOutputShapeSweepPlan,
   buildOutputShapeSweepProbes,
   buildVerifiedOutputDispositionEvidence,
@@ -24,10 +26,19 @@ import {
   outputShapeSourceDescriptorDigest,
   normalizeExecutorObservation,
   sealOutputShapeSweepArtifact,
+  validatePromotableOutputDispositionEvidence,
   validateOutputShapeSweepArtifact,
   validateOutputShapeSweepPlan,
 } from "./capsec-output-shape-sweep.mjs";
 import { NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND } from "./capsec-native-freeze-output-templates.mjs";
+import {
+  buildConformanceRecipeCatalog,
+  computeRecipeCatalogDigest,
+  validateCurrentSourceRecipeCatalog,
+  validateRecipeCatalog,
+} from "./capsec-conformance-recipes.mjs";
+import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
+import { authoredTargetAbsenceOutputBindings } from "./capsec-target-absence-output-templates.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
@@ -108,6 +119,8 @@ function v2Catalog(inputRows, { structuralSurfaceIds = [] } = {}) {
     },
     contexts: outputExecutionContextsForRows(rows),
     surfaceAccounts,
+    parameterizedOutputBindings: [],
+    parameterizedBindingDigest: outputParameterizedBindingDigest([]),
     catalogKeyDigest: outputShapeCatalogKeyDigest(rows),
     counts: {
       coverageSurfaces: surfaceAccounts.length,
@@ -115,6 +128,7 @@ function v2Catalog(inputRows, { structuralSurfaceIds = [] } = {}) {
       structuralOnlySurfaces: structuralSurfaceIds.length,
       unresolvedSurfaces: 0,
       catalogRows: rows.length,
+      parameterizedBindings: 0,
       sourceInventoryRows,
       structuredRows,
     },
@@ -129,6 +143,7 @@ async function repositorySweepFixture() {
       JSON.parse(fs.readFileSync(path.join(repoRoot, relative), "utf8"));
     const coverage = readJson("capsec/registry/coverage-edges.json");
     const rules = readJson("capsec/registry/policy-rules.json");
+    const target = rules.initialProfile.candidateTargets[0];
     const inventory = await discoverRepositorySurfaces(repoRoot);
     const sourceByObservedKey = new Map(
       inventory.surfaces.map((surface) => [surface.observedKey, surface]),
@@ -143,7 +158,7 @@ async function repositorySweepFixture() {
         sourceRefs: [...surface.sourceRefs],
       };
     });
-    const catalog = buildOutputShapeCatalog({
+    const completeCatalog = buildOutputShapeCatalog({
       coverage,
       implementationRows,
       surfaces: inventory.surfaces,
@@ -154,11 +169,54 @@ async function repositorySweepFixture() {
         reason: "test fixture awaits complete loaded-engine observations",
       },
     });
-    return {
-      catalog,
+    const implementation = readJson(
+      "capsec/generated/implementation-manifest.json",
+    );
+    const occurrenceExamples = readJson(
+      "capsec/examples/effect-occurrences.canonical.json",
+    );
+    const selectorExamples = readJson(
+      "capsec/examples/authority-selectors.canonical.json",
+    );
+    const capabilityDefinitions = readJson(
+      "capsec/registry/capability-definitions.json",
+    );
+    const recipeValidationInputs = {
+      coverage,
+      implementation,
+      inventory,
+      occurrenceExamples,
+      selectorExamples,
+      capabilityDefinitions,
+      target,
+    };
+    const recipeCatalog = buildConformanceRecipeCatalog({
+      catalog: fixtureCatalogForTarget({ coverage, implementation, target }),
+      ...recipeValidationInputs,
+    });
+    validateCurrentSourceRecipeCatalog(recipeCatalog, recipeValidationInputs);
+    const targetAbsenceBindings = authoredTargetAbsenceOutputBindings({
+      catalog: completeCatalog,
+      recipeCatalog,
+      coverage,
+      target,
+    }).filter((binding) => binding.key.sourceKind === "host-abi");
+    const executionPartition = buildOutputShapeSweepExecutionPartition({
+      catalog: completeCatalog,
       coverage,
       surfaces: inventory.surfaces,
-      target: rules.initialProfile.candidateTargets[0],
+      target,
+      targetAbsenceBindings,
+    });
+    return {
+      catalog: executionPartition.genericCatalog,
+      coverage,
+      executionPartition,
+      completeCatalog,
+      recipeCatalog,
+      recipeValidationInputs,
+      surfaces: inventory.surfaces,
+      target,
     };
   })();
   return repositorySweepFixturePromise;
@@ -186,6 +244,10 @@ function fixture() {
     object: { platform: "apple", volume: "dev:1", file: "ino:2" },
     targetArchitecture: "aarch64",
     structuralFeatures: ["session-runtime"],
+  };
+  const target = {
+    triple: "aarch64-apple-darwin",
+    features: ["session-runtime"],
   };
   const builtinDescriptor = {
     kind: "builtin-export",
@@ -238,6 +300,7 @@ function fixture() {
   const bindings = {
     sourceRevision: "a".repeat(40),
     sourceTreeDigest: digest("D"),
+    target,
     engine,
   };
   const plan = buildOutputShapeSweepPlan({ catalog, probes, ...bindings });
@@ -366,11 +429,12 @@ function executorBatch(value = fixture()) {
     },
   };
   return {
-    outputShapeExecutorBatchSchema: "ibex/capsec-output-shape-executor-batch/2",
+    outputShapeExecutorBatchSchema: "ibex/capsec-output-shape-executor-batch/3",
     profile: "ibex/capsec/1",
     executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
     sourceRevision: value.plan.sourceRevision,
     sourceTreeDigest: value.plan.sourceTreeDigest,
+    target: structuredClone(value.bindings.target),
     catalogKeyDigest: value.plan.catalogKeyDigest,
     sweepPlanDigest: value.plan.sweepPlanDigest,
     loadedEngineIdentity: structuredClone(value.bindings.engine),
@@ -403,7 +467,7 @@ function executorBatch(value = fixture()) {
   };
 }
 
-describe("output-shape-sweep-v2 evidence contract", () => {
+describe("output-shape-sweep-v3 evidence contract", () => {
   test("normalizes private native path markers only in authenticated Host-ABI context", () => {
     const raw = {
       kind: "return",
@@ -538,17 +602,19 @@ describe("output-shape-sweep-v2 evidence contract", () => {
     const bindings = {
       sourceRevision: "a".repeat(40),
       sourceTreeDigest: digest("D"),
+      target: fixture().bindings.target,
       engine: fixture().bindings.engine,
     };
     const plan = buildOutputShapeSweepPlan({ catalog, probes, ...bindings });
     expect(plan.rows).toHaveLength(catalog.rows.length);
     const batch = {
       outputShapeExecutorBatchSchema:
-        "ibex/capsec-output-shape-executor-batch/2",
+        "ibex/capsec-output-shape-executor-batch/3",
       profile: "ibex/capsec/1",
       executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
       sourceRevision: plan.sourceRevision,
       sourceTreeDigest: plan.sourceTreeDigest,
+      target: structuredClone(bindings.target),
       catalogKeyDigest: plan.catalogKeyDigest,
       sweepPlanDigest: plan.sweepPlanDigest,
       loadedEngineIdentity: structuredClone(bindings.engine),
@@ -689,6 +755,128 @@ describe("output-shape-sweep-v2 evidence contract", () => {
     ).toThrow(/not bound to an exact native freeze route/);
   });
 
+  test("production-partitions Host ABI execution without fabricating loaded-JS proof", async () => {
+    const { completeCatalog, executionPartition } =
+      await repositorySweepFixture();
+    expect(executionPartition).toMatchObject({
+      outputShapeExecutionPartitionSchema:
+        "ibex/capsec-output-shape-execution-partition/1",
+      completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
+    });
+    expect(completeCatalog.rows).toHaveLength(6362);
+    expect(executionPartition.genericCatalog.rows).toHaveLength(5919);
+    expect(executionPartition.genericProbes).toHaveLength(5919);
+    expect(
+      executionPartition.genericCatalog.rows.some(
+        (row) => row.key.sourceKind === "host-abi",
+      ),
+    ).toBe(false);
+    expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
+    expect(executionPartition.hostAbi.rows).toHaveLength(289);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(95);
+
+    const androidRows = [
+      ...executionPartition.hostAbi.targetAbsenceBindings,
+      ...executionPartition.hostAbi.rows,
+      ...executionPartition.hostAbi.residuals,
+    ].filter((row) => row.key.alias === "ex_android_initialize");
+    expect(androidRows).toHaveLength(1);
+    expect(androidRows[0]).toMatchObject({
+      invocationSchema: "ibex/capsec-target-absence-invocation/1",
+      key: {
+        sourceKind: "host-abi",
+        alias: "ex_android_initialize",
+      },
+    });
+    expect(
+      executionPartition.genericProbes.some(
+        (row) => row.key.alias === "ex_android_initialize",
+      ),
+    ).toBe(false);
+  }, 60_000);
+
+  test("rejects a self-consistent target-absence substitution before it can shift the Host ABI partition", async () => {
+    const {
+      completeCatalog,
+      coverage,
+      executionPartition,
+      recipeCatalog,
+      recipeValidationInputs,
+      surfaces,
+      target,
+    } = await repositorySweepFixture();
+    const tampered = structuredClone(recipeCatalog);
+    const recipe = tampered.recipes.find(
+      (candidate) =>
+        candidate.publicSurfaceProbe?.invocation?.surfaceName ===
+        "ex_android_initialize",
+    );
+    const versionEdge = coverage.edges.find(
+      (edge) =>
+        edge.surface.kind === "host-abi" &&
+        edge.surface.name === "ex_host_version",
+    );
+    const versionSurface = surfaces.find(
+      (surface) => surface.observedKey === "host-abi:ex_host_version",
+    );
+    expect(recipe).toBeDefined();
+    expect(versionEdge).toBeDefined();
+    expect(versionSurface).toBeDefined();
+
+    const observedKey = versionSurface.observedKey;
+    recipe.edgeIds = [versionEdge.id];
+    recipe.terminalObservedKey = observedKey;
+    recipe.expectedObservation.edgeId = versionEdge.id;
+    recipe.publicSurfaceProbe.surfaceObservedKey = observedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.surfaceKind = versionEdge.surface.kind;
+    invocation.surfaceName = versionEdge.surface.name;
+    const descriptor = invocation.sourceDescriptor;
+    descriptor.surfaceKind = versionEdge.surface.kind;
+    descriptor.surfaceName = versionEdge.surface.name;
+    descriptor.sourceRefs = [...versionSurface.sourceRefs];
+    descriptor.sourceMetadata = structuredClone(versionSurface.metadata);
+    descriptor.targetVariants = ["android"];
+    descriptor.probeMode.symbolName = versionEdge.surface.name;
+    invocation.sourceDescriptorDigest =
+      outputShapeSourceDescriptorDigest(descriptor);
+    recipe.planDigest = digest("Z");
+    tampered.recipeCatalogDigest = computeRecipeCatalogDigest(tampered);
+
+    // The substituted catalog is internally consistent, retains the exact
+    // fixture-id set, and passes the projector's local integrity checks.
+    expect(validateRecipeCatalog(tampered, { target })).toBe(tampered);
+    expect(() =>
+      validateCurrentSourceRecipeCatalog(tampered, recipeValidationInputs),
+    ).toThrow(/differs from the current source-derived public recipe plan/u);
+
+    // Trusting only that self-consistency would move a supported symbol out of
+    // the executable tranche and leave the Android-only symbol unresolved.
+    const untrustedBindings = authoredTargetAbsenceOutputBindings({
+      catalog: completeCatalog,
+      recipeCatalog: tampered,
+      coverage,
+      target,
+    }).filter((binding) => binding.key.sourceKind === "host-abi");
+    const shifted = buildOutputShapeSweepExecutionPartition({
+      catalog: completeCatalog,
+      coverage,
+      surfaces,
+      target,
+      targetAbsenceBindings: untrustedBindings,
+    });
+    expect([
+      shifted.hostAbi.targetAbsenceBindings.length,
+      shifted.hostAbi.rows.length,
+      shifted.hostAbi.residuals.length,
+    ]).not.toEqual([59, 289, 95]);
+    expect([
+      executionPartition.hostAbi.targetAbsenceBindings.length,
+      executionPartition.hostAbi.rows.length,
+      executionPartition.hostAbi.residuals.length,
+    ]).toEqual([59, 289, 95]);
+  }, 60_000);
+
   test("routes and exactly validates the complete builtin-effects tranche", async () => {
     const { catalog, coverage, surfaces, target } =
       await repositorySweepFixture();
@@ -701,6 +889,14 @@ describe("output-shape-sweep-v2 evidence contract", () => {
     const effects = probes.filter(
       (row) =>
         row.probe.sourceDescriptor?.kind === "authored-builtin-effects-output",
+    );
+    const effectKeys = new Set(
+      effects.map((row) => JSON.stringify(Object.values(row.key))),
+    );
+    const effectsCatalog = v2Catalog(
+      catalog.rows.filter((row) =>
+        effectKeys.has(JSON.stringify(Object.values(row.key))),
+      ),
     );
     expect(effects).toHaveLength(605);
     expect(
@@ -719,13 +915,18 @@ describe("output-shape-sweep-v2 evidence contract", () => {
     const bindings = {
       sourceRevision: "a".repeat(40),
       sourceTreeDigest: digest("D"),
+      target: fixture().bindings.target,
       engine: fixture().bindings.engine,
     };
     expect(
-      buildOutputShapeSweepPlan({ catalog, probes, ...bindings }).rows,
-    ).toHaveLength(catalog.rows.length);
+      buildOutputShapeSweepPlan({
+        catalog: effectsCatalog,
+        probes: effects,
+        ...bindings,
+      }).rows,
+    ).toHaveLength(effectsCatalog.rows.length);
 
-    const missingBinding = structuredClone(probes);
+    const missingBinding = structuredClone(effects);
     const missingBindingRoute = missingBinding.find(
       (row) =>
         row.probe.sourceDescriptor?.kind === "authored-builtin-effects-output",
@@ -738,13 +939,13 @@ describe("output-shape-sweep-v2 evidence contract", () => {
       );
     expect(() =>
       buildOutputShapeSweepPlan({
-        catalog,
+        catalog: effectsCatalog,
         probes: missingBinding,
         ...bindings,
       }),
     ).toThrow(/expected exact keys/);
 
-    const missingStages = structuredClone(probes);
+    const missingStages = structuredClone(effects);
     const missingStagesRoute = missingStages.find(
       (row) =>
         row.probe.sourceDescriptor?.kind === "authored-builtin-effects-output",
@@ -757,13 +958,13 @@ describe("output-shape-sweep-v2 evidence contract", () => {
       );
     expect(() =>
       buildOutputShapeSweepPlan({
-        catalog,
+        catalog: effectsCatalog,
         probes: missingStages,
         ...bindings,
       }),
     ).toThrow(/typed action has no exact stages/);
 
-    const wrongNativeBinding = structuredClone(probes);
+    const wrongNativeBinding = structuredClone(effects);
     const wrongNativeBindingRoute = wrongNativeBinding.find((row) =>
       row.probe.sourceDescriptor?.invocation?.decisionEvidence?.typedRoutes?.some(
         (route) => route.sourceBinding !== null,
@@ -778,7 +979,7 @@ describe("output-shape-sweep-v2 evidence contract", () => {
       );
     expect(() =>
       buildOutputShapeSweepPlan({
-        catalog,
+        catalog: effectsCatalog,
         probes: wrongNativeBinding,
         ...bindings,
       }),
@@ -1466,6 +1667,7 @@ describe("output-shape-sweep-v2 evidence contract", () => {
       probes,
       sourceRevision: "a".repeat(40),
       sourceTreeDigest: digest("D"),
+      target: fixture().bindings.target,
       engine: fixture().bindings.engine,
     });
     expect(JSON.stringify(plan)).not.toContain("expectedResult");
@@ -1567,9 +1769,11 @@ describe("output-shape-sweep-v2 evidence contract", () => {
     });
     expect(evidence.status).toBe("verified");
     expect(evidence.sourceRevision).toBe(value.bindings.sourceRevision);
-    expect(evidence.engineBinaryDigest).toBe(
-      value.bindings.engine.binaryDigest,
-    );
+    expect(evidence.sourceTreeDigest).toBe(value.bindings.sourceTreeDigest);
+    expect(evidence.target).toEqual(value.bindings.target);
+    expect(evidence.engine).toEqual(value.bindings.engine);
+    expect(evidence.sweepPlan).toEqual(value.plan);
+    expect(evidence.sweepArtifact).toEqual(value.artifact);
     expect(evidence.observations).toHaveLength(keys.length);
     expect(
       evidence.observations.every(
@@ -1578,6 +1782,41 @@ describe("output-shape-sweep-v2 evidence contract", () => {
           observation.proofKind === "loaded-engine-return-record",
       ),
     ).toBe(true);
+    expect(
+      validatePromotableOutputDispositionEvidence({
+        catalog: value.catalog,
+        dispositionRows: value.dispositionRows,
+        evidence,
+      }),
+    ).toEqual({
+      status: "verified",
+      sourceRevision: value.bindings.sourceRevision,
+      sourceTreeDigest: value.bindings.sourceTreeDigest,
+      target: value.bindings.target,
+      engine: value.bindings.engine,
+    });
+
+    const projectionOnly = structuredClone(evidence);
+    delete projectionOnly.sweepPlan;
+    delete projectionOnly.sweepArtifact;
+    expect(() =>
+      validatePromotableOutputDispositionEvidence({
+        catalog: value.catalog,
+        dispositionRows: value.dispositionRows,
+        evidence: projectionOnly,
+      }),
+    ).toThrow(/expected exact keys/);
+
+    const detachedProof = structuredClone(evidence);
+    detachedProof.sweepArtifact.observations[0].proof.sourceDescriptorDigest =
+      digest("Z");
+    expect(() =>
+      validatePromotableOutputDispositionEvidence({
+        catalog: value.catalog,
+        dispositionRows: value.dispositionRows,
+        evidence: detachedProof,
+      }),
+    ).toThrow(/stale or mismatched bindings/);
   });
 
   test("requires one independently-authored probe for every catalog row", () => {
@@ -1645,10 +1884,59 @@ describe("output-shape-sweep-v2 evidence contract", () => {
       }),
     ).toThrow(/stale or mismatched bindings/);
 
+    const bindingSubstitutions = [
+      (bindings) => {
+        bindings.sourceTreeDigest = digest("Y");
+      },
+      (bindings) => {
+        bindings.target.triple = "x86_64-apple-darwin";
+      },
+      (bindings) => {
+        bindings.target.features = ["native-lockdown"];
+      },
+      (bindings) => {
+        bindings.engine.engineArtifactPath = "/other/hermes";
+      },
+      (bindings) => {
+        bindings.engine.binaryDigest = digest("Y");
+      },
+      (bindings) => {
+        bindings.engine.object.file = "ino:99";
+      },
+      (bindings) => {
+        bindings.engine.structuralFeatures = ["native-lockdown"];
+      },
+    ];
+    for (const substitute of bindingSubstitutions) {
+      const changed = structuredClone(value.bindings);
+      substitute(changed);
+      expect(() =>
+        validateOutputShapeSweepPlan(value.plan, {
+          catalog: value.catalog,
+          ...changed,
+        }),
+      ).toThrow(/stale or mismatched bindings/);
+    }
+
+    const wrongTargetArtifact = structuredClone(value.artifact);
+    wrongTargetArtifact.target.triple = "x86_64-apple-darwin";
+    expect(() =>
+      validateOutputShapeSweepArtifact(wrongTargetArtifact, value.plan),
+    ).toThrow(/stale or mismatched bindings/);
+
     const wrongEngine = structuredClone(value.artifact);
     wrongEngine.loadedEngineIdentity.binaryDigest = digest("Z");
     expect(() =>
       validateOutputShapeSweepArtifact(wrongEngine, value.plan),
+    ).toThrow(/stale or mismatched bindings/);
+
+    const wrongTargetBatch = executorBatch(value);
+    wrongTargetBatch.target.features = ["native-lockdown"];
+    expect(() =>
+      buildOutputShapeSweepArtifactFromExecutorBatch({
+        plan: value.plan,
+        batch: wrongTargetBatch,
+      }),
     ).toThrow(/stale or mismatched bindings/);
 
     const v1Plan = structuredClone(value.plan);
@@ -1968,11 +2256,12 @@ describe("output-shape-sweep-v2 evidence contract", () => {
     const probe = plan.rows[0].probe;
     const batch = {
       outputShapeExecutorBatchSchema:
-        "ibex/capsec-output-shape-executor-batch/2",
+        "ibex/capsec-output-shape-executor-batch/3",
       profile: "ibex/capsec/1",
       executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
       sourceRevision: plan.sourceRevision,
       sourceTreeDigest: plan.sourceTreeDigest,
+      target: structuredClone(bindings.target),
       catalogKeyDigest: plan.catalogKeyDigest,
       sweepPlanDigest: plan.sweepPlanDigest,
       loadedEngineIdentity: structuredClone(bindings.engine),

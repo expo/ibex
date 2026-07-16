@@ -152,7 +152,7 @@ type StaticDispatcher = (
   fourth?: unknown,
 ) => any;
 
-function makeLoader() {
+function makeLoader(compartmentBindResult = true) {
   let dispatcher: StaticDispatcher | undefined;
   const resolutionCounts = new Map<string, number>();
   const packageRegistrations: Array<{
@@ -163,6 +163,11 @@ function makeLoader() {
   }> = [];
   const pendingPackageIds: number[] = [];
   const compartmentBindings: Array<{ fn: Function; compartment: object }> = [];
+  const importChecks: Array<{
+    hint: number;
+    specifier: string;
+    targetSourceId: string | undefined;
+  }> = [];
   const packageCompartment = Object.freeze({ package: packageLocator });
   const sandbox: any = {
     console,
@@ -187,6 +192,15 @@ function makeLoader() {
     },
     __exactSetCompartmentFor(fn: Function, compartment: object) {
       compartmentBindings.push({ fn, compartment });
+      return compartmentBindResult;
+    },
+    __exactCheckImport(
+      hint: number,
+      specifier: string,
+      targetSourceId: string | undefined,
+    ) {
+      importChecks.push({ hint, specifier, targetSourceId });
+      return true;
     },
     __exactPinProcessStreams() {},
   };
@@ -218,6 +232,7 @@ function makeLoader() {
     packageRegistrations,
     pendingPackageIds,
     compartmentBindings,
+    importChecks,
     packageCompartment,
   };
 }
@@ -322,6 +337,7 @@ test('package single-original execution preserves its exact principal, compartme
     packageRegistrations,
     pendingPackageIds,
     compartmentBindings,
+    importChecks,
     packageCompartment,
   } = makeLoader();
   const generated = dispatcher(
@@ -361,6 +377,25 @@ test('package single-original execution preserves its exact principal, compartme
   expect(sandbox.__packageRawRuns).toBe(0);
   expect(resolutionCounts.get('dep-entry.js')).toBe(1);
   expect(packageRegistrations).toHaveLength(1);
+  expect(compartmentBindings).toHaveLength(1);
+  expect(
+    importChecks.filter(({ targetSourceId }) => targetSourceId !== undefined),
+  ).toEqual([
+    { hint: 0, specifier: 'dep-entry.js', targetSourceId: packageSource },
+  ]);
+});
+
+test('package execution fails closed when the native Domain binder refuses', () => {
+  const { dispatcher, compartmentBindings } = makeLoader(false);
+  expect(() =>
+    dispatcher(
+      'evaluate-generated-single-commonjs-entry',
+      "module.exports = 'must-not-run';",
+      JSON.stringify(generatedPackageSingleRecord()),
+      'file:///project/node_modules/dep/index.js',
+      JSON.stringify({ root: 'project', components: ['node_modules', 'dep'] }),
+    ),
+  ).toThrow('Native package Domain compartment binding failed closed');
   expect(compartmentBindings).toHaveLength(1);
 });
 

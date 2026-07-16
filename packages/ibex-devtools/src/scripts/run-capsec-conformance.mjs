@@ -35,6 +35,7 @@ import {
   engineLoaderEnvironment,
   validateLoadedEngineIdentity,
 } from "./capsec-engine-identity.mjs";
+import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -45,6 +46,7 @@ const args = process.argv.slice(2).filter((argument) => argument !== "--");
 const valueOptions = new Set([
   "--engine-artifact",
   "--fixture-evidence",
+  "--output-disposition-evidence",
   "--public-surface-evidence",
   "--output",
   "--report",
@@ -92,6 +94,9 @@ const engineArtifactPath = path.resolve(
     "ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
 );
 const fixtureEvidencePath = option("--fixture-evidence");
+const outputDispositionEvidenceInputPath = option(
+  "--output-disposition-evidence",
+);
 const publicSurfaceEvidenceInputPath = option("--public-surface-evidence");
 const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
@@ -99,7 +104,7 @@ const git = (...gitArgs) => execFileSync("git", gitArgs, { cwd: repoRoot });
 const ownedByCurrentUser = (metadata) =>
   typeof process.getuid !== "function" || metadata.uid === process.getuid();
 
-function readOwnedJson(filePath, label) {
+function readOwnedJsonWithBytes(filePath, label) {
   const pathMetadata = fs.lstatSync(filePath);
   if (
     pathMetadata.isSymbolicLink() ||
@@ -137,10 +142,14 @@ function readOwnedJson(filePath, label) {
     ) {
       throw new Error(`${label}: evidence identity changed while reading`);
     }
-    return parseJsonStrict(bytes, label);
+    return { bytes, value: parseJsonStrict(bytes, label) };
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
   }
+}
+
+function readOwnedJson(filePath, label) {
+  return readOwnedJsonWithBytes(filePath, label).value;
 }
 
 if (!fs.existsSync(engineArtifactPath)) {
@@ -254,6 +263,8 @@ execFileSync(
     ),
     "--output",
     recipeCatalogPath,
+    "--target",
+    target.triple,
   ],
   { cwd: repoRoot, stdio: "inherit" },
 );
@@ -423,6 +434,38 @@ const bindings = {
   registryDigest,
   implementationManifestDigest,
 };
+let validatedOutputDispositionEvidenceState;
+if (outputDispositionEvidenceInputPath) {
+  const { bytes, value: outputDispositionEvidence } = readOwnedJsonWithBytes(
+    path.resolve(repoRoot, outputDispositionEvidenceInputPath),
+    "output-disposition evidence",
+  );
+  validatedOutputDispositionEvidenceState =
+    validatePromotableOutputDispositionEvidence({
+      catalog: readJsonStrict(
+        path.join(capsecRoot, "generated/output-shape-catalog.json"),
+      ),
+      dispositionRows: readJsonStrict(
+        path.join(capsecRoot, "generated/output-dispositions.json"),
+      ).rows,
+      evidence: outputDispositionEvidence,
+    });
+  if (
+    validatedOutputDispositionEvidenceState.sourceRevision !==
+      bindings.sourceRevision ||
+    validatedOutputDispositionEvidenceState.sourceTreeDigest !==
+      bindings.sourceTreeDigest ||
+    canonicalJson(validatedOutputDispositionEvidenceState.target) !==
+      canonicalJson(target) ||
+    canonicalJson(validatedOutputDispositionEvidenceState.engine) !==
+      canonicalJson(bindings.engine)
+  ) {
+    throw new Error(
+      "output-disposition evidence source, target, or loaded-engine binding differs from this execution",
+    );
+  }
+  bindings.outputDispositionEvidenceRawContentDigest = taggedDigest(bytes);
+}
 const publicSurfaceEvidence = buildPublicSurfaceExecutionArtifact({
   recipeCatalog,
   sourceRevision: bindings.sourceRevision,
@@ -465,7 +508,9 @@ const bindingDigest = executionBindingDigest({
 });
 let executions = [];
 if (fixtureEvidencePath) {
-  const fixtureArtifact = readJsonStrict(path.resolve(repoRoot, fixtureEvidencePath));
+  const fixtureArtifact = readJsonStrict(
+    path.resolve(repoRoot, fixtureEvidencePath),
+  );
   if (
     fixtureArtifact.executionArtifactSchema !== "ibex/capsec-executions/1" ||
     fixtureArtifact.sourceRevision !== bindings.sourceRevision ||
@@ -474,9 +519,13 @@ if (fixtureEvidencePath) {
     fixtureArtifact.recipeCatalogDigest !== bindings.recipeCatalogDigest ||
     fixtureArtifact.publicSurfaceExecutionDigest !==
       bindings.publicSurfaceExecutionDigest ||
+    fixtureArtifact.outputDispositionEvidenceRawContentDigest !==
+      bindings.outputDispositionEvidenceRawContentDigest ||
     !Array.isArray(fixtureArtifact.executions)
   ) {
-    throw new Error("fixture evidence artifact is stale, malformed, or from another revision");
+    throw new Error(
+      "fixture evidence artifact is stale, malformed, or from another revision",
+    );
   }
   executions = fixtureArtifact.executions;
 }
@@ -503,31 +552,45 @@ fs.writeFileSync(
     adapterEvidenceDigest,
     publicSurfaceExecutionDigest:
       publicSurfaceEvidence.publicSurfaceExecutionDigest,
+    ...(bindings.outputDispositionEvidenceRawContentDigest === undefined
+      ? {}
+      : {
+          outputDispositionEvidenceRawContentDigest:
+            bindings.outputDispositionEvidenceRawContentDigest,
+        }),
     commands: commandEvidence,
     executions,
   }, null, 2)}\n`,
 );
 
-execFileSync(
-  process.execPath,
-  [
-    path.join(
-      repoRoot,
-      "packages/ibex-devtools/src/scripts/generate-capsec-conformance.mjs",
-    ),
-    "--engine",
-    engineArtifactPath,
-    "--executions",
-    outputPath,
-    "--recipe-catalog",
-    recipeCatalogPath,
-    "--public-surface-executions",
-    publicSurfaceEvidencePath,
-    "--output",
-    reportPath,
-  ],
-  { cwd: repoRoot, stdio: "inherit" },
-);
+const reportGeneratorArgs = [
+  path.join(
+    repoRoot,
+    "packages/ibex-devtools/src/scripts/generate-capsec-conformance.mjs",
+  ),
+  "--engine",
+  engineArtifactPath,
+  "--executions",
+  outputPath,
+  "--recipe-catalog",
+  recipeCatalogPath,
+  "--public-surface-executions",
+  publicSurfaceEvidencePath,
+  "--target",
+  target.triple,
+  "--output",
+  reportPath,
+];
+if (outputDispositionEvidenceInputPath) {
+  reportGeneratorArgs.push(
+    "--output-disposition-evidence",
+    path.resolve(repoRoot, outputDispositionEvidenceInputPath),
+  );
+}
+execFileSync(process.execPath, reportGeneratorArgs, {
+  cwd: repoRoot,
+  stdio: "inherit",
+});
 const report = readJsonStrict(reportPath);
 // Adapter-only evidence is diagnostic and can never become a fixture pass.
 // Fail with the exact residual inventory before considering target promotion.
@@ -553,6 +616,13 @@ checkPromotion("public-surface-execution", () => {
     engine: bindings.engine,
     expectedFixtureIds: catalog.flatMap((cell) => cell.requiredFixtures),
   });
+});
+checkPromotion("output-disposition-evidence", () => {
+  if (!validatedOutputDispositionEvidenceState) {
+    throw new Error(
+      "target promotion requires verified content-addressed output-disposition evidence",
+    );
+  }
 });
 checkPromotion("conformance-report", () => {
   assertReportMayAdvertise(report);

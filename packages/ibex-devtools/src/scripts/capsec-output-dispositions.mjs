@@ -21,6 +21,30 @@ import {
   CALLBACK_OUTPUT_CONTRACT_SCHEMA,
   deriveHostAbiOutputCatalogAccount,
 } from "./capsec-surface-inventory.mjs";
+import {
+  auditInspectorCdpStructuralClosure,
+  inspectorCdpStructuralAccountBindings,
+  validateInspectorCdpStructuralCatalog,
+} from "./capsec-inspector-cdp-output-templates.mjs";
+import {
+  auditDebuggerNativeAliasClosure,
+  debuggerNativeAliasStructuralAccountBindings,
+  validateDebuggerNativeAliasStructuralCatalog,
+} from "./capsec-debugger-native-alias-accounts.mjs";
+import {
+  auditNativeGlobalMarkerAliasClosure,
+  capsecContextObserverOutputCatalogBinding,
+  nativeGlobalMarkerStructuralAccountBindings,
+  validateNativeGlobalMarkerAliasCatalog,
+} from "./capsec-native-global-marker-alias-accounts.mjs";
+import {
+  auditCanonicalEnvironmentOutputSources,
+  canonicalEnvironmentOutputContract,
+  ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD,
+  environmentParameterizedOutputCatalogBindings,
+  environmentStructuralAccountBindings,
+  validateEnvironmentOutputCatalog,
+} from "./capsec-environment-output-templates.mjs";
 
 export const OUTPUT_DISPOSITIONS = Object.freeze([
   "absent",
@@ -47,7 +71,29 @@ export const OUTPUT_KEY_FIELDS = Object.freeze([
 ]);
 
 const PROFILE = "ibex/capsec/1";
+export const OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR =
+  "ibex-public-surface-harness/output-shape-sweep-v3";
 const CATALOG_DIGEST_DOMAIN = "ibex:capsec:output-shape-catalog-keys:2";
+const PARAMETERIZED_BINDING_DIGEST_DOMAIN =
+  "ibex:capsec:output-parameterized-bindings:1";
+const DIGEST_PATTERN = /^sha256-[A-Za-z0-9_-]{43}$/u;
+const REVISION_PATTERN = /^[0-9a-f]{40}$/u;
+const TARGET_FIELDS = Object.freeze(["triple", "features"]);
+const ENGINE_FIELDS = Object.freeze([
+  "binaryDigest",
+  "engineArtifactPath",
+  "kind",
+  "object",
+  "structuralFeatures",
+  "targetArchitecture",
+]);
+const ENGINE_OBJECT_FIELDS = Object.freeze(["file", "platform", "volume"]);
+const ENGINE_OBJECT_PLATFORMS = new Set([
+  "android",
+  "apple",
+  "unix",
+  "windows",
+]);
 
 const OUTPUT_EXECUTION_CONTEXTS = Object.freeze({
   "host.private-native-call-initialized": Object.freeze({
@@ -141,6 +187,64 @@ function exactKeys(value, expected, label) {
       `${label}: expected exact keys [${wanted.join(", ")}], got [${actual.join(", ")}]`,
     );
   }
+}
+
+function validateCanonicalStableIdSet(value, label) {
+  if (
+    !Array.isArray(value) ||
+    value.some(
+      (item) =>
+        typeof item !== "string" || !/^[a-z][a-z0-9.-]*$/u.test(item),
+    ) ||
+    canonicalJson(value) !==
+      canonicalJson([...new Set(value)].sort(compareText))
+  ) {
+    throw new Error(`${label}: expected a canonical stable-id set`);
+  }
+  return value;
+}
+
+function validateExactOutputTarget(target, label) {
+  exactKeys(target, TARGET_FIELDS, label);
+  if (!/^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$/u.test(target.triple ?? "")) {
+    throw new Error(`${label}.triple: expected an exact target triple`);
+  }
+  validateCanonicalStableIdSet(target.features, `${label}.features`);
+  return target;
+}
+
+function validateExactOutputEngine(engine, target, label) {
+  exactKeys(engine, ENGINE_FIELDS, label);
+  exactKeys(engine.object, ENGINE_OBJECT_FIELDS, `${label}.object`);
+  validateCanonicalStableIdSet(
+    engine.structuralFeatures,
+    `${label}.structuralFeatures`,
+  );
+  const expectedObjectPlatform = target.triple.includes("-windows-")
+    ? "windows"
+    : target.triple.includes("-android")
+      ? "android"
+      : target.triple.includes("-apple-")
+        ? "apple"
+        : "unix";
+  if (
+    engine.kind !== "hermes" ||
+    typeof engine.engineArtifactPath !== "string" ||
+    engine.engineArtifactPath.length === 0 ||
+    !DIGEST_PATTERN.test(engine.binaryDigest ?? "") ||
+    !ENGINE_OBJECT_PLATFORMS.has(engine.object.platform) ||
+    engine.object.platform !== expectedObjectPlatform ||
+    typeof engine.object.volume !== "string" ||
+    engine.object.volume.length === 0 ||
+    typeof engine.object.file !== "string" ||
+    engine.object.file.length === 0 ||
+    !/^[a-z0-9_]+$/u.test(engine.targetArchitecture ?? "") ||
+    engine.targetArchitecture !== target.triple.split("-")[0] ||
+    canonicalJson(engine.structuralFeatures) !== canonicalJson(target.features)
+  ) {
+    throw new Error(`${label}: expected the exact target-bound Hermes image`);
+  }
+  return engine;
 }
 
 export function canonicalOutputDispositionKey(key, label = "output key") {
@@ -273,6 +377,13 @@ export function outputShapeCatalogKeyDigest(rows) {
   return taggedDigest(CATALOG_DIGEST_DOMAIN, keys);
 }
 
+export function outputParameterizedBindingDigest(bindings) {
+  if (!Array.isArray(bindings)) {
+    throw new Error("parameterized output bindings must be an array");
+  }
+  return taggedDigest(PARAMETERIZED_BINDING_DIGEST_DOMAIN, bindings);
+}
+
 function sourceAssertion(repoRoot, assertion, label) {
   const filePath = path.join(repoRoot, assertion.path);
   const source = fs.readFileSync(filePath, "utf8");
@@ -298,6 +409,89 @@ function sourceAssertion(repoRoot, assertion, label) {
     }
   }
   return `${assertion.path}${regionRef}#tokens:${assertion.tokens.join("+")}`;
+}
+
+function ibexBinaryRustSources(repoRoot) {
+  const binaryRoot = path.join(repoRoot, "src/bin/ibex");
+  return Object.fromEntries(
+    fs
+      .readdirSync(binaryRoot, { recursive: true })
+      .filter((relativePath) => String(relativePath).endsWith(".rs"))
+      .map((relativePath) => {
+        const absolutePath = path.join(binaryRoot, String(relativePath));
+        const repositoryPath = path
+          .relative(repoRoot, absolutePath)
+          .split(path.sep)
+          .join("/");
+        return [repositoryPath, fs.readFileSync(absolutePath, "utf8")];
+      }),
+  );
+}
+
+function inspectorCdpAuditSources(repoRoot) {
+  const requiredPaths = [
+    "src/bin/ibex/main.rs",
+    "src/bin/ibex/runtime.rs",
+    "src/bin/ibex/engine/hermes.rs",
+    "src/bin/ibex/cdp/mod.rs",
+  ];
+  const sourceFiles = Object.fromEntries(
+    requiredPaths.map((relativePath) => [
+      relativePath,
+      fs.readFileSync(path.join(repoRoot, relativePath), "utf8"),
+    ]),
+  );
+  return { sourceFiles, binaryRustSources: ibexBinaryRustSources(repoRoot) };
+}
+
+function debuggerNativeAliasAuditSources(repoRoot) {
+  const requiredPaths = [
+    "src/engine/hermes_runtime_debugger.cc",
+    "src/engine/hermes_runtime_platform_windows.cc",
+    "src/bin/ibex/engine/hermes.rs",
+    "src/bin/ibex/cdp/mod.rs",
+    "src/bin/ibex/runtime.rs",
+  ];
+  return {
+    sourceFiles: Object.fromEntries(
+      requiredPaths.map((relativePath) => [
+        relativePath,
+        fs.readFileSync(path.join(repoRoot, relativePath), "utf8"),
+      ]),
+    ),
+    binaryRustSources: ibexBinaryRustSources(repoRoot),
+  };
+}
+
+function environmentOutputAuditSources(repoRoot) {
+  const read = (relativePath) =>
+    fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+  return {
+    armedRuntimeSource: read("src/bin/ibex/runtime.rs"),
+    builtinProcessSource: read("src/builtins/process.js"),
+    compatibilityReaderSources: Object.fromEntries(
+      [
+        "packages/ibex-runtime-js/src/fetch/Headers.ts",
+        "packages/ibex-runtime-js/src/fetch/Request.ts",
+        "packages/ibex-runtime-js/src/fetch/Response.ts",
+        "packages/ibex-runtime-js/src/fetch/body.ts",
+        "packages/ibex-runtime-js/src/fetch/fetch.ts",
+        "packages/ibex-runtime-js/src/streams/ReadableStream.ts",
+      ].map((sourcePath) => [sourcePath, read(sourcePath)]),
+    ),
+    exactGlobalSource: read("src/engine/bootstrap/exact-global.js"),
+    hostInputsSource: read("packages/ibex-runtime-js/src/core/host-inputs.ts"),
+    hostEnvironmentAbiSource: read("src/host/abi.rs"),
+    hostEnvironmentSource: read("src/host/mod.rs"),
+    nativeAuthorizationSource: read("src/engine/hermes_runtime_internal.h"),
+    nativeEnvironmentSource: read("src/engine/hermes_runtime.cc"),
+    processSetupSource: read("src/engine/hermes_runtime_process_setup.cc"),
+    processFacadeSource: read("packages/ibex-runtime-js/src/node/process.ts"),
+    runtimeInstallSource: read("src/engine/hermes_runtime.cc"),
+    sharedBootstrapSource: read("packages/ibex-runtime-js/src/bootstrap.ts"),
+    snapshotFactorySource: read("src/bin/ibex/runtime.rs"),
+    snapshotSchemaSource: read("capsec/schema/armed-snapshot.schema.json"),
+  };
 }
 
 // These inventory entries are implementation/control tokens rather than
@@ -419,26 +613,6 @@ const SOURCE_ASSERTED_STRUCTURAL_CONTRACTS = Object.freeze([
           "if (this._persistent) _save(this._data)",
           "globalThis.localStorage = new StorageImpl(true)",
           "globalThis.sessionStorage = new StorageImpl(false)",
-        ],
-      },
-    ],
-  }),
-  Object.freeze({
-    surfaceName: "inspector.cdp-listener",
-    reasonCode: "inspector-listener-control-plane",
-    assertions: [
-      {
-        path: "src/bin/ibex/cdp/mod.rs",
-        region: {
-          start: "pub fn start_server(",
-          end: "let permit = match connection_slots.clone().try_acquire_owned() {",
-        },
-        tokens: [
-          "pub fn start_server(",
-          "socket.bind(&addr.into())",
-          "socket.listen(128)?",
-          "async fn run_server(",
-          "accept = listener.accept() =>",
         ],
       },
     ],
@@ -1484,29 +1658,20 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
         shape("callback:module-event/2", "__exactModuleEvent.payload", {
           mode,
           sourceKind: "native-op",
-          returnVariant:
-            mode === "module-payload" ? "uint8-array" : "absent",
+          returnVariant: mode === "module-payload" ? "uint8-array" : "absent",
         }),
       ]),
       ...["view-payload", "view-empty"].flatMap((mode) => [
-        shape(
-          "callback:module-view-event/0",
-          "__exactModuleEvent.moduleName",
-          {
-            mode,
-            sourceKind: "native-op",
-            returnVariant: "string",
-          },
-        ),
-        shape(
-          "callback:module-view-event/1",
-          "__exactModuleEvent.eventName",
-          {
-            mode,
-            sourceKind: "native-op",
-            returnVariant: "string",
-          },
-        ),
+        shape("callback:module-view-event/0", "__exactModuleEvent.moduleName", {
+          mode,
+          sourceKind: "native-op",
+          returnVariant: "string",
+        }),
+        shape("callback:module-view-event/1", "__exactModuleEvent.eventName", {
+          mode,
+          sourceKind: "native-op",
+          returnVariant: "string",
+        }),
         shape("callback:module-view-event/2", "__exactModuleEvent.nodeId", {
           mode,
           sourceKind: "native-op",
@@ -1569,15 +1734,11 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
           returnVariant: "u64-decimal-string",
         }),
       ),
-      shape(
-        "callback:run-on-js/arguments[]",
-        "__exactRunOnJS.arguments[]",
-        {
-          mode: "bounded-batch",
-          sourceKind: "native-op",
-          returnVariant: "finite-number",
-        },
-      ),
+      shape("callback:run-on-js/arguments[]", "__exactRunOnJS.arguments[]", {
+        mode: "bounded-batch",
+        sourceKind: "native-op",
+        returnVariant: "finite-number",
+      }),
     ],
   }),
   Object.freeze({
@@ -1739,61 +1900,6 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
       ),
     ],
   }),
-  // The ephemeral test observer is the converse case: its zero-argument call
-  // returns a source-authored context record, then rejects every second call.
-  Object.freeze({
-    surfaceName: "__ibexCapsecContextObserver_",
-    contextId: "javascript.package-call-loaded",
-    assertions: [
-      {
-        path: "src/engine/hermes_runtime.cc",
-        region: {
-          start:
-            'extern "C" int ibex_test_install_capsec_context_observer(',
-          end: "#endif",
-        },
-        tokens: [
-          'constexpr const char* kPrefix = "__ibexCapsecContextObserver_"',
-          "runtime->armed",
-          "runtime->restricted",
-          "CapSec context observer takes no arguments",
-          "CapSec context observer is single-use",
-          '"principalId"',
-          '"runtimeNonce"',
-          '"u64:" + std::to_string(currentPrincipalId())',
-          '"u64:" + std::to_string(runtime->runtime_nonce)',
-          "return context;",
-        ],
-      },
-      {
-        path: "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs",
-        tokens: [
-          "install_capsec_context_test_observer()",
-          "var observer = globalThis",
-          "var removed = delete globalThis",
-          "typeof observer !== 'function'",
-          "context: observer()",
-        ],
-      },
-    ],
-    shapes: [
-      shape("[[return]]", "__ibexCapsecContextObserver_.context", {
-        mode: "ephemeral-one-shot",
-        sourceKind: "native-op",
-        returnVariant: "context-record",
-      }),
-      shape("field:principalId", "__ibexCapsecContextObserver_.principalId", {
-        mode: "ephemeral-one-shot",
-        sourceKind: "native-op",
-        returnVariant: "u64-tagged-string",
-      }),
-      shape("field:runtimeNonce", "__ibexCapsecContextObserver_.runtimeNonce", {
-        mode: "ephemeral-one-shot",
-        sourceKind: "native-op",
-        returnVariant: "u64-tagged-string",
-      }),
-    ],
-  }),
   Object.freeze({
     surfaceName: "__exactCancel",
     contextId: "javascript.package-call-loaded",
@@ -1899,7 +2005,8 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
         tokens: [
           "CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime)",
           "domain->setCompartmentGlobal(runtime, obj);",
-          "return HermesValue::encodeUndefinedValue();",
+          "return HermesValue::encodeBoolValue(true);",
+          "return HermesValue::encodeBoolValue(false);",
           'createASCIIRef("__exactSetCompartmentFor")',
         ],
       },
@@ -1909,7 +2016,7 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
           "var __privSetCompartmentFor",
           "g.__exactSetCompartmentFor",
           "the loader is its only caller",
-          "__privSetCompartmentFor(fn, compartment);",
+          "__privSetCompartmentFor(fn, compartment) !== true",
         ],
       },
       {
@@ -1923,7 +2030,7 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
     shapes: [
       shape("[[return]]", "__privSetCompartmentFor", {
         sourceKind: "native-op",
-        returnVariant: "undefined",
+        returnVariant: "boolean",
       }),
     ],
   }),
@@ -2351,9 +2458,14 @@ export function validateOutputShapeCatalogAccounts({
   coverage,
   surfaceAccounts,
   rows,
+  parameterizedOutputBindings = [],
   promotionStatus = "unpromotable",
 }) {
-  if (!Array.isArray(surfaceAccounts) || !Array.isArray(rows)) {
+  if (
+    !Array.isArray(surfaceAccounts) ||
+    !Array.isArray(rows) ||
+    !Array.isArray(parameterizedOutputBindings)
+  ) {
     throw new Error("output catalog accounts and rows must be arrays");
   }
   assertUniqueRows(rows, "output shape catalog rows");
@@ -2362,6 +2474,66 @@ export function validateOutputShapeCatalogAccounts({
     : surfaceAccounts.map((account) => account.surfaceId);
   if (new Set(coverageIds).size !== coverageIds.length) {
     throw new Error("output catalog coverage ids are not unique");
+  }
+  const parameterizedById = new Map();
+  for (const [index, binding] of parameterizedOutputBindings.entries()) {
+    exactKeys(
+      binding,
+      [
+        "bindingSchema",
+        "surfaceId",
+        "surfaceName",
+        "status",
+        "reasonCode",
+        "sourceRefs",
+        "outputKinds",
+        "accountSchema",
+        "accountSetSource",
+        "binding",
+        "terminalSurfaces",
+        "ordinaryCatalogRows",
+      ],
+      `parameterized output binding ${index}`,
+    );
+    if (
+      binding.status !== "output-bearing" ||
+      binding.ordinaryCatalogRows !== "forbidden" ||
+      typeof binding.bindingSchema !== "string" ||
+      typeof binding.surfaceId !== "string" ||
+      typeof binding.surfaceName !== "string" ||
+      typeof binding.reasonCode !== "string" ||
+      typeof binding.accountSchema !== "string" ||
+      typeof binding.accountSetSource !== "string" ||
+      typeof binding.binding !== "string" ||
+      binding.terminalSurfaces?.scalarRead?.name !== "__exactGetEnv" ||
+      binding.terminalSurfaces?.scalarRead?.readSurface !== 0 ||
+      binding.terminalSurfaces?.enumerationRead?.name !== "__exactGetAllEnv" ||
+      binding.terminalSurfaces?.enumerationRead?.readSurface !== 1 ||
+      binding.terminalSurfaces?.write?.name !== "__exactSetEnv" ||
+      [
+        binding.terminalSurfaces.scalarRead.surfaceId,
+        binding.terminalSurfaces.enumerationRead.surfaceId,
+        binding.terminalSurfaces.write.surfaceId,
+      ].some(
+        (surfaceId) =>
+          typeof surfaceId !== "string" ||
+          !/^surface\.[a-z0-9.]+$/u.test(surfaceId),
+      ) ||
+      !Array.isArray(binding.sourceRefs) ||
+      binding.sourceRefs.length === 0 ||
+      !Array.isArray(binding.outputKinds) ||
+      binding.outputKinds.length === 0 ||
+      canonicalJson(binding.sourceRefs) !==
+        canonicalJson([...new Set(binding.sourceRefs)].sort(compareText)) ||
+      canonicalJson(binding.outputKinds) !==
+        canonicalJson([...new Set(binding.outputKinds)].sort(compareText)) ||
+      parameterizedById.has(binding.surfaceId)
+    ) {
+      throw new Error(
+        `parameterized output binding ${index}: malformed binding`,
+      );
+    }
+    parameterizedById.set(binding.surfaceId, binding);
   }
   const accountsById = new Map();
   for (const [index, account] of surfaceAccounts.entries()) {
@@ -2442,6 +2614,23 @@ export function validateOutputShapeCatalogAccounts({
   }
   for (const account of surfaceAccounts) {
     const rowCount = rowsBySurface.get(account.surfaceId)?.length ?? 0;
+    const parameterized = parameterizedById.get(account.surfaceId);
+    if (parameterized) {
+      if (
+        rowCount !== 0 ||
+        account.status !== parameterized.status ||
+        account.reasonCode !== parameterized.reasonCode ||
+        canonicalJson(account.sourceRefs) !==
+          canonicalJson(parameterized.sourceRefs) ||
+        canonicalJson(account.outputKinds) !==
+          canonicalJson(parameterized.outputKinds)
+      ) {
+        throw new Error(
+          `parameterized output-bearing surface ${account.surfaceId} disagrees with its rowless binding`,
+        );
+      }
+      continue;
+    }
     if (account.status === "output-bearing" && rowCount === 0) {
       throw new Error(
         `output-bearing surface ${account.surfaceId} has no output rows`,
@@ -2450,6 +2639,13 @@ export function validateOutputShapeCatalogAccounts({
     if (account.status !== "output-bearing" && rowCount !== 0) {
       throw new Error(
         `${account.status} surface ${account.surfaceId} has output rows`,
+      );
+    }
+  }
+  for (const surfaceId of parameterizedById.keys()) {
+    if (!accountsById.has(surfaceId)) {
+      throw new Error(
+        `parameterized output binding references unknown surface ${surfaceId}`,
       );
     }
   }
@@ -2462,6 +2658,14 @@ export function validateOutputShapeCatalogAccounts({
   if (promotionStatus === "verified" && counts.unresolved > 0) {
     throw new Error(
       `verified output catalog has ${counts.unresolved} unresolved surface accounts`,
+    );
+  }
+  if (
+    promotionStatus === "verified" &&
+    parameterizedOutputBindings.length > 0
+  ) {
+    throw new Error(
+      "verified output catalog requires live exact-name evidence for every parameterized output binding",
     );
   }
   if (!new Set(["unpromotable", "verified"]).has(promotionStatus)) {
@@ -2481,8 +2685,7 @@ export function buildOutputShapeCatalog({
 }) {
   if (
     !liveEvidence ||
-    typeof liveEvidence.requiredExecutor !== "string" ||
-    liveEvidence.requiredExecutor.length === 0 ||
+    liveEvidence.requiredExecutor !== OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR ||
     !["unpromotable", "verified"].includes(liveEvidence.status)
   ) {
     throw new Error("output shape discovery has malformed live-evidence state");
@@ -2495,11 +2698,94 @@ export function buildOutputShapeCatalog({
   }
   const implementationByEdge = implementationEvidenceByEdge(implementationRows);
   const sourcesByObservedKey = sourceSurfaceMap(surfaces);
+  const inspectorCdpSourceAudit = auditInspectorCdpStructuralClosure(
+    inspectorCdpAuditSources(repoRoot),
+  );
+  const inspectorCdpContracts = inspectorCdpStructuralAccountBindings(
+    inspectorCdpSourceAudit,
+  ).map((binding) => ({
+    surfaceName: binding.surfaceName,
+    reasonCode: binding.reasonCode,
+    sourceRefs: binding.sourceRefs,
+  }));
+  const debuggerNativeAliasSourceAudit = auditDebuggerNativeAliasClosure({
+    ...debuggerNativeAliasAuditSources(repoRoot),
+    surfaces,
+    coverage,
+  });
+  const debuggerNativeAliasContracts =
+    debuggerNativeAliasStructuralAccountBindings(
+      debuggerNativeAliasSourceAudit,
+    ).map((binding) => ({
+      surfaceName: binding.surfaceName,
+      reasonCode: binding.reasonCode,
+      sourceRefs: binding.sourceRefs,
+    }));
+  const nativeGlobalMarkerSourceAudit = auditNativeGlobalMarkerAliasClosure({
+    repoRoot,
+    surfaces,
+    coverage,
+  });
+  const contextObserverOutputBinding =
+    capsecContextObserverOutputCatalogBinding(nativeGlobalMarkerSourceAudit);
+  const contextObserverEdges =
+    edgeByName.get(contextObserverOutputBinding.surfaceName) ?? [];
+  if (
+    contextObserverEdges.length !== 1 ||
+    contextObserverEdges[0].id !==
+      contextObserverOutputBinding.account.surfaceId ||
+    contextObserverOutputBinding.rows.some(
+      (row) =>
+        row.key?.surfaceId !== contextObserverOutputBinding.account.surfaceId,
+    )
+  ) {
+    throw new Error(
+      "context observer output binding disagrees with the coverage edge",
+    );
+  }
+  const sourceAssertedOutputBindingsById = new Map([
+    [
+      contextObserverOutputBinding.account.surfaceId,
+      contextObserverOutputBinding,
+    ],
+  ]);
+  const nativeGlobalMarkerContracts =
+    nativeGlobalMarkerStructuralAccountBindings(
+      nativeGlobalMarkerSourceAudit,
+    ).map((binding) => ({
+      surfaceName: binding.surfaceName,
+      reasonCode: binding.reasonCode,
+      sourceRefs: binding.sourceRefs,
+    }));
+  const environmentSourceAudit = auditCanonicalEnvironmentOutputSources(
+    environmentOutputAuditSources(repoRoot),
+  );
+  const environmentContract = canonicalEnvironmentOutputContract({
+    coverageEdges: coverage.edges,
+    sourceAudit: environmentSourceAudit,
+    surfaces,
+  });
+  const environmentContracts = environmentStructuralAccountBindings(
+    environmentSourceAudit,
+  ).map((binding) => ({
+    surfaceName: binding.surfaceName,
+    reasonCode: binding.reasonCode,
+    sourceRefs: binding.sourceRefs,
+  }));
+  const parameterizedOutputBindings =
+    environmentParameterizedOutputCatalogBindings(environmentContract);
+  const parameterizedBindingsById = new Map(
+    parameterizedOutputBindings.map((binding) => [binding.surfaceId, binding]),
+  );
+  const structuralContracts = [
+    ...SOURCE_ASSERTED_STRUCTURAL_CONTRACTS,
+    ...inspectorCdpContracts,
+    ...debuggerNativeAliasContracts,
+    ...nativeGlobalMarkerContracts,
+    ...environmentContracts,
+  ];
   const sourceAssertedStructuralContracts = new Map();
-  for (const [
-    contractIndex,
-    contract,
-  ] of SOURCE_ASSERTED_STRUCTURAL_CONTRACTS.entries()) {
+  for (const [contractIndex, contract] of structuralContracts.entries()) {
     const edges = edgeByName.get(contract.surfaceName) ?? [];
     if (edges.length !== 1) {
       throw new Error(
@@ -2515,15 +2801,29 @@ export function buildOutputShapeCatalog({
         `source-asserted structural contract ${contractIndex}: missing native-op source surface ${contract.surfaceName}`,
       );
     }
-    const sourceRefs = contract.assertions
-      .map((assertion, assertionIndex) =>
-        sourceAssertion(
-          repoRoot,
-          assertion,
-          `source-asserted structural contract ${contractIndex} assertion ${assertionIndex}`,
-        ),
-      )
-      .sort(compareText);
+    const sourceRefs = contract.sourceRefs
+      ? [...contract.sourceRefs].sort(compareText)
+      : contract.assertions
+          .map((assertion, assertionIndex) =>
+            sourceAssertion(
+              repoRoot,
+              assertion,
+              `source-asserted structural contract ${contractIndex} assertion ${assertionIndex}`,
+            ),
+          )
+          .sort(compareText);
+    if (
+      sourceRefs.length === 0 ||
+      sourceRefs.some(
+        (sourceRef) => typeof sourceRef !== "string" || sourceRef.length === 0,
+      ) ||
+      new Set(sourceRefs).size !== sourceRefs.length ||
+      sourceAssertedStructuralContracts.has(edge.id)
+    ) {
+      throw new Error(
+        `source-asserted structural contract ${contractIndex}: malformed or duplicate evidence for ${contract.surfaceName}`,
+      );
+    }
     sourceAssertedStructuralContracts.set(edge.id, {
       reasonCode: contract.reasonCode,
       sourceRefs,
@@ -2583,6 +2883,8 @@ export function buildOutputShapeCatalog({
       });
     }
   }
+  recipeSurfaceIds.add(contextObserverOutputBinding.account.surfaceId);
+  recipeRows.push(...contextObserverOutputBinding.rows);
 
   const baselineRows = coverage.edges.flatMap((edge) => {
     const sourceSurface = sourcesByObservedKey.get(
@@ -2599,6 +2901,7 @@ export function buildOutputShapeCatalog({
         `output catalog surface ${edge.id} lacks source inventory evidence`,
       );
     }
+    if (parameterizedBindingsById.has(edge.id)) return [];
 
     if (sourceSurface.kind === "host-abi") {
       if (replacementIds.has(edge.id)) return [];
@@ -2702,6 +3005,22 @@ export function buildOutputShapeCatalog({
           `output catalog account ${edge.id} lacks source inventory metadata`,
         );
       }
+      const sourceAssertedOutputBinding = sourceAssertedOutputBindingsById.get(
+        edge.id,
+      );
+      if (sourceAssertedOutputBinding) {
+        return structuredClone(sourceAssertedOutputBinding.account);
+      }
+      const parameterizedBinding = parameterizedBindingsById.get(edge.id);
+      if (parameterizedBinding) {
+        return {
+          surfaceId: edge.id,
+          status: parameterizedBinding.status,
+          reasonCode: parameterizedBinding.reasonCode,
+          sourceRefs: [...parameterizedBinding.sourceRefs],
+          outputKinds: [...parameterizedBinding.outputKinds],
+        };
+      }
       return surfaceAccount({
         edge,
         surface: sourceSurface,
@@ -2717,10 +3036,11 @@ export function buildOutputShapeCatalog({
     coverage,
     surfaceAccounts,
     rows,
+    parameterizedOutputBindings,
     promotionStatus: liveEvidence.status,
   });
   const contexts = outputExecutionContextsForRows(rows);
-  return {
+  const catalog = {
     outputShapeCatalogSchema: "ibex/capsec-output-shape-catalog/2",
     profile: PROFILE,
     discovery: {
@@ -2732,11 +3052,18 @@ export function buildOutputShapeCatalog({
         ? { reason: liveEvidence.reason }
         : {
             sourceRevision: liveEvidence.sourceRevision,
-            engineBinaryDigest: liveEvidence.engineBinaryDigest,
+            sourceTreeDigest: liveEvidence.sourceTreeDigest,
+            target: structuredClone(liveEvidence.target),
+            engine: structuredClone(liveEvidence.engine),
           }),
     },
     contexts,
     surfaceAccounts,
+    [ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD]:
+      parameterizedOutputBindings,
+    parameterizedBindingDigest: outputParameterizedBindingDigest(
+      parameterizedOutputBindings,
+    ),
     catalogKeyDigest: outputShapeCatalogKeyDigest(rows),
     counts: {
       coverageSurfaces: coverage.edges.length,
@@ -2744,11 +3071,34 @@ export function buildOutputShapeCatalog({
       structuralOnlySurfaces: accountCounts["structural-only"],
       unresolvedSurfaces: accountCounts.unresolved,
       catalogRows: rows.length,
+      parameterizedBindings: parameterizedOutputBindings.length,
       sourceInventoryRows: baselineRows.length,
       structuredRows: recipeRows.length,
     },
     rows,
   };
+  validateInspectorCdpStructuralCatalog({
+    catalog,
+    coverage,
+    sourceAudit: inspectorCdpSourceAudit,
+  });
+  validateDebuggerNativeAliasStructuralCatalog({
+    catalog,
+    coverage,
+    sourceAudit: debuggerNativeAliasSourceAudit,
+  });
+  validateNativeGlobalMarkerAliasCatalog({
+    catalog,
+    coverage,
+    sourceAudit: nativeGlobalMarkerSourceAudit,
+  });
+  validateEnvironmentOutputCatalog({
+    catalog,
+    contract: environmentContract,
+    coverage,
+    sourceAudit: environmentSourceAudit,
+  });
+  return catalog;
 }
 
 export function validateOutputDispositionJoin(catalogRows, dispositionRows) {
@@ -2776,6 +3126,7 @@ function validateOutputShapeCatalogDocument(catalog, evidence) {
     catalog.profile !== PROFILE ||
     !Array.isArray(catalog.contexts) ||
     !Array.isArray(catalog.surfaceAccounts) ||
+    !Array.isArray(catalog[ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD]) ||
     !Array.isArray(catalog.rows)
   ) {
     throw new Error("output shape catalog is not a complete v2 document");
@@ -2806,7 +3157,9 @@ function validateOutputShapeCatalogDocument(catalog, evidence) {
   if (
     discovery.status === "verified" &&
     (discovery.sourceRevision !== evidence.sourceRevision ||
-      discovery.engineBinaryDigest !== evidence.engineBinaryDigest)
+      discovery.sourceTreeDigest !== evidence.sourceTreeDigest ||
+      canonicalJson(discovery.target) !== canonicalJson(evidence.target) ||
+      canonicalJson(discovery.engine) !== canonicalJson(evidence.engine))
   ) {
     throw new Error(
       "output shape catalog discovery does not bind the verified engine identity",
@@ -2814,6 +3167,16 @@ function validateOutputShapeCatalogDocument(catalog, evidence) {
   }
   if (catalog.catalogKeyDigest !== outputShapeCatalogKeyDigest(catalog.rows)) {
     throw new Error("output shape catalog key digest does not match its rows");
+  }
+  if (
+    catalog.parameterizedBindingDigest !==
+    outputParameterizedBindingDigest(
+      catalog[ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD],
+    )
+  ) {
+    throw new Error(
+      "output shape catalog parameterized binding digest does not match its bindings",
+    );
   }
   const expectedContexts = outputExecutionContextsForRows(catalog.rows);
   if (canonicalJson(catalog.contexts) !== canonicalJson(expectedContexts)) {
@@ -2824,6 +3187,8 @@ function validateOutputShapeCatalogDocument(catalog, evidence) {
   const accountCounts = validateOutputShapeCatalogAccounts({
     surfaceAccounts: catalog.surfaceAccounts,
     rows: catalog.rows,
+    parameterizedOutputBindings:
+      catalog[ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD],
     promotionStatus: evidence.status,
   });
   const expectedCounts = {
@@ -2832,6 +3197,8 @@ function validateOutputShapeCatalogDocument(catalog, evidence) {
     structuralOnlySurfaces: accountCounts["structural-only"],
     unresolvedSurfaces: accountCounts.unresolved,
     catalogRows: catalog.rows.length,
+    parameterizedBindings:
+      catalog[ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD].length,
     sourceInventoryRows: catalog.rows.filter(
       (row) => row.discovery.kind === "source-inventory-surface",
     ).length,
@@ -2954,26 +3321,32 @@ function buildDispositionRows(catalog, policy) {
 export function validateOutputDispositionEvidence(dispositionRows, evidence) {
   if (
     evidence?.outputDispositionEvidenceSchema !==
-      "ibex/capsec-output-disposition-evidence/2" ||
+      "ibex/capsec-output-disposition-evidence/3" ||
     evidence.profile !== PROFILE ||
-    typeof evidence.requiredExecutor !== "string" ||
-    evidence.requiredExecutor.length === 0 ||
+    evidence.requiredExecutor !== OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR ||
     !Array.isArray(evidence.observations)
   ) {
     throw new Error(
-      "output disposition evidence is not a complete v2 document",
+      "output disposition evidence is not a complete v3 document",
     );
   }
   assertUniqueRows(evidence.observations, "output disposition observations");
   if (evidence.status === "unpromotable") {
+    exactKeys(
+      evidence,
+      [
+        "outputDispositionEvidenceSchema",
+        "profile",
+        "status",
+        "requiredExecutor",
+        "reason",
+        "observations",
+      ],
+      "unpromotable output disposition evidence",
+    );
     if (typeof evidence.reason !== "string" || evidence.reason.length === 0) {
       throw new Error(
         "unpromotable output evidence requires an explicit reason",
-      );
-    }
-    if (evidence.sourceRevision || evidence.engineBinaryDigest) {
-      throw new Error(
-        "unpromotable output evidence cannot claim engine identity",
       );
     }
     if (evidence.observations.length !== 0) {
@@ -2983,15 +3356,44 @@ export function validateOutputDispositionEvidence(dispositionRows, evidence) {
     }
     return { status: "unpromotable", reason: evidence.reason };
   }
+  exactKeys(
+    evidence,
+    [
+      "outputDispositionEvidenceSchema",
+      "profile",
+      "status",
+      "requiredExecutor",
+      "sourceRevision",
+      "sourceTreeDigest",
+      "target",
+      "engine",
+      "sweepPlan",
+      "sweepArtifact",
+      "observations",
+    ],
+    "verified output disposition evidence",
+  );
   if (
     evidence.status !== "verified" ||
-    !/^[0-9a-f]{40}$/u.test(evidence.sourceRevision ?? "") ||
-    !/^sha256-[A-Za-z0-9_-]{43}$/u.test(evidence.engineBinaryDigest ?? "")
+    !REVISION_PATTERN.test(evidence.sourceRevision ?? "") ||
+    !DIGEST_PATTERN.test(evidence.sourceTreeDigest ?? "") ||
+    !evidence.sweepPlan ||
+    typeof evidence.sweepPlan !== "object" ||
+    Array.isArray(evidence.sweepPlan) ||
+    !evidence.sweepArtifact ||
+    typeof evidence.sweepArtifact !== "object" ||
+    Array.isArray(evidence.sweepArtifact)
   ) {
     throw new Error(
       "verified output evidence lacks exact source and engine identity",
     );
   }
+  validateExactOutputTarget(evidence.target, "verified output evidence.target");
+  validateExactOutputEngine(
+    evidence.engine,
+    evidence.target,
+    "verified output evidence.engine",
+  );
   const expectedByKey = new Map(
     dispositionRows.map((row) => [canonicalOutputDispositionKey(row.key), row]),
   );
@@ -3028,8 +3430,20 @@ export function validateOutputDispositionEvidence(dispositionRows, evidence) {
   return {
     status: "verified",
     sourceRevision: evidence.sourceRevision,
-    engineBinaryDigest: evidence.engineBinaryDigest,
+    sourceTreeDigest: evidence.sourceTreeDigest,
+    target: structuredClone(evidence.target),
+    engine: structuredClone(evidence.engine),
   };
+}
+
+export function validateTrackedOutputDispositionEvidenceSentinel(evidence) {
+  const state = validateOutputDispositionEvidence([], evidence);
+  if (state.status !== "unpromotable") {
+    throw new Error(
+      "the tracked output-disposition evidence document must remain an unpromotable source sentinel",
+    );
+  }
+  return state;
 }
 
 export function buildOutputDispositionDataset({ catalog, policy, evidence }) {

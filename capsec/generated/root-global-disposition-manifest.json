@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-GDNEvTwYbqAz2aGX7kAq_-BERPXJAR_XvWpTa_1WICI",
+  "sourceDigest": "sha256-R9-H9xi94TePOTpZeiIQhQ_5Qv_kQACPoK-oBBb5qPg",
   "sweep": {
     "roots": [
       "globalThis"
@@ -89,6 +89,7 @@
       "surface.native.op.exactclipboardread.1jw3spp",
       "surface.native.op.exactclipboardwrite.1lua9jo",
       "surface.native.op.exactcompateval.08n83kx",
+      "surface.native.op.exactcompatmodes.0hzhmrx",
       "surface.native.op.exactcopyfile.0rn0zb2",
       "surface.native.op.exactcreatehandle.1dt6o67",
       "surface.native.op.exactdebugmodulesource.17ymgg1",
@@ -191,8 +192,6 @@
       "surface.native.op.exacthassharedruntimebundle.1debc4m",
       "surface.native.op.exacthkdf.05jgsim",
       "surface.native.op.exacthmacsync.0xv7km5",
-      "surface.native.op.exacthostnavigator.15xlgzo",
-      "surface.native.op.exacthostnavigator.dynamic.table.host.navigator.properties.13lbyy8",
       "surface.native.op.exacthttpaddress.0nnqyun",
       "surface.native.op.exacthttpawaitwritable.1x6taml",
       "surface.native.op.exacthttpclose.0lxwt9b",
@@ -223,7 +222,6 @@
       "surface.native.op.exactipcrecvmsg.0gk98ri",
       "surface.native.op.exactipcsendmsg.0zqe1hg",
       "surface.native.op.exactisreadablestream.0hugh2h",
-      "surface.native.op.exactkchannelhandlekey.0hsvxwe",
       "surface.native.op.exactlanguage.0xcyrrr",
       "surface.native.op.exactlchmod.0aw9lfk",
       "surface.native.op.exactlchmodsync.07qlujf",
@@ -299,6 +297,10 @@
       "surface.native.op.exactpollsignal.1l4dydk",
       "surface.native.op.exactprocesscompatfixran.0tw23io",
       "surface.native.op.exactprocesscompatfixsawprocess.1y24i49",
+      "surface.native.op.exactprocessipcbootstrap.1f8twb6",
+      "surface.native.op.exactprocessipcbootstrap.close.1ap2eh4",
+      "surface.native.op.exactprocessipcbootstrap.fd.1yvjieu",
+      "surface.native.op.exactprocessipcbootstrap.serialization.1vtmt9s",
       "surface.native.op.exactrandombytes.05df739",
       "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88",
       "surface.native.op.exactreaddir.0tg30vk",
@@ -326,6 +328,7 @@
       "surface.native.op.exactscryptsync.0u89mot",
       "surface.native.op.exactsetactivemoduleid.1sinzn8",
       "surface.native.op.exactsetcwd.0nm1ccf",
+      "surface.native.op.exactsetenv.1785yh6",
       "surface.native.op.exactsetpendingpackageid.0yxc61n",
       "surface.native.op.exactsignalnamesmap.14b2x87",
       "surface.native.op.exactsignalnumbers.05c749d",
@@ -628,7 +631,11 @@
       "surface.native.op.global.bun.cryptohasher.0mcnjmk",
       "surface.native.op.global.bun.cryptohasher.algorithms.1k6jhhs",
       "surface.native.op.global.bun.cryptohasher.digest.06zq86e",
-      "surface.native.op.global.bun.cryptohasher.dynamic.table.call.result.3eca66b45491.propertie.1uke3y2",
+      "surface.native.op.global.bun.cryptohasher.hash.0x1oloa",
+      "surface.native.op.global.bun.cryptohasher.prototype.196r4jo",
+      "surface.native.op.global.bun.cryptohasher.prototype.copy.0jy6ik3",
+      "surface.native.op.global.bun.cryptohasher.prototype.digest.0omiqri",
+      "surface.native.op.global.bun.cryptohasher.prototype.update.03xz6uf",
       "surface.native.op.global.bun.cryptohasher.update.1m85pq7",
       "surface.native.op.global.bun.deepequals.190krgp",
       "surface.native.op.global.bun.deepmatch.1n6z1o9",
@@ -638,7 +645,6 @@
       "surface.native.op.global.bun.dns.resolve.0pfchrr",
       "surface.native.op.global.bun.enableansicolors.16ebzgm",
       "surface.native.op.global.bun.env.18aagct",
-      "surface.native.op.global.bun.env.dynamic.table.call.result.83f13e6eeaf2.properties.1jdwsyt",
       "surface.native.op.global.bun.escapehtml.18sh8c8",
       "surface.native.op.global.bun.fetch.1rwev0u",
       "surface.native.op.global.bun.file.0y6c6oc",
@@ -1018,7 +1024,11 @@
       "surface.native.op.global.exact.cryptohasher.0ksfn3a",
       "surface.native.op.global.exact.cryptohasher.algorithms.18dctsi",
       "surface.native.op.global.exact.cryptohasher.digest.1mratdc",
-      "surface.native.op.global.exact.cryptohasher.dynamic.table.call.result.3eca66b45491.propert.1qr95xs",
+      "surface.native.op.global.exact.cryptohasher.hash.0stwdvs",
+      "surface.native.op.global.exact.cryptohasher.prototype.1aiqi3y",
+      "surface.native.op.global.exact.cryptohasher.prototype.copy.1ybwba5",
+      "surface.native.op.global.exact.cryptohasher.prototype.digest.109sc4o",
+      "surface.native.op.global.exact.cryptohasher.prototype.update.1412pk1",
       "surface.native.op.global.exact.cryptohasher.update.1e19bnd",
       "surface.native.op.global.exact.deepequals.1v0qmu3",
       "surface.native.op.global.exact.deepmatch.0c7keun",
@@ -1031,7 +1041,6 @@
       "surface.native.op.global.exact.dns.resolve.0hbfnol",
       "surface.native.op.global.exact.enableansicolors.185beoo",
       "surface.native.op.global.exact.env.09w4ouf",
-      "surface.native.op.global.exact.env.dynamic.table.call.result.83f13e6eeaf2.properties.015del3",
       "surface.native.op.global.exact.escapehtml.0gy7hbq",
       "surface.native.op.global.exact.fetch.1g7bb7k",
       "surface.native.op.global.exact.file.1nm8tke",
@@ -1054,6 +1063,7 @@
       "surface.native.op.global.exact.hittest.0g8tl31",
       "surface.native.op.global.exact.inflatesync.0et6zfc",
       "surface.native.op.global.exact.inspect.095ouik",
+      "surface.native.op.global.exact.invokehostasync.0b92itq",
       "surface.native.op.global.exact.ismainthread.0u4gec9",
       "surface.native.op.global.exact.listen.0jep0v7",
       "surface.native.op.global.exact.locale.1eo85j6",
@@ -1551,7 +1561,6 @@
       "surface.native.op.global.intl.durationformat.resolvedoptions.0igl985",
       "surface.native.op.global.intl.durationformat.style.1dh3jsj",
       "surface.native.op.global.intl.durationformat.supportedlocalesof.1j2dk49",
-      "surface.native.op.global.intl.dynamic.table.host.intl.properties.04x4a70",
       "surface.native.op.global.intl.getcanonicallocales.0aoj0pj",
       "surface.native.op.global.intl.listformat.0aee5sx",
       "surface.native.op.global.intl.listformat.format.05d0xbe",
@@ -1815,22 +1824,16 @@
       "surface.native.op.global.process.debugport.0xuc9ne",
       "surface.native.op.global.process.disconnect.0k338jk",
       "surface.native.op.global.process.domain.0t3ttky",
-      "surface.native.op.global.process.dynamic.table.channel.handle.key.0rs5cmu",
-      "surface.native.op.global.process.dynamic.table.channel.handle.key.readstart.10t7ve8",
-      "surface.native.op.global.process.dynamic.table.channel.handle.key.readstop.16yh838",
-      "surface.native.op.global.process.dynamic.table.exact.channel.handle.key.0p7q3rc",
-      "surface.native.op.global.process.dynamic.table.host.process.own.properties.14sfc3f",
-      "surface.native.op.global.process.dynamic.table.host.process.prototype.properties.0y4mfg1",
-      "surface.native.op.global.process.dynamic.table.k.channel.handle.1bh6gpg",
-      "surface.native.op.global.process.dynamic.table.k.channel.handle.readstart.0s0jsdi",
-      "surface.native.op.global.process.dynamic.table.k.channel.handle.readstop.079by32",
       "surface.native.op.global.process.emit.1ujq1p5",
       "surface.native.op.global.process.emitwarning.1cubrij",
       "surface.native.op.global.process.env.10hroep",
       "surface.native.op.global.process.env.dynamic.table.env.obj.properties.161cd28",
-      "surface.native.op.global.process.env.dynamic.table.host.process.env.properties.17k5mxv",
+      "surface.native.op.global.process.env.dynamic.table.principal.environment.overlay.propertie.0sncb00",
       "surface.native.op.global.process.eventnames.0a040hy",
       "surface.native.op.global.process.exactasyncipclistenerpatch.0q7gr81",
+      "surface.native.op.global.process.exactkchannelhandle.042io0p",
+      "surface.native.op.global.process.exactkchannelhandle.readstart.1swhhov",
+      "surface.native.op.global.process.exactkchannelhandle.readstop.14rjgk5",
       "surface.native.op.global.process.exactlateipclistenerpatch.1u6t4tb",
       "surface.native.op.global.process.exactprocessipcbootstrapinstalled.0wc813e",
       "surface.native.op.global.process.exactstreampinned.0t1eg41",
@@ -1876,14 +1879,12 @@
       "surface.native.op.global.process.off.0n7f93v",
       "surface.native.op.global.process.on.178memv",
       "surface.native.op.global.process.once.1ksl94r",
-      "surface.native.op.global.process.once.dynamic.table.call.result.621e9ebb69c5.properties.01zbqkp",
       "surface.native.op.global.process.openstdin.1ob3vxo",
       "surface.native.op.global.process.pid.02o0csn",
       "surface.native.op.global.process.platform.15vol65",
       "surface.native.op.global.process.ppid.11pxaj7",
       "surface.native.op.global.process.prependlistener.183kb46",
       "surface.native.op.global.process.prependoncelistener.1dx0f7z",
-      "surface.native.op.global.process.prependoncelistener.dynamic.table.call.result.f0b2d7f38e0.1psi5ui",
       "surface.native.op.global.process.rawlisteners.1bsxaa1",
       "surface.native.op.global.process.release.0bvc2vb",
       "surface.native.op.global.process.release.headersurl.0orfir0",
@@ -2538,8 +2539,13 @@
       "surface.native.op.global.webstreamspolyfill.1pkf5rr",
       "surface.native.op.global.window.1tnba2v",
       "surface.native.op.global.worklet.0kkuh0r",
+      "surface.native.op.global.worklet.capture.0yvdy3b",
+      "surface.native.op.global.worklet.captureget.0a4t4gx",
+      "surface.native.op.global.worklet.captureset.02i1hil",
       "surface.native.op.global.worklet.clamp.10ckbeu",
       "surface.native.op.global.worklet.lerp.0ljvwxi",
+      "surface.native.op.global.worklet.output.1ij3raq",
+      "surface.native.op.global.worklet.runonjs.08g0zpi",
       "surface.native.op.global.worklet.sharedvalue.1jey6on",
       "surface.native.op.global.writablestream.0f653iv",
       "surface.native.op.global.writablestream.abort.1mql0bb",
@@ -2630,7 +2636,12 @@
       "surface.native.op.originalpromise.reject.1nmizxj",
       "surface.native.op.stringbuffer.05y6skt",
       "surface.native.op.svget.1spmln9",
-      "surface.native.op.svset.0snna21"
+      "surface.native.op.svset.0snna21",
+      "surface.native.op.workletcapture.1qk72mm",
+      "surface.native.op.workletcaptureget.1nw8x5m",
+      "surface.native.op.workletcaptureset.0khajo6",
+      "surface.native.op.workletoutput.03umqr5",
+      "surface.native.op.workletrunonjs.12t14kb"
     ]
   },
   "rows": [
@@ -3256,23 +3267,38 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.35644572b2324a9b",
+      "installId": "root-global.asyncfunction.2b6b579c27bd339c",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
       "branch": {
-        "id": "android",
+        "id": "default",
         "routes": [
-          "hermes-intrinsic-android-maven-684ca35136c0-24b97353bd55"
+          "hermes-intrinsic-source-patched-489be85a33fd-84bc50a29f72"
         ],
         "sourceRefs": [
-          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-684ca35136c0d48e54582768b1a3ac48f229c327737d91f6fbe736d684ba3c3b",
-          "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
-          "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "patches/hermes/0001-domain-package-principal.patch#patch-content",
+          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
+          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
+          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
+          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
+          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
+          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
+          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
+          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "scripts/apply-hermes-patches.sh#patches",
+          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+          "scripts/build-hermes.sh#apply-hermes-patches.sh",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
-        "targetVariant": "android",
+        "targetVariant": "default",
         "activation": "intrinsic-reference-only"
       },
       "property": {
@@ -3292,19 +3318,21 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.b3aeb846673c3d21",
+      "installId": "root-global.asyncfunction.53a562c8abe41d98",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-nuget-9dfa26db978a-24b97353bd55"
+          "hermes-intrinsic-windows-nuget-b25ccc32799d-84bc50a29f72"
         ],
         "sourceRefs": [
+          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
           "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
+          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
           "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-9dfa26db978ac39c9a5d1f5713707fa8533604fca00fd42023444005b75068ce",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "targetVariant": "windows",
@@ -3327,38 +3355,27 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.baef776e0ab657f8",
+      "installId": "root-global.asyncfunction.a704ea86dddd989a",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
       "branch": {
-        "id": "default",
+        "id": "android",
         "routes": [
-          "hermes-intrinsic-source-patched-fdc25e9685ff-24b97353bd55"
+          "hermes-intrinsic-android-maven-a633ad80de5c-84bc50a29f72"
         ],
         "sourceRefs": [
-          "patches/hermes/0001-domain-package-principal.patch#patch-content",
-          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
-          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
-          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
-          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
-          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
-          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
-          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
-          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
-          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
-          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
-          "scripts/apply-hermes-patches.sh#patches",
-          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
-          "scripts/build-hermes.sh#apply-hermes-patches.sh",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
-          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdc25e9685ffa3dde063b3633d1eff594bab9113b590a52b66b85d8e36e28c0d",
-          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
+          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
+          "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
+          "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
+          "scripts/install-android-hermes.sh#com.facebook.react:react-android",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
-        "targetVariant": "default",
+        "targetVariant": "android",
         "activation": "intrinsic-reference-only"
       },
       "property": {
@@ -10007,16 +10024,16 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.bun.cryptohasher.dynamic.2095a4f0ddfb048c",
-      "observedKey": "native-op:global:Bun.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-      "registryEdgeId": "surface.native.op.global.bun.cryptohasher.dynamic.table.call.result.3eca66b45491.propertie.1uke3y2",
+      "installId": "root-global.bun.cryptohasher.hash.47f4b1902d7ae785",
+      "observedKey": "native-op:global:Bun.CryptoHasher.hash",
+      "registryEdgeId": "surface.native.op.global.bun.cryptohasher.hash.0x1oloa",
       "branch": {
         "id": "default",
         "routes": [
           "legacy-bootstrap"
         ],
         "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#Bun.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]"
+          "src/engine/bootstrap/exact-global.js#Bun.CryptoHasher.hash"
         ],
         "targetVariant": "default",
         "activation": "legacy-runtime-fallback"
@@ -10032,18 +10049,190 @@
             "value": "CryptoHasher"
           },
           {
-            "kind": "dynamic-table",
-            "value": "call-result-3eca66b45491-properties"
+            "kind": "string",
+            "value": "hash"
           }
         ]
       },
       "aliases": [],
       "installPhase": "bootstrap-script",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
-      "resolution": "digest-bound-live-descriptor-shape",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.bun.cryptohasher.prototype.0511f44101d9db28",
+      "observedKey": "native-op:global:Bun.CryptoHasher.prototype",
+      "registryEdgeId": "surface.native.op.global.bun.cryptohasher.prototype.196r4jo",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/exact-global.js#Bun.CryptoHasher.prototype"
+        ],
+        "targetVariant": "default",
+        "activation": "legacy-runtime-fallback"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Bun"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "CryptoHasher"
+          },
+          {
+            "kind": "string",
+            "value": "prototype"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.bun.cryptohasher.prototype.copy.02611c4cf010264d",
+      "observedKey": "native-op:global:Bun.CryptoHasher.prototype.copy",
+      "registryEdgeId": "surface.native.op.global.bun.cryptohasher.prototype.copy.0jy6ik3",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/exact-global.js#Bun.CryptoHasher.prototype.copy"
+        ],
+        "targetVariant": "default",
+        "activation": "legacy-runtime-fallback"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Bun"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "CryptoHasher"
+          },
+          {
+            "kind": "string",
+            "value": "prototype"
+          },
+          {
+            "kind": "string",
+            "value": "copy"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.bun.cryptohasher.prototype.digest.d577ccf06c4f51f9",
+      "observedKey": "native-op:global:Bun.CryptoHasher.prototype.digest",
+      "registryEdgeId": "surface.native.op.global.bun.cryptohasher.prototype.digest.0omiqri",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/exact-global.js#Bun.CryptoHasher.prototype.digest"
+        ],
+        "targetVariant": "default",
+        "activation": "legacy-runtime-fallback"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Bun"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "CryptoHasher"
+          },
+          {
+            "kind": "string",
+            "value": "prototype"
+          },
+          {
+            "kind": "string",
+            "value": "digest"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.bun.cryptohasher.prototype.update.77e22f8c30f39959",
+      "observedKey": "native-op:global:Bun.CryptoHasher.prototype.update",
+      "registryEdgeId": "surface.native.op.global.bun.cryptohasher.prototype.update.03xz6uf",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/exact-global.js#Bun.CryptoHasher.prototype.update"
+        ],
+        "targetVariant": "default",
+        "activation": "legacy-runtime-fallback"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Bun"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "CryptoHasher"
+          },
+          {
+            "kind": "string",
+            "value": "prototype"
+          },
+          {
+            "kind": "string",
+            "value": "update"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
       "nativeImplementation": false
     },
     {
@@ -10384,50 +10573,10 @@
       "aliases": [],
       "installPhase": "shared-runtime",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.bun.env.dynamic.370ae1d7290017f7",
-      "observedKey": "native-op:global:Bun.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
-      "registryEdgeId": "surface.native.op.global.bun.env.dynamic.table.call.result.83f13e6eeaf2.properties.1jdwsyt",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#Bun.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "Bun"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "env"
-          },
-          {
-            "kind": "dynamic-table",
-            "value": "call-result-83f13e6eeaf2-properties"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "digest-bound-live-descriptor-shape",
       "nativeImplementation": false
     },
     {
@@ -20569,38 +20718,6 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.dynamic.4b2e32896343a465",
-      "observedKey": "native-op:global:[[dynamic-table:native-global-name]]",
-      "registryEdgeId": "surface.native.op.global.dynamic.table.native.global.name.0p79adi",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "native-jsi-global"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:[[dynamic-table:native-global-name]]",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:[[dynamic-table:native-global-name]]"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "dynamic-table",
-          "value": "native-global-name"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "native-install",
-      "privateConsumer": null,
-      "disposition": "sealed",
-      "traversal": "descend",
-      "liveExpectation": "absent",
-      "resolution": "sealed-before-live-sweep",
-      "nativeImplementation": true
-    },
-    {
       "installId": "root-global.dynamic.a068c5650f9a3456",
       "observedKey": "native-op:global:[[dynamic-table:native-global-name]]",
       "registryEdgeId": "surface.native.op.global.dynamic.table.native.global.name.0p79adi",
@@ -20610,8 +20727,7 @@
           "native-jsi-global"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime.cc#jsi-global:[[dynamic-table:native-global-name]]",
-          "src/engine/hermes_runtime_process.cc#jsi-global:[[dynamic-table:native-global-name]]"
+          "src/engine/hermes_runtime.cc#jsi-global:[[dynamic-table:native-global-name]]"
         ],
         "targetVariant": "default",
         "activation": "always"
@@ -21852,19 +21968,21 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.04780f222d116de4",
+      "installId": "root-global.eval.24a97a1e4cabd434",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-nuget-9dfa26db978a-24b97353bd55"
+          "hermes-intrinsic-windows-nuget-b25ccc32799d-84bc50a29f72"
         ],
         "sourceRefs": [
+          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
           "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
+          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
           "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-9dfa26db978ac39c9a5d1f5713707fa8533604fca00fd42023444005b75068ce",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "targetVariant": "windows",
@@ -21887,13 +22005,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.3231cfa45684cc95",
+      "installId": "root-global.eval.515516432fe2ea29",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-fdc25e9685ff-24b97353bd55",
+          "hermes-intrinsic-source-patched-489be85a33fd-84bc50a29f72",
           "legacy-bootstrap"
         ],
         "sourceRefs": [
@@ -21914,7 +22032,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdc25e9685ffa3dde063b3633d1eff594bab9113b590a52b66b85d8e36e28c0d",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -21922,7 +22040,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "targetVariant": "default",
@@ -21945,27 +22063,31 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.96df26a449830cba",
+      "installId": "root-global.eval.c3023fbdc85b86ce",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "android",
         "routes": [
-          "hermes-intrinsic-android-maven-684ca35136c0-24b97353bd55",
+          "hermes-intrinsic-android-maven-a633ad80de5c-84bc50a29f72",
           "legacy-bootstrap"
         ],
         "sourceRefs": [
+          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-684ca35136c0d48e54582768b1a3ac48f229c327737d91f6fbe736d684ba3c3b",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
+          "scripts/install-android-hermes.sh#com.facebook.react:react-android",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyCompatPolyfills:sha256-85e5f64997c896a0b0fed5d1fdbb4903a17334b0e9a0bbe32c412ee13316e1ea",
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "targetVariant": "android",
@@ -23909,19 +24031,19 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.exact.4f5c76f348ffd1c4",
+      "installId": "root-global.exact.59de97a8991d94af",
       "observedKey": "native-op:global:exact",
       "registryEdgeId": "surface.native.op.global.exact.09mgu86",
       "branch": {
-        "id": "default",
+        "id": "ios",
         "routes": [
-          "shared-runtime"
+          "native-jsi-global"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact"
+          "src/engine/hermes_runtime_ios.cc#jsi-global:exact"
         ],
-        "targetVariant": "default",
-        "activation": "shared-runtime-bundle"
+        "targetVariant": "ios",
+        "activation": "always"
       },
       "property": {
         "root": {
@@ -23931,29 +24053,29 @@
         "path": []
       },
       "aliases": [],
-      "installPhase": "shared-runtime",
+      "installPhase": "native-install",
       "privateConsumer": null,
       "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
-      "nativeImplementation": false
+      "nativeImplementation": true
     },
     {
-      "installId": "root-global.exact.8a79767d1945ed7c",
+      "installId": "root-global.exact.5bf5a57cdc366876",
       "observedKey": "native-op:global:exact",
       "registryEdgeId": "surface.native.op.global.exact.09mgu86",
       "branch": {
-        "id": "ios",
+        "id": "default",
         "routes": [
           "native-jsi-global",
           "shared-runtime"
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact",
-          "src/engine/hermes_runtime_ios.cc#jsi-global:exact"
+          "src/engine/hermes_runtime.cc#jsi-global:exact"
         ],
-        "targetVariant": "ios",
+        "targetVariant": "default",
         "activation": "always"
       },
       "property": {
@@ -24842,16 +24964,16 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.exact.cryptohasher.dynamic.780202b15741bf34",
-      "observedKey": "native-op:global:Exact.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]",
-      "registryEdgeId": "surface.native.op.global.exact.cryptohasher.dynamic.table.call.result.3eca66b45491.propert.1qr95xs",
+      "installId": "root-global.exact.cryptohasher.hash.e13f24ec94372201",
+      "observedKey": "native-op:global:Exact.CryptoHasher.hash",
+      "registryEdgeId": "surface.native.op.global.exact.cryptohasher.hash.0stwdvs",
       "branch": {
         "id": "default",
         "routes": [
           "legacy-bootstrap"
         ],
         "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#Exact.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]"
+          "src/engine/bootstrap/exact-global.js#Exact.CryptoHasher.hash"
         ],
         "targetVariant": "default",
         "activation": "legacy-runtime-fallback"
@@ -24867,18 +24989,190 @@
             "value": "CryptoHasher"
           },
           {
-            "kind": "dynamic-table",
-            "value": "call-result-3eca66b45491-properties"
+            "kind": "string",
+            "value": "hash"
           }
         ]
       },
       "aliases": [],
       "installPhase": "bootstrap-script",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
-      "resolution": "digest-bound-live-descriptor-shape",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.exact.cryptohasher.prototype.copy.1224c565d3f540d2",
+      "observedKey": "native-op:global:Exact.CryptoHasher.prototype.copy",
+      "registryEdgeId": "surface.native.op.global.exact.cryptohasher.prototype.copy.1ybwba5",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/exact-global.js#Exact.CryptoHasher.prototype.copy"
+        ],
+        "targetVariant": "default",
+        "activation": "legacy-runtime-fallback"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Exact"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "CryptoHasher"
+          },
+          {
+            "kind": "string",
+            "value": "prototype"
+          },
+          {
+            "kind": "string",
+            "value": "copy"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.exact.cryptohasher.prototype.db2d89f9014c304c",
+      "observedKey": "native-op:global:Exact.CryptoHasher.prototype",
+      "registryEdgeId": "surface.native.op.global.exact.cryptohasher.prototype.1aiqi3y",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/exact-global.js#Exact.CryptoHasher.prototype"
+        ],
+        "targetVariant": "default",
+        "activation": "legacy-runtime-fallback"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Exact"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "CryptoHasher"
+          },
+          {
+            "kind": "string",
+            "value": "prototype"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.exact.cryptohasher.prototype.digest.b9778df594a295f2",
+      "observedKey": "native-op:global:Exact.CryptoHasher.prototype.digest",
+      "registryEdgeId": "surface.native.op.global.exact.cryptohasher.prototype.digest.109sc4o",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/exact-global.js#Exact.CryptoHasher.prototype.digest"
+        ],
+        "targetVariant": "default",
+        "activation": "legacy-runtime-fallback"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Exact"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "CryptoHasher"
+          },
+          {
+            "kind": "string",
+            "value": "prototype"
+          },
+          {
+            "kind": "string",
+            "value": "digest"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.exact.cryptohasher.prototype.update.baeb6b88758b7bc2",
+      "observedKey": "native-op:global:Exact.CryptoHasher.prototype.update",
+      "registryEdgeId": "surface.native.op.global.exact.cryptohasher.prototype.update.1412pk1",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/exact-global.js#Exact.CryptoHasher.prototype.update"
+        ],
+        "targetVariant": "default",
+        "activation": "legacy-runtime-fallback"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "Exact"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "CryptoHasher"
+          },
+          {
+            "kind": "string",
+            "value": "prototype"
+          },
+          {
+            "kind": "string",
+            "value": "update"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "exposed",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
       "nativeImplementation": false
     },
     {
@@ -25324,50 +25618,10 @@
       "aliases": [],
       "installPhase": "shared-runtime",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exact.env.dynamic.6f2d84feb9e90467",
-      "observedKey": "native-op:global:Exact.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]",
-      "registryEdgeId": "surface.native.op.global.exact.env.dynamic.table.call.result.83f13e6eeaf2.properties.015del3",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#Exact.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "Exact"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "env"
-          },
-          {
-            "kind": "dynamic-table",
-            "value": "call-result-83f13e6eeaf2-properties"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "digest-bound-live-descriptor-shape",
       "nativeImplementation": false
     },
     {
@@ -26180,6 +26434,42 @@
       "liveExpectation": "reachable",
       "resolution": "static",
       "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.exact.invokehostasync.7af15b2256a958d2",
+      "observedKey": "native-op:global:exact.invokeHostAsync",
+      "registryEdgeId": "surface.native.op.global.exact.invokehostasync.0b92itq",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync"
+        ],
+        "targetVariant": "default",
+        "activation": "post-bootstrap-embedder-endowment"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "exact"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "invokeHostAsync"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
     },
     {
       "installId": "root-global.exact.ismainthread.67cf22b9d6d32619",
@@ -32085,6 +32375,37 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.exactcompatmodes.d1e1fe28017b1402",
+      "observedKey": "native-op:__exactCompatModes",
+      "registryEdgeId": "surface.native.op.exactcompatmodes.0hzhmrx",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__exactCompatModes"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactCompatModes"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "sealed",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
       "installId": "root-global.exactcopyfile.6a203a754bd32661",
       "observedKey": "native-op:__exactCopyFile",
       "registryEdgeId": "surface.native.op.exactcopyfile.0rn0zb2",
@@ -32630,6 +32951,37 @@
           "src/engine/hermes_runtime_dns.cc#jsi-global:__exactDnsReverse"
         ],
         "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactDnsReverse"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactdnsreverse.dcdebb7eb319062b",
+      "observedKey": "native-op:__exactDnsReverse",
+      "registryEdgeId": "surface.native.op.exactdnsreverse.12dlvmu",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactDnsReverse"
+        ],
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -33952,6 +34304,37 @@
       "nativeImplementation": true
     },
     {
+      "installId": "root-global.exactfsfdatasyncsync.0d76c3ba60e7754b",
+      "observedKey": "native-op:__exactFsFdatasyncSync",
+      "registryEdgeId": "surface.native.op.exactfsfdatasyncsync.1p6q71s",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsFdatasyncSync"
+        ],
+        "targetVariant": "windows",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactFsFdatasyncSync"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
       "installId": "root-global.exactfsfdatasyncsync.54c2f7d19e7f665f",
       "observedKey": "native-op:__exactFsFdatasyncSync",
       "registryEdgeId": "surface.native.op.exactfsfdatasyncsync.1p6q71s",
@@ -34057,6 +34440,37 @@
           "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsFsyncSync"
         ],
         "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactFsFsyncSync"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactfsfsyncsync.295bdb5d02eba094",
+      "observedKey": "native-op:__exactFsFsyncSync",
+      "registryEdgeId": "surface.native.op.exactfsfsyncsync.02nw7ns",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsFsyncSync"
+        ],
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -36254,73 +36668,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exacthostnavigator.d1b66d8371b3a586",
-      "observedKey": "native-op:__exactHostNavigator",
-      "registryEdgeId": "surface.native.op.exacthostnavigator.15xlgzo",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactHostNavigator"
-        ],
-        "targetVariant": "all",
-        "activation": "host-navigator-copy"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactHostNavigator"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exacthostnavigator.dynamic.c8fd59092756d95d",
-      "observedKey": "native-op:__exactHostNavigator.[[dynamic-table:host-navigator-properties]]",
-      "registryEdgeId": "surface.native.op.exacthostnavigator.dynamic.table.host.navigator.properties.13lbyy8",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactHostNavigator"
-        ],
-        "targetVariant": "all",
-        "activation": "host-navigator-copy"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactHostNavigator"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "host-navigator-properties"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "typed-bounded-live-keys",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.exacthttpaddress.073d9d1ac30e1297",
       "observedKey": "native-op:__exactHttpAddress",
       "registryEdgeId": "surface.native.op.exacthttpaddress.0nnqyun",
@@ -37307,39 +37654,6 @@
       },
       "aliases": [],
       "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactkchannelhandlekey.43693223bf934061",
-      "observedKey": "native-op:__exactKChannelHandleKey",
-      "registryEdgeId": "surface.native.op.exactkchannelhandlekey.0hsvxwe",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#__exactKChannelHandleKey",
-          "src/engine/bootstrap/ipc-listener.js#__exactKChannelHandleKey",
-          "src/engine/bootstrap/module-loader.js#__exactKChannelHandleKey"
-        ],
-        "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactKChannelHandleKey"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
       "privateConsumer": null,
       "disposition": "converted",
       "traversal": "descend",
@@ -40115,6 +40429,145 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.exactprocessipcbootstrap.close.8979e0d4ab05815a",
+      "observedKey": "native-op:__exactProcessIpcBootstrap.close",
+      "registryEdgeId": "surface.native.op.exactprocessipcbootstrap.close.1ap2eh4",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.close"
+        ],
+        "targetVariant": "default",
+        "activation": "ipc-channel-bootstrap"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactProcessIpcBootstrap"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "close"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "sealed",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactprocessipcbootstrap.f5ef7efbc7e86864",
+      "observedKey": "native-op:__exactProcessIpcBootstrap",
+      "registryEdgeId": "surface.native.op.exactprocessipcbootstrap.1f8twb6",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap"
+        ],
+        "targetVariant": "default",
+        "activation": "ipc-channel-bootstrap"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactProcessIpcBootstrap"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "sealed",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactprocessipcbootstrap.fd.f0572c00634b3d42",
+      "observedKey": "native-op:__exactProcessIpcBootstrap.fd",
+      "registryEdgeId": "surface.native.op.exactprocessipcbootstrap.fd.1yvjieu",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.fd"
+        ],
+        "targetVariant": "default",
+        "activation": "ipc-channel-bootstrap"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactProcessIpcBootstrap"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "fd"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "sealed",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactprocessipcbootstrap.serialization.efa6a07e051d0374",
+      "observedKey": "native-op:__exactProcessIpcBootstrap.serialization",
+      "registryEdgeId": "surface.native.op.exactprocessipcbootstrap.serialization.1vtmt9s",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__exactProcessIpcBootstrap.serialization"
+        ],
+        "targetVariant": "default",
+        "activation": "ipc-channel-bootstrap"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactProcessIpcBootstrap"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "serialization"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "sealed",
+      "traversal": "descend",
+      "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
       "installId": "root-global.exactrandombytes.9c58e28616591faf",
       "observedKey": "native-op:__exactRandomBytes",
       "registryEdgeId": "surface.native.op.exactrandombytes.05df739",
@@ -41196,6 +41649,37 @@
       "disposition": "private",
       "traversal": "descend",
       "liveExpectation": "absent",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.exactsetenv.8469ff0bc2620766",
+      "observedKey": "native-op:__exactSetEnv",
+      "registryEdgeId": "surface.native.op.exactsetenv.1785yh6",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:__exactSetEnv"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__exactSetEnv"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
       "resolution": "static",
       "nativeImplementation": true
     },
@@ -49851,22 +50335,38 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.4b0bd4243998b7b6",
+      "installId": "root-global.function.309f7de7928abe6d",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
-        "id": "windows",
+        "id": "default",
         "routes": [
-          "hermes-intrinsic-windows-nuget-9dfa26db978a-24b97353bd55"
+          "hermes-intrinsic-source-patched-489be85a33fd-84bc50a29f72"
         ],
         "sourceRefs": [
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-9dfa26db978ac39c9a5d1f5713707fa8533604fca00fd42023444005b75068ce",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "patches/hermes/0001-domain-package-principal.patch#patch-content",
+          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
+          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
+          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
+          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
+          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
+          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
+          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
+          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "scripts/apply-hermes-patches.sh#patches",
+          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+          "scripts/build-hermes.sh#apply-hermes-patches.sh",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
-        "targetVariant": "windows",
+        "targetVariant": "default",
         "activation": "always"
       },
       "property": {
@@ -49886,20 +50386,24 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.aca6ed4da98bee01",
+      "installId": "root-global.function.36fd54217b96b012",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
         "id": "android",
         "routes": [
-          "hermes-intrinsic-android-maven-684ca35136c0-24b97353bd55"
+          "hermes-intrinsic-android-maven-a633ad80de5c-84bc50a29f72"
         ],
         "sourceRefs": [
+          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-684ca35136c0d48e54582768b1a3ac48f229c327737d91f6fbe736d684ba3c3b",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "scripts/install-android-hermes.sh#com.facebook.react:react-android",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "targetVariant": "android",
@@ -49922,38 +50426,24 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.fec75a9fd87e17e8",
+      "installId": "root-global.function.d251732060f06965",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
-        "id": "default",
+        "id": "windows",
         "routes": [
-          "hermes-intrinsic-source-patched-fdc25e9685ff-24b97353bd55"
+          "hermes-intrinsic-windows-nuget-b25ccc32799d-84bc50a29f72"
         ],
         "sourceRefs": [
-          "patches/hermes/0001-domain-package-principal.patch#patch-content",
-          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
-          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
-          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
-          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
-          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
-          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
-          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
-          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
-          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
-          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
-          "scripts/apply-hermes-patches.sh#patches",
-          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
-          "scripts/build-hermes.sh#apply-hermes-patches.sh",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
-          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdc25e9685ffa3dde063b3633d1eff594bab9113b590a52b66b85d8e36e28c0d",
-          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
+          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
+          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
+          "scripts/install-windows-hermes.ps1#Version",
+          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
-        "targetVariant": "default",
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -50004,20 +50494,75 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.generatorfunction.6b9d584263b4958b",
+      "installId": "root-global.generatorfunction.1b01950e497f2685",
+      "observedKey": "native-op:global:GeneratorFunction",
+      "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "hermes-intrinsic-source-patched-489be85a33fd-84bc50a29f72"
+        ],
+        "sourceRefs": [
+          "patches/hermes/0001-domain-package-principal.patch#patch-content",
+          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
+          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
+          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
+          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
+          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
+          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
+          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
+          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "scripts/apply-hermes-patches.sh#patches",
+          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+          "scripts/build-hermes.sh#apply-hermes-patches.sh",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
+        ],
+        "targetVariant": "default",
+        "activation": "intrinsic-reference-only"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GeneratorFunction"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "source-derived",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.generatorfunction.b033710f2bfca3a0",
       "observedKey": "native-op:global:GeneratorFunction",
       "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
       "branch": {
         "id": "android",
         "routes": [
-          "hermes-intrinsic-android-maven-684ca35136c0-24b97353bd55"
+          "hermes-intrinsic-android-maven-a633ad80de5c-84bc50a29f72"
         ],
         "sourceRefs": [
+          "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-684ca35136c0d48e54582768b1a3ac48f229c327737d91f6fbe736d684ba3c3b",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
+          "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-a633ad80de5caf51ccd5642dcaee15b1d47cc907c34d2b2f30bfae5dccaf152a",
           "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
           "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "scripts/install-android-hermes.sh#com.facebook.react:react-android",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "targetVariant": "android",
@@ -50040,73 +50585,24 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.generatorfunction.f34449a245b57821",
+      "installId": "root-global.generatorfunction.b60903b371f612bf",
       "observedKey": "native-op:global:GeneratorFunction",
       "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-nuget-9dfa26db978a-24b97353bd55"
+          "hermes-intrinsic-windows-nuget-b25ccc32799d-84bc50a29f72"
         ],
         "sourceRefs": [
+          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
           "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
+          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
           "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-9dfa26db978ac39c9a5d1f5713707fa8533604fca00fd42023444005b75068ce",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
+          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "targetVariant": "windows",
-        "activation": "intrinsic-reference-only"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "GeneratorFunction"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "source-derived",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.generatorfunction.fd57fe9ba33004b6",
-      "observedKey": "native-op:global:GeneratorFunction",
-      "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "hermes-intrinsic-source-patched-fdc25e9685ff-24b97353bd55"
-        ],
-        "sourceRefs": [
-          "patches/hermes/0001-domain-package-principal.patch#patch-content",
-          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
-          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
-          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
-          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
-          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
-          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
-          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
-          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
-          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
-          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
-          "scripts/apply-hermes-patches.sh#patches",
-          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
-          "scripts/build-hermes.sh#apply-hermes-patches.sh",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
-          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-fdc25e9685ffa3dde063b3633d1eff594bab9113b590a52b66b85d8e36e28c0d",
-          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
-          "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
-        ],
-        "targetVariant": "default",
         "activation": "intrinsic-reference-only"
       },
       "property": {
@@ -60723,7 +61219,6 @@
           "shared-runtime"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/polyfills/index.ts#installPolyfills:globals:Intl",
           "packages/ibex-runtime-js/src/polyfills/intl.ts#installIntlPolyfills:globals:Intl"
         ],
         "targetVariant": "all",
@@ -61674,42 +62169,6 @@
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.intl.dynamic.1638f884c17ac1eb",
-      "observedKey": "native-op:global:Intl.[[dynamic-table:host-intl-properties]]",
-      "registryEdgeId": "surface.native.op.global.intl.dynamic.table.host.intl.properties.04x4a70",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/polyfills/index.ts#installPolyfills:globals:Intl"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "Intl"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "host-intl-properties"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "typed-bounded-live-keys",
       "nativeImplementation": false
     },
     {
@@ -72083,150 +72542,6 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.process.dynamic.23cf8255499ccd33",
-      "observedKey": "native-op:global:process.[[dynamic-table:channel-handle-key]]",
-      "registryEdgeId": "surface.native.op.global.process.dynamic.table.channel.handle.key.0rs5cmu",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/ipc-listener.js#process.[[dynamic-table:channel-handle-key]]"
-        ],
-        "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "channel-handle-key"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "closed-ipc-symbol-key",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.process.dynamic.25129750e54664a2",
-      "observedKey": "native-op:global:process.[[dynamic-table:exact-channel-handle-key]]",
-      "registryEdgeId": "surface.native.op.global.process.dynamic.table.exact.channel.handle.key.0p7q3rc",
-      "branch": {
-        "id": "conditional:EXACT_IPC_FD",
-        "routes": [
-          "legacy-bootstrap-ipc"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#process.[[dynamic-table:exact-channel-handle-key]]"
-        ],
-        "targetVariant": "conditional:EXACT_IPC_FD",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "exact-channel-handle-key"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "closed-ipc-symbol-key",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.process.dynamic.6f9e4a9f287ff9bf",
-      "observedKey": "native-op:global:process.[[dynamic-table:host-process-prototype-properties]]",
-      "registryEdgeId": "surface.native.op.global.process.dynamic.table.host.process.prototype.properties.0y4mfg1",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process.[[dynamic-table:host-process-prototype-properties]]"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "host-process-prototype-properties"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "typed-bounded-live-keys",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.process.dynamic.a661dfa1c7c94b29",
-      "observedKey": "native-op:global:process.[[dynamic-table:host-process-own-properties]]",
-      "registryEdgeId": "surface.native.op.global.process.dynamic.table.host.process.own.properties.14sfc3f",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process.[[dynamic-table:host-process-own-properties]]"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "host-process-own-properties"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "typed-bounded-live-keys",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.process.dynamic.bf68c507a4818d6d",
       "observedKey": "native-op:global:process.[[Symbol.toStringTag]]",
       "registryEdgeId": "surface.native.op.global.process.symbol.tostringtag.0t6fwvs",
@@ -72265,202 +72580,6 @@
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.process.dynamic.eb1c24e48fb2d079",
-      "observedKey": "native-op:global:process.[[dynamic-table:k-channel-handle]]",
-      "registryEdgeId": "surface.native.op.global.process.dynamic.table.k.channel.handle.1bh6gpg",
-      "branch": {
-        "id": "conditional:EXACT_IPC_FD",
-        "routes": [
-          "legacy-bootstrap-ipc"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#process.[[dynamic-table:k-channel-handle]]"
-        ],
-        "targetVariant": "conditional:EXACT_IPC_FD",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "k-channel-handle"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "closed-ipc-symbol-key",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.process.dynamic.readstart.18d1a4a31bd1d4c0",
-      "observedKey": "native-op:global:process.[[dynamic-table:k-channel-handle]].readStart",
-      "registryEdgeId": "surface.native.op.global.process.dynamic.table.k.channel.handle.readstart.0s0jsdi",
-      "branch": {
-        "id": "conditional:EXACT_IPC_FD",
-        "routes": [
-          "legacy-bootstrap-ipc"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#process.[[dynamic-table:k-channel-handle]].readStart"
-        ],
-        "targetVariant": "conditional:EXACT_IPC_FD",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "k-channel-handle"
-          },
-          {
-            "kind": "string",
-            "value": "readStart"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "closed-ipc-symbol-key",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.process.dynamic.readstart.2550eb557b9d9685",
-      "observedKey": "native-op:global:process.[[dynamic-table:channel-handle-key]].readStart",
-      "registryEdgeId": "surface.native.op.global.process.dynamic.table.channel.handle.key.readstart.10t7ve8",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/ipc-listener.js#process.[[dynamic-table:channel-handle-key]].readStart"
-        ],
-        "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "channel-handle-key"
-          },
-          {
-            "kind": "string",
-            "value": "readStart"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "closed-ipc-symbol-key",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.process.dynamic.readstop.6b333a3cc627b2e0",
-      "observedKey": "native-op:global:process.[[dynamic-table:k-channel-handle]].readStop",
-      "registryEdgeId": "surface.native.op.global.process.dynamic.table.k.channel.handle.readstop.079by32",
-      "branch": {
-        "id": "conditional:EXACT_IPC_FD",
-        "routes": [
-          "legacy-bootstrap-ipc"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#process.[[dynamic-table:k-channel-handle]].readStop"
-        ],
-        "targetVariant": "conditional:EXACT_IPC_FD",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "k-channel-handle"
-          },
-          {
-            "kind": "string",
-            "value": "readStop"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "closed-ipc-symbol-key",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.process.dynamic.readstop.e5f6386b297a323d",
-      "observedKey": "native-op:global:process.[[dynamic-table:channel-handle-key]].readStop",
-      "registryEdgeId": "surface.native.op.global.process.dynamic.table.channel.handle.key.readstop.16yh838",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/ipc-listener.js#process.[[dynamic-table:channel-handle-key]].readStop"
-        ],
-        "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "dynamic-table",
-            "value": "channel-handle-key"
-          },
-          {
-            "kind": "string",
-            "value": "readStop"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "closed-ipc-symbol-key",
       "nativeImplementation": false
     },
     {
@@ -72554,6 +72673,7 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
+          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process.env",
           "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.env",
           "src/engine/hermes_runtime_platform_windows.cc#jsi-global:process.env"
         ],
@@ -72575,7 +72695,7 @@
       "aliases": [],
       "installPhase": "native-install",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
@@ -72593,6 +72713,7 @@
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
+          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process.env",
           "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.env",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.env"
         ],
@@ -72614,23 +72735,28 @@
       "aliases": [],
       "installPhase": "native-install",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.process.env.dynamic.322c49d41f2b6ab5",
-      "observedKey": "native-op:global:process.env.[[dynamic-table:host-process-env-properties]]",
-      "registryEdgeId": "surface.native.op.global.process.env.dynamic.table.host.process.env.properties.17k5mxv",
+      "installId": "root-global.process.env.dynamic.dcd0223c21a20b48",
+      "observedKey": "native-op:global:process.env.[[dynamic-table:principal-environment-overlay-properties]]",
+      "registryEdgeId": "surface.native.op.global.process.env.dynamic.table.principal.environment.overlay.propertie.0sncb00",
       "branch": {
         "id": "all",
         "routes": [
           "shared-runtime"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process.env.[[dynamic-table:host-process-env-properties]]"
+          "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.env",
+          "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy",
+          "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.deleteProperty",
+          "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.get",
+          "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.ownKeys",
+          "packages/ibex-runtime-js/src/node/process.ts#createEnvProxy:Proxy.set"
         ],
         "targetVariant": "all",
         "activation": "shared-runtime-bundle"
@@ -72647,7 +72773,7 @@
           },
           {
             "kind": "dynamic-table",
-            "value": "host-process-env-properties"
+            "value": "principal-environment-overlay-properties"
           }
         ]
       },
@@ -72761,6 +72887,238 @@
           {
             "kind": "string",
             "value": "__exactAsyncIpcListenerPatch"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.process.exactkchannelhandle.0ca18b1e5318f1da",
+      "observedKey": "native-op:global:process.__exactKChannelHandle",
+      "registryEdgeId": "surface.native.op.global.process.exactkchannelhandle.042io0p",
+      "branch": {
+        "id": "conditional:EXACT_IPC_FD",
+        "routes": [
+          "legacy-bootstrap-ipc"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/compat-polyfills.js#process.__exactKChannelHandle"
+        ],
+        "targetVariant": "conditional:EXACT_IPC_FD",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "process"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "__exactKChannelHandle"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.process.exactkchannelhandle.b7b0a60abe6e1a9a",
+      "observedKey": "native-op:global:process.__exactKChannelHandle",
+      "registryEdgeId": "surface.native.op.global.process.exactkchannelhandle.042io0p",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/ipc-listener.js#process.__exactKChannelHandle"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "process"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "__exactKChannelHandle"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.process.exactkchannelhandle.readstart.04fc3c9dc99fa811",
+      "observedKey": "native-op:global:process.__exactKChannelHandle.readStart",
+      "registryEdgeId": "surface.native.op.global.process.exactkchannelhandle.readstart.1swhhov",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/ipc-listener.js#process.__exactKChannelHandle.readStart"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "process"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "__exactKChannelHandle"
+          },
+          {
+            "kind": "string",
+            "value": "readStart"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.process.exactkchannelhandle.readstart.214462a9d14e876f",
+      "observedKey": "native-op:global:process.__exactKChannelHandle.readStart",
+      "registryEdgeId": "surface.native.op.global.process.exactkchannelhandle.readstart.1swhhov",
+      "branch": {
+        "id": "conditional:EXACT_IPC_FD",
+        "routes": [
+          "legacy-bootstrap-ipc"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/compat-polyfills.js#process.__exactKChannelHandle.readStart"
+        ],
+        "targetVariant": "conditional:EXACT_IPC_FD",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "process"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "__exactKChannelHandle"
+          },
+          {
+            "kind": "string",
+            "value": "readStart"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.process.exactkchannelhandle.readstop.e149cdfa2df70bc3",
+      "observedKey": "native-op:global:process.__exactKChannelHandle.readStop",
+      "registryEdgeId": "surface.native.op.global.process.exactkchannelhandle.readstop.14rjgk5",
+      "branch": {
+        "id": "conditional:EXACT_IPC_FD",
+        "routes": [
+          "legacy-bootstrap-ipc"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/compat-polyfills.js#process.__exactKChannelHandle.readStop"
+        ],
+        "targetVariant": "conditional:EXACT_IPC_FD",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "process"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "__exactKChannelHandle"
+          },
+          {
+            "kind": "string",
+            "value": "readStop"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.process.exactkchannelhandle.readstop.ea2de00ae1a54492",
+      "observedKey": "native-op:global:process.__exactKChannelHandle.readStop",
+      "registryEdgeId": "surface.native.op.global.process.exactkchannelhandle.readstop.14rjgk5",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "legacy-bootstrap"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/ipc-listener.js#process.__exactKChannelHandle.readStop"
+        ],
+        "targetVariant": "default",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "process"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "__exactKChannelHandle"
+          },
+          {
+            "kind": "string",
+            "value": "readStop"
           }
         ]
       },
@@ -74589,46 +74947,6 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.process.once.dynamic.769ca2d5190efbf0",
-      "observedKey": "native-op:global:process.once.[[dynamic-table:call-result-621e9ebb69c5-properties]]",
-      "registryEdgeId": "surface.native.op.global.process.once.dynamic.table.call.result.621e9ebb69c5.properties.01zbqkp",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/ipc-listener.js#process.once.[[dynamic-table:call-result-621e9ebb69c5-properties]]"
-        ],
-        "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "once"
-          },
-          {
-            "kind": "dynamic-table",
-            "value": "call-result-621e9ebb69c5-properties"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "digest-bound-live-descriptor-shape",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.process.openstdin.cdd3f899385e14c2",
       "observedKey": "native-op:global:process.openStdin",
       "registryEdgeId": "surface.native.op.global.process.openstdin.1ob3vxo",
@@ -74896,46 +75214,6 @@
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.process.prependoncelistener.dynamic.4f72d72eaac8661b",
-      "observedKey": "native-op:global:process.prependOnceListener.[[dynamic-table:call-result-f0b2d7f38e0a-properties]]",
-      "registryEdgeId": "surface.native.op.global.process.prependoncelistener.dynamic.table.call.result.f0b2d7f38e0.1psi5ui",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/ipc-listener.js#process.prependOnceListener.[[dynamic-table:call-result-f0b2d7f38e0a-properties]]"
-        ],
-        "targetVariant": "default",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "process"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "prependOnceListener"
-          },
-          {
-            "kind": "dynamic-table",
-            "value": "call-result-f0b2d7f38e0a-properties"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "digest-bound-live-descriptor-shape",
       "nativeImplementation": false
     },
     {
@@ -100574,6 +100852,114 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.worklet.capture.d3bd069fbebb40c0",
+      "observedKey": "native-op:global:worklet.capture",
+      "registryEdgeId": "surface.native.op.global.worklet.capture.0yvdy3b",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "evaluated-native-script"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.capture"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "worklet"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "capture"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-evaluated-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.worklet.captureget.9a7d7dc455faa858",
+      "observedKey": "native-op:global:worklet.captureGet",
+      "registryEdgeId": "surface.native.op.global.worklet.captureget.0a4t4gx",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "evaluated-native-script"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.captureGet"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "worklet"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "captureGet"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-evaluated-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.worklet.captureset.746d12e287e62b21",
+      "observedKey": "native-op:global:worklet.captureSet",
+      "registryEdgeId": "surface.native.op.global.worklet.captureset.02i1hil",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "evaluated-native-script"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.captureSet"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "worklet"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "captureSet"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-evaluated-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
       "installId": "root-global.worklet.clamp.5b38decb6056c173",
       "observedKey": "native-op:global:worklet.clamp",
       "registryEdgeId": "surface.native.op.global.worklet.clamp.10ckbeu",
@@ -100677,6 +101063,78 @@
       "nativeImplementation": false
     },
     {
+      "installId": "root-global.worklet.output.5a6f9176ddafe47e",
+      "observedKey": "native-op:global:worklet.output",
+      "registryEdgeId": "surface.native.op.global.worklet.output.1ij3raq",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "evaluated-native-script"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.output"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "worklet"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "output"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-evaluated-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.worklet.runonjs.586d7220bb027522",
+      "observedKey": "native-op:global:worklet.runOnJS",
+      "registryEdgeId": "surface.native.op.global.worklet.runonjs.08g0zpi",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "evaluated-native-script"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.runOnJS"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "worklet"
+        },
+        "path": [
+          {
+            "kind": "string",
+            "value": "runOnJS"
+          }
+        ]
+      },
+      "aliases": [],
+      "installPhase": "native-evaluated-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
       "installId": "root-global.worklet.sharedvalue.7b5186c823ee03b5",
       "observedKey": "native-op:global:worklet.sharedValue",
       "registryEdgeId": "surface.native.op.global.worklet.sharedvalue.1jey6on",
@@ -100711,6 +101169,161 @@
       "liveExpectation": "reachable",
       "resolution": "static",
       "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.workletcapture.e7c39b849de466fc",
+      "observedKey": "native-op:__workletCapture",
+      "registryEdgeId": "surface.native.op.workletcapture.1qk72mm",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCapture"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__workletCapture"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.workletcaptureget.ba3b85b529516a2f",
+      "observedKey": "native-op:__workletCaptureGet",
+      "registryEdgeId": "surface.native.op.workletcaptureget.1nw8x5m",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCaptureGet"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__workletCaptureGet"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.workletcaptureset.35f069dd5ef6c304",
+      "observedKey": "native-op:__workletCaptureSet",
+      "registryEdgeId": "surface.native.op.workletcaptureset.0khajo6",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCaptureSet"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__workletCaptureSet"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.workletoutput.4c74c29cae102942",
+      "observedKey": "native-op:__workletOutput",
+      "registryEdgeId": "surface.native.op.workletoutput.03umqr5",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletOutput"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__workletOutput"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
+    },
+    {
+      "installId": "root-global.workletrunonjs.2056c781d2e7a1c1",
+      "observedKey": "native-op:__workletRunOnJS",
+      "registryEdgeId": "surface.native.op.workletrunonjs.12t14kb",
+      "branch": {
+        "id": "worklet",
+        "routes": [
+          "native-jsi-global"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletRunOnJS"
+        ],
+        "targetVariant": "worklet",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "__workletRunOnJS"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "native-install",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": true
     },
     {
       "installId": "root-global.writablestream.abort.10a4a5e5a4f17809",
@@ -103304,10 +103917,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2749,
-    "logicalGlobals": 2607,
-    "registryEdges": 2607,
-    "sealedOrPrivate": 45,
-    "permittedReachable": 2704
+    "installBranches": 2765,
+    "logicalGlobals": 2618,
+    "registryEdges": 2618,
+    "sealedOrPrivate": 49,
+    "permittedReachable": 2716
   }
 }

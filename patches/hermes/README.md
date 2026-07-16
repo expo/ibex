@@ -7,6 +7,28 @@ Electron model at small scale. There is no separate long-lived fork repository.
 every `build-hermes*.sh`; it is idempotent and fails loudly if a patch stops
 applying (the drift signal).
 
+## Patch identity discipline
+
+Every `diff --git` section carries exactly one authoritative `index` line with
+full 40-hex preimage and postimage blob IDs. Additions use 40 zeroes for the
+absent preimage; deletions use 40 zeroes for the absent postimage. The
+corresponding unchanged, new-file, deleted-file, or old/new mode directives are
+authoritative too.
+
+`scripts/apply-hermes-patches.sh` snapshots every regular patch file once, then
+uses only those read-only bytes to replay the complete ordered series into a
+temporary Git index before touching the working tree. It checks each old blob
+and mode, applies one patch to that isolated index, checks each new blob and
+mode, and records the resulting prefix tree. The public patch bytes are
+re-hashed before and after materialization so a concurrent authority edit fails
+closed. It then applies only the suffix missing from the working tree and
+compares the complete tracked checkout plus every ignored or non-ignored
+untracked input with the selected prefix and final trees, without changing the
+checkout's real index. Source builders therefore clean build outputs before
+verification. A patch-body edit requires re-deriving its postimage IDs and
+every affected downstream pre/postimage from the pinned source; a context-clean
+`git apply` by itself is not sufficient evidence.
+
 Each patch is classified in its header:
 
 - **Class A — additive files** (new `.cpp`/`.h`, new JSI surface): rebase cost ~zero.
@@ -30,9 +52,10 @@ is the line between "carrying patches" and "maintaining a divergent engine."
 | 0008 | `0008-schedule-time-principal-capture.patch` | B | Completes 0007 for the deputy-class case (ENG-22631). 0007 fails closed only when the detached callback is *native* (empty stack); a detached JS deputy method (`Promise.resolve(x).then(deputy.readFor)` under `deputyClasses`) drains with the deputy's own frame live, so `collectStackPackageIds` returns `[deputy]` (len 1) and the stack-AND is skipped. This patch captures the SCHEDULING principal at `enqueueJob` (the scheduler's frame is still live there), carries it in a `jobSchedulerQueue_` kept in lockstep with `jobQueue_`, restores it as ambient `Runtime` state across `drainJobs`, and has `collectStackPackageIds` APPEND it — so the detached read collects `[deputy, scheduler]` and the AND denies for an ungranted scheduler while a granted package's own continuation (scheduler == running principal) collapses and is not false-denied. Ibex arms capture whenever the patched engine is present because deputy classes may be configured after engine creation and native-resolved continuations may otherwise report `kNoUserPrincipal`; the host consumes the captured scheduler for live deputy stacks and that no-user fallback. |
 | 0009 | `0009-raw-throw-capture.patch` | B | Adds an owner-thread scoped Hermes control that suppresses `.message` / `.stack` property reads and `String` coercion while a pending exception crosses JSI. The structured evaluator can therefore retain the exact thrown value without invoking project code; legacy evaluation keeps Hermes' default diagnostics. |
 | 0010 | `0010-completion-record-discriminator.patch` | B | Preserves the VM's `Empty` completion discriminator across the JSI conversion that otherwise collapses it into `undefined`. Structured evaluation can now distinguish a declaration/empty completion from the JavaScript value `undefined` without a syntactic last-expression heuristic. |
-| 0011 | `0011-structured-async-failure-provenance.patch` | B | Captures Promise-job scheduler, job identity, and associated evaluation at enqueue time; exposes failed-job context to the host; adds a poll-checkpoint rejection tracker that cancels by Promise identity; and extracts Error message/stack from engine-owned slots and stack records without invoking project code. |
+| 0011 | `0011-structured-async-failure-provenance.patch` | B | Captures Promise-job scheduler, job identity, and associated evaluation at enqueue time; exposes failed-job context to the host; adds a poll-checkpoint rejection tracker that cancels by Promise identity; extracts a closed Error class from internal direct-prototype identity; and source-bounds Stage-1 primitive text plus Error message/stack to 16 KiB of valid UTF-8 including an explicit trusted truncation marker, without invoking project code or first materializing attacker-sized text. |
 
-All eleven apply clean from pristine (`scripts/apply-hermes-patches.sh`) and
+All eleven apply clean from pristine (`scripts/apply-hermes-patches.sh`) to
+tree `9945c2a60a5acc5221b238243bbe1867093ba628` and
 compile into a working `hermesvm.framework` exporting the `ex_hermes_vm_*`
 symbols (`current_package_id`, `set_pending_package_id`, `clear_pending_package_id`,
 `set_default_package_id`, `collect_package_ids`, `set_job_scheduler_capture`,
@@ -131,8 +154,12 @@ the native `__exactNativeFreeze` freeze primitive.
    `scripts/hermes-version.sh`.
 2. Build (the build scripts re-apply this series automatically). Class A/B
    resolve mechanically; for a Class C conflict, re-read the surrounding
-   upstream change before resolving.
-3. Run the full CapSec conformance matrix, including the armed callback and
+   upstream change before resolving. Re-derive full blob/mode identities for
+   every changed and downstream-affected diff, then require the verifier to
+   print the reviewed final tree without modifying the checkout index.
+3. Run `scripts/apply-hermes-patches.test.sh` (optionally point
+   `IBEX_HERMES_TEST_SOURCE_REPO` at a local Hermes object cache), followed by
+   the full CapSec conformance matrix, including the armed callback and
    closed-evaluator batches, `cargo test --test llp0013_compartments` (the
    checked legacy-retirement join plus migrated native regressions), the runtime
    tests, and perf gates.

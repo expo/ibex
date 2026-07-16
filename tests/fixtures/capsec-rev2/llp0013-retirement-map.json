@@ -32,7 +32,7 @@
     },
     "armed-network-closed": {
       "path": "src/bin/ibex/engine/hermes.rs",
-      "anchor": "async fn armed_unported_network_surfaces_refuse_before_external_effects"
+      "anchor": "async fn armed_unported_network_surfaces_refuse_synchronously_and_unix_listen_leaves_no_path"
     },
     "armed-network-ownership": {
       "path": "src/bin/ibex/engine/hermes.rs",

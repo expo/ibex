@@ -52,6 +52,56 @@ pub enum VfsReason {
     HostError,
 }
 
+impl VfsReason {
+    /// Global error-union order. Lower ranks win when two independently
+    /// detected failures compete; each path stage additionally preserves the
+    /// containment -> authorization -> existence order.
+    /// @ref LLP 0023#72-the-structured-result-and-its-error-classes
+    pub const fn precedence_rank(self) -> u8 {
+        match self {
+            VfsReason::StaleSession => 0,
+            VfsReason::ClosedOperation => 1,
+            VfsReason::MalformedInput => 2,
+            VfsReason::EncodedSeparator => 3,
+            VfsReason::OutsideMount => 4,
+            VfsReason::SyntheticNode => 5,
+            VfsReason::PolicyDenied => 6,
+            VfsReason::Absent => 7,
+            VfsReason::SymlinkDepthExceeded => 8,
+            VfsReason::UnmappableLink => 9,
+            VfsReason::StaleIdentity => 10,
+            VfsReason::InputTooLarge => 11,
+            VfsReason::HostError => 12,
+        }
+    }
+
+    pub const fn stable_code(self) -> &'static str {
+        match self {
+            VfsReason::ClosedOperation => "EPERM",
+            VfsReason::StaleSession => "ERR_IBEX_STALE_SESSION",
+            VfsReason::MalformedInput => "ERR_INVALID_ARG_VALUE",
+            VfsReason::EncodedSeparator => "ERR_INVALID_FILE_URL_PATH",
+            VfsReason::OutsideMount => "ERR_IBEX_OUTSIDE_MOUNT",
+            VfsReason::SyntheticNode => "ERR_IBEX_SYNTHETIC_NODE",
+            VfsReason::PolicyDenied => "EACCES",
+            VfsReason::Absent => "ENOENT",
+            VfsReason::SymlinkDepthExceeded => "ELOOP",
+            VfsReason::UnmappableLink => "ERR_IBEX_UNMAPPABLE_LINK",
+            VfsReason::StaleIdentity => "ERR_IBEX_STALE_IDENTITY",
+            VfsReason::InputTooLarge => "ERR_IBEX_INPUT_TOO_LARGE",
+            VfsReason::HostError => "ERR_IBEX_HOST_IO",
+        }
+    }
+
+    pub const fn dominant(self, other: Self) -> Self {
+        if self.precedence_rank() <= other.precedence_rank() {
+            self
+        } else {
+            other
+        }
+    }
+}
+
 /// A path error whose observables are confined to the virtual namespace.
 ///
 /// It intentionally does not retain an `io::Error` or backing `PathBuf`: either
@@ -486,10 +536,11 @@ impl fmt::Debug for VirtualFileSystem {
     }
 }
 
-#[derive(Clone)]
 struct RetainedDirectory {
     namespace: NamespacePath,
     object: ObjectIdentity,
+    #[cfg(unix)]
+    retained: std::fs::File,
 }
 
 /// Private translation result used only by native filesystem adapters.
@@ -504,10 +555,12 @@ pub(crate) struct ResolvedPrivatePath {
 }
 
 impl ResolvedPrivatePath {
+    #[cfg(test)]
     pub(crate) fn backing_path(&self) -> &[u8] {
         &self.backing_path
     }
 
+    #[cfg(test)]
     pub(crate) fn virtual_path(&self) -> &[u8] {
         &self.virtual_path
     }
@@ -520,9 +573,9 @@ impl ResolvedPrivatePath {
 /// Runtime-local namespace state bound to one native runtime generation.
 ///
 /// The runtime nonce is engine-authenticated provenance, not a JavaScript
-/// assertion. Initial construction consumes only the armed snapshot: `/project`
-/// is retained from the authenticated root identity without probing the host.
-/// Later relative resolutions re-verify that retained identity before forming
+/// assertion. Initial construction opens `/project` through the authenticated
+/// root binding and retains that exact directory object. Later relative
+/// resolutions re-verify both its handle and canonical namespace before forming
 /// the requested child path.
 /// @ref LLP 0023#5-the-virtual-resolution-base-working-directory
 /// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
@@ -546,10 +599,7 @@ impl fmt::Debug for RuntimeVfsSession {
 impl RuntimeVfsSession {
     pub(crate) fn new(runtime_nonce: NonZeroU64, vfs: VirtualFileSystem) -> Result<Self, VfsError> {
         let namespace = vfs.default_base()?;
-        let cwd = RetainedDirectory {
-            namespace,
-            object: vfs.mount.root_object.clone(),
-        };
+        let cwd = vfs.retain_directory(namespace, "mount", |_| Ok(()))?;
         Ok(Self {
             runtime_nonce,
             vfs,
@@ -588,8 +638,8 @@ impl RuntimeVfsSession {
         let namespace = if is_absolute {
             self.vfs.resolve_root_bytes(input, None)?
         } else {
-            let cwd = lock_recover(&self.cwd);
-            self.vfs.verify_retained_directory(&cwd, "resolve")?;
+            let mut cwd = lock_recover(&self.cwd);
+            self.vfs.verify_retained_directory(&mut cwd, "resolve")?;
             self.vfs.resolve_root_bytes(input, Some(&cwd.namespace))?
         };
         let backing_path = self.vfs.private_backing_path_bytes(&namespace, "resolve")?;
@@ -654,6 +704,7 @@ impl RuntimeVfsSession {
     /// contained, observed to be a directory, and retained. The caller must
     /// take the typed cwd-mutation and directory-metadata decisions before
     /// invoking this private native operation.
+    #[cfg(test)]
     pub(crate) fn chdir(&self, input: &[u8]) -> Result<Vec<u8>, VfsError> {
         self.chdir_authorized(input, |_, _, _, _| Ok(()))
     }
@@ -681,7 +732,7 @@ impl RuntimeVfsSession {
         let namespace = if is_absolute {
             self.vfs.resolve_root_bytes(input, None)?
         } else {
-            self.vfs.verify_retained_directory(&cwd, "chdir")?;
+            self.vfs.verify_retained_directory(&mut cwd, "chdir")?;
             self.vfs.resolve_root_bytes(input, Some(&cwd.namespace))?
         };
         let requested_backing = self.vfs.private_backing_path(&namespace, "chdir")?;
@@ -691,7 +742,18 @@ impl RuntimeVfsSession {
             &namespace,
             None,
         )?;
-        let replacement = self.vfs.retain_directory(namespace, "chdir")?;
+        let mut replacement =
+            self.vfs
+                .retain_directory(namespace, "chdir", |target_namespace| {
+                    let target_backing =
+                        self.vfs.private_backing_path(target_namespace, "chdir")?;
+                    authorize(
+                        capsec_semantics::model::Stage::Requested,
+                        &target_backing,
+                        target_namespace,
+                        None,
+                    )
+                })?;
         let committed_backing = self
             .vfs
             .private_backing_path(&replacement.namespace, "chdir")?;
@@ -701,6 +763,12 @@ impl RuntimeVfsSession {
             &replacement.namespace,
             Some(&replacement.object),
         )?;
+        // The authorization callback may run arbitrary host policy code while
+        // another process mutates the backing tree. Reopen the canonical
+        // namespace from the authenticated root descriptor after that callback
+        // and compare it with the exact retained target before publishing cwd.
+        self.vfs
+            .verify_retained_directory(&mut replacement, "chdir")?;
         let virtual_path = replacement.namespace.virtual_path().as_bytes().to_vec();
         self.ensure_live("chdir", Some(replacement.namespace.virtual_path.clone()))?;
         *cwd = replacement;
@@ -879,7 +947,7 @@ impl VirtualFileSystem {
         self.resolve_bytes(&self.root_principal, b"/project", None)
     }
 
-    fn private_backing_path(
+    pub(crate) fn private_backing_path(
         &self,
         namespace: &NamespacePath,
         operation: &str,
@@ -939,11 +1007,15 @@ impl VirtualFileSystem {
             .map_err(|_| VfsError::stale_identity(operation, virtual_path))
     }
 
-    fn retain_directory(
+    fn retain_directory<F>(
         &self,
         namespace: NamespacePath,
         operation: &str,
-    ) -> Result<RetainedDirectory, VfsError> {
+        authorize_target: F,
+    ) -> Result<RetainedDirectory, VfsError>
+    where
+        F: FnMut(&NamespacePath) -> Result<(), VfsError>,
+    {
         self.ensure_path_session(&namespace, operation)?;
         if namespace.is_synthetic_root() {
             return Err(VfsError::synthetic_node(
@@ -951,84 +1023,316 @@ impl VirtualFileSystem {
                 namespace.virtual_path.clone(),
             ));
         }
-        let safe_path = namespace.virtual_path.clone();
-        let canonical_root = self.verified_canonical_root(operation, safe_path.clone())?;
-        let backing_path = self.private_backing_path(&namespace, operation)?;
-        let canonical_target = std::fs::canonicalize(&backing_path).map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                VfsError::absent(operation, safe_path.clone())
-            } else {
-                VfsError::host(operation, safe_path.clone(), &error)
-            }
-        })?;
-        if canonical_target.strip_prefix(&canonical_root).is_err() {
-            return Err(VfsError::outside_mount(operation, safe_path));
+
+        #[cfg(unix)]
+        {
+            self.open_contained_directory(namespace, operation, true, authorize_target)
         }
-        let metadata = std::fs::symlink_metadata(&canonical_target)
-            .map_err(|error| VfsError::host(operation, safe_path.clone(), &error))?;
-        if metadata.file_type().is_symlink() || !metadata.is_dir() {
-            return Err(VfsError::host_code(operation, safe_path, "ENOTDIR"));
-        }
-        let object = object_identity_for_metadata(&metadata)
-            .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
-        let virtual_path = virtual_path_for_authenticated_project_path(
-            &canonical_root,
-            &canonical_target,
-            operation,
-        )?;
-        let retained_namespace = self.resolve_root_bytes(virtual_path.as_bytes(), None)?;
-        self.verify_authenticated_binding_root(
-            &retained_namespace.virtual_components[1..],
-            &object,
-            operation,
-            retained_namespace.virtual_path.clone(),
-        )?;
-        let repeated = std::fs::symlink_metadata(&canonical_target).map_err(|_| {
-            VfsError::stale_identity(operation, retained_namespace.virtual_path.clone())
-        })?;
-        let repeated_object = object_identity_for_metadata(&repeated).map_err(|_| {
-            VfsError::stale_identity(operation, retained_namespace.virtual_path.clone())
-        })?;
-        if repeated.file_type().is_symlink() || !repeated.is_dir() || repeated_object != object {
-            return Err(VfsError::stale_identity(
+
+        #[cfg(not(unix))]
+        {
+            let _ = authorize_target;
+            Err(VfsError::host_code(
                 operation,
-                retained_namespace.virtual_path.clone(),
-            ));
+                namespace.virtual_path.clone(),
+                "ERR_IBEX_UNSUPPORTED_TARGET",
+            ))
         }
-        Ok(RetainedDirectory {
-            namespace: retained_namespace,
-            object,
-        })
     }
 
     fn verify_retained_directory(
         &self,
-        retained: &RetainedDirectory,
+        retained: &mut RetainedDirectory,
         operation: &str,
     ) -> Result<(), VfsError> {
         self.ensure_path_session(&retained.namespace, operation)?;
         let safe_path = retained.namespace.virtual_path.clone();
-        let canonical_root = self.verified_canonical_root(operation, safe_path.clone())?;
-        let backing_path = self.private_backing_path(&retained.namespace, operation)?;
-        let canonical_target = std::fs::canonicalize(&backing_path)
-            .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
-        let mut expected_canonical = canonical_root.clone();
-        for component in &retained.namespace.virtual_components[1..] {
-            expected_canonical.push(component.as_ref());
-        }
-        if canonical_target.strip_prefix(&canonical_root).is_err()
-            || canonical_target != expected_canonical
+
+        #[cfg(unix)]
         {
-            return Err(VfsError::stale_identity(operation, safe_path));
+            let metadata = retained
+                .retained
+                .metadata()
+                .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
+            let object = object_identity_for_metadata(&metadata)
+                .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
+            if !metadata.is_dir() || object != retained.object {
+                return Err(VfsError::stale_identity(operation, safe_path));
+            }
+
+            // A retained descriptor alone is not enough: the directory might
+            // have been renamed or moved outside the binding. Reopen the exact
+            // canonical namespace from a descriptor for the authenticated root,
+            // refusing symlinks, and require that it reaches the retained object.
+            let reopened = self
+                .open_contained_directory(retained.namespace.clone(), operation, false, |_| Ok(()))
+                .map_err(|error| {
+                    if error.reason() == VfsReason::StaleSession {
+                        error
+                    } else {
+                        VfsError::stale_identity(operation, safe_path.clone())
+                    }
+                })?;
+            if reopened.object != retained.object {
+                return Err(VfsError::stale_identity(operation, safe_path));
+            }
+            Ok(())
         }
-        let metadata = std::fs::symlink_metadata(&canonical_target)
-            .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
+
+        #[cfg(not(unix))]
+        {
+            Err(VfsError::host_code(
+                operation,
+                safe_path,
+                "ERR_IBEX_UNSUPPORTED_TARGET",
+            ))
+        }
+    }
+
+    #[cfg(unix)]
+    fn open_authenticated_project_root(
+        &self,
+        operation: &str,
+        safe_path: Arc<str>,
+    ) -> Result<std::fs::File, VfsError> {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut options = std::fs::OpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        let root = options.open(&self.mount.host_root).map_err(|error| {
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ) || error.raw_os_error() == Some(libc::ELOOP)
+            {
+                VfsError::stale_identity(operation, safe_path.clone())
+            } else {
+                VfsError::host(operation, safe_path.clone(), &error)
+            }
+        })?;
+        let metadata = root
+            .metadata()
+            .map_err(|error| VfsError::host(operation, safe_path.clone(), &error))?;
         let object = object_identity_for_metadata(&metadata)
             .map_err(|_| VfsError::stale_identity(operation, safe_path.clone()))?;
-        if metadata.file_type().is_symlink() || !metadata.is_dir() || object != retained.object {
+        if !metadata.is_dir() || object != self.mount.root_object {
             return Err(VfsError::stale_identity(operation, safe_path));
         }
+        Ok(root)
+    }
+
+    #[cfg(unix)]
+    fn verify_directory_handle_in_current_mount(
+        &self,
+        handle: &std::fs::File,
+        operation: &str,
+        safe_path: Arc<str>,
+        pause_for_test: bool,
+    ) -> Result<(), VfsError> {
+        if !directory_handle_descends_from_object(handle, &self.mount.root_object) {
+            return Err(VfsError::stale_identity(operation, safe_path));
+        }
+        if pause_for_test {
+            pause_before_cwd_mount_reverification(&self.mount.host_root);
+        }
+        // The downward descriptor walk proves how the target was reached; the
+        // upward walk above proves its current ancestry. Reopening the mount
+        // pathname last also refuses a root that was renamed out and replaced
+        // while either walk was in progress.
+        let _current_root = self.open_authenticated_project_root(operation, safe_path)?;
         Ok(())
+    }
+
+    #[cfg(unix)]
+    fn open_contained_directory<F>(
+        &self,
+        namespace: NamespacePath,
+        operation: &str,
+        follow_symlinks: bool,
+        mut authorize_target: F,
+    ) -> Result<RetainedDirectory, VfsError>
+    where
+        F: FnMut(&NamespacePath) -> Result<(), VfsError>,
+    {
+        use std::collections::VecDeque;
+        use std::ffi::CString;
+        use std::os::fd::AsRawFd;
+
+        const MAX_SYMLINKS: usize = 32;
+        let safe_path = namespace.virtual_path.clone();
+        let root = self.open_authenticated_project_root(operation, safe_path.clone())?;
+        if follow_symlinks {
+            pause_after_authenticated_cwd_root_open(&self.mount.host_root);
+        }
+        let caller = namespace.caller.clone();
+        let mut final_namespace = namespace;
+        let mut pending = final_namespace.virtual_components[1..]
+            .iter()
+            .cloned()
+            .collect::<VecDeque<_>>();
+        let mut current = root
+            .try_clone()
+            .map_err(|error| VfsError::host(operation, safe_path.clone(), &error))?;
+        let mut physical_parent = Vec::<Arc<str>>::new();
+        let mut symlink_count = 0usize;
+
+        loop {
+            let Some(component) = pending.pop_front() else {
+                let metadata = current.metadata().map_err(|error| {
+                    VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+                })?;
+                let object = object_identity_for_metadata(&metadata).map_err(|_| {
+                    VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+                })?;
+                if !metadata.is_dir() || object != self.mount.root_object {
+                    return Err(VfsError::stale_identity(
+                        operation,
+                        final_namespace.virtual_path.clone(),
+                    ));
+                }
+                self.verify_directory_handle_in_current_mount(
+                    &current,
+                    operation,
+                    final_namespace.virtual_path.clone(),
+                    follow_symlinks,
+                )?;
+                return Ok(RetainedDirectory {
+                    namespace: self.namespace_from_project_relative(&caller, Vec::new(), false)?,
+                    object,
+                    retained: current,
+                });
+            };
+            let component_c =
+                CString::new(component.as_bytes()).map_err(|_| VfsError::malformed(operation))?;
+            let witnessed =
+                stat_at_no_follow(current.as_raw_fd(), &component_c).map_err(|error| {
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        VfsError::absent(operation, final_namespace.virtual_path.clone())
+                    } else {
+                        VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+                    }
+                })?;
+            let witnessed_object = object_identity_for_unix_stat(&witnessed).map_err(|_| {
+                VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+            })?;
+            let mut witnessed_components = physical_parent.clone();
+            witnessed_components.push(component.clone());
+            self.verify_authenticated_binding_root(
+                &witnessed_components,
+                &witnessed_object,
+                operation,
+                final_namespace.virtual_path.clone(),
+            )?;
+
+            if unix_stat_is_symlink(&witnessed) {
+                if !follow_symlinks {
+                    return Err(VfsError::stale_identity(
+                        operation,
+                        final_namespace.virtual_path.clone(),
+                    ));
+                }
+                symlink_count += 1;
+                if symlink_count > MAX_SYMLINKS {
+                    return Err(VfsError::symlink_depth(
+                        operation,
+                        final_namespace.virtual_path.clone(),
+                    ));
+                }
+                let target_bytes =
+                    readlinkat_bytes(current.as_raw_fd(), &component_c).map_err(|error| {
+                        VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+                    })?;
+                let after = stat_at_no_follow(current.as_raw_fd(), &component_c).map_err(|_| {
+                    VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+                })?;
+                let after_object = object_identity_for_unix_stat(&after).map_err(|_| {
+                    VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+                })?;
+                if after_object != witnessed_object || !unix_stat_is_symlink(&after) {
+                    return Err(VfsError::stale_identity(
+                        operation,
+                        final_namespace.virtual_path.clone(),
+                    ));
+                }
+                let target = std::str::from_utf8(&target_bytes)
+                    .map_err(|_| VfsError::malformed(operation))?;
+                if target.is_empty() || target.contains('\0') {
+                    return Err(VfsError::malformed(operation));
+                }
+                let target_components = if target.starts_with('/') {
+                    absolute_link_target_under_mount(&self.mount.host_root, target).map_err(
+                        |_| {
+                            VfsError::outside_mount(operation, final_namespace.virtual_path.clone())
+                        },
+                    )?
+                } else {
+                    relative_link_target_under_mount(&physical_parent, target).map_err(|_| {
+                        VfsError::outside_mount(operation, final_namespace.virtual_path.clone())
+                    })?
+                };
+                let mut combined = target_components;
+                combined.extend(pending);
+                let target_namespace =
+                    self.namespace_from_project_relative(&caller, combined.clone(), false)?;
+                // Authorize the complete substituted path before restarting
+                // traversal. Authorizing only the raw link target leaves an
+                // ancestor+pending-tail gap where the tail can enter another
+                // authenticated binding before the next callback.
+                authorize_target(&target_namespace)?;
+                final_namespace = target_namespace;
+                pending = combined.into_iter().collect();
+                current = root.try_clone().map_err(|error| {
+                    VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+                })?;
+                physical_parent.clear();
+                continue;
+            }
+
+            let opened =
+                openat_directory_no_follow(current.as_raw_fd(), &component_c).map_err(|error| {
+                    if stat_at_no_follow(current.as_raw_fd(), &component_c)
+                        .ok()
+                        .and_then(|stat| object_identity_for_unix_stat(&stat).ok())
+                        .as_ref()
+                        != Some(&witnessed_object)
+                    {
+                        VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+                    } else {
+                        VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+                    }
+                })?;
+            let metadata = opened.metadata().map_err(|error| {
+                VfsError::host(operation, final_namespace.virtual_path.clone(), &error)
+            })?;
+            let opened_object = object_identity_for_metadata(&metadata).map_err(|_| {
+                VfsError::stale_identity(operation, final_namespace.virtual_path.clone())
+            })?;
+            if !metadata.is_dir() || opened_object != witnessed_object {
+                return Err(VfsError::stale_identity(
+                    operation,
+                    final_namespace.virtual_path.clone(),
+                ));
+            }
+            physical_parent.push(component);
+            if pending.is_empty() {
+                let retained_namespace =
+                    self.namespace_from_project_relative(&caller, physical_parent, false)?;
+                self.verify_directory_handle_in_current_mount(
+                    &opened,
+                    operation,
+                    retained_namespace.virtual_path.clone(),
+                    follow_symlinks,
+                )?;
+                return Ok(RetainedDirectory {
+                    namespace: retained_namespace,
+                    object: opened_object,
+                    retained: opened,
+                });
+            }
+            current = opened;
+        }
     }
 
     /// Translate an already-authenticated canonical host path beneath the
@@ -1164,7 +1468,12 @@ impl VirtualFileSystem {
                 ".." => {
                     components.pop();
                 }
-                component => components.push(Arc::from(component)),
+                component => {
+                    if !virtual_component_is_mappable(component, cfg!(windows)) {
+                        return Err(VfsError::malformed(operation));
+                    }
+                    components.push(Arc::from(component));
+                }
             }
         }
         let virtual_path = virtual_path_string(&components);
@@ -1584,6 +1893,19 @@ impl fmt::Debug for SourceId {
 }
 
 impl SourceId {
+    #[cfg(test)]
+    pub(crate) fn file_for_test(
+        defining_principal: Principal,
+        logical_root: LogicalRoot,
+        lexical_components: Vec<Arc<str>>,
+    ) -> Self {
+        Self(SourceIdKind::File {
+            defining_principal,
+            logical_root,
+            lexical_components: lexical_components.into(),
+        })
+    }
+
     pub(crate) fn builtin(key: impl Into<Arc<str>>) -> Self {
         Self(SourceIdKind::Builtin { key: key.into() })
     }
@@ -1615,6 +1937,61 @@ impl SourceId {
     /// @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
     pub fn authenticates_cache_key(&self, candidate: &str) -> bool {
         self.cache_key() == candidate
+    }
+
+    /// Recover only the defining principal from an opaque file cache key.
+    ///
+    /// The authenticated module loader uses this on a route-cache hit so the
+    /// host can re-authorize the current frame against the exact target
+    /// principal without probing the filesystem again.  The spelling is
+    /// accepted only when strict JSON decoding followed by reconstruction
+    /// produces the identical canonical cache key; project JavaScript never
+    /// receives this parser or the decoded principal.
+    /// @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+    pub(crate) fn file_defining_principal_from_cache_key(candidate: &str) -> Option<Principal> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct FileSourceIdWire {
+            kind: String,
+            defining_principal: Principal,
+            logical_root: LogicalRoot,
+            lexical_components: Vec<String>,
+            source_id_schema: String,
+        }
+
+        let encoded = candidate.strip_prefix("ibex-source-id-v1:")?;
+        let decoded = URL_SAFE_NO_PAD.decode(encoded).ok()?;
+        let text = std::str::from_utf8(&decoded).ok()?;
+        let value = capsec_semantics::strict_json::parse_strict(text).ok()?;
+        let wire: FileSourceIdWire = serde_json::from_value(value).ok()?;
+        if wire.kind != "file"
+            || wire.source_id_schema != "ibex.source-id.v1"
+            || wire.lexical_components.is_empty()
+            || !matches!(
+                (&wire.defining_principal, wire.logical_root),
+                (Principal::Root { .. }, LogicalRoot::Project)
+                    | (Principal::Package { .. }, LogicalRoot::Package)
+            )
+            || wire
+                .lexical_components
+                .iter()
+                .any(|component| PathComponent::utf8(component.clone()).is_err())
+        {
+            return None;
+        }
+        let source_id = Self(SourceIdKind::File {
+            defining_principal: wire.defining_principal.clone(),
+            logical_root: wire.logical_root,
+            lexical_components: wire
+                .lexical_components
+                .into_iter()
+                .map(Arc::<str>::from)
+                .collect::<Vec<_>>()
+                .into(),
+        });
+        source_id
+            .authenticates_cache_key(candidate)
+            .then_some(wire.defining_principal)
     }
 
     /// Canonical, collision-free wire spelling used only inside the native
@@ -1806,6 +2183,25 @@ pub struct AuthenticatedRead {
     evidence: AuthenticatedReadEvidence,
 }
 
+/// Descriptor-authenticated metadata for a resolve-only module bridge. The
+/// target's parent and final descriptors remain live through the Repeat
+/// decision, but no source bytes are read and no host spelling is returned.
+#[derive(Clone, Debug)]
+pub(crate) struct AuthenticatedMetadata {
+    source_id: SourceId,
+    source_label: SourceLabel,
+}
+
+impl AuthenticatedMetadata {
+    pub(crate) fn source_id(&self) -> &SourceId {
+        &self.source_id
+    }
+
+    pub(crate) fn source_label(&self) -> &SourceLabel {
+        &self.source_label
+    }
+}
+
 impl AuthenticatedRead {
     pub fn bytes(&self) -> Arc<[u8]> {
         self.bytes.clone()
@@ -1885,6 +2281,114 @@ impl AuthenticatedVfsScriptRead {
 }
 
 impl VirtualFileSystem {
+    /// Authenticate a resolve-only file target with the same requested,
+    /// discovery, commit, and repeat descriptor lifetime as a source read,
+    /// without reading the target body.
+    /// @ref LLP 0023#21-staged-authorization-identity
+    pub(crate) fn metadata_authenticated<F>(
+        &self,
+        namespace: NamespacePath,
+        mut authorize: F,
+    ) -> Result<AuthenticatedMetadata, VfsError>
+    where
+        F: for<'a> FnMut(ReadAuthorization<'a>) -> Result<AuthorizationReceipt, VfsError>,
+    {
+        const OPERATION: &str = "metadata";
+        self.ensure_path_session(&namespace, OPERATION)?;
+        if namespace.is_synthetic_root() {
+            return Err(VfsError::synthetic_node(
+                OPERATION,
+                namespace.virtual_path.clone(),
+            ));
+        }
+        if namespace.virtual_components.len() <= 1 {
+            return Err(VfsError::host_code(
+                OPERATION,
+                namespace.virtual_path.clone(),
+                "EISDIR",
+            ));
+        }
+
+        let _requested = authorize(ReadAuthorization::Requested(&namespace))?;
+
+        #[cfg(unix)]
+        let (discovered, _traversal_decisions) =
+            self.discover_contained(namespace, &mut authorize)?;
+
+        #[cfg(unix)]
+        let _discovery = authorize(ReadAuthorization::Discovery(&discovered))?;
+
+        #[cfg(unix)]
+        let committed = self.commit_no_follow(discovered)?;
+
+        #[cfg(not(unix))]
+        {
+            let _ = authorize;
+            return Err(VfsError::host_code(
+                OPERATION,
+                namespace.virtual_path.clone(),
+                "ERR_IBEX_UNSUPPORTED_TARGET",
+            ));
+        }
+
+        #[cfg(unix)]
+        {
+            let _commit = authorize(ReadAuthorization::Commit(&committed))?;
+            let before = committed.retained_final.metadata().map_err(|error| {
+                VfsError::host(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    &error,
+                )
+            })?;
+            if !before.is_file() {
+                return Err(VfsError::host_code(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    if before.is_dir() { "EISDIR" } else { "EINVAL" },
+                ));
+            }
+            if committed.namespace().directory_intent {
+                return Err(VfsError::host_code(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    "ENOTDIR",
+                ));
+            }
+            let _repeat = authorize(ReadAuthorization::Repeat(&committed))?;
+            let after = committed.retained_final.metadata().map_err(|error| {
+                VfsError::host(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                    &error,
+                )
+            })?;
+            let after_object = object_identity_for_metadata(&after).map_err(|_| {
+                VfsError::stale_identity(OPERATION, committed.namespace().virtual_path.clone())
+            })?;
+            if after_object != committed.final_object
+                || metadata_changed_during_read(&before, &after)
+            {
+                return Err(VfsError::stale_identity(
+                    OPERATION,
+                    committed.namespace().virtual_path.clone(),
+                ));
+            }
+
+            let relative = &committed.namespace().virtual_components[1..];
+            let (defining_principal, logical_root, lexical_components) =
+                self.defining_source(relative);
+            Ok(AuthenticatedMetadata {
+                source_id: SourceId(SourceIdKind::File {
+                    defining_principal,
+                    logical_root,
+                    lexical_components,
+                }),
+                source_label: SourceLabel::file(committed.namespace())?,
+            })
+        }
+    }
+
     /// Perform an authenticated whole-file read.
     ///
     /// The `Requested` callback runs before the first host lookup. Discovery,
@@ -2088,36 +2592,12 @@ impl VirtualFileSystem {
     {
         use std::collections::VecDeque;
         use std::ffi::CString;
-        use std::os::fd::{AsRawFd, FromRawFd};
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::fd::AsRawFd;
 
         const OPERATION: &str = "read";
         const MAX_SYMLINKS: usize = 32;
         let safe_path = namespace.virtual_path.clone();
-        let mut options = std::fs::OpenOptions::new();
-        options
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW);
-        let root = options.open(&self.mount.host_root).map_err(|error| {
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-            ) || error.raw_os_error() == Some(libc::ELOOP)
-            {
-                VfsError::stale_identity(OPERATION, safe_path.clone())
-            } else {
-                VfsError::host(OPERATION, safe_path.clone(), &error)
-            }
-        })?;
-        let root_object = object_identity_for_metadata(
-            &root
-                .metadata()
-                .map_err(|error| VfsError::host(OPERATION, safe_path.clone(), &error))?,
-        )
-        .map_err(|_| VfsError::stale_identity(OPERATION, safe_path.clone()))?;
-        if root_object != self.mount.root_object {
-            return Err(VfsError::stale_identity(OPERATION, safe_path));
-        }
+        let root = self.open_authenticated_project_root(OPERATION, safe_path.clone())?;
         let caller = namespace.caller.clone();
         let directory_intent = namespace.directory_intent;
         let mut final_namespace = namespace;
@@ -2222,28 +2702,28 @@ impl VirtualFileSystem {
                         VfsError::outside_mount(OPERATION, link.namespace.virtual_path.clone())
                     })?
                 };
-                let target_namespace = self.namespace_from_project_relative(
-                    &caller,
-                    target_components.clone(),
-                    target.ends_with('/') || !pending.is_empty(),
-                )?;
-                let receipt = authorize(ReadAuthorization::Requested(&target_namespace))?;
-                traversal_decisions.push(receipt.evidence_digest);
-
                 let mut combined = target_components;
                 combined.extend(pending);
                 if combined.is_empty() {
                     return Err(VfsError::host_code(
                         OPERATION,
-                        target_namespace.virtual_path.clone(),
+                        link.namespace.virtual_path.clone(),
                         "EISDIR",
                     ));
                 }
-                final_namespace = self.namespace_from_project_relative(
+                let target_namespace = self.namespace_from_project_relative(
                     &caller,
                     combined.clone(),
                     directory_intent,
                 )?;
+                // Authorize the complete substituted path before restarting
+                // traversal. Authorizing only the raw link target leaves an
+                // ancestor+pending-tail gap where the tail can enter a foreign
+                // binding before any further callback.
+                let receipt = authorize(ReadAuthorization::Requested(&target_namespace))?;
+                traversal_decisions.push(receipt.evidence_digest);
+
+                final_namespace = target_namespace;
                 pending = combined.into_iter().collect();
                 current = root.try_clone().map_err(|error| {
                     VfsError::host(OPERATION, final_namespace.virtual_path.clone(), &error)
@@ -2265,33 +2745,27 @@ impl VirtualFileSystem {
                 ));
             }
 
-            let fd = unsafe {
-                libc::openat(
-                    current.as_raw_fd(),
-                    component_c.as_ptr(),
-                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-                )
-            };
-            if fd < 0 {
-                let error = std::io::Error::last_os_error();
-                if stat_at_no_follow(current.as_raw_fd(), &component_c)
-                    .ok()
-                    .and_then(|stat| object_identity_for_unix_stat(&stat).ok())
-                    .as_ref()
-                    != Some(&witnessed_object)
-                {
-                    return Err(VfsError::stale_identity(
+            let opened = match openat_directory_no_follow(current.as_raw_fd(), &component_c) {
+                Ok(opened) => opened,
+                Err(error) => {
+                    if stat_at_no_follow(current.as_raw_fd(), &component_c)
+                        .ok()
+                        .and_then(|stat| object_identity_for_unix_stat(&stat).ok())
+                        .as_ref()
+                        != Some(&witnessed_object)
+                    {
+                        return Err(VfsError::stale_identity(
+                            OPERATION,
+                            final_namespace.virtual_path.clone(),
+                        ));
+                    }
+                    return Err(VfsError::host(
                         OPERATION,
                         final_namespace.virtual_path.clone(),
+                        &error,
                     ));
                 }
-                return Err(VfsError::host(
-                    OPERATION,
-                    final_namespace.virtual_path.clone(),
-                    &error,
-                ));
-            }
-            let opened = unsafe { std::fs::File::from_raw_fd(fd) };
+            };
             let opened_object =
                 object_identity_for_metadata(&opened.metadata().map_err(|error| {
                     VfsError::host(OPERATION, final_namespace.virtual_path.clone(), &error)
@@ -2372,6 +2846,115 @@ impl VirtualFileSystem {
             retained_final: final_file,
         })
     }
+}
+
+#[cfg(test)]
+type CwdRootOpenHook = Option<(std::path::PathBuf, std::sync::Arc<std::sync::Barrier>)>;
+
+#[cfg(test)]
+static CWD_ROOT_OPEN_HOOK: std::sync::OnceLock<std::sync::Mutex<CwdRootOpenHook>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+static CWD_MOUNT_REVERIFY_HOOK: std::sync::OnceLock<std::sync::Mutex<CwdRootOpenHook>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn pause_after_authenticated_cwd_root_open(path: &std::path::Path) {
+    let hook = CWD_ROOT_OPEN_HOOK
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|hook| hook.as_ref().cloned());
+    if let Some((target, barrier)) = hook {
+        if target == path {
+            barrier.wait();
+            barrier.wait();
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn pause_after_authenticated_cwd_root_open(_: &std::path::Path) {}
+
+#[cfg(test)]
+fn pause_before_cwd_mount_reverification(path: &std::path::Path) {
+    let hook = CWD_MOUNT_REVERIFY_HOOK
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|hook| hook.as_ref().cloned());
+    if let Some((target, barrier)) = hook {
+        if target == path {
+            barrier.wait();
+            barrier.wait();
+        }
+    }
+}
+
+#[cfg(not(test))]
+fn pause_before_cwd_mount_reverification(_: &std::path::Path) {}
+
+#[cfg(unix)]
+fn openat_directory_no_follow(
+    parent_fd: std::os::fd::RawFd,
+    basename: &std::ffi::CStr,
+) -> std::io::Result<std::fs::File> {
+    use std::os::fd::FromRawFd;
+
+    let fd = unsafe {
+        libc::openat(
+            parent_fd,
+            basename.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        // SAFETY: openat returned a fresh, uniquely owned descriptor.
+        Ok(unsafe { std::fs::File::from_raw_fd(fd) })
+    }
+}
+
+#[cfg(unix)]
+fn directory_handle_descends_from_object(
+    handle: &std::fs::File,
+    expected_root: &ObjectIdentity,
+) -> bool {
+    use std::os::fd::AsRawFd;
+
+    let Ok(mut current) = handle.try_clone() else {
+        return false;
+    };
+    for _ in 0..1024 {
+        let Ok(metadata) = current.metadata() else {
+            return false;
+        };
+        let Ok(current_object) = object_identity_for_metadata(&metadata) else {
+            return false;
+        };
+        if &current_object == expected_root {
+            return true;
+        }
+        if !metadata.is_dir() {
+            return false;
+        }
+        let Ok(parent) = openat_directory_no_follow(current.as_raw_fd(), c"..") else {
+            return false;
+        };
+        let Ok(parent_metadata) = parent.metadata() else {
+            return false;
+        };
+        let Ok(parent_object) = object_identity_for_metadata(&parent_metadata) else {
+            return false;
+        };
+        if parent_object == current_object {
+            return false;
+        }
+        current = parent;
+    }
+    false
 }
 
 #[cfg(unix)]
@@ -2488,6 +3071,44 @@ fn absolute_link_target_under_mount(
                 .map_err(|_| ())
         })
         .collect()
+}
+
+// A virtual component is passed to PathBuf only after namespace containment.
+// On Windows, accepting characters which the native path parser reinterprets
+// as separators, prefixes, alternate streams, wildcards, or device aliases
+// would invalidate that ordering. POSIX retains backslash and colon as ordinary
+// filename characters.
+// @ref LLP 0023#3-path-grammar-normalization-aliasing-and-containment — virtual paths stay POSIX on
+// every target, while Windows-unmappable components fail before translation.
+fn virtual_component_is_mappable(component: &str, windows_target: bool) -> bool {
+    if !windows_target {
+        return true;
+    }
+    if component.ends_with(['.', ' '])
+        || component.chars().any(|character| {
+            character <= '\u{1f}'
+                || matches!(character, '<' | '>' | ':' | '"' | '\\' | '|' | '?' | '*')
+        })
+    {
+        return false;
+    }
+    let device_stem = component
+        .split_once('.')
+        .map_or(component, |(stem, _)| stem)
+        .to_ascii_uppercase();
+    if matches!(
+        device_stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
+        return false;
+    }
+    let numbered_device = device_stem
+        .strip_prefix("COM")
+        .or_else(|| device_stem.strip_prefix("LPT"));
+    !matches!(
+        numbered_device,
+        Some("1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³")
+    )
 }
 
 fn decode_file_url_path(input: &[u8]) -> Result<Vec<u8>, VfsError> {
@@ -2613,7 +3234,7 @@ fn host_path_from_binding(binding: &ArmedRootBinding) -> Result<PathBuf, VfsErro
     Ok(path)
 }
 
-fn object_identity_for_metadata(
+pub(crate) fn object_identity_for_metadata(
     metadata: &std::fs::Metadata,
 ) -> capsec_semantics::Result<ObjectIdentity> {
     use capsec_semantics::model::{NonEmptyString, ObjectPlatform};
@@ -2669,7 +3290,10 @@ fn object_identity_for_unix_stat(stat: &libc::stat) -> capsec_semantics::Result<
 }
 
 #[cfg(unix)]
-fn metadata_changed_during_read(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
+pub(crate) fn metadata_changed_during_read(
+    before: &std::fs::Metadata,
+    after: &std::fs::Metadata,
+) -> bool {
     use std::os::unix::fs::MetadataExt;
     before.len() != after.len()
         || before.mtime() != after.mtime()
@@ -2883,6 +3507,223 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn runtime_vfs_chdir_rejects_replaced_package_root_ancestor() {
+        let temp = tempfile::tempdir().unwrap();
+        let package_root = temp.path().join("node_modules/a");
+        let original = temp.path().join("original-package");
+        let substitute = temp.path().join("substitute-package");
+        fs::create_dir_all(package_root.join("sub")).unwrap();
+        fs::create_dir_all(substitute.join("sub")).unwrap();
+        let project_object =
+            object_identity_for_metadata(&fs::metadata(temp.path()).unwrap()).unwrap();
+        let package_object =
+            object_identity_for_metadata(&fs::metadata(&package_root).unwrap()).unwrap();
+        let bindings = vec![
+            ArmedRootBinding {
+                logical_root: LogicalRoot::Project,
+                owner: None,
+                logical_path: None,
+                host_path: host_bound_path(temp.path()),
+                object: project_object.clone(),
+            },
+            ArmedRootBinding {
+                logical_root: LogicalRoot::Package,
+                owner: Some(package_principal("a")),
+                logical_path: None,
+                host_path: host_bound_path(&package_root),
+                object: package_object,
+            },
+        ];
+        let vfs = VirtualFileSystem::from_bindings(
+            temp.path().to_path_buf(),
+            project_object,
+            root_principal("test-project"),
+            &bindings,
+            None,
+        )
+        .unwrap();
+        let session = RuntimeVfsSession::new(NonZeroU64::new(304).unwrap(), vfs).unwrap();
+
+        fs::rename(&package_root, &original).unwrap();
+        fs::rename(&substitute, &package_root).unwrap();
+
+        let error = session.chdir(b"/project/node_modules/a/sub").unwrap_err();
+        assert_eq!(error.reason(), VfsReason::StaleIdentity);
+        assert_eq!(session.current_cwd().unwrap(), b"/project");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_vfs_chdir_authorizes_combined_symlink_tail_at_foreign_binding() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let package_root = temp.path().join("node_modules/pkg");
+        fs::create_dir_all(package_root.join("sub")).unwrap();
+        symlink("node_modules", temp.path().join("alias")).unwrap();
+        let project_object =
+            object_identity_for_metadata(&fs::metadata(temp.path()).unwrap()).unwrap();
+        let root = root_principal("test-project");
+        let package = package_principal("pkg");
+        let bindings = vec![
+            ArmedRootBinding {
+                logical_root: LogicalRoot::Project,
+                owner: None,
+                logical_path: None,
+                host_path: host_bound_path(temp.path()),
+                object: project_object.clone(),
+            },
+            ArmedRootBinding {
+                logical_root: LogicalRoot::Package,
+                owner: Some(package.clone()),
+                logical_path: None,
+                host_path: host_bound_path(&package_root),
+                object: object_identity_for_metadata(&fs::metadata(&package_root).unwrap())
+                    .unwrap(),
+            },
+        ];
+        let vfs = VirtualFileSystem::from_bindings(
+            temp.path().to_path_buf(),
+            project_object,
+            root.clone(),
+            &bindings,
+            None,
+        )
+        .unwrap();
+        let principal_projection = vfs.clone();
+        let session = RuntimeVfsSession::new(NonZeroU64::new(307).unwrap(), vfs).unwrap();
+        let mut requested = Vec::new();
+        let error = session
+            .chdir_authorized(b"/project/alias/pkg/sub", |stage, _, namespace, _| {
+                if stage == capsec_semantics::model::Stage::Requested {
+                    let defining_principal = principal_projection
+                        .source_id_for_authenticated_module(namespace)
+                        .unwrap()
+                        .defining_principal()
+                        .cloned()
+                        .unwrap();
+                    requested.push((
+                        namespace.virtual_path().to_owned(),
+                        defining_principal.clone(),
+                    ));
+                    if defining_principal == package {
+                        return Err(VfsError::policy_denied(
+                            "chdir",
+                            Arc::from(namespace.virtual_path()),
+                            "foreign-binding-target-denied",
+                        ));
+                    }
+                }
+                Ok(())
+            })
+            .expect_err("the combined symlink tail must be denied at the package binding");
+        assert_eq!(error.reason(), VfsReason::PolicyDenied);
+        assert_eq!(
+            error.safe_decision_id(),
+            Some("foreign-binding-target-denied")
+        );
+        assert_eq!(
+            requested,
+            [
+                ("/project/alias/pkg/sub".into(), root),
+                ("/project/node_modules/pkg/sub".into(), package),
+            ]
+        );
+        assert_eq!(session.current_cwd().unwrap(), b"/project");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_vfs_chdir_reverifies_after_commit_callback() {
+        let temp = tempfile::tempdir().unwrap();
+        let live = temp.path().join("live");
+        let moved = temp.path().join("moved");
+        let replacement = temp.path().join("replacement");
+        fs::create_dir(&live).unwrap();
+        fs::create_dir(&replacement).unwrap();
+        let session =
+            RuntimeVfsSession::new(NonZeroU64::new(305).unwrap(), test_vfs(temp.path())).unwrap();
+
+        let error = session
+            .chdir_authorized(b"/project/live", |stage, _, _, _| {
+                if stage == capsec_semantics::model::Stage::Commit {
+                    fs::rename(&live, &moved).unwrap();
+                    fs::rename(&replacement, &live).unwrap();
+                }
+                Ok(())
+            })
+            .unwrap_err();
+        assert_eq!(error.reason(), VfsReason::StaleIdentity);
+        assert_eq!(session.current_cwd().unwrap(), b"/project");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_vfs_chdir_root_a_b_a_swap_keeps_authenticated_descriptor() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("root");
+        let original = outer.path().join("original");
+        let substitute = outer.path().join("substitute");
+        fs::create_dir_all(root.join("live")).unwrap();
+        fs::create_dir_all(substitute.join("live")).unwrap();
+        fs::write(root.join("live/marker"), b"authenticated").unwrap();
+        fs::write(substitute.join("live/marker"), b"substitute").unwrap();
+        let authentic_live =
+            object_identity_for_metadata(&fs::metadata(root.join("live")).unwrap()).unwrap();
+        let session =
+            RuntimeVfsSession::new(NonZeroU64::new(306).unwrap(), test_vfs(&root)).unwrap();
+        let root_open_barrier = Arc::new(std::sync::Barrier::new(2));
+        let mount_reverify_barrier = Arc::new(std::sync::Barrier::new(2));
+        *CWD_ROOT_OPEN_HOOK
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap() = Some((root.clone(), root_open_barrier.clone()));
+        *CWD_MOUNT_REVERIFY_HOOK
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap() = Some((root.clone(), mount_reverify_barrier.clone()));
+
+        let result = std::thread::scope(|scope| {
+            let worker = scope.spawn(|| session.chdir(b"/project/live"));
+
+            root_open_barrier.wait();
+            fs::rename(&root, &original).unwrap();
+            fs::rename(&substitute, &root).unwrap();
+            root_open_barrier.wait();
+
+            mount_reverify_barrier.wait();
+            fs::rename(&root, &substitute).unwrap();
+            fs::rename(&original, &root).unwrap();
+            mount_reverify_barrier.wait();
+            worker.join().unwrap()
+        });
+        *CWD_ROOT_OPEN_HOOK
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap() = None;
+        *CWD_MOUNT_REVERIFY_HOOK
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap() = None;
+
+        assert_eq!(result.unwrap(), b"/project/live");
+        let cwd = lock_recover(&session.cwd);
+        assert_eq!(
+            object_identity_for_metadata(&cwd.retained.metadata().unwrap()).unwrap(),
+            authentic_live
+        );
+        drop(cwd);
+        assert_eq!(
+            session
+                .resolve_private_path(b"marker")
+                .unwrap()
+                .virtual_path(),
+            b"/project/live/marker"
+        );
+    }
+
     #[test]
     fn normalization_precedes_mount_containment() {
         let temp = tempfile::tempdir().unwrap();
@@ -2906,6 +3747,56 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.reason(), VfsReason::OutsideMount);
         assert_eq!(error.virtual_path(), Some("/etc/passwd"));
+        if !cfg!(windows) {
+            assert_eq!(
+                vfs.resolve_root_bytes(b"/project/a\\b:c", None)
+                    .unwrap()
+                    .virtual_path(),
+                "/project/a\\b:c"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_native_path_syntax_is_refused_before_backing_translation() {
+        for component in [
+            "..\\outside",
+            "C:\\Windows",
+            "\\\\server",
+            "file:stream",
+            "question?",
+            "wild*",
+            "pipe|",
+            "quote\"",
+            "angle<",
+            "control\u{001f}",
+            "trailing.",
+            "trailing ",
+            "CON",
+            "con.txt",
+            "PRN",
+            "AUX.log",
+            "NUL",
+            "COM1.js",
+            "LPT9.log",
+            "COM¹",
+            "com².txt",
+            "LPT³.log",
+            "CONIN$",
+            "CONOUT$",
+        ] {
+            assert!(
+                !virtual_component_is_mappable(component, true),
+                "Windows-dangerous component was accepted: {component:?}"
+            );
+        }
+        for component in ["normal", "café", "COM10", "LPT0", "safe.name"] {
+            assert!(
+                virtual_component_is_mappable(component, true),
+                "ordinary Windows component was refused: {component:?}"
+            );
+        }
+        assert!(virtual_component_is_mappable("a\\b:c", false));
     }
 
     #[test]
@@ -3674,6 +4565,70 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn symlink_target_authorization_binds_ancestor_and_pending_tail_before_lookup() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        // Deliberately omit `pkg/package.json`: the combined path must reach
+        // authorization before traversal can disclose that its pending tail
+        // is absent.
+        fs::create_dir(temp.path().join("node_modules")).unwrap();
+        symlink("node_modules", temp.path().join("alias")).unwrap();
+        let vfs = test_vfs(temp.path());
+        let combined = "/project/node_modules/pkg/package.json";
+        let mut stages = Vec::new();
+        let error = vfs
+            .read_authenticated(
+                vfs.resolve_root_bytes(b"/project/alias/pkg/package.json", None)
+                    .unwrap(),
+                SourceUse::Module,
+                |stage| {
+                    let label = match &stage {
+                        ReadAuthorization::Requested(path) => {
+                            format!("requested:{}", path.virtual_path())
+                        }
+                        ReadAuthorization::Discovery(path) => {
+                            format!("discovery:{}", path.namespace().virtual_path())
+                        }
+                        ReadAuthorization::Commit(path) => {
+                            format!("commit:{}", path.namespace().virtual_path())
+                        }
+                        ReadAuthorization::Repeat(path) => {
+                            format!("repeat:{}", path.namespace().virtual_path())
+                        }
+                    };
+                    stages.push(label);
+                    if matches!(
+                        &stage,
+                        ReadAuthorization::Requested(path) if path.virtual_path() == combined
+                    ) {
+                        return Err(VfsError::policy_denied(
+                            "read",
+                            Arc::from(combined),
+                            "combined-symlink-target-denied",
+                        ));
+                    }
+                    Ok(receipt(stages.last().unwrap().as_bytes()))
+                },
+            )
+            .expect_err("the combined symlink target must be authorizable before lookup");
+        assert_eq!(error.reason(), VfsReason::PolicyDenied);
+        assert_eq!(
+            error.safe_decision_id(),
+            Some("combined-symlink-target-denied")
+        );
+        assert_eq!(
+            stages,
+            [
+                "requested:/project/alias/pkg/package.json",
+                "discovery:/project/alias",
+                "requested:/project/node_modules/pkg/package.json",
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn contained_symlinks_reauthorize_targets_and_canonicalize_source_identity() {
         use std::os::unix::fs::symlink;
 
@@ -3724,7 +4679,7 @@ mod tests {
             [
                 "requested:/project/alias/file.js",
                 "discovery:/project/alias",
-                "requested:/project/real/dir",
+                "requested:/project/real/dir/file.js",
                 "discovery:/project/real/dir/file.js",
                 "commit:/project/real/dir/file.js",
                 "repeat:/project/real/dir/file.js",

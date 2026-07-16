@@ -2,6 +2,7 @@
 var g = globalThis;
 var _exactFsInitialized = false;
 var _streamModule = null;
+var _defaultFsStreamModule = null;
 var _exactPrivateBuiltinBridges = typeof __exactPrivateBuiltinBridges === "object" && __exactPrivateBuiltinBridges ? __exactPrivateBuiltinBridges : null;
 var _exactFsMutationGuard = _exactPrivateBuiltinBridges && typeof _exactPrivateBuiltinBridges.fsMutationGuard === "function" ? _exactPrivateBuiltinBridges.fsMutationGuard : typeof g.__exactFsMutationGuard === "function" ? g.__exactFsMutationGuard : null;
 var _exactGetVirtualCwd = _exactPrivateBuiltinBridges && typeof _exactPrivateBuiltinBridges.getVirtualCwd === "function" ? _exactPrivateBuiltinBridges.getVirtualCwd : typeof g.__exactGetCwd === "function" ? g.__exactGetCwd : null;
@@ -546,7 +547,7 @@ function _makeFsError(err, syscall, path, dest) {
 	err = err || {};
 	var sourceMessage = typeof err.message === "string" ? err.message : String(err);
 	var code = typeof err.code === "string" ? err.code : null;
-	if (!code || !Object.prototype.hasOwnProperty.call(_uvErrnoMessage, code)) code = _extractFsCode(sourceMessage) || _uvCodeFromErrno(err.errno);
+	if (!code) code = _extractFsCode(sourceMessage) || _uvCodeFromErrno(err.errno);
 	var resolvedSyscall = syscall;
 	var resolvedPath = path;
 	var resolvedDest = dest;
@@ -3568,7 +3569,7 @@ function _initReadStream(rs, path, options) {
 	ensureExactFs();
 	var Stream = _getStreamModule();
 	var opts = typeof options === "string" ? { encoding: options } : options || {};
-	var fsModule = opts.fs || require("fs");
+	var fsModule = opts.fs || _defaultFsStreamModule;
 	var useSyncReadFastPath = opts.fs === void 0 && !_fsAsyncNative("__exactFsReadAsync");
 	_validateFsOptions("options.fs", opts.fs, [
 		"open",
@@ -3916,7 +3917,7 @@ function _initWriteStream(ws, path, options) {
 	_validateFlushOption(opts.flush);
 	ensureExactFs();
 	var Stream = _getStreamModule();
-	var fsModule = opts.fs || require("fs");
+	var fsModule = opts.fs || _defaultFsStreamModule;
 	_validateFsOptions("options.fs", opts.fs, [
 		"open",
 		"close",
@@ -6697,6 +6698,7 @@ module.exports = {
 	promises,
 	constants
 };
+_defaultFsStreamModule = module.exports;
 [
 	"F_OK",
 	"R_OK",

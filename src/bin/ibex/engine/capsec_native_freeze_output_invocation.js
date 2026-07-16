@@ -1,6 +1,10 @@
 (function executeNativeFreezeOutputInvocation(config) {
   'use strict';
 
+  // Authoring/template validation only. Live conformance reads the fixed
+  // per-runtime observation captured immediately before bootstrap deletes the
+  // private native-freeze globals; post-construction JS cannot reach them.
+
   var attempted = false;
   var identityProven = false;
   var freezingSemanticsProven = false;
@@ -22,6 +26,7 @@
       sourceOperationAttempted: attempted,
       identityProven: identityProven,
       freezingSemanticsProven: freezingSemanticsProven,
+      diagnostic: String(error && error.message || error),
       rawOutput: {
         kind: 'throw',
         rawValueShape: 'throw',

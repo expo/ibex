@@ -96,7 +96,7 @@ describe("native dynamic-global structural alias account", () => {
       unpredictableNamePrefix: "__ibexCapsecContextObserver_",
       unpredictableSuffixBits: 128,
       oneShot: true,
-      captureDeletePairs: 5,
+      captureDeletePairs: 7,
     });
     expect(sourceAudit.proof.engineCppFiles).toBeGreaterThan(25);
     expect(sourceAudit.proof.engineCppPathsDigest).toMatch(/^sha256-/u);
@@ -268,8 +268,14 @@ void ibex_test_dynamic_writer_drift(
       auditWithOverrides({
         [BUILD_PATH]: replaceExact(
           readText(BUILD_PATH),
-          'CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER")',
-          'CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER_DISABLED")',
+          `if std::env::var_os("CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER").is_some() {
+        build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
+        build.file("src/engine/hermes_session_conformance.cc");
+    }`,
+          `if std::env::var_os("CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER_DISABLED").is_some() {
+        build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
+        build.file("src/engine/hermes_session_conformance.cc");
+    }`,
           "build feature",
         ),
       }),
@@ -313,9 +319,29 @@ void ibex_test_dynamic_writer_drift(
         `${edge.surface.kind}:${edge.surface.name}` ===
         `native-op:${NATIVE_GLOBAL_MARKER_SURFACE}`,
     );
-    markerEdge.cap = "runtime:mutate";
+    markerEdge.surface.name = `${NATIVE_GLOBAL_MARKER_SURFACE}:drifted`;
     expect(() => auditWithOverrides({}, { coverage: driftedCoverage })).toThrow(
       /inventory or coverage drifted/u,
     );
+  });
+
+  test("derives membership independently of mutable coverage policy fields", () => {
+    const mutatedCoverage = structuredClone(coverage);
+    for (const edge of mutatedCoverage.edges) {
+      edge.classification = "test-policy-mutation";
+      edge.cap = "test:mutated";
+      edge.rationale = "test-only policy mutation";
+      edge.rationaleId = "test-only-policy-mutation";
+      delete edge.effects;
+    }
+    const mutatedAudit = auditWithOverrides({}, { coverage: mutatedCoverage });
+    expect(mutatedAudit).toEqual(sourceAudit);
+    expect(
+      validateNativeGlobalMarkerAliasCatalog({
+        catalog: syntheticCatalog(sourceAudit),
+        coverage: mutatedCoverage,
+        sourceAudit,
+      }),
+    ).toBe(true);
   });
 });

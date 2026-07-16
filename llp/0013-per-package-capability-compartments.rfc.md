@@ -16,6 +16,10 @@
 **Revised:** 2026-07-12 (ENG-24263 retirement reconciliation: the legacy binary policy suite and its string-policy fixtures were removed; every former case is mapped to a live named revision-2 test, production closure, or an explicitly migrated compatibility regression in `tests/fixtures/capsec-rev2/llp0013-retirement-map.json`)
 **Revised:** 2026-07-12 (ENG-24463 isolates post-bootstrap global property bindings and existence: native bootstrap installs a closure-private registry, the selected runtime path performs a required one-shot baseline refresh, package reads resolve against that detached view, and package lookup/binding failures refuse rather than falling back to the real global; ENG-24526 adds exact-importer lexical scope imports and strict flat chunks; shared nested descriptor values and all-free flat rewriting remain explicit follow-ups ENG-24514 and ENG-24527)
 **Revised:** 2026-07-13 (`allowed_hosts` remains a hard outbound fence but no longer conflates remote-host policy with local `network:listen` authority — ENG-24285)
+**Revised:** 2026-07-15 (Hermes profile receipts are checked against the exact checked-in source/package authorities, and post-probe engine identity verification reopens and re-hashes the mapped factory object rather than accepting the immutable pre-probe identity cache)
+**Revised:** 2026-07-15 (the carried Hermes series now uses full pre/post blob and mode identities; application verifies every sequential transition and final tree through an isolated temporary index before mutating the build checkout)
+**Revised:** 2026-07-15 (the Darwin/Linux source builders and prebuilt installer now share one kernel-backed cross-entrypoint cache lock; builders hard-reset and clean the complete build-owned source checkout before patch verification, and source cache/asset/receipt keys bind every receipt authority: both builders, patch application, and shared identity derivation)
+**Revised:** 2026-07-15 (prebuilt release mirrors were separated from the fixed `ccheever/ibex` attestation repository, signer-workflow, and `refs/heads/main` source-ref authority)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > **Current implementation (2026-07-12):** LLP 0021 supersedes this RFC's
@@ -728,6 +732,93 @@ the same scripts (the Electron model at small scale
 `[inferred: external]`). No separate long-lived fork repository unless the
 patch count forces one; the pin + patch stack **is** the fork.
 
+Each diff section also carries its full Git preimage/postimage blob IDs and
+mode transition. `apply-hermes-patches.sh` treats those as reviewed authority:
+it reconstructs the series in a temporary index, validates each transition,
+records every prefix tree for safe idempotent/resumable application, and checks
+the final working-tree state without writing the checkout's real index
+`[observed]` (`scripts/apply-hermes-patches.sh`;
+`scripts/apply-hermes-patches.test.sh`). This makes a context-clean patch
+application necessary but not sufficient: stale blob metadata fails before the
+build-owned source tree is changed.
+
+The Darwin and Linux source builders serialize the complete mutable build
+boundary with one kernel advisory file lock, acquired through Perl's core
+`Fcntl` on stock macOS and Linux: cached checkout reset/clean,
+revision selection, patch verification/application, compilation, installation,
+cache publication, and source-profile receipt publication. The prebuilt
+installer joins the same lock while writing those caches. Bash retains the
+locked descriptor across the complete boundary, and build descendants inherit
+it; the kernel releases only after the final inherited descriptor closes.
+Normal and handled-signal exits also release through traps, while SIGKILL needs
+no stale-owner heuristic: kernel close-on-exit makes the next waiter eligible.
+The stable lock inode is never unlinked, eliminating owner-publication,
+quarantine, and three-party rename races. The lock coordinates these
+entrypoints; a same-uid process that deliberately ignores it is not a supported
+concurrent cache writer. Before patch replay,
+each builder hard-resets the real index to the selected commit and runs a
+whole-checkout ignored/untracked clean. Retained `build_*`, `destroot`, staged,
+or unrelated untracked state therefore cannot enter patch verification or the
+compile `[observed]` (`scripts/hermes-version.sh`; `scripts/build-hermes.sh`;
+`scripts/build-hermes-linux.sh`; `scripts/download-hermes.sh`;
+`scripts/hermes-build-lock.test.sh`).
+
+### Artifact provenance and remaining trust boundaries
+
+The Android profile pins reviewed SHA-256 values for both the Hermes AAR and
+the separately linked React Android JSI AAR. The installer verifies those
+pins before extraction, its per-ABI receipt binds `libhermesvm.so` and
+`libjsi.so`, and `build.rs` re-hashes both files selected for linking. Before
+embedding a receipt, `build.rs` also reconstructs the reviewed Android,
+Windows, or source-patched identity from the checked-in package pins, source
+pin, patch stack, patch application/identity helpers, and platform build
+scripts. It requires an exact closed identity object and verifies that the
+receipt's package coordinates, digests, signature authority, linked dependency,
+and source cache key agree with those authorities. Each platform source cache
+key binds the pinned commit, patch-stack digest, **both** platform-builder
+digests, patch-application-authority digest, patch-identity-authority digest,
+and an explicit target marker; the same key names a published release asset and
+is rechecked before installation. Ordinary changes to those keyed authorities
+select a new cache/asset name through their digest prefixes. Independently, the
+receipt retains the full digests and `build.rs` reconstructs the complete
+identity, so a prefix collision or a reviewed metadata change not represented
+in the abbreviated cache name rejects rather than accepting stale bytes. (The
+enclosing release tag remains the coarser commit + patch-stack artifact family.) An arbitrary object labeled
+`reviewedProfileIdentity` is not evidence. The
+Windows profile pins the NuGet package SHA-512, requires `dotnet nuget verify
+--all` for its repository signature, and binds both the selected `hermes.dll`
+and `hermes.lib` in the receipt. `build.rs` rejects alternate import-library
+names, captures the validated import-library bytes into a content-addressed
+build path under a digest-unique filename, and emits both an absolute link
+argument for Ibex-owned binaries and a verbatim native-library dependency that
+propagates through the runtime `rlib` to downstream embedders. No linker may
+re-resolve a bare library name. These package authorities are source-reviewed inputs rather than
+checksums fetched opportunistically during installation `[observed]`
+(`scripts/hermes-version.sh`; `scripts/install-android-hermes.sh`;
+`scripts/install-windows-hermes.ps1`; `build.rs`).
+
+Published macOS/Linux source bundles carry GitHub build-provenance
+attestations, and the downloader constrains verification to this repository's
+`hermes-artifacts.yml` signer workflow before installation.
+`IBEX_HERMES_ARTIFACT_REPO` may redirect release-byte transport to a mirror,
+but attestation lookup and signer identity remain fixed to
+`ccheever/ibex/.github/workflows/hermes-artifacts.yml` on
+`refs/heads/main`; mirror control or a workflow dispatch from an unreviewed
+branch cannot become build-authority control. A dynamic Linux
+`libhermesvm.so` also receives the source-profile receipt; a static archive
+cannot be authenticated as a standalone mapped object. These improvements do
+not close the structural account by themselves: local/forced source builds do
+not yet carry an independent attestation, runtime evidence does not yet
+authenticate the separately loaded Android JSI image, and Windows lacks the
+mapped-object verifier. The conformance ledger preserves those limitations as
+named blockers rather than treating an installer receipt as loaded-page or
+target-record proof. Within the supported mapped-object profiles, the initial
+loaded-engine identity remains the immutable pre-probe expectation, while each
+explicit post-probe identity check and each authenticated, non-null provenance
+check reopens and re-hashes the current device/inode object; neither treats
+that expectation cache as a fresh observation `[observed]`
+(`src/engine/mod.rs`).
+
 ### Patch shape discipline
 
 Every carried patch is classified, and the class is recorded in its header:
@@ -752,9 +843,12 @@ engine."
    the build scripts check out).
 2. Apply the patch series; resolve conflicts under the class rules
    (Class A/B mechanically; Class C re-read the surrounding upstream change
-   before resolving).
+   before resolving). Re-derive the full pre/post blob IDs and mode transitions
+   for each changed or downstream-affected diff, then require the isolated-index
+   verifier to record the intended final tree.
 3. Build all platforms; run the conformance suite (Phase 1's), the red-team
-   suite, the perf gates, and the existing runtime tests.
+   suite, the perf gates, the existing runtime tests, and
+   `scripts/apply-hermes-patches.test.sh` against the new pin.
 4. Land pin bump + patch updates + any conformance-suite adjustments in one
    commit, with a note in this LLP's revision log if semantics moved.
 
@@ -1435,8 +1529,15 @@ The import-graph gate is now wired end-to-end. The loader calls
 `__exactCheckImport(requesterPrincipal, specifier)` → `ex_host_check_import`
 before every `require`/import (before the module cache short-circuit), keyed on
 the *requesting* package's principal; the host logs (audit) or denies (enforce)
-per the requesting package's `builtins`/`packages` allowlists. Inert for the
-root and runtime principals and for packages the policy does not restrict.
+per the requesting package's `builtins`/`packages` allowlists. On an
+authenticated route-cache hit, the same private bridge receives the cached
+file SourceId as a third argument. Native re-derives the live frame principal,
+canonically authenticates that opaque SourceId, and checks the exact target
+locator before exports can be reused; a JS requester hint is never cache
+authority. Dynamic import performs this check before its Promise callback
+detaches the caller frame and carries only an exact route/key-bound private
+authorization into that callback. Inert for the root and runtime principals and for packages the
+policy does not restrict on ordinary (non-cache-hit) checks.
 Closes the "no `fs` endowment but unrestricted `require('node:fs')`" hole. Tested
 by `tests/llp0013_compartments.rs::import_gate_denies_restricted_package_builtin`
 and `import_gate_is_inert_without_restriction`.

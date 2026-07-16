@@ -80,12 +80,14 @@ function _readNativeCwd() {
   if (typeof _exactGetVirtualCwd !== 'function') {
     return null;
   }
-  try {
-    var value = _exactGetVirtualCwd();
-    if (typeof value === 'string' && value.length > 0) {
-      return _normalizeCwdPath(value);
-    }
-  } catch (_) {}
+  // The native read is the typed path:cwd-observe gate. A denial must reach
+  // the caller; falling back to the cached path would turn a denied
+  // observation into a successful disclosure.
+  // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+  var value = _exactGetVirtualCwd();
+  if (typeof value === 'string' && value.length > 0) {
+    return _normalizeCwdPath(value);
+  }
   return null;
 }
 
@@ -105,7 +107,7 @@ function _coerceChdirError(err, path) {
     var code;
     if (lower.indexOf('no such file') !== -1 || lower.indexOf('does not exist') !== -1) {
       code = 'ENOENT';
-    } else if (lower.indexOf('permission denied') !== -1) {
+    } else if (lower.indexOf('permission denied') !== -1 || lower.indexOf('eacces:') === 0) {
       code = 'EACCES';
     } else if (lower.indexOf('not a directory') !== -1) {
       code = 'ENOTDIR';
@@ -113,15 +115,16 @@ function _coerceChdirError(err, path) {
     if (code) {
       var mapped = new Error(message + " '" + path + "'");
       mapped.code = code;
-      var fallbackErrno = _uvErrnoMap && _uvErrnoMap[code];
-      if (fallbackErrno === undefined) {
-        fallbackErrno = _uvErrnoMapFallback[code];
-      }
+      var fallbackErrno = _uvErrnoMapFallback[code];
       if (fallbackErrno !== undefined) {
         mapped.errno = -fallbackErrno;
       }
       mapped.syscall = 'chdir';
-      mapped.path = cwd();
+      // Error decoration must not perform an independent cwd observation.
+      // The caller already supplied this target, so it is safe diagnostic
+      // material even when path:cwd-observe is denied.
+      // @ref LLP 0023#54-facades-cannot-subvert-it
+      mapped.path = path;
       mapped.dest = path;
       return mapped;
     }
@@ -129,7 +132,7 @@ function _coerceChdirError(err, path) {
   var fallback = new Error('process.chdir failed');
   fallback.code = 'EINVAL';
   fallback.syscall = 'chdir';
-  fallback.path = cwd();
+  fallback.path = path;
   fallback.dest = path;
   return fallback;
 }
@@ -154,7 +157,10 @@ function chdir(path) {
   }
   try {
     _exactSetVirtualCwd(resolvedPath);
-    _processCwd = _readNativeCwd() || resolvedPath;
+    // A successful mutate decision does not imply cwd-observe authority.
+    // Cache the already-known target instead of performing a second gate.
+    // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+    _processCwd = resolvedPath;
   } catch (e) {
     throw _coerceChdirError(e, resolvedPath);
   }
@@ -591,7 +597,10 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
   // and supports delete
   if (typeof Proxy === 'function') {
     var _rawEnv = proc.env;
-    if (!_rawEnv || (typeof _rawEnv === 'object' && Object.keys(_rawEnv).length === 0)) {
+    if (!_rawEnv ||
+        (typeof _rawEnv === 'object' &&
+         !_rawEnv.__exactEnvProxy &&
+         Object.keys(_rawEnv).length === 0)) {
       _rawEnv = env;
     }
     if (!_rawEnv.__exactEnvProxy) {

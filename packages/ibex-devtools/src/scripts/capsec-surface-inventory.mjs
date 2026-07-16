@@ -490,7 +490,8 @@ function lexRust(text, label) {
   const tokens = [];
   let index = 0;
 
-  const push = (type, value) => tokens.push({ type, value });
+  const push = (type, value, offset = index) =>
+    tokens.push({ type, value, offset });
 
   const skipNormalString = (quote, type) => {
     const start = index;
@@ -500,7 +501,7 @@ function lexRust(text, label) {
       const char = text[index];
       if (char === quote) {
         index += 1;
-        if (type) push(type, decodeEscapedString(raw, label));
+        if (type) push(type, decodeEscapedString(raw, label), start);
         return;
       }
       if (char === "\\") {
@@ -563,7 +564,7 @@ function lexRust(text, label) {
         throw new Error(
           `${label}: unterminated Rust raw string at byte ${start}`,
         );
-      push("string", text.slice(index, end));
+      push("string", text.slice(index, end), start);
       index = end + close.length;
       continue;
     }
@@ -578,7 +579,7 @@ function lexRust(text, label) {
       if (close !== -1 && close - index <= 8) {
         skipNormalString(char, null);
       } else {
-        push("punctuation", char);
+        push("punctuation", char, index);
         index += 1;
       }
       continue;
@@ -587,10 +588,10 @@ function lexRust(text, label) {
       const start = index;
       index += 1;
       while (/[A-Za-z0-9_]/u.test(text[index] ?? "")) index += 1;
-      push("identifier", text.slice(start, index));
+      push("identifier", text.slice(start, index), start);
       continue;
     }
-    push("punctuation", char);
+    push("punctuation", char, index);
     index += 1;
   }
   return tokens;
@@ -700,6 +701,20 @@ function matchingOpeningToken(tokens, closeIndex, openValue, closeValue) {
     }
   }
   return -1;
+}
+
+function rustImmediateCfgTargetVariant(tokens, itemIndex) {
+  let cursor = itemIndex - 1;
+  while (tokens[cursor]?.value === "]") {
+    const open = matchingOpeningToken(tokens, cursor, "[", "]");
+    if (open <= 0 || tokens[open - 1]?.value !== "#") break;
+    const values = tokens.slice(open + 1, cursor).map((token) => token.value);
+    if (values[0] === "cfg" && values.includes("unix")) {
+      return values.includes("not") ? "windows" : "posix";
+    }
+    cursor = open - 2;
+  }
+  return null;
 }
 
 function rustExportNameAttribute(tokens, open, close, sourcePath) {
@@ -1060,7 +1075,8 @@ export function scanRustPublicAbiDefinitions(
 function lexCpp(text, label) {
   const tokens = [];
   let index = 0;
-  const push = (type, value) => tokens.push({ type, value });
+  const push = (type, value, offset = index) =>
+    tokens.push({ type, value, offset });
 
   const skipQuoted = (quote, collect) => {
     const start = index;
@@ -1070,7 +1086,7 @@ function lexCpp(text, label) {
       const char = text[index];
       if (char === quote) {
         index += 1;
-        if (collect) push("string", decodeEscapedString(raw, label));
+        if (collect) push("string", decodeEscapedString(raw, label), start);
         return;
       }
       if (char === "\\") {
@@ -1128,7 +1144,7 @@ function lexCpp(text, label) {
             throw new Error(
               `${label}: unterminated raw string at byte ${start}`,
             );
-          push("string", text.slice(open + 1, close));
+          push("string", text.slice(open + 1, close), start);
           index = close + closeMarker.length;
           continue;
         }
@@ -1153,16 +1169,16 @@ function lexCpp(text, label) {
       const start = index;
       index += 1;
       while (/[A-Za-z0-9_]/u.test(text[index] ?? "")) index += 1;
-      push("identifier", text.slice(start, index));
+      push("identifier", text.slice(start, index), start);
       continue;
     }
     const pair = text.slice(index, index + 2);
     if (new Set(["::", "->", "[[", "]]"]).has(pair)) {
-      push("punctuation", pair);
+      push("punctuation", pair, index);
       index += 2;
       continue;
     }
-    push("punctuation", char);
+    push("punctuation", char, index);
     index += 1;
   }
   return tokens;
@@ -2407,6 +2423,44 @@ function annotatedOwnership(value) {
     : { kind: value };
 }
 
+function publicAbiReturnOwnership(functionName, language, returnTokens) {
+  const type = abiTypeDescriptor(returnTokens).canonical;
+  const isCharacterPointer =
+    type === "char *" ||
+    type === "* mut c_char" ||
+    type === "* mut std : : ffi : : c_char";
+  if (isCharacterPointer) {
+    return {
+      kind: "caller-owned",
+      releaseFunction:
+        functionName.startsWith("ex_host_")
+          ? "ex_host_free_string"
+          : "ex_hermes_free_string",
+    };
+  }
+  if (language === "rust" && type === "* mut u8") {
+    return {
+      kind: "caller-owned",
+      releaseFunction: "ex_host_free_buffer",
+    };
+  }
+  if (language === "rust" && type === "* mut ExactFileHandle") {
+    return {
+      kind: "caller-owned",
+      releaseFunction: "ex_host_fs_close",
+    };
+  }
+  if (language === "c++" && type === "ExactHermesRuntime *") {
+    return {
+      kind: "caller-owned",
+      releaseFunction: functionName.startsWith("ex_worklet_")
+        ? "ex_worklet_destroy"
+        : "ex_hermes_destroy",
+    };
+  }
+  return { kind: "unknown" };
+}
+
 function outputSelector(parameterName) {
   return `out:${parameterName.replace(/^out_/u, "")}`;
 }
@@ -2536,7 +2590,9 @@ function buildHostAbiOutputContract({
 
   const returnKind = abiTypeKind(language, returnTokens, { isReturn: true });
   const returnOwnership =
-    returnKind === "pointer" ? { kind: "unknown" } : { kind: "not-applicable" };
+    returnKind === "pointer"
+      ? publicAbiReturnOwnership(functionName, language, returnTokens)
+      : { kind: "not-applicable" };
   const returnContract = {
     kind: returnKind,
     ownership: returnOwnership,
@@ -12441,8 +12497,27 @@ function getAllEnvironmentInstallationBranches(tokens, sourcePath, baseRefs) {
   }
 
   const callback = definitions[0];
+  if (
+    !callback.some(
+      (token) => token.value === "populateDiagnosticProcessEnvironment",
+    )
+  ) {
+    throw new Error(
+      `${sourcePath}: __exactGetAllEnv must delegate diagnostic enumeration to its named helper`,
+    );
+  }
+  const helperDefinitions = cppFunctionDefinitions(tokens).filter(
+    (definition) => definition.name === "populateDiagnosticProcessEnvironment",
+  );
+  if (helperDefinitions.length !== 1) {
+    throw new Error(
+      `${sourcePath}: expected one diagnostic process-environment helper; observed ${helperDefinitions.length}`,
+    );
+  }
+  const helper = helperDefinitions[0];
+  const enumeration = tokens.slice(helper.bodyOpen + 1, helper.bodyClose);
   const indexOf = (value, start = 0) =>
-    callback.findIndex(
+    enumeration.findIndex(
       (token, index) => index >= start && token.value === value,
     );
   const windowsMacro = indexOf("_WIN32");
@@ -12450,11 +12525,11 @@ function getAllEnvironmentInstallationBranches(tokens, sourcePath, baseRefs) {
   const appleMacro = indexOf("__APPLE__", windowsAccessor + 1);
   const appleAccessor = indexOf("_NSGetEnviron", appleMacro + 1);
   const posixScope = indexOf("::", appleAccessor + 1);
-  const posixAccessor = callback.findIndex(
+  const posixAccessor = enumeration.findIndex(
     (token, index) =>
       index > posixScope &&
       token.value === "environ" &&
-      callback[index - 1]?.value === "::",
+      enumeration[index - 1]?.value === "::",
   );
   if (
     windowsMacro === -1 ||
@@ -12893,14 +12968,27 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
     targetVariant: "android",
     identity: {
       artifact: "com.facebook.hermes:hermes-android",
+      packageDigest:
+        "sha256-2399d266ed06c2a907f1ceb2606c0958a293751781f23774a292c438779c3285",
+      linkedDependency: {
+        artifact: "com.facebook.react:react-android",
+        packageDigest:
+          "sha256-46fc1bfcb0a0aa2c79a81d7804105c88de7d2936fce31ca14aa4ba0e847869ee",
+        variant: "debug",
+        version: "0.86.0",
+      },
       variant: "debug",
       version: "250829098.0.14",
     },
     reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
     sourceRefs: [
       "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
+      "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
+      "scripts/hermes-version.sh#IBEX_REACT_ANDROID_VERSION",
+      "scripts/hermes-version.sh#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
       "scripts/install-android-hermes.sh#ANDROID_HERMES_VARIANT",
       "scripts/install-android-hermes.sh#com.facebook.hermes:hermes-android",
+      "scripts/install-android-hermes.sh#com.facebook.react:react-android",
     ],
   },
   {
@@ -12909,16 +12997,16 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
     identity: {
       artifact: "facebook/hermes",
       patchApplicationAuthorityDigest:
-        "sha256-9069b232960ccad873a51477c45adbc6b3126b0d845398fe251fe414d5bc63bd",
+        "sha256-4d422defe36111f1749f01c7884d942062ad54e6a7d611eee624547002bc4cdd",
       patchIdentityAuthorityDigest:
-        "sha256-84edac8af0c2f253d97320fcaa78358bc2616c393d692bd1c93f06eed45b8a7a",
+        "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
       patchStackDigest:
-        "sha256-1350bc999637111d069a6058837119ca9a59c910649f852825956ad59ac12fc7",
+        "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
-          "sha256-101c625bc1ea5868827088a7eacaceb35a8f229431baf96f351b830ef784e27b",
+          "sha256-8d0f00b05f198bb2c823f55a92cabc4f0101bddad7daaa54e0244d63e97ba011",
         "scripts/build-hermes.sh":
-          "sha256-9aca630d1dd2ad913e52a5045ed373ebb6602d31c4c2f35f828fb498d8a88cfb",
+          "sha256-e3c8efad29514c57c3eaf9f5b6acd59e49743d35a1f72ff9ad16402531733895",
       },
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
@@ -12943,11 +13031,19 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
     targetVariant: "windows",
     identity: {
       artifact: "ReactNative.Hermes.Windows",
+      packageDigest:
+        "sha512-c6d2ba6bba442b44ce4f1d5c0e7eb2c9d3fcafe24765464e3a01607c0ccafadb4b028a4cb502e6779c7d0bf3c11d8e591d8a6150cbf9137aee70a2fe62371f74",
+      repositorySignature: {
+        serviceIndex: "https://api.nuget.org/v3/index.json",
+        type: "repository",
+      },
       version: "0.71.1",
     },
     reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
     sourceRefs: [
       "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
+      "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
+      "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
       "scripts/install-windows-hermes.ps1#Version",
     ],
   },
@@ -13072,7 +13168,7 @@ function cloneHermesEvaluatorProfiles(profiles) {
   return profiles.map((profile) => ({
     id: profile.id,
     targetVariant: profile.targetVariant,
-    identity: { ...profile.identity },
+    identity: structuredClone(profile.identity),
     reachableEvaluators: [...profile.reachableEvaluators],
     sourceRefs: [...profile.sourceRefs],
   }));
@@ -13123,6 +13219,21 @@ export function scanHermesEvaluatorIdentityProfiles({
     "IBEX_HERMES_ANDROID_VERSION",
     hermesVersionPath,
   );
+  const reactAndroidVersion = shellDefaultValue(
+    hermesVersionText,
+    "IBEX_REACT_ANDROID_VERSION",
+    hermesVersionPath,
+  );
+  const androidPackageSha256 = oneSourceMatch(
+    hermesVersionText,
+    /^IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256="([a-f0-9]{64})"$/gmu,
+    `${hermesVersionPath}#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256`,
+  )[1];
+  const reactAndroidPackageSha256 = oneSourceMatch(
+    hermesVersionText,
+    /^IBEX_REACT_ANDROID_DEBUG_AAR_SHA256="([a-f0-9]{64})"$/gmu,
+    `${hermesVersionPath}#IBEX_REACT_ANDROID_DEBUG_AAR_SHA256`,
+  )[1];
   const buildRefAuthority =
     'IBEX_HERMES_BUILD_REF="${IBEX_HERMES_BUILD_REF:-${IBEX_HERMES_SOURCE_COMMIT:-$IBEX_HERMES_SOURCE_REF}}"';
   if (!hermesVersionText.split(/\r?\n/u).includes(buildRefAuthority)) {
@@ -13193,10 +13304,27 @@ export function scanHermesEvaluatorIdentityProfiles({
     "ANDROID_HERMES_VARIANT",
     androidInstallerPath,
   );
+  for (const [label, line] of [
+    [
+      "Hermes AAR checksum authority",
+      'HERMES_ANDROID_AAR_SHA256="${HERMES_ANDROID_AAR_SHA256:-$IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256}"',
+    ],
+    [
+      "React Android AAR checksum authority",
+      'REACT_ANDROID_AAR_SHA256="${REACT_ANDROID_AAR_SHA256:-$IBEX_REACT_ANDROID_DEBUG_AAR_SHA256}"',
+    ],
+  ]) {
+    requireOneSourceLine(androidInstallerText, line, `${androidInstallerPath}#${label}`);
+  }
   const androidArtifact = oneSourceMatch(
     androidInstallerText,
-    /download_aar\s+"([A-Za-z0-9.]+)"\s+"([A-Za-z0-9.-]+)"\s+"\$HERMES_ANDROID_VERSION"\s+"\$ANDROID_HERMES_VARIANT"/gu,
+    /download_aar\s+"([A-Za-z0-9.]+)"\s+"([A-Za-z0-9.-]+)"\s+"\$HERMES_ANDROID_VERSION"\s+"\$ANDROID_HERMES_VARIANT"\s+"\$HERMES_ANDROID_AAR_SHA256"/gu,
     `${androidInstallerPath}#Hermes-Maven-coordinate`,
+  );
+  const reactAndroidArtifact = oneSourceMatch(
+    androidInstallerText,
+    /download_aar\s+"([A-Za-z0-9.]+)"\s+"([A-Za-z0-9.-]+)"\s+"\$REACT_ANDROID_VERSION"\s+"\$ANDROID_HERMES_VARIANT"\s+"\$REACT_ANDROID_AAR_SHA256"/gu,
+    `${androidInstallerPath}#React-Android-Maven-coordinate`,
   );
 
   const windowsVersion = oneSourceMatch(
@@ -13206,8 +13334,18 @@ export function scanHermesEvaluatorIdentityProfiles({
   )[1];
   const windowsArtifact = oneSourceMatch(
     windowsInstallerText,
-    /https:\/\/www\.nuget\.org\/api\/v2\/package\/([A-Za-z0-9.]+)\/\$Version/gu,
-    `${windowsInstallerPath}#NuGet-coordinate`,
+    /^\$PackageId\s*=\s*"([A-Za-z0-9.]+)"$/gmu,
+    `${windowsInstallerPath}#PackageId`,
+  )[1];
+  const windowsPackageSha512 = oneSourceMatch(
+    windowsInstallerText,
+    /^\$ReviewedPackageSha512\s*=\s*"([a-f0-9]{128})"$/gmu,
+    `${windowsInstallerPath}#ReviewedPackageSha512`,
+  )[1];
+  const windowsServiceIndex = oneSourceMatch(
+    windowsInstallerText,
+    /^\$NuGetServiceIndex\s*=\s*"(https:\/\/[^"\r\n]+)"$/gmu,
+    `${windowsInstallerPath}#NuGetServiceIndex`,
   )[1];
 
   const discovered = [
@@ -13216,16 +13354,36 @@ export function scanHermesEvaluatorIdentityProfiles({
       targetVariant: "android",
       identity: {
         artifact: `${androidArtifact[1]}:${androidArtifact[2]}`,
+        packageDigest: `sha256-${androidPackageSha256}`,
+        linkedDependency: {
+          artifact: `${reactAndroidArtifact[1]}:${reactAndroidArtifact[2]}`,
+          packageDigest: `sha256-${reactAndroidPackageSha256}`,
+          variant: androidVariant,
+          version: reactAndroidVersion,
+        },
         variant: androidVariant,
         version: androidVersion,
       },
       reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
       sourceRefs: [
         sourceSymbol(hermesVersionPath, "IBEX_HERMES_ANDROID_VERSION"),
+        sourceSymbol(
+          hermesVersionPath,
+          "IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
+        ),
+        sourceSymbol(hermesVersionPath, "IBEX_REACT_ANDROID_VERSION"),
+        sourceSymbol(
+          hermesVersionPath,
+          "IBEX_REACT_ANDROID_DEBUG_AAR_SHA256",
+        ),
         sourceSymbol(androidInstallerPath, "ANDROID_HERMES_VARIANT"),
         sourceSymbol(
           androidInstallerPath,
           `${androidArtifact[1]}:${androidArtifact[2]}`,
+        ),
+        sourceSymbol(
+          androidInstallerPath,
+          `${reactAndroidArtifact[1]}:${reactAndroidArtifact[2]}`,
         ),
       ],
     },
@@ -13262,11 +13420,18 @@ export function scanHermesEvaluatorIdentityProfiles({
       targetVariant: "windows",
       identity: {
         artifact: windowsArtifact,
+        packageDigest: `sha512-${windowsPackageSha512}`,
+        repositorySignature: {
+          serviceIndex: windowsServiceIndex,
+          type: "repository",
+        },
         version: windowsVersion,
       },
       reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
       sourceRefs: [
         sourceSymbol(windowsInstallerPath, windowsArtifact),
+        sourceSymbol(windowsInstallerPath, "ReviewedPackageSha512"),
+        sourceSymbol(windowsInstallerPath, "NuGetServiceIndex"),
         sourceSymbol(windowsInstallerPath, "Version"),
       ],
     },
@@ -15469,6 +15634,36 @@ export function scanNativeLifecycleSurfaces(
 
 const LOADER_FUNCTION_NAME =
   /(?:builtin|capabilit|compile|import|load|module|principal|resolve)/iu;
+const CROSS_TARGET_AUTHENTICATED_RESOLVER_FUNCTIONS = new Set([
+  "authenticated_resolver_base_dir",
+  "canonicalize",
+  "metadata",
+  "new",
+  "read_link",
+  "resolve_direct_file_meta_authenticated",
+  "resolve_meta_authenticated",
+  "resolve_meta_from_authenticated_bound_package",
+  "symlink_metadata",
+]);
+
+function authenticatedResolverTargetMetadata(name, targetVariant = null) {
+  if (targetVariant) return { targetVariant };
+  if (!CROSS_TARGET_AUTHENTICATED_RESOLVER_FUNCTIONS.has(name)) return {};
+  return {
+    branches: [
+      {
+        id: "descriptor-relative-posix",
+        implementationDisposition: "concrete",
+        targetVariant: "posix",
+      },
+      {
+        id: "windows-unsupported",
+        implementationDisposition: "unsupported-stub",
+        targetVariant: "windows",
+      },
+    ],
+  };
+}
 
 function isKindMember(node) {
   if (!(
@@ -15855,10 +16050,17 @@ export function scanRustLoaderSurfaces(text, sourcePath = "<loader-source>") {
 
   for (const definition of rustFunctionDefinitions(tokens)) {
     if (!LOADER_FUNCTION_NAME.test(definition.name)) continue;
-    functionCounts.set(
-      definition.name,
-      (functionCounts.get(definition.name) ?? 0) + 1,
+    const observed = functionCounts.get(definition.name) ?? {
+      occurrenceCount: 0,
+      targetVariants: new Set(),
+    };
+    observed.occurrenceCount += 1;
+    const targetVariant = rustImmediateCfgTargetVariant(
+      tokens,
+      definition.fnIndex,
     );
+    if (targetVariant) observed.targetVariants.add(targetVariant);
+    functionCounts.set(definition.name, observed);
   }
 
   for (let index = 0; index < tokens.length; index += 1) {
@@ -15874,14 +16076,22 @@ export function scanRustLoaderSurfaces(text, sourcePath = "<loader-source>") {
     }
   }
 
-  for (const [name, occurrenceCount] of functionCounts) {
+  for (const [name, observed] of functionCounts) {
+    const targetVariant =
+      observed.targetVariants.size === 1
+        ? [...observed.targetVariants][0]
+        : null;
     rows.push(
       makeSurface(
         "loader",
         `function:rust:${name}`,
         [sourceSymbol(sourcePath, name)],
         {
-          metadata: { evidenceType: "loader-function", occurrenceCount },
+          metadata: {
+            evidenceType: "loader-function",
+            occurrenceCount: observed.occurrenceCount,
+            ...authenticatedResolverTargetMetadata(name, targetVariant),
+          },
         },
       ),
     );
@@ -15922,6 +16132,9 @@ function rustQualifiedCallPath(tokens, terminalIndex) {
 function qualifiedLoaderAuthorityOperation(segments) {
   const joined = segments.join("::");
   const terminal = segments.at(-1);
+  if (/^libc::(?:open|openat)$/u.test(joined)) return "open";
+  if (/^libc::(?:fstat|fstatat)$/u.test(joined)) return "metadata";
+  if (joined === "libc::readlinkat") return "read_link";
   const authorityPrefix =
     /^(?:std::(?:env|fs|io|net|process)|(?:async_std|tokio)::(?:fs|io|net|process))::/u.test(
       joined,
@@ -15931,22 +16144,23 @@ function qualifiedLoaderAuthorityOperation(segments) {
     );
   if (!authorityPrefix) return null;
   if (/(?:^|::)Command::new$/u.test(joined)) return "command-new";
+  if (/(?:^|::)File::from$/u.test(joined)) return "from-owned-fd";
   if (/^(?:std::)?env::/u.test(joined)) return `env-${terminal}`;
   if (/^std::process::/u.test(joined)) return `process-${terminal}`;
   return terminal;
 }
 
-function loaderExternalCallIdentity(tokens, index, localNames) {
+function loaderExternalCallIdentity(tokens, index, localTargets) {
   if (tokens[index]?.type !== "identifier" || tokens[index + 1]?.value !== "(")
     return null;
   const name = tokens[index].value;
   if (new Set(["if", "loop", "match", "return", "while"]).has(name)) {
     return null;
   }
+  if (localTargets.length > 0) return null;
   const qualified = rustQualifiedCallPath(tokens, index);
   if (qualified.length > 1) return `qualified:${qualified.join("::")}`;
   if (tokens[index - 1]?.value === ".") return `method:${name}`;
-  if (localNames.has(name)) return null;
   return `call:${name}`;
 }
 
@@ -15960,56 +16174,964 @@ export function scanRustLoaderRoutes(sources) {
   if (!Array.isArray(sources) || sources.length === 0) {
     throw new Error("Rust loader route scan requires source inputs");
   }
+
+  const moduleIdForSourcePath = (sourcePath) => {
+    const segments = sourcePath.split("/");
+    const file = segments.at(-1) ?? sourcePath;
+    const stem = file.replace(/\.rs$/u, "");
+    return stem === "mod" ? (segments.at(-2) ?? stem) : stem;
+  };
+  const implScopes = (tokens) => {
+    const scopes = [];
+    const firstTypeIdentifier = (start, end) => {
+      let cursor = start;
+      if (tokens[cursor]?.value === "<") {
+        let depth = 0;
+        while (cursor < end) {
+          if (tokens[cursor]?.value === "<") depth += 1;
+          if (tokens[cursor]?.value === ">") {
+            depth -= 1;
+            if (depth === 0) {
+              cursor += 1;
+              break;
+            }
+          }
+          cursor += 1;
+        }
+      }
+      while (cursor < end) {
+        if (tokens[cursor]?.type === "identifier") {
+          let name = tokens[cursor].value;
+          while (
+            tokens[cursor + 1]?.value === ":" &&
+            tokens[cursor + 2]?.value === ":" &&
+            tokens[cursor + 3]?.type === "identifier"
+          ) {
+            name = tokens[cursor + 3].value;
+            cursor += 3;
+          }
+          return name;
+        }
+        cursor += 1;
+      }
+      return null;
+    };
+
+    for (let index = 0; index < tokens.length; index += 1) {
+      if (tokens[index]?.value !== "impl") continue;
+      let bodyOpen = index + 1;
+      while (
+        bodyOpen < tokens.length &&
+        !new Set(["{", ";"]).has(tokens[bodyOpen]?.value)
+      ) {
+        bodyOpen += 1;
+      }
+      if (tokens[bodyOpen]?.value !== "{") continue;
+      const bodyClose = matchingToken(tokens, bodyOpen, "{", "}");
+      if (bodyClose === -1) continue;
+      let forIndex = -1;
+      for (let cursor = index + 1; cursor < bodyOpen; cursor += 1) {
+        if (tokens[cursor]?.value === "for") forIndex = cursor;
+      }
+      const trait =
+        forIndex === -1
+          ? null
+          : firstTypeIdentifier(index + 1, forIndex);
+      const selfType = firstTypeIdentifier(
+        forIndex === -1 ? index + 1 : forIndex + 1,
+        bodyOpen,
+      );
+      if (selfType) {
+        scopes.push({ bodyClose, bodyOpen, selfType, trait });
+      }
+    }
+    return scopes;
+  };
+
   const records = [];
   for (const source of sources) {
     const tokens = rustProductionTokens(source.text, source.sourcePath);
-    for (const definition of rustFunctionDefinitions(tokens)) {
-      records.push({ definition, sourcePath: source.sourcePath, tokens });
+    const definitions = rustFunctionDefinitions(tokens);
+    const sourceRecords = definitions.map((definition) => ({
+      definition,
+      id: `${source.sourcePath}#fn-${definition.nameIndex}`,
+      moduleId: moduleIdForSourcePath(source.sourcePath),
+      sourcePath: source.sourcePath,
+      targetVariant: rustImmediateCfgTargetVariant(tokens, definition.fnIndex),
+      tokens,
+    }));
+    const scopes = implScopes(tokens);
+    for (const record of sourceRecords) {
+      const lexicalParent = sourceRecords
+        .filter(
+          (candidate) =>
+            candidate.definition.bodyOpen < record.definition.fnIndex &&
+            candidate.definition.bodyClose > record.definition.bodyClose,
+        )
+        .sort(
+          (left, right) =>
+            right.definition.bodyOpen - left.definition.bodyOpen,
+        )[0];
+      const enclosingImpl = scopes
+        .filter(
+          (scope) =>
+            scope.bodyOpen < record.definition.fnIndex &&
+            scope.bodyClose > record.definition.bodyClose,
+        )
+        .sort((left, right) => right.bodyOpen - left.bodyOpen)[0];
+      const directImplMember =
+        enclosingImpl &&
+        enclosingImpl.bodyOpen >
+          (lexicalParent?.definition.bodyOpen ?? Number.NEGATIVE_INFINITY);
+      record.lexicalParentFnId = lexicalParent?.id ?? null;
+      record.implSelfType = directImplMember
+        ? enclosingImpl.selfType
+        : null;
+      record.implTrait = directImplMember ? enclosingImpl.trait : null;
+      const parameters = new Map();
+      const parametersOpen = tokens.findIndex(
+        (token, index) =>
+          index > record.definition.nameIndex &&
+          index < record.definition.bodyOpen &&
+          token.value === "(",
+      );
+      const parametersClose =
+        parametersOpen === -1
+          ? -1
+          : matchingToken(tokens, parametersOpen, "(", ")");
+      record.parametersClose = parametersClose;
+      if (parametersClose !== -1) {
+        for (
+          let cursor = parametersOpen + 1;
+          cursor < parametersClose - 1;
+          cursor += 1
+        ) {
+          if (
+            tokens[cursor]?.type !== "identifier" ||
+            tokens[cursor + 1]?.value !== ":" ||
+            tokens[cursor + 2]?.value === ":"
+          ) {
+            continue;
+          }
+          let typeCursor = cursor + 2;
+          while (
+            typeCursor < parametersClose &&
+            tokens[typeCursor]?.type !== "identifier"
+          ) {
+            typeCursor += 1;
+          }
+          if (tokens[typeCursor]?.type === "identifier") {
+            let typeName = tokens[typeCursor].value;
+            while (
+              tokens[typeCursor + 1]?.value === ":" &&
+              tokens[typeCursor + 2]?.value === ":" &&
+              tokens[typeCursor + 3]?.type === "identifier"
+            ) {
+              typeName = tokens[typeCursor + 3].value;
+              typeCursor += 3;
+            }
+            parameters.set(tokens[cursor].value, typeName);
+          }
+        }
+      }
+      record.parameterTypes = parameters;
+      record.definitionId = record.implSelfType
+        ? `${record.moduleId}::${record.implSelfType}${record.implTrait ? ` as ${record.implTrait}` : ""}::${record.definition.name}`
+        : record.lexicalParentFnId
+          ? `${lexicalParent.definitionId ?? `${record.moduleId}::${lexicalParent.definition.name}`}::${record.definition.name}`
+          : `${record.moduleId}::${record.definition.name}`;
     }
-  }
-  const byName = new Map();
-  for (const record of records) {
-    const values = byName.get(record.definition.name) ?? [];
-    values.push(record);
-    byName.set(record.definition.name, values);
+    records.push(...sourceRecords);
   }
 
-  const ignoredAmbiguousCallees = new Set([
-    "clone",
-    "default",
-    "from",
-    "into",
-    "new",
+  const byId = new Map(records.map((record) => [record.id, record]));
+  const byName = new Map();
+  const freeByModuleAndName = new Map();
+  const methodByModuleTypeAndName = new Map();
+  const append = (map, key, record) => {
+    const values = map.get(key) ?? [];
+    values.push(record);
+    map.set(key, values);
+  };
+  for (const record of records) {
+    append(byName, record.definition.name, record);
+    if (record.implSelfType) {
+      append(
+        methodByModuleTypeAndName,
+        `${record.moduleId}\0${record.implSelfType}\0${record.definition.name}`,
+        record,
+      );
+    } else if (!record.lexicalParentFnId) {
+      append(
+        freeByModuleAndName,
+        `${record.moduleId}\0${record.definition.name}`,
+        record,
+      );
+    }
+  }
+  const moduleIds = new Set(records.map((record) => record.moduleId));
+  const locallyImplementedTypes = new Set(
+    records.map((record) => record.implSelfType).filter(Boolean),
+  );
+  const reviewedRustValueTypes = new Set([
+    ...locallyImplementedTypes,
+    "Command",
+    "DirEntry",
+    "File",
+    "OpenOptions",
+    "Path",
+    "PathBuf",
+    "ReadDir",
+    "ResolvedModule",
   ]);
-  const localCalls = (record) => {
-    const calls = new Set();
+  for (const record of records) {
+    const returnTokens = record.tokens.slice(
+      Math.max(record.parametersClose + 1, record.definition.nameIndex + 1),
+      record.definition.bodyOpen,
+    );
+    record.returnType = returnTokens.some(
+      (token) => token.value === "Self",
+    )
+      ? record.implSelfType
+      : returnTokens.find(
+          (token) =>
+            token.type === "identifier" &&
+            reviewedRustValueTypes.has(token.value),
+        )?.value ?? null;
+  }
+  const externalReturnType = (tokens, index, receiverType = null) => {
+    const qualified = rustQualifiedCallPath(tokens, index).join("::");
+    if (/(?:^|::)File::(?:from|from_raw_fd)$/u.test(qualified)) return "File";
+    if (/(?:^|::)Command::new$/u.test(qualified)) return "Command";
+    if (/(?:^|::)OpenOptions::new$/u.test(qualified)) return "OpenOptions";
+    if (/(?:^|::)Path::new$/u.test(qualified)) return "Path";
+    if (/(?:^|::)PathBuf::from$/u.test(qualified)) return "PathBuf";
+    if (/^(?:std::)?fs::read_dir$/u.test(qualified)) return "ReadDir";
+    if (receiverType === "OpenOptions" && tokens[index]?.value === "open") {
+      return "File";
+    }
+    return null;
+  };
+  const reviewedLetPostfixType = (receiverType, method) => {
+    if (new Set(["context", "with_context"]).has(method)) return receiverType;
+    if (receiverType === "OpenOptions") {
+      if (method === "open") return "File";
+      if (
+        new Set([
+          "append",
+          "create",
+          "create_new",
+          "custom_flags",
+          "read",
+          "truncate",
+          "write",
+        ]).has(method)
+      ) {
+        return "OpenOptions";
+      }
+    }
+    if (receiverType === "Command") {
+      if (
+        new Set([
+          "arg",
+          "args",
+          "current_dir",
+          "env",
+          "env_clear",
+          "env_remove",
+          "stderr",
+          "stdin",
+          "stdout",
+        ]).has(method)
+      ) {
+        return "Command";
+      }
+    }
+    if (receiverType === "ReadDir" && method === "collect") {
+      return "VecDirEntry";
+    }
+    if (receiverType === "PathBuf" && method === "as_path") return "Path";
+    return null;
+  };
+  const exactReviewedLetRhsType = (
+    tokens,
+    rhsStart,
+    statementEnd,
+    candidate,
+  ) => {
+    const [callIndex, initialType, callDepth] = candidate;
+    const unsafeWrapper =
+      tokens[rhsStart]?.value === "unsafe" &&
+      tokens[rhsStart + 1]?.value === "{" &&
+      matchingToken(tokens, rhsStart + 1, "{", "}") === statementEnd - 1;
+    if (callDepth !== (unsafeWrapper ? 1 : 0)) return null;
+    let cursor = matchingToken(tokens, callIndex + 1, "(", ")") + 1;
+    if (cursor === 0) return null;
+    let inferredType = initialType;
+    const valueEnd = unsafeWrapper ? statementEnd - 1 : statementEnd;
+    while (cursor < valueEnd) {
+      if (tokens[cursor]?.value === "?") {
+        cursor += 1;
+        continue;
+      }
+      if (
+        tokens[cursor]?.value !== "." ||
+        tokens[cursor + 1]?.type !== "identifier"
+      ) {
+        return null;
+      }
+      const method = tokens[cursor + 1].value;
+      inferredType = reviewedLetPostfixType(inferredType, method);
+      if (!inferredType) return null;
+      let argsOpen = cursor + 2;
+      while (argsOpen < valueEnd && tokens[argsOpen]?.value !== "(") {
+        argsOpen += 1;
+      }
+      if (tokens[argsOpen]?.value !== "(") return null;
+      const argsClose = matchingToken(tokens, argsOpen, "(", ")");
+      if (argsClose === -1 || argsClose >= valueEnd) return null;
+      cursor = argsClose + 1;
+    }
+    return cursor === valueEnd ? inferredType : null;
+  };
+  for (const record of records) {
+    const inferred = new Map(record.parameterTypes);
     const { bodyOpen, bodyClose } = record.definition;
     for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
-      const token = record.tokens[index];
+      if (record.tokens[index]?.value !== "let") continue;
+      let bindingCursor = index + 1;
+      if (record.tokens[bindingCursor]?.value === "mut") bindingCursor += 1;
+      let binding = null;
       if (
-        token?.type !== "identifier" ||
-        record.tokens[index + 1]?.value !== "(" ||
-        ignoredAmbiguousCallees.has(token.value) ||
-        !byName.has(token.value)
+        record.tokens[bindingCursor]?.value === "Ok" &&
+        record.tokens[bindingCursor + 1]?.value === "(" &&
+        record.tokens[bindingCursor + 2]?.type === "identifier" &&
+        record.tokens[bindingCursor + 3]?.value === ")"
+      ) {
+        binding = record.tokens[bindingCursor + 2].value;
+      } else if (record.tokens[bindingCursor]?.type === "identifier") {
+        binding = record.tokens[bindingCursor].value;
+      }
+      if (!binding) continue;
+
+      let equalsIndex = bindingCursor + 1;
+      while (
+        equalsIndex < bodyClose &&
+        !new Set(["=", ";"]).has(record.tokens[equalsIndex]?.value)
+      ) {
+        equalsIndex += 1;
+      }
+      if (record.tokens[equalsIndex]?.value !== "=") continue;
+
+      let statementEnd = equalsIndex + 1;
+      const delimiterStack = [];
+      while (statementEnd < bodyClose) {
+        const value = record.tokens[statementEnd]?.value;
+        if (new Set(["(", "[", "{"]).has(value)) {
+          delimiterStack.push(value);
+        } else if (new Set([")", "]", "}"]).has(value)) {
+          delimiterStack.pop();
+        } else if (
+          delimiterStack.length === 0 &&
+          new Set(["else", ";"]).has(value)
+        ) {
+          break;
+        }
+        statementEnd += 1;
+      }
+
+      let explicitType = null;
+      const colonIndex = record.tokens.findIndex(
+        (token, cursor) =>
+          cursor > bindingCursor &&
+          cursor < equalsIndex &&
+          token.value === ":" &&
+          record.tokens[cursor + 1]?.value !== ":",
+      );
+      if (colonIndex !== -1) {
+        explicitType = record.tokens
+          .slice(colonIndex + 1, equalsIndex)
+          .find(
+            (token) =>
+              token.type === "identifier" &&
+              reviewedRustValueTypes.has(token.value),
+          )?.value;
+      }
+
+      let expressionDepth = 0;
+      let hasTopLevelControl = false;
+      let hasTopLevelComma = false;
+      let firstRhsCallIndex = null;
+      const candidates = [];
+      for (let cursor = equalsIndex + 1; cursor < statementEnd; cursor += 1) {
+        const value = record.tokens[cursor]?.value;
+        if (new Set(["(", "[", "{"]).has(value)) expressionDepth += 1;
+        if (new Set([")", "]", "}"]).has(value)) expressionDepth -= 1;
+        if (expressionDepth === 0 && new Set(["if", "match"]).has(value)) {
+          hasTopLevelControl = true;
+        }
+        if (expressionDepth === 0 && value === ",") hasTopLevelComma = true;
+        if (
+          record.tokens[cursor]?.type !== "identifier" ||
+          record.tokens[cursor + 1]?.value !== "("
+        ) {
+          continue;
+        }
+        firstRhsCallIndex ??= cursor;
+        const qualifiedType = externalReturnType(record.tokens, cursor);
+        if (qualifiedType) {
+          candidates.push([cursor, qualifiedType, expressionDepth]);
+        }
+        if (
+          record.tokens[cursor - 1]?.value === "." &&
+          record.tokens[cursor - 2]?.type === "identifier"
+        ) {
+          const receiver = record.tokens[cursor - 2].value;
+          const receiverType =
+            inferred.get(receiver) ??
+            (receiver === "self" ? record.implSelfType : null);
+          if (receiverType) {
+            const targets =
+              methodByModuleTypeAndName.get(
+                `${record.moduleId}\0${receiverType}\0${record.tokens[cursor].value}`,
+              ) ?? [];
+            if (targets.length === 1 && targets[0].returnType) {
+              candidates.push([
+                cursor,
+                targets[0].returnType,
+                expressionDepth,
+              ]);
+            } else {
+              const externalType = externalReturnType(
+                record.tokens,
+                cursor,
+                receiverType,
+              );
+              if (externalType) {
+                candidates.push([cursor, externalType, expressionDepth]);
+              }
+            }
+          }
+        }
+      }
+      const rhsStart = equalsIndex + 1;
+      const outerTupleClose =
+        record.tokens[rhsStart]?.value === "("
+          ? matchingToken(record.tokens, rhsStart, "(", ")")
+          : -1;
+      const hasOuterTuple =
+        outerTupleClose === statementEnd - 1 &&
+        record.tokens
+          .slice(rhsStart + 1, outerTupleClose)
+          .some((token) => token.value === ",");
+
+      let inferredType = explicitType ?? null;
+      if (
+        !inferredType &&
+        !hasTopLevelControl &&
+        !hasTopLevelComma &&
+        !hasOuterTuple &&
+        candidates.length === 1 &&
+        candidates[0][0] === firstRhsCallIndex
+      ) {
+        inferredType = exactReviewedLetRhsType(
+          record.tokens,
+          rhsStart,
+          statementEnd,
+          candidates[0],
+        );
+      }
+      if (inferredType) inferred.set(binding, inferredType);
+    }
+    record.inferredReceiverTypes = inferred;
+    record.scopedReceiverTypes = [];
+  }
+  const nestedDefinitionRanges = new Map();
+  for (const record of records) {
+    nestedDefinitionRanges.set(
+      record.id,
+      new Map(
+        records
+          .filter(
+            (candidate) =>
+              candidate.sourcePath === record.sourcePath &&
+              candidate.id !== record.id &&
+              candidate.definition.fnIndex > record.definition.bodyOpen &&
+              candidate.definition.bodyClose < record.definition.bodyClose,
+          )
+          .map((candidate) => [
+            candidate.definition.fnIndex,
+            candidate.definition.bodyClose,
+          ]),
+      ),
+    );
+  }
+  const requireUnambiguous = (candidates, label) => {
+    if (candidates.length > 1) {
+      throw new Error(
+        `ambiguous Rust loader local call ${label}: ${candidates
+          .map((candidate) => candidate.definitionId)
+          .join(", ")}`,
+      );
+    }
+    return candidates;
+  };
+  const localCallTargets = (record, index) => {
+    const token = record.tokens[index];
+    if (
+      token?.type !== "identifier" ||
+      record.tokens[index + 1]?.value !== "(" ||
+      new Set(["if", "loop", "match", "return", "while"]).has(token.value)
+    ) {
+      return [];
+    }
+
+    if (record.tokens[index - 1]?.value === ".") {
+      const receiver = record.tokens[index - 2];
+      let receiverType =
+        receiver?.type === "identifier" && receiver.value === "self"
+          ? record.implSelfType
+          : null;
+      if (receiver?.type === "identifier") {
+        receiverType ??=
+          record.inferredReceiverTypes.get(receiver.value) ?? null;
+      }
+      if (
+        !receiverType &&
+        receiver?.type === "identifier" &&
+        record.tokens[index - 3]?.value === "." &&
+        record.tokens[index - 4]?.value === "self" &&
+        record.implSelfType === "ModuleLoader" &&
+        receiver.value === "environment"
+      ) {
+        receiverType = "CapturedModuleLoaderEnvironment";
+      }
+      if (
+        !receiverType &&
+        receiver?.type === "identifier" &&
+        record.tokens[index - 3]?.value === ":" &&
+        record.tokens[index - 4]?.value === ":" &&
+        record.tokens[index - 5]?.value === "TransformEngine"
+      ) {
+        receiverType = "TransformEngine";
+      }
+      if (!receiverType) {
+        let closeIndex = index - 2;
+        if (record.tokens[closeIndex]?.value === "?") closeIndex -= 1;
+        if (record.tokens[closeIndex]?.value === ")") {
+          const openIndex = matchingOpeningToken(
+            record.tokens,
+            closeIndex,
+            "(",
+            ")",
+          );
+          const callIndex = openIndex - 1;
+          if (record.tokens[callIndex]?.type === "identifier") {
+            const targets = localCallTargets(record, callIndex);
+            if (targets.length === 1) {
+              receiverType = targets[0].returnType;
+            }
+            receiverType ??= externalReturnType(
+              record.tokens,
+              callIndex,
+            );
+          }
+        }
+      }
+      if (
+        !receiverType &&
+        record.moduleId === "transpile" &&
+        record.definition.name === "selected_engine_cache_tag" &&
+        token.value === "cache_tag"
+      ) {
+        receiverType = "TransformEngine";
+      }
+      if (!receiverType) return [];
+      return requireUnambiguous(
+        methodByModuleTypeAndName.get(
+          `${record.moduleId}\0${receiverType}\0${token.value}`,
+        ) ?? [],
+        `${record.definitionId}:${receiver?.value ?? "expression"}.${token.value}`,
+      );
+    }
+
+    const qualified = rustQualifiedCallPath(record.tokens, index);
+    if (qualified.length > 1) {
+      const qualifier = qualified.at(-2);
+      if (qualifier === "Self") {
+        if (!record.implSelfType) return [];
+        return requireUnambiguous(
+          methodByModuleTypeAndName.get(
+            `${record.moduleId}\0${record.implSelfType}\0${token.value}`,
+          ) ?? [],
+          `${record.definitionId}:Self::${token.value}`,
+        );
+      }
+      const qualifiedModule = moduleIds.has(qualifier)
+        ? qualifier
+        : record.moduleId;
+      const candidates = [
+        ...(methodByModuleTypeAndName.get(
+          `${qualifiedModule}\0${qualifier}\0${token.value}`,
+        ) ?? []),
+        ...(moduleIds.has(qualifier)
+          ? (freeByModuleAndName.get(`${qualifier}\0${token.value}`) ?? [])
+          : []),
+      ];
+      return requireUnambiguous(
+        candidates,
+        `${record.definitionId}:${qualified.join("::")}`,
+      );
+    }
+
+    const sameName = byName.get(token.value) ?? [];
+    if (
+      record.definition.name === token.value &&
+      !record.implSelfType &&
+      record.lexicalParentFnId
+    ) {
+      return [record];
+    }
+    let scopeId = record.id;
+    while (scopeId) {
+      const nested = sameName.filter(
+        (candidate) =>
+          !candidate.implSelfType && candidate.lexicalParentFnId === scopeId,
+      );
+      if (nested.length > 0) {
+        return requireUnambiguous(
+          nested,
+          `${record.definitionId}:nested:${token.value}`,
+        );
+      }
+      scopeId = byId.get(scopeId)?.lexicalParentFnId ?? null;
+    }
+    return requireUnambiguous(
+      freeByModuleAndName.get(`${record.moduleId}\0${token.value}`) ?? [],
+      `${record.definitionId}:free:${token.value}`,
+    );
+  };
+
+  const reviewedFieldType = (ownerType, field) => {
+    if (ownerType === "ResolvedModule" && field === "path") {
+      return "OptionPathBuf";
+    }
+    return null;
+  };
+  const exactReadDirOkFilterMap = (tokens, callIndex) => {
+    const argsOpen = callIndex + 1;
+    const argsClose = matchingToken(tokens, argsOpen, "(", ")");
+    if (argsClose === -1) return false;
+    const body = tokens.slice(argsOpen + 1, argsClose).map((token) => token.value);
+    return (
+      body.length === 7 &&
+      body[0] === "|" &&
+      body[2] === "|" &&
+      body[3] === body[1] &&
+      body[4] === "." &&
+      body[5] === "ok" &&
+      body[6] === "("
+    ) || (
+      body.length === 8 &&
+      body[0] === "|" &&
+      body[2] === "|" &&
+      body[3] === body[1] &&
+      body[4] === "." &&
+      body[5] === "ok" &&
+      body[6] === "(" &&
+      body[7] === ")"
+    );
+  };
+  const reviewedMethodValueType = (receiverType, method, tokens, callIndex) => {
+    if (receiverType === "OpenOptions") {
+      if (method === "open") return "File";
+      if (
+        new Set([
+          "append",
+          "create",
+          "create_new",
+          "custom_flags",
+          "read",
+          "truncate",
+          "write",
+        ]).has(method)
+      ) {
+        return "OpenOptions";
+      }
+    }
+    if (receiverType === "Command") {
+      if (
+        new Set([
+          "arg",
+          "args",
+          "current_dir",
+          "env",
+          "env_clear",
+          "env_remove",
+          "stderr",
+          "stdin",
+          "stdout",
+        ]).has(method)
+      ) {
+        return "Command";
+      }
+    }
+    if (receiverType === "OptionPathBuf" && method === "as_deref") {
+      return "OptionPath";
+    }
+    if (receiverType === "OptionPath" && method === "ok_or_else") {
+      return "Path";
+    }
+    if (receiverType === "PathBuf" && method === "as_path") return "Path";
+    if (
+      new Set(["Path", "PathBuf"]).has(receiverType) &&
+      method === "canonicalize"
+    ) {
+      return "PathBuf";
+    }
+    if (receiverType === "ReadDir") {
+      if (method === "collect") return "VecDirEntry";
+      if (method === "filter_map" && exactReadDirOkFilterMap(tokens, callIndex)) {
+        return "IteratorDirEntry";
+      }
+    }
+    if (receiverType === "VecDirEntry") {
+      if (new Set(["filter", "iter", "into_iter"]).has(method)) {
+        return "IteratorDirEntry";
+      }
+    }
+    if (receiverType === "IteratorDirEntry" && method === "filter") {
+      return "IteratorDirEntry";
+    }
+    return externalReturnType(tokens, callIndex, receiverType);
+  };
+
+  const expressionTypeAtEnd = (record, rawEndIndex, seen = new Set()) => {
+    let endIndex = rawEndIndex;
+    while (new Set(["?", "&", "mut"]).has(record.tokens[endIndex]?.value)) {
+      endIndex -= 1;
+    }
+    if (endIndex < record.definition.bodyOpen || seen.has(endIndex)) return null;
+    seen.add(endIndex);
+    const end = record.tokens[endIndex];
+    if (end?.type === "identifier") {
+      if (
+        record.tokens[endIndex - 1]?.value === "." &&
+        record.tokens[endIndex - 2]?.type === "identifier"
+      ) {
+        const ownerType = expressionTypeAtEnd(record, endIndex - 2, seen);
+        const fieldType = reviewedFieldType(ownerType, end.value);
+        if (fieldType) return fieldType;
+      }
+      return (
+        record.inferredReceiverTypes.get(end.value) ??
+        (end.value === "self" ? record.implSelfType : null)
+      );
+    }
+    if (end?.value !== ")") return null;
+    const openIndex = matchingOpeningToken(
+      record.tokens,
+      endIndex,
+      "(",
+      ")",
+    );
+    if (openIndex <= record.definition.bodyOpen) return null;
+    const callIndex = openIndex - 1;
+    if (record.tokens[callIndex]?.type !== "identifier") return null;
+    if (record.tokens[callIndex - 1]?.value === ".") {
+      const receiverType = expressionTypeAtEnd(record, callIndex - 2, seen);
+      if (!receiverType) return null;
+      const localTargets =
+        methodByModuleTypeAndName.get(
+          `${record.moduleId}\0${receiverType}\0${record.tokens[callIndex].value}`,
+        ) ?? [];
+      if (localTargets.length > 1) {
+        throw new Error(
+          `ambiguous Rust loader receiver type ${record.definitionId}:${receiverType}.${record.tokens[callIndex].value}`,
+        );
+      }
+      return (
+        localTargets[0]?.returnType ??
+        reviewedMethodValueType(
+          receiverType,
+          record.tokens[callIndex].value,
+          record.tokens,
+          callIndex,
+        )
+      );
+    }
+    const localTargets = localCallTargets(record, callIndex);
+    if (localTargets.length === 1 && localTargets[0].returnType) {
+      return localTargets[0].returnType;
+    }
+    return externalReturnType(record.tokens, callIndex);
+  };
+
+  for (const record of records) {
+    const { bodyOpen, bodyClose } = record.definition;
+    for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
+      if (
+        record.tokens[index]?.value === "for" &&
+        record.tokens[index + 1]?.type === "identifier"
+      ) {
+        let inIndex = index + 2;
+        while (inIndex < bodyClose && record.tokens[inIndex]?.value !== "in") {
+          inIndex += 1;
+        }
+        let loopBodyOpen = inIndex + 1;
+        while (
+          loopBodyOpen < bodyClose &&
+          record.tokens[loopBodyOpen]?.value !== "{"
+        ) {
+          loopBodyOpen += 1;
+        }
+        const sourceType = expressionTypeAtEnd(
+          record,
+          loopBodyOpen - 1,
+        );
+        if (sourceType === "VecDirEntry") {
+          const loopBodyClose = matchingToken(
+            record.tokens,
+            loopBodyOpen,
+            "{",
+            "}",
+          );
+          record.scopedReceiverTypes.push({
+            end: loopBodyClose,
+            name: record.tokens[index + 1].value,
+            start: loopBodyOpen,
+            type: "DirEntry",
+          });
+        }
+      }
+      if (
+        record.tokens[index]?.value !== "|" ||
+        record.tokens[index + 1]?.type !== "identifier" ||
+        record.tokens[index + 2]?.value !== "|" ||
+        record.tokens[index - 1]?.value !== "("
       ) {
         continue;
       }
-      calls.add(token.value);
+      const callIndex = index - 2;
+      if (record.tokens[callIndex - 1]?.value !== ".") continue;
+      const receiverType = expressionTypeAtEnd(record, callIndex - 2);
+      if (!new Set(["IteratorDirEntry", "VecDirEntry"]).has(receiverType)) {
+        continue;
+      }
+      const callClose = matchingToken(
+        record.tokens,
+        index - 1,
+        "(",
+        ")",
+      );
+      record.scopedReceiverTypes.push({
+        end: callClose,
+        name: record.tokens[index + 1].value,
+        start: index + 2,
+        type: "DirEntry",
+      });
     }
-    return calls;
+  }
+
+  const receiverTypeAt = (record, receiver, index) => {
+    const scoped = record.scopedReceiverTypes
+      .filter(
+        (scope) =>
+          scope.name === receiver && scope.start < index && scope.end > index,
+      )
+      .sort((left, right) => right.start - left.start)[0];
+    return scoped?.type ?? record.inferredReceiverTypes.get(receiver) ?? null;
+  };
+  const localCallCache = new Map();
+  const localCalls = (record) => {
+    if (localCallCache.has(record.id)) return localCallCache.get(record.id);
+    const calls = new Map();
+    const { bodyOpen, bodyClose } = record.definition;
+    for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
+      const nestedClose = nestedDefinitionRanges.get(record.id)?.get(index);
+      if (nestedClose !== undefined) {
+        index = nestedClose;
+        continue;
+      }
+      for (const target of localCallTargets(record, index)) {
+        calls.set(target.id, target);
+      }
+    }
+    const resolved = [...calls.values()];
+    localCallCache.set(record.id, resolved);
+    return resolved;
   };
 
+  const freeRoot = (moduleId, name) => ({ kind: "free", moduleId, name });
+  const methodRoot = (moduleId, selfType, name, trait = null) => ({
+    kind: "method",
+    moduleId,
+    name,
+    selfType,
+    trait,
+  });
   const categories = new Map([
     [
       "resolution",
       [
-        "normalize_import_target",
-        "resolve",
-        "resolve_meta",
-        "resolve_package_import",
+        freeRoot("module_loader", "normalize_import_target"),
+        freeRoot("module_loader", "open_resolver_boundary"),
+        methodRoot("module_loader", "AuthenticatedResolverInputs", "new"),
+        methodRoot(
+          "module_loader",
+          "AuthenticatedResolverInputs",
+          "parse_manifest",
+        ),
+        methodRoot(
+          "module_loader",
+          "AuthenticatedResolverInputs",
+          "uncaptured_package_manifest_probes",
+        ),
+        methodRoot("module_loader", "ModuleLoader", "resolve"),
+        methodRoot(
+          "module_loader",
+          "ModuleLoader",
+          "resolve_direct_file_meta_authenticated",
+        ),
+        methodRoot("module_loader", "ModuleLoader", "resolve_meta"),
+        methodRoot(
+          "module_loader",
+          "ModuleLoader",
+          "resolve_meta_authenticated",
+        ),
+        methodRoot(
+          "module_loader",
+          "ModuleLoader",
+          "resolve_meta_from_authenticated_bound_package",
+        ),
+        methodRoot(
+          "module_loader",
+          "ModuleLoader",
+          "resolve_package_import",
+        ),
+        ...[
+          "canonicalize",
+          "metadata",
+          "read",
+          "read_link",
+          "read_to_string",
+          "symlink_metadata",
+        ].map((name) =>
+          methodRoot(
+            "module_loader",
+            "BoundedResolverFileSystem",
+            name,
+            "ResolverFileSystem",
+          ),
+        ),
       ],
     ],
-    ["load", ["load_module_source", "load_source"]],
+    [
+      "load",
+      ["load_module_source", "load_source", "load_source_bytes"].map((name) =>
+        methodRoot("module_loader", "ModuleLoader", name),
+      ),
+    ],
     [
       "cache",
       [
@@ -16020,43 +17142,66 @@ export function scanRustLoaderRoutes(sources) {
         "resolve_transpile_cache_dir",
         "transpile_cache_is_valid",
         "transpile_cache_dir",
-      ],
+      ].map((name) => freeRoot("module_loader", name)),
     ],
     [
       "transform",
-      ["run_transpile_command", "transpile_module", "transpile_source_to_cjs"],
+      [
+        freeRoot("module_loader", "run_transpile_command"),
+        methodRoot("module_loader", "ModuleLoader", "transpile_module"),
+        freeRoot("transpile", "transpile_source_to_cjs"),
+      ],
     ],
-    ["subprocess", ["run_transpile_subprocess"]],
+    [
+      "subprocess",
+      [freeRoot("module_loader", "run_transpile_subprocess")],
+    ],
   ]);
   const rows = [];
-  const operationNames = new Set([
-    "canonicalize",
-    "create_dir_all",
-    "metadata",
-    "read",
-    "read_to_string",
-    "remove_file",
-    "rename",
-    "status",
-    "write",
+
+  const resolveRoot = (category, root) => {
+    const candidates =
+      root.kind === "free"
+        ? (freeByModuleAndName.get(`${root.moduleId}\0${root.name}`) ?? [])
+        : (
+            methodByModuleTypeAndName.get(
+              `${root.moduleId}\0${root.selfType}\0${root.name}`,
+            ) ?? []
+          ).filter(
+            (record) => !root.trait || record.implTrait === root.trait,
+          );
+    if (candidates.length !== 1) {
+      throw new Error(
+        `Rust loader ${category} root ${root.moduleId}::${root.selfType ? `${root.selfType}::` : ""}${root.name} expected one definition; observed ${candidates.length}`,
+      );
+    }
+    return candidates[0];
+  };
+  const rootLabel = (root) =>
+    `${root.moduleId}::${root.selfType ? `${root.selfType}${root.trait ? ` as ${root.trait}` : ""}::` : ""}${root.name}`;
+  const reviewedMergedRouteDefinitions = new Map([
+    [
+      "manifest_input",
+      [
+        "module_loader::AuthenticatedResolverInputs::manifest_input",
+        "module_loader::BoundedResolverFileSystem::manifest_input",
+      ],
+    ],
   ]);
 
   for (const [category, roots] of categories) {
-    for (const root of roots) {
-      if (!byName.has(root)) {
-        throw new Error(`Rust loader ${category} root ${root} is absent`);
-      }
-    }
-    const reachable = new Set(roots);
-    const queue = [...roots];
+    const rootRecords = roots.map((root) => resolveRoot(category, root));
+    const rootLabels = roots.map(rootLabel);
+    const reachable = new Map(
+      rootRecords.map((record) => [record.id, record]),
+    );
+    const queue = [...rootRecords];
     while (queue.length > 0) {
-      const name = queue.shift();
-      for (const record of byName.get(name) ?? []) {
-        for (const call of localCalls(record)) {
-          if (reachable.has(call)) continue;
-          reachable.add(call);
-          queue.push(call);
-        }
+      const record = queue.shift();
+      for (const call of localCalls(record)) {
+        if (reachable.has(call.id)) continue;
+        reachable.set(call.id, call);
+        queue.push(call);
       }
     }
 
@@ -16076,31 +17221,71 @@ export function scanRustLoaderRoutes(sources) {
       paths.add(callIdentity);
       operationPaths.set(operation, paths);
     };
-    for (const name of reachable) {
-      const functionRecords = byName.get(name) ?? [];
+    const reachableByName = new Map();
+    for (const record of reachable.values()) {
+      append(reachableByName, record.definition.name, record);
+    }
+    for (const name of uniqueSorted(reachableByName.keys())) {
+      const functionRecords = reachableByName.get(name) ?? [];
       const refs = functionRecords.map((record) =>
         sourceSymbol(record.sourcePath, name),
       );
       const callees = uniqueSorted(
-        functionRecords.flatMap((record) => [...localCalls(record)]),
+        functionRecords.flatMap((record) =>
+          localCalls(record).map((callee) => callee.definition.name),
+        ),
       );
+      const calleeDefinitions = uniqueSorted(
+        functionRecords.flatMap((record) =>
+          localCalls(record).map((callee) => callee.definitionId),
+        ),
+      );
+      const definitions = uniqueSorted(
+        functionRecords.map((record) => record.definitionId),
+      );
+      if (definitions.length > 1) {
+        const reviewed = reviewedMergedRouteDefinitions.get(name);
+        if (
+          !reviewed ||
+          JSON.stringify(definitions) !== JSON.stringify(reviewed)
+        ) {
+          throw new Error(
+            `Rust loader route ${category}:${name} merges unreviewed definitions [${definitions.join(", ")}]`,
+          );
+        }
+      }
       rows.push(
         makeSurface("loader", `route:${category}:rust:${name}`, refs, {
           metadata: {
             callees,
+            calleeDefinitions,
             category,
+            definitions,
             evidenceType: "transitive-rust-loader-route",
-            roots,
+            roots: rootLabels,
+            ...authenticatedResolverTargetMetadata(
+              name,
+              functionRecords.every(
+                (record) => record.targetVariant === "posix",
+              )
+                ? "posix"
+                : null,
+            ),
           },
         }),
       );
       for (const record of functionRecords) {
         const { bodyOpen, bodyClose } = record.definition;
         for (let index = bodyOpen + 1; index < bodyClose; index += 1) {
+          const nestedClose = nestedDefinitionRanges.get(record.id)?.get(index);
+          if (nestedClose !== undefined) {
+            index = nestedClose;
+            continue;
+          }
           const identity = loaderExternalCallIdentity(
             record.tokens,
             index,
-            byName,
+            localCallTargets(record, index),
           );
           if (!identity) continue;
           const evidenceKey = `${record.sourcePath}\0${name}\0${identity}`;
@@ -16114,11 +17299,43 @@ export function scanRustLoaderRoutes(sources) {
             qualified.length > 1
               ? qualifiedLoaderAuthorityOperation(qualified)
               : null;
-          const terminal = record.tokens[index].value;
-          const operation =
-            qualifiedOperation ??
-            (operationNames.has(terminal) ? terminal : null);
-          if (operation) addOperation(operation, record, name, identity);
+          const receiver = record.tokens[index - 2];
+          const receiverType =
+            receiver?.type === "identifier"
+              ? receiverTypeAt(record, receiver.value, index)
+              : expressionTypeAtEnd(record, index - 2);
+          let reviewedMethodOperation =
+            receiverType === "Command" &&
+            record.tokens[index].value === "status"
+              ? "status"
+              : null;
+          if (
+            !reviewedMethodOperation &&
+            ((receiverType === "File" &&
+              /^(?:metadata|read)$/u.test(record.tokens[index].value)) ||
+              (receiverType === "DirEntry" &&
+                record.tokens[index].value === "metadata"))
+          ) {
+            reviewedMethodOperation = record.tokens[index].value;
+          }
+          if (
+            !reviewedMethodOperation &&
+            new Set(["Path", "PathBuf"]).has(receiverType) &&
+            record.tokens[index].value === "canonicalize"
+          ) {
+            reviewedMethodOperation = "canonicalize";
+          }
+          const operation = qualifiedOperation ?? reviewedMethodOperation;
+          if (operation) {
+            addOperation(
+              operation,
+              record,
+              name,
+              reviewedMethodOperation && receiverType
+                ? `method:${receiverType}:${record.tokens[index].value}`
+                : identity,
+            );
+          }
         }
       }
     }
@@ -16156,6 +17373,10 @@ export function scanRustLoaderRoutes(sources) {
             evidenceType: "rust-loader-operation",
             operation,
             qualifiedPaths: uniqueSorted(operationPaths.get(operation) ?? []),
+            ...(category === "resolution" &&
+            new Set(["from-owned-fd", "open", "read_link"]).has(operation)
+              ? { targetVariant: "posix" }
+              : {}),
           },
         }),
       );
@@ -16230,11 +17451,11 @@ const REVIEWED_CDP_FUNCTION_BODY_DIGESTS = new Map([
   ],
   [
     "run_server",
-    "sha256-2c037e85158be7ea241843993511f5e3123398a479c23b0bad3999d3aa9d44d9",
+    "sha256-a8fe3dac78a422e48a0a040a9d8fb0bba3dc64bdeed5c36848f5e10cb825c480",
   ],
   [
     "handle_connection",
-    "sha256-092bbcafd01c8ab21dee1196294dd0b9a1c3d70e2a84de27b500266b1bae2732",
+    "sha256-80d5ea720d1655f9464e44ca45041c6e5ea58ce5147402ddea89ec11837a2836",
   ],
 ]);
 
@@ -16951,7 +18172,7 @@ export function scanCdpSurfaces(text, sourcePath = "src/bin/ibex/cdp/mod.rs") {
   return sortSurfaces(rows);
 }
 
-function environmentContext(sourcePath, direction) {
+function environmentContext(sourcePath, direction, name = null) {
   if (direction !== "read") {
     if (sourcePath.endsWith("native_android_networking.cc"))
       return "trusted-bootstrap-output";
@@ -16964,6 +18185,16 @@ function environmentContext(sourcePath, direction) {
       return "spawn-child-env";
     }
     return "runtime-bootstrap-output";
+  }
+  if (
+    sourcePath.endsWith("/host/abi.rs") &&
+    new Set(["EXACT_IPC_FD", "EXACT_IPC_SERIALIZATION"]).has(name)
+  ) {
+    // These controls are captured once into the private Host-to-engine
+    // construction handoff before either armed or diagnostic project code can
+    // observe its principal environment. They are startup inputs even though
+    // other host ABI environment reads are runtime inputs.
+    return "startup-input";
   }
   if (
     sourcePath.includes("/host/") ||
@@ -16981,7 +18212,16 @@ function createEnvironmentCollector() {
   const dynamic = new Map();
   const validName = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 
-  const add = ({ accessor, direction, language, name, sourcePath }) => {
+  const add = ({
+    accessor,
+    context: contextOverride = null,
+    direction,
+    language,
+    name,
+    scope = null,
+    sourceOffset = null,
+    sourcePath,
+  }) => {
     if (!validName.test(name)) {
       throw new Error(
         `${sourcePath}: invalid static environment name ${JSON.stringify(name)}`,
@@ -16995,23 +18235,42 @@ function createEnvironmentCollector() {
       authoredNames: new Set(),
       contexts: new Set(),
       languages: new Set(),
+      occurrences: new Map(),
       sourceRefs: new Set(),
     };
+    const context =
+      contextOverride ?? environmentContext(sourcePath, direction, name);
+    const sourceRef = sourceSymbol(
+      sourcePath,
+      `${accessor}:${name}:${direction}`,
+    );
     entry.accessDirections.add(direction);
     entry.accessors.add(accessor);
     entry.authoredNames.add(authoredName);
-    entry.contexts.add(environmentContext(sourcePath, direction));
+    entry.contexts.add(context);
     entry.languages.add(language);
-    entry.sourceRefs.add(
-      sourceSymbol(sourcePath, `${accessor}:${name}:${direction}`),
-    );
+    const occurrenceKey = `${sourceRef}\0${scope ?? ""}\0${sourceOffset ?? ""}`;
+    entry.occurrences.set(occurrenceKey, {
+      accessor,
+      context,
+      direction,
+      language,
+      scope,
+      sourceOffset,
+      sourcePath,
+      sourceRef,
+    });
+    entry.sourceRefs.add(sourceRef);
     exact.set(name, entry);
   };
 
   const addDynamic = ({
     accessor,
+    context: contextOverride = null,
     direction = "read",
     language,
+    scope = null,
+    sourceOffset = null,
     sourcePath,
   }) => {
     const key = `${language}:${accessor}`;
@@ -17020,15 +18279,31 @@ function createEnvironmentCollector() {
       accessors: new Set(),
       contexts: new Set(),
       languages: new Set(),
+      occurrences: new Map(),
       sourceRefs: new Set(),
     };
+    const context =
+      contextOverride ?? environmentContext(sourcePath, direction);
+    const sourceRef = sourceSymbol(
+      sourcePath,
+      `${accessor}:dynamic:${direction}`,
+    );
     entry.accessDirections.add(direction);
     entry.accessors.add(accessor);
-    entry.contexts.add(environmentContext(sourcePath, direction));
+    entry.contexts.add(context);
     entry.languages.add(language);
-    entry.sourceRefs.add(
-      sourceSymbol(sourcePath, `${accessor}:dynamic:${direction}`),
-    );
+    const occurrenceKey = `${sourceRef}\0${scope ?? ""}\0${sourceOffset ?? ""}`;
+    entry.occurrences.set(occurrenceKey, {
+      accessor,
+      context,
+      direction,
+      language,
+      scope,
+      sourceOffset,
+      sourcePath,
+      sourceRef,
+    });
+    entry.sourceRefs.add(sourceRef);
     dynamic.set(key, entry);
   };
 
@@ -17047,6 +18322,12 @@ function createEnvironmentCollector() {
               ? "static-runtime-environment-control"
               : "dynamic-runtime-environment-sentinel",
           languages: uniqueSorted(entry.languages),
+          occurrences: [...entry.occurrences.values()].sort((left, right) =>
+            compareText(
+              `${left.sourceRef}\0${left.scope ?? ""}\0${left.sourceOffset ?? ""}`,
+              `${right.sourceRef}\0${right.scope ?? ""}\0${right.sourceOffset ?? ""}`,
+            ),
+          ),
         },
       });
     return sortSurfaces([
@@ -17059,6 +18340,58 @@ function createEnvironmentCollector() {
     ]);
   };
   return { add, addDynamic, rows };
+}
+
+/**
+ * Discover the session worker's private process bootstrap route from the two
+ * constants consumed by the supervisor/worker dispatcher. The route is not a
+ * command-line API: an authenticated supervisor constructs it internally and
+ * project JavaScript cannot name or reach it.
+ *
+ * @ref LLP 0025#10-registry-obligations — the worker bootstrap must be
+ * inventoried without turning its implementation argument into a public CLI.
+ */
+export function scanPrivateSessionWorkerBootstrap(
+  text,
+  sourcePath = "src/bin/ibex/session_worker.rs",
+) {
+  const constant = (name) => {
+    const pattern = new RegExp(
+      `\\bpub\\(crate\\)\\s+const\\s+${name}\\s*:\\s*&str\\s*=\\s*"([^"\\r\\n]+)"\\s*;`,
+      "gu",
+    );
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length !== 1) {
+      throw new Error(
+        `${sourcePath}: expected exactly one private worker constant ${name}`,
+      );
+    }
+    return matches[0][1];
+  };
+  const argument = constant("WORKER_BOOTSTRAP_ARG");
+  const surfaceId = constant("WORKER_BOOTSTRAP_SURFACE_ID");
+  if (argument !== "__ibex-session-worker-v1") {
+    throw new Error(`${sourcePath}: private worker bootstrap argument drifted`);
+  }
+  if (surfaceId !== "private:ibex:session-worker-bootstrap:v1") {
+    throw new Error(`${sourcePath}: private worker bootstrap surface id drifted`);
+  }
+  return makeSurface(
+    "startup",
+    surfaceId,
+    [
+      sourceSymbol(sourcePath, "WORKER_BOOTSTRAP_ARG"),
+      sourceSymbol(sourcePath, "WORKER_BOOTSTRAP_SURFACE_ID"),
+    ],
+    {
+      metadata: {
+        argument,
+        evidenceType: "private-session-worker-bootstrap",
+        javascriptReachability: "none",
+        visibility: "private-supervisor-worker",
+      },
+    },
+  );
 }
 
 function parseEnvironmentJavaScript(text, sourcePath) {
@@ -17828,9 +19161,29 @@ function rustStringConstants(tokens) {
   return constants;
 }
 
+function environmentOccurrenceSite(tokens, definitions, tokenIndex) {
+  const containing = definitions
+    .filter(
+      (definition) =>
+        definition.bodyOpen < tokenIndex && tokenIndex < definition.bodyClose,
+    )
+    .sort(
+      (left, right) =>
+        left.bodyClose - left.bodyOpen - (right.bodyClose - right.bodyOpen),
+    )[0];
+  return {
+    scope: containing?.name ?? "<top-level>",
+    sourceOffset: tokens[tokenIndex]?.offset ?? null,
+  };
+}
+
 function scanRustEnvironmentSource(text, sourcePath, collector) {
   const tokens = rustProductionTokens(text, sourcePath);
   const constants = rustStringConstants(tokens);
+  const definitions = rustFunctionDefinitions(tokens);
+  const definitionNameIndexes = new Set(
+    definitions.map((definition) => definition.nameIndex),
+  );
   const directApis = new Map([
     ["remove_var", "unset"],
     ["set_var", "write"],
@@ -17842,11 +19195,80 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
     ["runtime_env", 2],
     ["timeout_from_env", 1],
   ]);
+  const importsProcessCommand =
+    /\buse\s+(?:std|tokio)\s*::\s*process\s*::\s*(?:\{[^}]*\bCommand\b[^}]*\}|Command)\s*;/su.test(
+      text,
+    );
   for (let index = 0; index < tokens.length; index += 1) {
     const name = tokens[index]?.value;
     if (tokens[index + 1]?.value !== "(") continue;
     const argumentsList = tokenCallArguments(tokens, index + 1);
     if (!argumentsList) continue;
+    const processCommandConstructor =
+      name === "new" &&
+      tokens[index - 1]?.value === ":" &&
+      tokens[index - 2]?.value === ":" &&
+      tokens[index - 3]?.value === "Command" &&
+      (importsProcessCommand ||
+        (tokens[index - 4]?.value === ":" &&
+          tokens[index - 5]?.value === ":" &&
+          tokens[index - 6]?.value === "process" &&
+          tokens[index - 7]?.value === ":" &&
+          tokens[index - 8]?.value === ":" &&
+          new Set(["std", "tokio"]).has(tokens[index - 9]?.value)));
+    if (processCommandConstructor) {
+      // Rust Command starts with inherited parent state until env_clear is
+      // applied. Inventory the default explicitly even when a later method
+      // closes it, so review can distinguish denylist and closed builders.
+      collector.addDynamic({
+        accessor: "Command::default_env",
+        context: "spawn-child-env",
+        direction: "write",
+        language: "rust",
+        ...environmentOccurrenceSite(tokens, definitions, index),
+        sourcePath,
+      });
+      continue;
+    }
+    if (
+      new Set(["env", "env_clear", "env_remove"]).has(name) &&
+      tokens[index - 1]?.value === "."
+    ) {
+      const direction = name === "env" ? "write" : "unset";
+      if (name === "env_clear") {
+        collector.addDynamic({
+          accessor: "Command::env_clear",
+          context: "spawn-child-env",
+          direction,
+          language: "rust",
+          ...environmentOccurrenceSite(tokens, definitions, index),
+          sourcePath,
+        });
+        continue;
+      }
+      const value = staticTokenArgument(argumentsList[0] ?? [], constants);
+      if (value === null) {
+        collector.addDynamic({
+          accessor: `Command::${name}`,
+          context: "spawn-child-env",
+          direction,
+          language: "rust",
+          ...environmentOccurrenceSite(tokens, definitions, index),
+          sourcePath,
+        });
+      } else {
+        collector.add({
+          accessor: `Command::${name}`,
+          context: "spawn-child-env",
+          direction,
+          language: "rust",
+          name: value,
+          ...environmentOccurrenceSite(tokens, definitions, index),
+          sourcePath,
+        });
+      }
+      continue;
+    }
     const precededByEnv =
       tokens[index - 1]?.value === ":" &&
       tokens[index - 2]?.value === ":" &&
@@ -17859,6 +19281,7 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
           accessor: `env::${name}`,
           direction,
           language: "rust",
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       } else {
@@ -17867,6 +19290,7 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
           direction,
           language: "rust",
           name: value,
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       }
@@ -17876,11 +19300,12 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
       collector.addDynamic({
         accessor: `env::${name}`,
         language: "rust",
+        ...environmentOccurrenceSite(tokens, definitions, index),
         sourcePath,
       });
       continue;
     }
-    if (!helperArities.has(name)) continue;
+    if (!helperArities.has(name) || definitionNameIndexes.has(index)) continue;
     const expected = helperArities.get(name);
     for (let argumentIndex = 0; argumentIndex < expected; argumentIndex += 1) {
       const value = staticTokenArgument(
@@ -17888,13 +19313,19 @@ function scanRustEnvironmentSource(text, sourcePath, collector) {
         constants,
       );
       if (value === null) {
-        collector.addDynamic({ accessor: name, language: "rust", sourcePath });
+        collector.addDynamic({
+          accessor: name,
+          language: "rust",
+          ...environmentOccurrenceSite(tokens, definitions, index),
+          sourcePath,
+        });
       } else {
         collector.add({
           accessor: name,
           direction: "read",
           language: "rust",
           name: value,
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       }
@@ -17921,6 +19352,73 @@ function cppStringConstants(tokens) {
   return constants;
 }
 
+function cppEnvironmentCallNameIndexes(tokens, definitionNameIndexes) {
+  const callNameIndexes = new Set();
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    if (
+      tokens[index]?.type !== "identifier" ||
+      tokens[index + 1]?.value !== "(" ||
+      definitionNameIndexes.has(index) ||
+      new Set([".", "->"]).has(tokens[index - 1]?.value)
+    ) {
+      continue;
+    }
+    let boundary = index - 1;
+    while (
+      boundary >= 0 &&
+      !new Set([";", "{", "}"]).has(tokens[boundary].value)
+    ) {
+      boundary -= 1;
+    }
+    const prefix = tokens.slice(boundary + 1, index);
+    // A qualified free/static call such as std::getenv has no expression
+    // prefix once its namespace is removed. Preserve earlier tokens so an
+    // initializer such as `auto value = std::getenv(...)` still observes the
+    // assignment marker.
+    while (prefix.at(-1)?.value === "::") {
+      prefix.pop();
+      if (prefix.at(-1)?.type === "identifier") prefix.pop();
+    }
+    const callContext =
+      prefix.length === 0 ||
+      prefix.some((token) =>
+        new Set(["=", "(", "[", ",", "?", ":"]).has(token.value),
+      ) ||
+      new Set(["co_return", "return", "throw"]).has(prefix.at(-1)?.value);
+    if (callContext) callNameIndexes.add(index);
+  }
+  return callNameIndexes;
+}
+
+function cppBareEnvironmentRead(tokens, tokenIndex) {
+  if (
+    tokens[tokenIndex]?.value !== "environ" ||
+    tokens[tokenIndex + 1]?.value === "(" ||
+    new Set([".", "->", "::"]).has(tokens[tokenIndex - 1]?.value)
+  ) {
+    return false;
+  }
+  let boundary = tokenIndex - 1;
+  while (
+    boundary >= 0 &&
+    !new Set([";", "{", "}"]).has(tokens[boundary].value)
+  ) {
+    boundary -= 1;
+  }
+  const prefix = tokens.slice(boundary + 1, tokenIndex);
+  if (prefix.some((token) => token.value === "extern")) return false;
+  // `extern char** environ;` and equivalent declarations have a type-only
+  // prefix. Reads necessarily appear in an expression position: initializer,
+  // argument, condition, subscript, conditional, or return/throw operand.
+  return (
+    prefix.length === 0 ||
+    prefix.some((token) =>
+      new Set(["=", "(", "[", ",", "?", ":"]).has(token.value),
+    ) ||
+    new Set(["co_return", "return", "throw"]).has(prefix.at(-1)?.value)
+  );
+}
+
 function scanCppEnvironmentSource(text, sourcePath, collector) {
   const tokens = lexCpp(text, sourcePath);
   const constants = cppStringConstants(tokens);
@@ -17938,11 +19436,16 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
       )
       .map((definition) => definition.nameIndex),
   );
+  const callNameIndexes = cppEnvironmentCallNameIndexes(
+    tokens,
+    definitionNameIndexes,
+  );
   const accessors = new Map([
     ["GetEnvironmentVariableA", "read"],
     ["GetEnvironmentVariableW", "read"],
     ["SetEnvironmentVariableA", "write"],
     ["SetEnvironmentVariableW", "write"],
+    ["_dupenv_s", "read"],
     ["env_flag_enabled", "read"],
     ["getenv", "read"],
     ["getenvString", "read"],
@@ -17957,8 +19460,7 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
     const accessor = tokens[index]?.value;
     if (
       accessor === "s_setEnvEntry" &&
-      tokens[index + 1]?.value === "(" &&
-      !definitionNameIndexes.has(index)
+      callNameIndexes.has(index)
     ) {
       const argumentsList = tokenCallArguments(tokens, index + 1);
       if (!argumentsList) continue;
@@ -17968,6 +19470,7 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
           accessor,
           direction: "write",
           language: "cpp",
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       } else {
@@ -17976,6 +19479,7 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
           direction: "write",
           language: "cpp",
           name,
+          ...environmentOccurrenceSite(tokens, definitions, index),
           sourcePath,
         });
       }
@@ -17983,50 +19487,63 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
     }
     if (
       enumerationAccessors.has(accessor) &&
-      tokens[index + 1]?.value === "(" &&
-      !definitionNameIndexes.has(index)
+      callNameIndexes.has(index)
     ) {
       collector.addDynamic({
         accessor,
         direction: "read",
         language: "cpp",
+        ...environmentOccurrenceSite(tokens, definitions, index),
         sourcePath,
       });
       continue;
     }
-    if (
+    const qualifiedEnviron =
       accessor === "environ" &&
       tokens[index - 1]?.value === "::" &&
-      tokens[index + 1]?.value !== "("
-    ) {
+      tokens[index + 1]?.value !== "(";
+    const bareEnviron = cppBareEnvironmentRead(tokens, index);
+    if (qualifiedEnviron || bareEnviron) {
       collector.addDynamic({
-        accessor: "::environ",
+        accessor: qualifiedEnviron ? "::environ" : "environ",
         direction: "read",
         language: "cpp",
+        ...environmentOccurrenceSite(tokens, definitions, index),
         sourcePath,
       });
       continue;
     }
     if (
       !accessors.has(accessor) ||
-      tokens[index + 1]?.value !== "(" ||
-      definitionNameIndexes.has(index)
+      !callNameIndexes.has(index)
     ) {
       continue;
     }
     const argumentsList = tokenCallArguments(tokens, index + 1);
     if (!argumentsList) continue;
     const direction = accessors.get(accessor);
-    const name = staticTokenArgument(argumentsList[0] ?? [], constants);
+    const nameArgumentIndex = accessor === "_dupenv_s" ? 2 : 0;
+    const name = staticTokenArgument(
+      argumentsList[nameArgumentIndex] ?? [],
+      constants,
+    );
     if (name === null) {
       collector.addDynamic({
         accessor,
         direction,
         language: "cpp",
+        ...environmentOccurrenceSite(tokens, definitions, index),
         sourcePath,
       });
     } else {
-      collector.add({ accessor, direction, language: "cpp", name, sourcePath });
+      collector.add({
+        accessor,
+        direction,
+        language: "cpp",
+        name,
+        ...environmentOccurrenceSite(tokens, definitions, index),
+        sourcePath,
+      });
     }
   }
 }
@@ -20580,13 +22097,10 @@ export async function discoverRepositorySurfaces(repoRoot) {
       sourcePath: posixPath(path.relative(repoRoot, filePath)),
       text: readUtf8(filePath),
     })),
+    // nativeFiles already carries the shared production native extension
+    // authority, including headers where inline runtime reads can live.
     native: nativeFiles
-      .filter(
-        (filePath) =>
-          new Set([".c", ".cc", ".cpp", ".cxx", ".m", ".mm"]).has(
-            path.extname(filePath),
-          ) && environmentSourceAllowed(filePath),
-      )
+      .filter(environmentSourceAllowed)
       .map((filePath) => ({
         sourcePath: posixPath(path.relative(repoRoot, filePath)),
         text: readUtf8(filePath),
@@ -20642,6 +22156,11 @@ export async function discoverRepositorySurfaces(repoRoot) {
     [
       ...fixed.filter((row) => row.kind === "startup"),
       ...lifecycleRows.filter((row) => row.kind === "startup"),
+      scanPrivateSessionWorkerBootstrap(
+        readUtf8(
+          path.join(repoRoot, "src", "bin", "ibex", "session_worker.rs"),
+        ),
+      ),
       ...environmentRows,
     ],
     "startup source inventory",

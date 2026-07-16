@@ -14,6 +14,7 @@
 #include <deque>
 #include <dirent.h>
 #include <functional>
+#include <list>
 #include <memory>
 #include <thread>
 #include <fcntl.h>
@@ -35,6 +36,7 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/uio.h>
+#include <type_traits>
 #include <unordered_map>
 #include <unistd.h>
 
@@ -66,7 +68,8 @@ extern "C" int32_t ex_host_typed_generations(
     uint64_t* negative,
     uint64_t* dynamic,
     uint64_t* handle);
-extern "C" int32_t ex_host_authorize_typed_fs_stack(
+extern "C" uint32_t ex_host_authorize_typed_fs_stack(
+    uint64_t runtime_nonce,
     uint64_t module_id,
     const uint64_t* module_ids,
     size_t module_ids_len,
@@ -115,6 +118,12 @@ struct FdEntry {
   uint64_t objectDevice = 0;
   uint64_t objectInode = 0;
   bool objectIdentityKnown = false;
+  // Queue admission for an async close revokes JS use immediately without
+  // performing the irreversible close(2). Cancellation clears this bit;
+  // only a worker that has crossed the operation-lease commit edge removes
+  // the entry and closes the descriptor.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  bool asyncCloseReserved = false;
 };
 
 static std::mutex g_fd_registry_mutex;
@@ -131,30 +140,160 @@ struct TransferableFdOwner {
 static std::unordered_map<int, TransferableFdOwner> g_transferable_fds;
 static thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
 
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+static std::atomic<int32_t> g_test_requested_fs_authorization_override{-1};
+static std::atomic<uint64_t> g_test_armed_path_lookup_count{0};
+static std::atomic<uint64_t> g_test_armed_lookup_after_refusal_count{0};
+static thread_local bool g_test_armed_authorization_refused = false;
+static thread_local std::string g_test_requested_fs_authorization_path;
+
+extern "C" void ibex_private_test_reset_fs_conformance_observer() {
+  g_test_requested_fs_authorization_override.store(-1, std::memory_order_release);
+  g_test_armed_path_lookup_count.store(0, std::memory_order_release);
+  g_test_armed_lookup_after_refusal_count.store(0, std::memory_order_release);
+  g_test_armed_authorization_refused = false;
+  g_test_requested_fs_authorization_path.clear();
+}
+
+extern "C" void ibex_private_test_set_requested_fs_authorization_result(
+    int32_t result) {
+  g_test_requested_fs_authorization_override.store(
+      result, std::memory_order_release);
+  g_test_requested_fs_authorization_path.clear();
+}
+
+extern "C" void
+ibex_private_test_set_requested_fs_authorization_result_for_path(
+    int32_t result,
+    const char* path) {
+  try {
+    g_test_requested_fs_authorization_path = path ? path : "";
+    g_test_requested_fs_authorization_override.store(
+        result, std::memory_order_release);
+  } catch (...) {
+    g_test_requested_fs_authorization_path.clear();
+    g_test_requested_fs_authorization_override.store(
+        -1, std::memory_order_release);
+  }
+}
+
+extern "C" uint64_t ibex_private_test_armed_path_lookup_count() {
+  return g_test_armed_path_lookup_count.load(std::memory_order_acquire);
+}
+
+extern "C" uint64_t
+ibex_private_test_armed_path_lookup_after_refusal_count() {
+  return g_test_armed_lookup_after_refusal_count.load(
+      std::memory_order_acquire);
+}
+
+static void observeArmedAuthorizationResult(uint32_t result) {
+  if (result != EX_HOST_VFS_RESULT_OK) {
+    g_test_armed_authorization_refused = true;
+  }
+}
+
+static void observeArmedPathLookupBoundary() {
+  g_test_armed_path_lookup_count.fetch_add(1, std::memory_order_relaxed);
+  if (g_test_armed_authorization_refused) {
+    g_test_armed_lookup_after_refusal_count.fetch_add(
+        1, std::memory_order_relaxed);
+  }
+}
+#else
+static void observeArmedAuthorizationResult(uint32_t) {}
+static void observeArmedPathLookupBoundary() {}
+#endif
+
+// Every kernel namespace/identity primitive used by the authenticated armed
+// walk crosses one of these wrappers. The production body is the syscall;
+// conformance builds count the actual boundary rather than inferring lookup
+// from a returned error or a manually placed control-flow marker.
+static char* armedLookupRealpath(const char* path, char* resolved) {
+  observeArmedPathLookupBoundary();
+  return ::realpath(path, resolved);
+}
+
+static int armedLookupOpen(const char* path, int flags) {
+  observeArmedPathLookupBoundary();
+  return ::open(path, flags);
+}
+
+static int armedLookupOpenAt(int parentFd, const char* name, int flags) {
+  observeArmedPathLookupBoundary();
+  return ::openat(parentFd, name, flags);
+}
+
+static int armedLookupFstat(int fd, struct stat* value) {
+  observeArmedPathLookupBoundary();
+  return ::fstat(fd, value);
+}
+
+static int armedLookupFstatAt(
+    int parentFd,
+    const char* name,
+    struct stat* value,
+    int flags) {
+  observeArmedPathLookupBoundary();
+  return ::fstatat(parentFd, name, value, flags);
+}
+
+#if !defined(__APPLE__)
+static ssize_t armedLookupReadlink(
+    const char* path,
+    char* value,
+    size_t capacity) {
+  observeArmedPathLookupBoundary();
+  return ::readlink(path, value, capacity);
+}
+#endif
+
+static ssize_t armedLookupReadlinkAt(
+    int parentFd,
+    const char* name,
+    char* value,
+    size_t capacity) {
+  observeArmedPathLookupBoundary();
+  return ::readlinkat(parentFd, name, value, capacity);
+}
+
+#if defined(__APPLE__)
+static int armedLookupFdPath(int fd, char* path) {
+  observeArmedPathLookupBoundary();
+  return ::fcntl(fd, F_GETPATH, path);
+}
+#endif
+
 static std::string fsErrorMessage(
     int errn,
     const char* syscall,
     const std::string& path,
     const std::string& dest);
+[[noreturn]] static void throwTypedFsAuthorizationError(
+    facebook::jsi::Runtime& runtime,
+    const char* syscall,
+    const std::string& virtualPath);
 
 void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce) {
   {
     std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
     for (auto it = g_fd_registry.begin(); it != g_fd_registry.end();) {
       if (it->second.runtimeNonce == runtimeNonce) {
-        if (!it->second.processIpc) {
-          struct stat sb = {};
-          const bool sameObject =
-              it->second.objectIdentityKnown &&
-              ::fstat(it->first, &sb) == 0 &&
-              it->second.objectDevice == static_cast<uint64_t>(sb.st_dev) &&
-              it->second.objectInode == static_cast<uint64_t>(sb.st_ino);
-          // Keep the registry mutex across the final identity check and close:
-          // another runtime cannot register a reused integer in the gap. A
-          // descriptor closed/reused outside this registry is simply revoked,
-          // never closed as though it were still the old runtime's object.
-          if (sameObject) ::close(it->first);
-        }
+        struct stat sb = {};
+        const bool sameObject =
+            it->second.objectIdentityKnown &&
+            ::fstat(it->first, &sb) == 0 &&
+            it->second.objectDevice == static_cast<uint64_t>(sb.st_dev) &&
+            it->second.objectInode == static_cast<uint64_t>(sb.st_ino);
+        // Keep the registry mutex across the final identity check and close:
+        // another runtime cannot register a reused integer in the gap. A
+        // descriptor closed/reused outside this registry is simply revoked,
+        // never closed as though it were still the old runtime's object.
+        // The adopted process-IPC socket is runtime-owned too: JavaScript
+        // disconnect normally closes and unregisters it first, while teardown
+        // is the exact-once fallback for a still-connected or partially built
+        // runtime. @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+        if (sameObject) ::close(it->first);
         g_transferable_fds.erase(it->first);
         it = g_fd_registry.erase(it);
       } else {
@@ -280,6 +419,9 @@ ScopedTypedPrincipalStack::~ScopedTypedPrincipalStack() {
   g_typed_principal_stack = previous_;
 }
 
+static thread_local uint32_t g_last_typed_fs_authorization_result =
+    EX_HOST_VFS_RESULT_OK;
+
 static int32_t ex_host_authorize_typed_fs_open(
     uint64_t module_id,
     const char* path,
@@ -291,9 +433,28 @@ static int32_t ex_host_authorize_typed_fs_open(
     int32_t needs_write,
     const char* presented_handle_id) {
   auto principals = exactCollectTypedPrincipalStack();
-  return ex_host_authorize_typed_fs_stack(
-      module_id, principals.data(), principals.size(), path, stage, surface,
-      parent_fd, fd, needs_read, needs_write, presented_handle_id);
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  if (stage == 0) {
+    const int32_t injected = g_test_requested_fs_authorization_override.load(
+        std::memory_order_acquire);
+    if (injected >= 0 &&
+        (g_test_requested_fs_authorization_path.empty() ||
+         (path && g_test_requested_fs_authorization_path == path))) {
+      g_last_typed_fs_authorization_result =
+          static_cast<uint32_t>(injected);
+      observeArmedAuthorizationResult(
+          g_last_typed_fs_authorization_result);
+      return injected == static_cast<int32_t>(EX_HOST_VFS_RESULT_OK) ? 1 : 0;
+    }
+  }
+#endif
+  const uint32_t result = ex_host_authorize_typed_fs_stack(
+      exactCurrentRuntimeNonce(), module_id, principals.data(),
+      principals.size(), path, stage, surface, parent_fd, fd, needs_read,
+      needs_write, presented_handle_id);
+  g_last_typed_fs_authorization_result = result;
+  observeArmedAuthorizationResult(result);
+  return result == EX_HOST_VFS_RESULT_OK ? 1 : 0;
 }
 
 struct FsAuthorizationGenerations {
@@ -336,23 +497,34 @@ static int32_t authorizeRepeatedFsWithLease(
     int32_t needsWrite,
     const char* presentedHandleId) {
   FsAuthorizationGenerations current;
-  if (!readAuthorizationGenerations(current)) return 0;
+  if (!readAuthorizationGenerations(current)) {
+    g_last_typed_fs_authorization_result = EX_HOST_VFS_RESULT_HOST_ERROR;
+    return 0;
+  }
   if (lease.active && current == lease.generations) return 1;
 
   for (size_t attempt = 0; attempt < 3; ++attempt) {
     FsAuthorizationGenerations before;
     FsAuthorizationGenerations after;
-    if (!readAuthorizationGenerations(before)) return 0;
+    if (!readAuthorizationGenerations(before)) {
+      g_last_typed_fs_authorization_result = EX_HOST_VFS_RESULT_HOST_ERROR;
+      return 0;
+    }
     auto decision = ex_host_authorize_typed_fs_open(
         moduleId, path, fullStage, surface, parentFd, fd, needsRead, needsWrite,
         presentedHandleId);
-    if (decision != 1 || !readAuthorizationGenerations(after)) return decision;
+    if (decision != 1) return decision;
+    if (!readAuthorizationGenerations(after)) {
+      g_last_typed_fs_authorization_result = EX_HOST_VFS_RESULT_HOST_ERROR;
+      return 0;
+    }
     if (before == after) {
       lease.active = true;
       lease.generations = after;
       return 1;
     }
   }
+  g_last_typed_fs_authorization_result = EX_HOST_VFS_RESULT_HOST_ERROR;
   return 0;
 }
 
@@ -391,23 +563,55 @@ static void registerFd(
               static_cast<uint64_t>(sb.st_ino), identified};
 }
 
-void exactRegisterProcessIpcFd(int fd) {
+bool exactRegisterProcessIpcFd(int fd) {
   if (fd < 0) {
-    return;
+    return false;
+  }
+  struct stat sb = {};
+  if (::fstat(fd, &sb) != 0 || !S_ISSOCK(sb.st_mode)) {
+    return false;
+  }
+  int descriptorFlags = ::fcntl(fd, F_GETFD);
+  if (descriptorFlags < 0 ||
+      ::fcntl(fd, F_SETFD, descriptorFlags | FD_CLOEXEC) != 0) {
+    return false;
   }
   uint64_t owner = 0;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   owner = static_cast<uint64_t>(kRuntimePrincipalId);
 #endif
-  struct stat sb = {};
-  bool identified = ::fstat(fd, &sb) == 0;
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   g_fd_registry[fd] =
       FdEntry{exactCurrentRuntimeNonce(), owner,
               std::string("/dev/fd/") + std::to_string(fd),
               std::string("/dev/fd/") + std::to_string(fd), true, true, true,
               "", nullptr, static_cast<uint64_t>(sb.st_dev),
-              static_cast<uint64_t>(sb.st_ino), identified};
+              static_cast<uint64_t>(sb.st_ino), true};
+  return true;
+}
+
+bool exactCloseProcessIpcFd(uint64_t runtimeNonce, int fd) {
+  if (runtimeNonce == 0 || fd < 0) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  auto it = g_fd_registry.find(fd);
+  if (it == g_fd_registry.end() ||
+      it->second.runtimeNonce != runtimeNonce || !it->second.processIpc) {
+    return false;
+  }
+  struct stat sb = {};
+  const bool sameObject =
+      it->second.objectIdentityKnown && ::fstat(fd, &sb) == 0 &&
+      it->second.objectDevice == static_cast<uint64_t>(sb.st_dev) &&
+      it->second.objectInode == static_cast<uint64_t>(sb.st_ino);
+  g_transferable_fds.erase(fd);
+  g_fd_registry.erase(it);
+  // A stale/reused integer is revoked from this runtime but never closed as
+  // though it were still the adopted socket. The registry lock keeps another
+  // runtime from publishing a replacement between the identity check and
+  // close. @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  return sameObject && ::close(fd) == 0;
 }
 
 static void unregisterFd(int fd) {
@@ -429,11 +633,66 @@ static void restoreFdEntry(int fd, const std::optional<FdEntry>& entry) {
   g_fd_registry.emplace(fd, *entry);
 }
 
+static bool sameFdEntryIdentity(
+    const FdEntry& left,
+    const FdEntry& right) noexcept {
+  return left.runtimeNonce == right.runtimeNonce && left.owner == right.owner &&
+      left.objectIdentityKnown == right.objectIdentityKnown &&
+      (!left.objectIdentityKnown ||
+       (left.objectDevice == right.objectDevice &&
+        left.objectInode == right.objectInode));
+}
+
+// Queue admission is a reversible descriptor reservation. It prevents later
+// JavaScript from using or closing the fd while leaving the kernel object
+// untouched until a worker commits the operation lease.
+static bool reserveFdForAsyncClose(int fd, const FdEntry& expected) noexcept {
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  auto it = g_fd_registry.find(fd);
+  if (it == g_fd_registry.end() || it->second.asyncCloseReserved ||
+      !sameFdEntryIdentity(it->second, expected)) {
+    return false;
+  }
+  it->second.asyncCloseReserved = true;
+  return true;
+}
+
+static void cancelFdAsyncCloseReservation(
+    int fd,
+    const FdEntry& expected) noexcept {
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  auto it = g_fd_registry.find(fd);
+  if (it != g_fd_registry.end() && it->second.asyncCloseReserved &&
+      sameFdEntryIdentity(it->second, expected)) {
+    it->second.asyncCloseReserved = false;
+  }
+}
+
+// Called only by a worker whose operation lease is Committed. Removing the
+// reservation before close(2) keeps a newly reused fd number from being
+// erased after another worker publishes it.
+static bool commitFdAsyncCloseReservation(
+    int fd,
+    const FdEntry& expected) noexcept {
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  auto it = g_fd_registry.find(fd);
+  if (it == g_fd_registry.end() || !it->second.asyncCloseReserved ||
+      !sameFdEntryIdentity(it->second, expected)) {
+    return false;
+  }
+  g_fd_registry.erase(it);
+  g_transferable_fds.erase(fd);
+  return true;
+}
+
 static std::optional<FdEntry> lookupFdEntry(int fd, bool* stale = nullptr) {
   if (stale) *stale = false;
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   auto it = g_fd_registry.find(fd);
   if (it == g_fd_registry.end()) {
+    return std::nullopt;
+  }
+  if (it->second.asyncCloseReserved) {
     return std::nullopt;
   }
   struct stat sb = {};
@@ -549,8 +808,7 @@ static bool requireFdRead(facebook::jsi::Runtime& runtime, int fd, const char* s
     if (ex_host_authorize_typed_fs_open(
             entry.owner, entry.backingPath.c_str(), 2, 0,
             entry.retainedParent ? *entry.retainedParent : -1, fd, 1, 0, handle) != 1) {
-      throw facebook::jsi::JSError(
-          runtime, fsErrorMessage(EACCES, syscall, entry.virtualPath, ""));
+      throwTypedFsAuthorizationError(runtime, syscall, entry.virtualPath);
     }
   } else if (!checkCapability("fs:read:" + entry.backingPath)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -573,8 +831,7 @@ static void requireFdWrite(facebook::jsi::Runtime& runtime, int fd, const char* 
     if (ex_host_authorize_typed_fs_open(
             entry.owner, entry.backingPath.c_str(), 2, 0,
             entry.retainedParent ? *entry.retainedParent : -1, fd, 0, 1, handle) != 1) {
-      throw facebook::jsi::JSError(
-          runtime, fsErrorMessage(EACCES, syscall, entry.virtualPath, ""));
+      throwTypedFsAuthorizationError(runtime, syscall, entry.virtualPath);
     }
   } else if (!checkCapability("fs:write:" + entry.backingPath)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -596,8 +853,7 @@ static void requireFdList(facebook::jsi::Runtime& runtime, int fd, const char* s
     if (ex_host_authorize_typed_fs_open(
             entry.owner, entry.backingPath.c_str(), 5, 0,
             entry.retainedParent ? *entry.retainedParent : -1, fd, 0, 0, handle) != 1) {
-      throw facebook::jsi::JSError(
-          runtime, fsErrorMessage(EACCES, syscall, entry.virtualPath, ""));
+      throwTypedFsAuthorizationError(runtime, syscall, entry.virtualPath);
     }
   } else if (!checkCapability("fs:list:" + entry.backingPath)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -794,16 +1050,51 @@ static std::string fsErrorMessage(
   return msg;
 }
 
+[[noreturn]] static void throwStructuredFsError(
+    facebook::jsi::Runtime& runtime,
+    const std::string& message,
+    const char* code,
+    int errn,
+    const char* syscall,
+    const std::string& path = "",
+    const std::string& dest = "") {
+  facebook::jsi::JSError base(runtime, message);
+  facebook::jsi::Value value(runtime, base.value());
+  auto object = value.asObject(runtime);
+  object.setProperty(
+      runtime, "code", facebook::jsi::String::createFromUtf8(runtime, code));
+  object.setProperty(runtime, "errno", facebook::jsi::Value(errn));
+  object.setProperty(
+      runtime, "syscall",
+      facebook::jsi::String::createFromUtf8(runtime, syscall));
+  if (!path.empty()) {
+    object.setProperty(
+        runtime, "path",
+        facebook::jsi::String::createFromUtf8(runtime, path));
+  }
+  if (!dest.empty()) {
+    object.setProperty(
+        runtime, "dest",
+        facebook::jsi::String::createFromUtf8(runtime, dest));
+  }
+  throw facebook::jsi::JSError(runtime, std::move(value));
+}
+
 static void throwFsError(
     facebook::jsi::Runtime& runtime,
     const char* syscall,
     const std::string& path = "",
     const std::string& dest = "") {
   int errn = errno;
-  throw facebook::jsi::JSError(runtime, fsErrorMessage(errn, syscall, path, dest));
+  const char* code = nullptr;
+  const char* description = nullptr;
+  fsErrnoCodeAndDescription(errn, code, description);
+  throwStructuredFsError(
+      runtime, fsErrorMessage(errn, syscall, path, dest), code, errn,
+      syscall, path, dest);
 }
 
-static void throwFsTypedError(
+[[noreturn]] static void throwFsTypedError(
     facebook::jsi::Runtime& runtime,
     const char* code,
     const char* description,
@@ -811,7 +1102,64 @@ static void throwFsTypedError(
     const std::string& virtualPath) {
   std::string message = std::string(code) + ": " + description + ", " + syscall;
   if (!virtualPath.empty()) message += " '" + virtualPath + "'";
-  throw facebook::jsi::JSError(runtime, message);
+  int compatibleErrno = EINVAL;
+  if (std::strcmp(code, "EPERM") == 0) compatibleErrno = EPERM;
+  else if (std::strcmp(code, "EACCES") == 0) compatibleErrno = EACCES;
+  else if (std::strcmp(code, "ENOENT") == 0) compatibleErrno = ENOENT;
+  else if (std::strcmp(code, "ELOOP") == 0) compatibleErrno = ELOOP;
+  else if (std::strcmp(code, "ERR_IBEX_INPUT_TOO_LARGE") == 0) {
+    compatibleErrno = ENAMETOOLONG;
+  } else if (std::strcmp(code, "ERR_IBEX_HOST_IO") == 0) {
+    compatibleErrno = EIO;
+  }
+  throwStructuredFsError(
+      runtime, message, code, compatibleErrno, syscall, virtualPath);
+}
+
+struct TypedFsAuthorizationRefusal {
+  const char* code;
+  const char* description;
+};
+
+static TypedFsAuthorizationRefusal typedFsAuthorizationRefusal() {
+  switch (g_last_typed_fs_authorization_result) {
+    case EX_HOST_VFS_RESULT_CLOSED_OPERATION:
+      return {"EPERM", "closed filesystem operation"};
+    case EX_HOST_VFS_RESULT_STALE_SESSION:
+      return {"ERR_IBEX_STALE_SESSION", "stale runtime session"};
+    case EX_HOST_VFS_RESULT_MALFORMED_INPUT:
+      return {"ERR_INVALID_ARG_VALUE", "malformed filesystem input"};
+    case EX_HOST_VFS_RESULT_ENCODED_SEPARATOR:
+      return {"ERR_INVALID_FILE_URL_PATH", "encoded path separator"};
+    case EX_HOST_VFS_RESULT_OUTSIDE_MOUNT:
+      return {"ERR_IBEX_OUTSIDE_MOUNT", "path is outside the virtual mount"};
+    case EX_HOST_VFS_RESULT_SYNTHETIC_NODE:
+      return {"ERR_IBEX_SYNTHETIC_NODE", "operation requires a retained object"};
+    case EX_HOST_VFS_RESULT_POLICY_DENIED:
+      return {"EACCES", "filesystem policy denied"};
+    case EX_HOST_VFS_RESULT_ABSENT:
+      return {"ENOENT", "no such file or directory"};
+    case EX_HOST_VFS_RESULT_SYMLINK_DEPTH:
+      return {"ELOOP", "too many symbolic links"};
+    case EX_HOST_VFS_RESULT_UNMAPPABLE_LINK:
+      return {"ERR_IBEX_UNMAPPABLE_LINK", "link has no virtual spelling"};
+    case EX_HOST_VFS_RESULT_STALE_IDENTITY:
+      return {"ERR_IBEX_STALE_IDENTITY", "retained filesystem identity is stale"};
+    case EX_HOST_VFS_RESULT_INPUT_TOO_LARGE:
+      return {"ERR_IBEX_INPUT_TOO_LARGE", "filesystem input exceeds its limit"};
+    case EX_HOST_VFS_RESULT_HOST_ERROR:
+    default:
+      return {"ERR_IBEX_HOST_IO", "filesystem authorization failed"};
+  }
+}
+
+[[noreturn]] static void throwTypedFsAuthorizationError(
+    facebook::jsi::Runtime& runtime,
+    const char* syscall,
+    const std::string& virtualPath = "") {
+  const auto refusal = typedFsAuthorizationRefusal();
+  throwFsTypedError(
+      runtime, refusal.code, refusal.description, syscall, virtualPath);
 }
 
 static void refuseClosedArmedFsMutation(
@@ -863,7 +1211,7 @@ static std::shared_ptr<int> retainedFd(int fd) {
 static std::shared_ptr<int> retainedParentFd(int fd) {
   constexpr size_t kMaxParentFdCacheKeys = 4096;
   struct stat sb = {};
-  if (fd < 0 || ::fstat(fd, &sb) != 0) return retainedFd(fd);
+  if (fd < 0 || armedLookupFstat(fd, &sb) != 0) return retainedFd(fd);
   std::string key = std::to_string(exactCurrentRuntimeNonce()) + ":" +
       std::to_string(static_cast<uint64_t>(sb.st_dev)) + ":" +
       std::to_string(static_cast<uint64_t>(sb.st_ino));
@@ -907,21 +1255,30 @@ static void pauseBeforeArmedExclusiveCreateForTest() {
 }
 
 static bool denyArmedOpenCommitForTest() {
-  return env_flag_enabled("IBEX_TEST_ARMED_DENY_OPEN_COMMIT");
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  const char* value = std::getenv("IBEX_TEST_ARMED_DENY_OPEN_COMMIT");
+  return value &&
+      (value[0] == '1' || value[0] == 'y' || value[0] == 'Y' ||
+       value[0] == 't' || value[0] == 'T');
+#else
+  return false;
+#endif
 }
 
 static bool sameObjectAt(int parentFd, const std::string& name, int fd) {
   struct stat opened = {};
   struct stat named = {};
-  return ::fstat(fd, &opened) == 0 &&
-      ::fstatat(parentFd, name.c_str(), &named, AT_SYMLINK_NOFOLLOW) == 0 &&
+  return armedLookupFstat(fd, &opened) == 0 &&
+      armedLookupFstatAt(
+          parentFd, name.c_str(), &named, AT_SYMLINK_NOFOLLOW) == 0 &&
       opened.st_dev == named.st_dev && opened.st_ino == named.st_ino;
 }
 
 static bool sameFdObject(int leftFd, int rightFd) {
   struct stat left = {};
   struct stat right = {};
-  return ::fstat(leftFd, &left) == 0 && ::fstat(rightFd, &right) == 0 &&
+  return armedLookupFstat(leftFd, &left) == 0 &&
+      armedLookupFstat(rightFd, &right) == 0 &&
       left.st_dev == right.st_dev && left.st_ino == right.st_ino;
 }
 
@@ -931,8 +1288,8 @@ static bool sameFollowedObjectAt(
     int fd) {
   struct stat opened = {};
   struct stat named = {};
-  return ::fstat(fd, &opened) == 0 &&
-      ::fstatat(parentFd, name.c_str(), &named, 0) == 0 &&
+  return armedLookupFstat(fd, &opened) == 0 &&
+      armedLookupFstatAt(parentFd, name.c_str(), &named, 0) == 0 &&
       opened.st_dev == named.st_dev && opened.st_ino == named.st_ino;
 }
 
@@ -949,12 +1306,13 @@ static int metadataOpenFlags() {
 static std::optional<std::string> resolvedPathForFd(int fd) {
 #if defined(__APPLE__)
   std::array<char, PATH_MAX> path = {};
-  if (::fcntl(fd, F_GETPATH, path.data()) != 0) return std::nullopt;
+  if (armedLookupFdPath(fd, path.data()) != 0) return std::nullopt;
   return std::string(path.data());
 #else
   std::array<char, PATH_MAX> path = {};
   auto link = std::string("/proc/self/fd/") + std::to_string(fd);
-  ssize_t length = ::readlink(link.c_str(), path.data(), path.size() - 1);
+  ssize_t length =
+      armedLookupReadlink(link.c_str(), path.data(), path.size() - 1);
   if (length < 0) return std::nullopt;
   if (static_cast<size_t>(length) == path.size() - 1) {
     errno = ENAMETOOLONG;
@@ -1012,7 +1370,7 @@ static std::optional<std::string> canonicalPathForSpelling(
     const std::string& path,
     int& error) {
   errno = 0;
-  char* resolved = ::realpath(path.c_str(), nullptr);
+  char* resolved = armedLookupRealpath(path.c_str(), nullptr);
   if (!resolved) {
     error = errno ? errno : EIO;
     return std::nullopt;
@@ -1115,6 +1473,10 @@ struct TypedPathDescriptors {
   std::string authorizationBackingPath;
 };
 
+static_assert(
+    std::is_nothrow_move_assignable<TypedPathDescriptors>::value,
+    "committed FS descriptor state must publish without allocation");
+
 struct ArmedResolvedPath {
   std::shared_ptr<int> parent;
   std::shared_ptr<int> target;
@@ -1171,11 +1533,11 @@ static std::string appendBackingComponent(
 
 static int openMetadataNoFollowAt(int parentFd, const std::string& name) {
 #if defined(__APPLE__)
-  return ::openat(
+  return armedLookupOpenAt(
       parentFd, name.c_str(),
       O_RDONLY | O_SYMLINK | O_NONBLOCK | O_CLOEXEC);
 #elif defined(O_PATH)
-  return ::openat(
+  return armedLookupOpenAt(
       parentFd, name.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC);
 #else
   errno = ENOTSUP;
@@ -1197,8 +1559,8 @@ static std::optional<std::string> readRetainedSymlinkBytes(
   }
   std::vector<char> buffer(256);
   for (;;) {
-    ssize_t length =
-        ::readlinkat(parentFd, name.c_str(), buffer.data(), buffer.size());
+    ssize_t length = armedLookupReadlinkAt(
+        parentFd, name.c_str(), buffer.data(), buffer.size());
     const int saved = length < 0 ? errno : 0;
     if (!sameObjectAt(parentFd, name, linkFd)) {
       stale = true;
@@ -1244,7 +1606,7 @@ static ArmedResolvedPath walkArmedPath(
   if (authorizeInitial && ex_host_authorize_typed_fs_open(
           principal, backingPath.c_str(), 0, surface, -1, -1,
           needsRead ? 1 : 0, needsWrite ? 1 : 0, presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "open", virtualPath);
   }
 
   auto projectRoot = exactResolveVfsPath(runtime, "/project");
@@ -1284,16 +1646,16 @@ static ArmedResolvedPath walkArmedPath(
       ex_host_authorize_typed_fs_open(
           principal, canonicalRoot->c_str(), 0, surface, -1, -1,
           needsRead ? 1 : 0, needsWrite ? 1 : 0, presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "open", virtualPath);
   }
 
-  int rootRaw = ::open(
+  int rootRaw = armedLookupOpen(
       canonicalRoot->c_str(),
       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (rootRaw < 0) throwFsError(runtime, "open", virtualPath);
   auto rootFd = retainedFd(rootRaw);
   auto rootParentAndName = splitParentAndName(*canonicalRoot);
-  int rootParentRaw = ::open(
+  int rootParentRaw = armedLookupOpen(
       rootParentAndName.first.c_str(),
       O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (rootParentRaw < 0) throwFsError(runtime, "open", virtualPath);
@@ -1307,7 +1669,7 @@ static ArmedResolvedPath walkArmedPath(
   if (ex_host_authorize_typed_fs_open(
           principal, canonicalRoot->c_str(), 3, surface, *rootParent, -1,
           needsRead ? 1 : 0, needsWrite ? 1 : 0, presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "open", virtualPath);
   }
   if (!fdResolvesToPath(*rootParent, rootParentAndName.first) ||
       !sameObjectAt(*rootParent, rootParentAndName.second, rootRaw)) {
@@ -1333,7 +1695,7 @@ static ArmedResolvedPath walkArmedPath(
             principal, canonicalRoot->c_str(), 5, surface, *rootParent,
             rootRaw,
             needsRead ? 1 : 0, needsWrite ? 1 : 0, presented) != 1) {
-      throw facebook::jsi::JSError(runtime, "Permission denied");
+      throwTypedFsAuthorizationError(runtime, "open", virtualPath);
     }
     requireStableDirectory(*rootParent, rootParentAndName.first);
     requireStableDirectory(rootRaw, *canonicalRoot);
@@ -1363,11 +1725,13 @@ static ArmedResolvedPath walkArmedPath(
     requireStableDirectory(*current.fd, current.backingPath);
     const std::string candidate =
         appendBackingComponent(current.backingPath, component);
-    if (!pathAtOrBelow(*canonicalRoot, candidate) ||
-        ex_host_authorize_typed_fs_open(
+    if (!pathAtOrBelow(*canonicalRoot, candidate)) {
+      throwOutside();
+    }
+    if (ex_host_authorize_typed_fs_open(
             principal, candidate.c_str(), 0, surface, -1, -1,
             needsRead ? 1 : 0, needsWrite ? 1 : 0, presented) != 1) {
-      throw facebook::jsi::JSError(runtime, "Permission denied");
+      throwTypedFsAuthorizationError(runtime, "open", virtualPath);
     }
     requireStableDirectory(*current.fd, current.backingPath);
 
@@ -1396,7 +1760,7 @@ static ArmedResolvedPath walkArmedPath(
         if (ex_host_authorize_typed_fs_open(
                 principal, dangling.c_str(), 0, surface, -1, -1,
                 needsRead ? 1 : 0, needsWrite ? 1 : 0, presented) != 1) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
+          throwTypedFsAuthorizationError(runtime, "open", virtualPath);
         }
         requireStableDirectory(*current.fd, current.backingPath);
         return ArmedResolvedPath{
@@ -1406,7 +1770,7 @@ static ArmedResolvedPath walkArmedPath(
       throwFsError(runtime, "open", virtualPath);
     }
     struct stat sb = {};
-    if (::fstat(targetRaw, &sb) != 0 ||
+    if (armedLookupFstat(targetRaw, &sb) != 0 ||
         !sameObjectAt(*current.fd, component, targetRaw) ||
         !fdResolvesToPath(*current.fd, current.backingPath)) {
       throwFsTypedError(
@@ -1423,7 +1787,8 @@ static ArmedResolvedPath walkArmedPath(
             targetRaw,
             traversedLink ? 0 : (needsRead ? 1 : 0),
             traversedLink ? 0 : (needsWrite ? 1 : 0), presented) != 1) {
-      throw facebook::jsi::JSError(runtime, "Permission denied");
+      throwTypedFsAuthorizationError(
+          runtime, traversedLink ? "readlink" : "open", virtualPath);
     }
     if (!sameObjectAt(*current.fd, component, targetRaw) ||
         !fdResolvesToPath(*current.fd, current.backingPath)) {
@@ -1502,7 +1867,7 @@ static ArmedResolvedPath walkArmedPath(
   if (ex_host_authorize_typed_fs_open(
           principal, finalDirectory.backingPath.c_str(), 0, surface, -1, -1,
           needsRead ? 1 : 0, needsWrite ? 1 : 0, presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "open", virtualPath);
   }
   requireStableDirectory(*finalDirectory.fd, finalDirectory.backingPath);
   if (directories.size() > 1) {
@@ -1515,7 +1880,7 @@ static ArmedResolvedPath walkArmedPath(
             principal, finalDirectory.backingPath.c_str(), 5, surface,
             *parent, *finalDirectory.fd, needsRead ? 1 : 0,
             needsWrite ? 1 : 0, presented) != 1) {
-      throw facebook::jsi::JSError(runtime, "Permission denied");
+      throwTypedFsAuthorizationError(runtime, "open", virtualPath);
     }
     if (!sameObjectAt(*parent, name, *finalDirectory.fd) ||
         !fdResolvesToPath(*parent, parentAndName.first) ||
@@ -1534,7 +1899,7 @@ static ArmedResolvedPath walkArmedPath(
           principal, finalDirectory.backingPath.c_str(), 5, surface,
           *rootParent, *finalDirectory.fd, needsRead ? 1 : 0,
           needsWrite ? 1 : 0, presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "open", virtualPath);
   }
   if (!fdResolvesToPath(*rootParent, rootParentAndName.first) ||
       !fdResolvesToPath(*finalDirectory.fd, finalDirectory.backingPath) ||
@@ -1572,6 +1937,10 @@ static ArmedOpenedPath openArmedPathTarget(
   const uint64_t principal = currentPrincipalId();
   const char* presented =
       presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  // Allocate the shared fd guard before a create/truncate boundary. Once an
+  // open succeeds, installing its integer in this holder is noexcept, so an
+  // allocator failure cannot strand an unowned fd after creating a name.
+  auto targetGuard = retainedFd(-1);
   auto requireStableParent = [&](const ArmedResolvedPath& resolved) {
     auto parentPath = splitParentAndName(resolved.backingPath).first;
     if (!fdResolvesToPath(*resolved.parent, parentPath)) {
@@ -1609,24 +1978,28 @@ static ArmedOpenedPath openArmedPathTarget(
         if (mayCreate && !exclusiveCreate && openError == ENOENT) continue;
         throwFsError(runtime, "open", virtualPath);
       }
+      *targetGuard = targetRaw;
       if (!sameFdObject(targetRaw, *resolved.target) ||
           !sameObjectAt(*resolved.parent, resolved.name, targetRaw) ||
           !fdResolvesToPath(*resolved.parent, parentPath)) {
-        ::close(targetRaw);
-        if (mayCreate && !exclusiveCreate) continue;
+        if (mayCreate && !exclusiveCreate) {
+          ::close(targetRaw);
+          *targetGuard = -1;
+          continue;
+        }
         throwFsTypedError(
             runtime, "ERR_IBEX_STALE_IDENTITY",
             "retained filesystem identity changed", "open", virtualPath);
       }
       return ArmedOpenedPath{
-          std::move(resolved), retainedFd(targetRaw)};
+          std::move(resolved), std::move(targetGuard)};
     }
 
     if (ex_host_authorize_typed_fs_open(
             principal, resolved.backingPath.c_str(), 4, surface,
             *resolved.parent, -1, needsRead ? 1 : 0,
             needsWrite ? 1 : 0, presented) != 1) {
-      throw facebook::jsi::JSError(runtime, "Permission denied");
+      throwTypedFsAuthorizationError(runtime, "open", virtualPath);
     }
     requireStableParent(resolved);
     const int createFlags =
@@ -1637,7 +2010,7 @@ static ArmedOpenedPath openArmedPathTarget(
         *resolved.parent, resolved.name.c_str(), createFlags, mode);
     const int createError = targetRaw < 0 ? errno : 0;
     if (targetRaw >= 0) {
-      auto target = retainedFd(targetRaw);
+      *targetGuard = targetRaw;
       if (!fdResolvesToPath(*resolved.parent, parentPath) ||
           !sameObjectAt(*resolved.parent, resolved.name, targetRaw)) {
         throwFsTypedError(
@@ -1645,7 +2018,7 @@ static ArmedOpenedPath openArmedPathTarget(
             "created filesystem identity changed", "open", virtualPath);
       }
       return ArmedOpenedPath{
-          std::move(resolved), std::move(target)};
+          std::move(resolved), std::move(targetGuard)};
     }
     if (!fdResolvesToPath(*resolved.parent, parentPath)) {
       throwFsTypedError(
@@ -1705,7 +2078,7 @@ static TypedPathDescriptors prepareArmedReadTarget(
   if (ex_host_authorize_typed_fs_open(
           currentPrincipalId(), resolved.backingPath.c_str(), 1, surface,
           *resolved.parent, fdRaw, 1, 0, presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "open", virtualPath);
   }
   if (!sameObjectAt(*resolved.parent, resolved.name, fdRaw) ||
       !fdResolvesToPath(*resolved.parent, parentPath)) {
@@ -1781,7 +2154,7 @@ static TypedPathDescriptors openArmedListTarget(
           currentPrincipalId(), resolved.backingPath.c_str(), 5, surface,
           *resolved.parent, targetRaw, needsRead ? 1 : 0,
           needsWrite ? 1 : 0, presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "open", virtualPath);
   }
   if (!sameObjectAt(*resolved.parent, resolved.name, targetRaw) ||
       !fdResolvesToPath(*resolved.parent, parentPath)) {
@@ -1843,10 +2216,14 @@ static TypedPathDescriptors openArmedWriteTarget(
     throwFsError(runtime, "open", virtualPath);
   }
   // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — Never verify a created name and then unlinkat it: replacement can race between those syscalls. A denied commit may leave our still-empty file instead of risking deletion of another creator's object.
-  if (denyArmedOpenCommitForTest() || ex_host_authorize_typed_fs_open(
+  if (denyArmedOpenCommitForTest()) {
+    throwFsTypedError(
+        runtime, "EACCES", "filesystem policy denied", "open", virtualPath);
+  }
+  if (ex_host_authorize_typed_fs_open(
           principal, resolved.backingPath.c_str(), 1, surface,
           *resolved.parent, targetRaw, needsRead ? 1 : 0, 1, presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "open", virtualPath);
   }
   if ((targetFlags & O_TRUNC) != 0 && ::ftruncate(targetRaw, 0) != 0) {
     int saved = errno;
@@ -1878,12 +2255,15 @@ static TypedPathDescriptors openArmedDescriptorTarget(
   auto target = std::move(opened.target);
   const int targetRaw = *target;
   // @ref LLP 0023#41-the-v1-mutation-surface-small-object-bound-and-completely-specified — A failed post-create commit leaves the still-empty created file; name-bound rollback could unlink a racing replacement.
-  if (denyArmedOpenCommitForTest() ||
-      ex_host_authorize_typed_fs_open(
+  if (denyArmedOpenCommitForTest()) {
+    throwFsTypedError(
+        runtime, "EACCES", "filesystem policy denied", "open", virtualPath);
+  }
+  if (ex_host_authorize_typed_fs_open(
           principal, resolved.backingPath.c_str(), 1, surface,
           *resolved.parent, targetRaw, needsRead ? 1 : 0,
           needsWrite ? 1 : 0, presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "open", virtualPath);
   }
   if ((targetFlags & O_TRUNC) != 0 && ::ftruncate(targetRaw, 0) != 0) {
     const int saved = errno;
@@ -1946,7 +2326,7 @@ void exactRequireArmedSqliteFile(
           file.owner, file.authorizationBackingPath.c_str(), 2,
           surface, *file.parent, *file.target, needsRead ? 1 : 0,
           needsWrite && file.needsWrite ? 1 : 0, nullptr) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, syscall, file.virtualPath);
   }
 }
 
@@ -1965,7 +2345,7 @@ static void writeArmedBytes(
             currentPrincipalId(), backingPath.c_str(), 2, surface,
             *descriptors.parent, *descriptors.target, 0, 1,
             presented) != 1) {
-      throw facebook::jsi::JSError(runtime, "Permission denied");
+      throwTypedFsAuthorizationError(runtime, "write", virtualPath);
     }
     ssize_t amount;
     do {
@@ -2008,7 +2388,7 @@ static void createArmedDirectory(
   if (ex_host_authorize_typed_fs_open(
           principal, resolved.backingPath.c_str(), 4, kMkdirSurface,
           *resolved.parent, -1, 0, 1, nullptr) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
+    throwTypedFsAuthorizationError(runtime, "mkdir", virtualPath);
   }
   if (!fdResolvesToPath(*resolved.parent, parentPath)) {
     throwFsTypedError(
@@ -2227,6 +2607,10 @@ struct FsAsyncResult {
   double tooLargeSize = 0;
 };
 
+static_assert(
+    std::is_nothrow_move_assignable<FsAsyncResult>::value,
+    "committed FS result state must publish without allocation");
+
 class FsAsyncLifetime {
  public:
   explicit FsAsyncLifetime(RuntimeCallbackTarget target) : target_(target) {}
@@ -2270,6 +2654,64 @@ static FsAsyncResult fsAsyncTypedError(
   return result;
 }
 
+static FsAsyncResult fsAsyncAuthorizationError(
+    const char* syscall,
+    const std::string& virtualPath) {
+  const auto refusal = typedFsAuthorizationRefusal();
+  return fsAsyncTypedError(
+      refusal.code, refusal.description, syscall, virtualPath,
+      std::strcmp(refusal.code, "EACCES") == 0 ? EACCES : EINVAL);
+}
+
+enum class FsOperationLeaseState : uint8_t {
+  Queued,
+  Committed,
+  Canceled,
+  Completed,
+};
+
+// One admitted filesystem operation owns the exact runtime generation,
+// canonical principal stack, and closure of retained descriptors/decided
+// facts captured on the runtime thread. The pool mutex serializes Queued ->
+// Committed against teardown's Queued -> Canceled transition; no worker ever
+// re-derives authority from ambient state.
+// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+struct FsOperationLease {
+  RuntimeCallbackTarget target;
+  std::shared_ptr<std::vector<uint64_t>> principalStack;
+  std::shared_ptr<std::function<FsAsyncResult()>> decidedWork;
+  std::atomic<FsOperationLeaseState> state{FsOperationLeaseState::Queued};
+
+  bool matches(RuntimeCallbackTarget candidate) const noexcept {
+    return target.runtime == candidate.runtime && target.nonce == candidate.nonce;
+  }
+
+  bool acquireForWorker() noexcept {
+    if (state.load(std::memory_order_acquire) ==
+        FsOperationLeaseState::Committed) {
+      return true;
+    }
+    auto expected = FsOperationLeaseState::Queued;
+    return state.compare_exchange_strong(
+        expected, FsOperationLeaseState::Committed,
+        std::memory_order_acq_rel, std::memory_order_acquire);
+  }
+
+  bool cancel() noexcept {
+    auto expected = FsOperationLeaseState::Queued;
+    return state.compare_exchange_strong(
+        expected, FsOperationLeaseState::Canceled,
+        std::memory_order_acq_rel, std::memory_order_acquire);
+  }
+
+  void complete() noexcept {
+    auto expected = FsOperationLeaseState::Committed;
+    (void)state.compare_exchange_strong(
+        expected, FsOperationLeaseState::Completed,
+        std::memory_order_release, std::memory_order_relaxed);
+  }
+};
+
 // Bounded worker pool that runs blocking fs syscalls off the JS thread. Same
 // discipline as DnsWorkerPool / FetchWorkerPool: lazily spawn detached workers
 // up to a cap, bound the backlog, park idle workers on a condvar.
@@ -2288,42 +2730,156 @@ class FsWorkerPool {
   }
 
   bool enqueue(
+      std::shared_ptr<FsOperationLease> lease,
       std::function<void()> job,
       std::string& error,
-      const std::function<void()>& onAccepted = {}) {
-    if (const char* fail = std::getenv("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
-        fail && std::strcmp(fail, "1") == 0) {
-      throw std::runtime_error("injected FS worker enqueue failure");
-    }
+      const std::function<void()>& onQueueReserved = {},
+      std::function<void()> onCanceled = {}) {
+    maybeThrowInjectedEnqueueFailure();
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (queue_.size() >= maxQueue()) {
+      if (queue_.size() + preparing_.size() >= maxQueue()) {
         // Fail loudly rather than growing without bound.
         // @ref LLP 0006#degrade-diagnostics-never-the-caller
         error = "FS worker queue full";
         return false;
       }
-      spawnWorkerIfNeededLocked();
-      queue_.push_back(std::move(job));
-      // Some operations must mutate process state only after queue admission
-      // is irrevocable, but before a worker can observe the job. Running the
-      // commit hook under the queue mutex provides exactly that boundary:
-      // allocation/capacity failures leave the caller's state untouched, and
-      // workers cannot pop the accepted job until the hook has completed.
-      if (onAccepted) onAccepted();
+      queue_.push_back(QueuedJob{
+          std::move(lease), std::move(job), std::move(onCanceled)});
+      try {
+        spawnWorkerIfNeededLocked();
+        // This hook is limited to the reversible async-close registry bit.
+        // Holding the pool mutex keeps a worker or teardown from observing
+        // the queue record before that reservation is complete.
+        if (onQueueReserved) onQueueReserved();
+      } catch (...) {
+        queue_.pop_back();
+        throw;
+      }
     }
     cv_.notify_one();
     return true;
   }
 
+  // Reserve all fallible pool resources before owner-thread preparation can
+  // cross an observable filesystem boundary. The node remains hidden from
+  // workers until publishCommitted() splices it into the ready queue.
+  bool reserveCommitted(
+      std::shared_ptr<FsOperationLease> lease,
+      std::function<void()> job,
+      std::string& error) {
+    maybeThrowInjectedEnqueueFailure();
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (queue_.size() + preparing_.size() >= maxQueue()) {
+      error = "FS worker queue full";
+      return false;
+    }
+    preparing_.push_back(
+        QueuedJob{std::move(lease), std::move(job), {}});
+    try {
+      spawnWorkerIfNeededLocked();
+      if (!preparing_.back().lease ||
+          !preparing_.back().lease->acquireForWorker()) {
+        throw std::runtime_error("FS operation lease commit failed");
+      }
+    } catch (...) {
+      preparing_.pop_back();
+      throw;
+    }
+    return true;
+  }
+
+  bool publishCommitted(
+      const std::shared_ptr<FsOperationLease>& lease) noexcept {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto it = std::find_if(
+          preparing_.begin(), preparing_.end(),
+          [&lease](const QueuedJob& candidate) {
+            return candidate.lease == lease;
+          });
+      if (it == preparing_.end()) return false;
+      // std::list::splice transfers the already-reserved node without an
+      // allocation, so no queue failure is possible after preparation.
+      queue_.splice(queue_.end(), preparing_, it);
+    }
+    cv_.notify_one();
+    return true;
+  }
+
+  void abandonCommitted(
+      const std::shared_ptr<FsOperationLease>& lease) noexcept {
+    std::optional<QueuedJob> abandoned;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto it = std::find_if(
+          preparing_.begin(), preparing_.end(),
+          [&lease](const QueuedJob& candidate) {
+            return candidate.lease == lease;
+          });
+      if (it == preparing_.end()) return;
+      if (it->lease) it->lease->complete();
+      abandoned.emplace(std::move(*it));
+      preparing_.erase(it);
+    }
+    // Destroy worker captures (including the runtime pin) outside the pool
+    // mutex. The original preparation exception remains the Promise reason.
+  }
+
+  size_t cancelQueued(RuntimeCallbackTarget target) noexcept {
+    size_t canceledCount = 0;
+    for (;;) {
+      std::optional<QueuedJob> canceled;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto it = queue_.begin(); it != queue_.end(); ++it) {
+          if (it->lease && it->lease->matches(target) && it->lease->cancel()) {
+            canceled.emplace(std::move(*it));
+            queue_.erase(it);
+            break;
+          }
+        }
+      }
+      if (!canceled) return canceledCount;
+      // Rollback hooks may acquire descriptor registries and must never run
+      // under the pool mutex. Destroying the jobs here, on the runtime owner
+      // thread, also releases their JSI roots and native-worker pins safely.
+      if (canceled->onCanceled) {
+        try {
+          canceled->onCanceled();
+        } catch (...) {
+          // Teardown is noexcept and must continue releasing every lease.
+        }
+      }
+      if (canceled->lease && canceled->lease->decidedWork) {
+        *canceled->lease->decidedWork = {};
+      }
+      canceledCount += 1;
+    }
+  }
+
  private:
+  struct QueuedJob {
+    std::shared_ptr<FsOperationLease> lease;
+    std::function<void()> work;
+    std::function<void()> onCanceled;
+  };
+
   static constexpr size_t kMaxWorkers = 8;
   static constexpr size_t kMaxQueue = 1024;
   std::mutex mutex_;
   std::condition_variable cv_;
-  std::deque<std::function<void()>> queue_;
+  std::list<QueuedJob> queue_;
+  std::list<QueuedJob> preparing_;
   size_t idle_ = 0;
   size_t total_ = 0;
+
+  static void maybeThrowInjectedEnqueueFailure() {
+    if (const char* fail = std::getenv("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
+        fail && std::strcmp(fail, "1") == 0) {
+      throw std::runtime_error("injected FS worker enqueue failure");
+    }
+  }
 
   static size_t maxQueue() {
     // Deterministic failure injection for native resource-safety tests. The
@@ -2336,14 +2892,15 @@ class FsWorkerPool {
   }
 
   void spawnWorkerIfNeededLocked() {
-    if (idle_ > queue_.size() || total_ >= kMaxWorkers) {
+    if (idle_ >= queue_.size() + preparing_.size() ||
+        total_ >= kMaxWorkers) {
       return;
     }
     total_ += 1;
     try {
       std::thread([this]() {
         for (;;) {
-          std::function<void()> job;
+          QueuedJob job;
           {
             std::unique_lock<std::mutex> lock(mutex_);
             idle_ += 1;
@@ -2351,8 +2908,20 @@ class FsWorkerPool {
             idle_ -= 1;
             job = std::move(queue_.front());
             queue_.pop_front();
+            // This is the irreversible scheduling edge. Teardown can remove
+            // a Queued record under this same mutex, but once commit wins it
+            // must wait for the native pin and cannot pretend the effect was
+            // canceled.
+            if (!job.lease || !job.lease->acquireForWorker()) {
+              continue;
+            }
           }
-          job();
+          try {
+            job.work();
+          } catch (...) {
+            // An immortal detached worker must survive a broken operation.
+          }
+          job.lease->complete();
         }
       }).detach();
     } catch (...) {
@@ -2361,6 +2930,21 @@ class FsWorkerPool {
     }
   }
 };
+
+void exactCancelQueuedFsOperations(RuntimeCallbackTarget target) {
+  if (!target) return;
+  (void)FsWorkerPool::instance().cancelQueued(target);
+}
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+extern "C" uint64_t ibex_private_test_cancel_queued_fs_operations(
+    ExactHermesRuntime* runtime) {
+  const auto target = exactRuntimeCallbackTarget(runtime);
+  if (!target) return 0;
+  return static_cast<uint64_t>(
+      FsWorkerPool::instance().cancelQueued(target));
+}
+#endif
 
 // Rehydrate an FsAsyncResult failure into a Node-shaped Error on the JS
 // thread: message matches the sync natives' fsErrorMessage format, and
@@ -2435,7 +3019,8 @@ static facebook::jsi::Value startFsAsync(
     facebook::jsi::Runtime& runtime,
     std::function<FsAsyncResult()> work,
     std::function<void()> onEnqueueFailure = {},
-    std::function<void()> onEnqueueAccepted = {}) {
+    std::function<void()> onQueueReserved = {},
+    std::function<void()> committedPrepare = {}) {
   // Capture the scheduling principal on the JS thread so the resolved
   // continuation is attributed to the caller, not a bare native frame.
   uint64_t principal = currentPrincipalId();
@@ -2448,7 +3033,7 @@ static facebook::jsi::Value startFsAsync(
       facebook::jsi::PropNameID::forAscii(runtime, "executor"),
       2,
       [handle, principal, principalStack, workPtr, onEnqueueFailure,
-       onEnqueueAccepted](
+       onQueueReserved, committedPrepare](
           facebook::jsi::Runtime& rt,
           const facebook::jsi::Value&,
           const facebook::jsi::Value* args,
@@ -2465,6 +3050,10 @@ static facebook::jsi::Value startFsAsync(
         auto resultPtr = std::make_shared<FsAsyncResult>();
         auto target = exactRuntimeCallbackTarget(handle);
         auto lifetime = std::make_shared<FsAsyncLifetime>(target);
+        auto operationLease = std::make_shared<FsOperationLease>();
+        operationLease->target = target;
+        operationLease->principalStack = principalStack;
+        operationLease->decidedWork = workPtr;
         std::function<void()> worker =
             [handle, target, principal, principalStack, workPtr, resolve, reject,
              resultPtr, lifetime]() mutable {
@@ -2579,14 +3168,48 @@ static facebook::jsi::Value startFsAsync(
         handle->pending_fs_ops.fetch_add(1, std::memory_order_relaxed);
         lifetime->activate();
 
+        auto& pool = FsWorkerPool::instance();
         bool queued = false;
-        try {
-          queued = FsWorkerPool::instance().enqueue(
-              std::move(worker), enqueueError, onEnqueueAccepted);
-        } catch (const std::exception& error) {
-          enqueueError = error.what();
-        } catch (...) {
-          enqueueError = "FS worker enqueue failed";
+        if (committedPrepare) {
+          try {
+            queued = pool.reserveCommitted(
+                operationLease, std::move(worker), enqueueError);
+          } catch (const std::exception& error) {
+            enqueueError = error.what();
+          } catch (...) {
+            enqueueError = "FS worker enqueue failed";
+          }
+          if (queued) {
+            try {
+              // The record is already pinned, allocated, and Committed, but
+              // remains invisible to workers while authenticated owner-thread
+              // preparation captures its decided descriptors/facts.
+              committedPrepare();
+            } catch (...) {
+              *workPtr = {};
+              pool.abandonCommitted(operationLease);
+              // Preserve typed JSError properties such as `code`; preparation
+              // failures are not queue-admission failures.
+              throw;
+            }
+            if (!pool.publishCommitted(operationLease)) {
+              *workPtr = {};
+              pool.abandonCommitted(operationLease);
+              throw facebook::jsi::JSError(
+                  rt, "FS async: committed queue reservation disappeared");
+            }
+            return facebook::jsi::Value::undefined();
+          }
+        } else {
+          try {
+            queued = pool.enqueue(
+                operationLease, std::move(worker), enqueueError,
+                onQueueReserved, onEnqueueFailure);
+          } catch (const std::exception& error) {
+            enqueueError = error.what();
+          } catch (...) {
+            enqueueError = "FS worker enqueue failed";
+          }
         }
         if (!queued) {
           if (onEnqueueFailure) onEnqueueFailure();
@@ -2599,6 +3222,15 @@ static facebook::jsi::Value startFsAsync(
         return facebook::jsi::Value::undefined();
       });
   return promiseCtor.callAsConstructor(runtime, executor);
+}
+
+static facebook::jsi::Value startCommittedFsAsync(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Runtime& runtime,
+    std::function<FsAsyncResult()> work,
+    std::function<void()> prepare) {
+  return startFsAsync(
+      handle, runtime, std::move(work), {}, {}, std::move(prepare));
 }
 
 // Node caps fs.readFile at 2 GiB (kIoMaxLength); fs.js enforces the same via
@@ -2703,7 +3335,7 @@ static FsAsyncResult fsReadFileArmedWork(
     if (authorizeRepeatedFsWithLease(
             authorizationLease, principal, backingPath.c_str(), 2, 2,
             *parent, fd, 1, 0, presented) != 1) {
-      return fsAsyncError(EACCES, "read", virtualPath);
+      return fsAsyncAuthorizationError("read", virtualPath);
     }
     ssize_t amount;
     do {
@@ -2806,7 +3438,7 @@ static FsAsyncResult fsWriteFileArmedWork(
     if (ex_host_authorize_typed_fs_open(
             principal, backingPath.c_str(), 2, 7, *parent, *fd, 0, 1,
             presented) != 1) {
-      return fsAsyncError(EACCES, "write", virtualPath);
+      return fsAsyncAuthorizationError("write", virtualPath);
     }
     ssize_t amount;
     do {
@@ -2823,7 +3455,7 @@ static FsAsyncResult fsWriteFileArmedWork(
     if (ex_host_authorize_typed_fs_open(
             principal, backingPath.c_str(), 2, 7, *parent, *fd, 0, 1,
             presented) != 1) {
-      return fsAsyncError(EACCES, "fsync", virtualPath);
+      return fsAsyncAuthorizationError("fsync", virtualPath);
     }
     int rc;
     do {
@@ -3054,7 +3686,7 @@ static FsAsyncResult fsStatfsArmedWork(
   if (ex_host_authorize_typed_fs_open(
           principal, backingPath.c_str(), 5, kFsSurfaceStatfs,
           *parent, *target, 0, 0, nullptr) != 1) {
-    return fsAsyncError(EACCES, "statfs", virtualPath);
+    return fsAsyncAuthorizationError("statfs", virtualPath);
   }
   if (!stableTarget()) {
     return fsAsyncTypedError(
@@ -3092,7 +3724,7 @@ static FsAsyncResult fsPathOpWork(
       if (ex_host_authorize_typed_fs_open(
               principal, a.c_str(), 0, kMkdirSurface, -1, -1, 0, 1,
               nullptr) != 1) {
-        return fsAsyncError(EACCES, "mkdir", displayA);
+        return fsAsyncAuthorizationError("mkdir", displayA);
       }
       auto parentAndName = splitParentAndName(a);
       const auto& parentPath = parentAndName.first;
@@ -3101,14 +3733,20 @@ static FsAsyncResult fsPathOpWork(
           parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
       if (parentRaw < 0) return fsAsyncError(errno, "mkdir", displayA);
       auto parent = retainedParentFd(parentRaw);
-      if (name.empty() ||
-          ex_host_authorize_typed_fs_open(
+      if (name.empty()) {
+        return fsAsyncTypedError(
+            "ERR_INVALID_ARG_VALUE", "mkdir target name is empty", "mkdir",
+            displayA);
+      }
+      if (ex_host_authorize_typed_fs_open(
               principal, a.c_str(), 3, kMkdirSurface, *parent, -1, 0, 1,
-              nullptr) != 1 ||
-          ex_host_authorize_typed_fs_open(
+              nullptr) != 1) {
+        return fsAsyncAuthorizationError("mkdir", displayA);
+      }
+      if (ex_host_authorize_typed_fs_open(
               principal, a.c_str(), 4, kMkdirSurface, *parent, -1, 0, 1,
               nullptr) != 1) {
-        return fsAsyncError(EACCES, "mkdir", displayA);
+        return fsAsyncAuthorizationError("mkdir", displayA);
       }
       const auto mode = static_cast<mode_t>(y < 0 ? 0777 : y);
       if (::mkdirat(*parent, name.c_str(), mode) != 0) {
@@ -3386,7 +4024,7 @@ static FsAsyncResult fsReaddirArmedWork(
   if (ex_host_authorize_typed_fs_open(
           principal, backingPath.c_str(), 5, surface, *parent, *target, 0, 0,
           presented) != 1) {
-    return fsAsyncError(EACCES, "scandir", virtualPath);
+    return fsAsyncAuthorizationError("scandir", virtualPath);
   }
   if (!stableDirectory()) {
     return fsAsyncTypedError(
@@ -3415,7 +4053,7 @@ static FsAsyncResult fsReaddirArmedWork(
             authorizationLease, principal, backingPath.c_str(), surface, 5,
             *parent, *target, 0, 0, presented) != 1) {
       ::closedir(directory);
-      return fsAsyncError(EACCES, "scandir", virtualPath);
+      return fsAsyncAuthorizationError("scandir", virtualPath);
     }
     if (!stableDirectory()) {
       ::closedir(directory);
@@ -3477,7 +4115,7 @@ static FsAsyncResult fsRealpathArmedWork(
   if (ex_host_authorize_typed_fs_open(
           principal, backingPath.c_str(), 5, 9, *parent, *target, 0, 0,
           presented) != 1) {
-    return fsAsyncError(EACCES, "realpath", virtualPath);
+    return fsAsyncAuthorizationError("realpath", virtualPath);
   }
   if (!stableTarget()) {
     return fsAsyncTypedError(
@@ -3595,7 +4233,7 @@ static FsAsyncResult fsReadlinkArmedWork(
   if (ex_host_authorize_typed_fs_open(
           principal, backingPath.c_str(), 5, kFsSurfaceReadlink,
           *parent, *target, 0, 0, nullptr) != 1) {
-    return fsAsyncError(EACCES, "readlink", virtualPath);
+    return fsAsyncAuthorizationError("readlink", virtualPath);
   }
   if (!sameObjectAt(*parent, name, *target) ||
       !fdResolvesToPath(*parent, parentPath)) {
@@ -3691,7 +4329,7 @@ static FsAsyncResult fsAccessArmedWork(
           principal, backingPath.c_str(), 5, kFsSurfaceAccess,
           *parent, *target, needsRead ? 1 : 0, needsWrite ? 1 : 0,
           nullptr) != 1) {
-    return fsAsyncError(EACCES, "access", virtualPath);
+    return fsAsyncAuthorizationError("access", virtualPath);
   }
   int accessResult = -1;
 #if defined(AT_EMPTY_PATH)
@@ -3724,7 +4362,7 @@ static FsAsyncResult fsTruncateArmedWork(
   if (ex_host_authorize_typed_fs_open(
           principal, backingPath.c_str(), 2, kFsSurfaceTruncate,
           *parent, *target, 0, 1, nullptr) != 1) {
-    return fsAsyncError(EACCES, "truncate", virtualPath);
+    return fsAsyncAuthorizationError("truncate", virtualPath);
   }
   if (::ftruncate(*target, length) != 0) {
     return fsAsyncError(errno, "truncate", virtualPath);
@@ -3807,7 +4445,7 @@ static FsAsyncResult fsStatArmedWork(
   if (ex_host_authorize_typed_fs_open(
           principal, backingPath.c_str(), 5, surface, *parent, targetFd, 0, 0,
           presented) != 1) {
-    return fsAsyncError(EACCES, "fstat", virtualPath);
+    return fsAsyncAuthorizationError("fstat", virtualPath);
   }
   if (!stableTarget()) {
     return fsAsyncTypedError(
@@ -4010,7 +4648,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
                     descriptors.authorizationBackingPath.c_str(), 1, 2,
                     *parent, fdRaw, 1, 0,
                     presented) != 1) {
-              throw facebook::jsi::JSError(runtime, "Permission denied");
+              throwTypedFsAuthorizationError(
+                  runtime, "read", resolvedPath.virtualPath);
             }
             ssize_t amount;
             do {
@@ -4703,7 +5342,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
                   owner, resolvedPath.backing.c_str(), 0, 0, -1, -1,
                   needsRead ? 1 : 0, needsWrite ? 1 : 0,
                   presentedHandlePtr) != 1) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
+            throwTypedFsAuthorizationError(
+                runtime, "open", resolvedPath.virtualPath);
           }
         } else {
           requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
@@ -5937,29 +6577,69 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto resolvedPath = exactResolveVfsPath(runtime, path);
         classifyOpenAccess(flags, canRead, canWrite);
-        auto descriptors = openArmedDescriptorTarget(
-            runtime, resolvedPath.backing, resolvedPath.virtualPath, 0, flags,
-            mode, canRead, canWrite, presentedHandle);
-        return startFsAsync(
-            handle, runtime,
-            [principal,
-             backingPath = descriptors.authorizationBackingPath,
-             virtualPath = resolvedPath.virtualPath, canRead, canWrite,
-             presentedHandle, parent = std::move(descriptors.parent),
-             fd = std::move(descriptors.target)]() mutable {
-          auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
-          result.number = *fd;
-          result.registerOpenedFd = true;
-          result.openedFdGuard = std::move(fd);
-          result.openedBackingPath = backingPath;
-          result.openedVirtualPath = virtualPath;
-          result.openedCanRead = canRead;
-          result.openedCanWrite = canWrite;
-          result.openedOwner = principal;
-          result.openedPresentedHandle = presentedHandle;
-          result.openedRetainedParent = std::move(parent);
-          return result;
-        });
+        auto makeOpenWork =
+            [principal, virtualPath = resolvedPath.virtualPath, canRead,
+             canWrite, presentedHandle](TypedPathDescriptors descriptors)
+                -> std::function<FsAsyncResult()> {
+          return
+              [principal,
+               backingPath = descriptors.authorizationBackingPath,
+               virtualPath, canRead, canWrite, presentedHandle,
+               parent = std::move(descriptors.parent),
+               fd = std::move(descriptors.target)]() mutable {
+                auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+                result.number = *fd;
+                result.registerOpenedFd = true;
+                result.openedFdGuard = std::move(fd);
+                result.openedBackingPath = backingPath;
+                result.openedVirtualPath = virtualPath;
+                result.openedCanRead = canRead;
+                result.openedCanWrite = canWrite;
+                result.openedOwner = principal;
+                result.openedPresentedHandle = presentedHandle;
+                result.openedRetainedParent = std::move(parent);
+                return result;
+              };
+        };
+        if ((flags & (O_CREAT | O_TRUNC)) == 0) {
+          auto descriptors = openArmedDescriptorTarget(
+              runtime, resolvedPath.backing, resolvedPath.virtualPath, 0,
+              flags, mode, canRead, canWrite, presentedHandle);
+          return startFsAsync(
+              handle, runtime, makeOpenWork(std::move(descriptors)));
+        }
+        auto prepared = std::make_shared<TypedPathDescriptors>();
+        auto preparedHandle =
+            std::make_shared<std::string>(std::move(presentedHandle));
+        std::function<FsAsyncResult()> committedWork =
+            [principal, virtualPath = resolvedPath.virtualPath, canRead,
+             canWrite, preparedHandle, prepared]() mutable {
+              auto fd = std::move(prepared->target);
+              auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+              result.number = *fd;
+              result.registerOpenedFd = true;
+              result.openedFdGuard = std::move(fd);
+              result.openedBackingPath =
+                  std::move(prepared->authorizationBackingPath);
+              result.openedVirtualPath = std::move(virtualPath);
+              result.openedCanRead = canRead;
+              result.openedCanWrite = canWrite;
+              result.openedOwner = principal;
+              result.openedPresentedHandle = std::move(*preparedHandle);
+              result.openedRetainedParent = std::move(prepared->parent);
+              return result;
+            };
+        std::function<void()> committedPrepare =
+            [&runtime, resolvedPath = std::move(resolvedPath), flags, mode,
+             canRead, canWrite, preparedHandle, prepared]() mutable {
+              auto descriptors = openArmedDescriptorTarget(
+                  runtime, resolvedPath.backing, resolvedPath.virtualPath, 0,
+                  flags, mode, canRead, canWrite, *preparedHandle);
+              *prepared = std::move(descriptors);
+            };
+        return startCommittedFsAsync(
+            handle, runtime, std::move(committedWork),
+            std::move(committedPrepare));
       });
   rt.global().setProperty(rt, "__exactFsOpenAsync", std::move(openAsyncFn));
 
@@ -5976,21 +6656,30 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (sessionDescriptorCloseIsNoOp(runtime, fd)) {
           return startFsAsync(handle, runtime, []() { return fsAsyncOk(); });
         }
-        std::optional<FdEntry> entry = requireOwnedFd(runtime, fd, "close");
-        auto closeResult = std::make_shared<FsAsyncResult>();
+        auto entry = std::make_shared<FdEntry>(
+            requireOwnedFd(runtime, fd, "close"));
         return startFsAsync(
             handle, runtime,
-            [closeResult]() mutable { return std::move(*closeResult); },
-            {},
-            [fd, entry = std::move(entry), closeResult]() mutable {
-              // Queue admission happens before this commit hook and the pool
-              // mutex prevents the worker from running it early. Therefore a
-              // rejected enqueue leaves both descriptor and authority intact,
-              // while an accepted close publishes revocation before any later
-              // JS operation can race fd-number reuse.
-              unregisterFd(fd);
-              *closeResult = fsCloseWork(fd);
-              if (!closeResult->ok) restoreFdEntry(fd, entry);
+            [fd, entry]() mutable {
+              if (!commitFdAsyncCloseReservation(fd, *entry)) {
+                return fsAsyncError(EBADF, "close");
+              }
+              auto result = fsCloseWork(fd);
+              if (!result.ok) {
+                auto restored = *entry;
+                restored.asyncCloseReserved = false;
+                restoreFdEntry(fd, restored);
+              }
+              return result;
+            },
+            [fd, entry]() {
+              cancelFdAsyncCloseReservation(fd, *entry);
+            },
+            [fd, entry]() {
+              if (!reserveFdForAsyncClose(fd, *entry)) {
+                throw std::runtime_error(
+                    "async close descriptor reservation failed");
+              }
             });
       });
   rt.global().setProperty(rt, "__exactFsCloseAsync", std::move(closeAsyncFn));
@@ -6139,22 +6828,29 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             }
             presentedHandle = args[5].asString(runtime).utf8(runtime);
           }
-          auto descriptors = openArmedWriteTarget(
-              runtime, resolvedPath.backing, resolvedPath.virtualPath, 7,
-              posixFlags, mode, true, needsRead, presentedHandle);
           uint64_t principal = currentPrincipalId();
-          return startFsAsync(
-              handle, runtime,
-              [principal,
-               backingPath = descriptors.authorizationBackingPath,
-               virtualPath = resolvedPath.virtualPath, presentedHandle,
-               parent = std::move(descriptors.parent),
-               fd = std::move(descriptors.target), dataBytes, flush]() {
+          auto prepared = std::make_shared<TypedPathDescriptors>();
+          auto preparedHandle =
+              std::make_shared<std::string>(std::move(presentedHandle));
+          std::function<FsAsyncResult()> committedWork =
+              [principal, virtualPath = resolvedPath.virtualPath,
+               preparedHandle, prepared, dataBytes, flush]() {
                 return fsWriteFileArmedWork(
-                    principal, backingPath, virtualPath, presentedHandle,
-                    parent, fd,
-                    *dataBytes, flush);
-              });
+                    principal, prepared->authorizationBackingPath,
+                    virtualPath, *preparedHandle, prepared->parent,
+                    prepared->target, *dataBytes, flush);
+              };
+          std::function<void()> committedPrepare =
+              [&runtime, resolvedPath = std::move(resolvedPath), posixFlags,
+               mode, needsRead, preparedHandle, prepared]() mutable {
+                auto descriptors = openArmedWriteTarget(
+                    runtime, resolvedPath.backing, resolvedPath.virtualPath, 7,
+                    posixFlags, mode, true, needsRead, *preparedHandle);
+                *prepared = std::move(descriptors);
+              };
+          return startCommittedFsAsync(
+              handle, runtime, std::move(committedWork),
+              std::move(committedPrepare));
         }
         requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
         return startFsAsync(
@@ -6371,20 +7067,27 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               });
         }
         if (armed && op == "readlink") {
-          auto descriptors = openArmedLinkTarget(
-              runtime, resolvedA.backing, resolvedA.virtualPath,
-              kFsSurfaceReadlink, "");
-          auto projectRoot = exactResolveVfsPath(runtime, "/project");
-          auto result = fsReadlinkArmedWork(
-              runtime, principal, descriptors.authorizationBackingPath,
-              resolvedA.virtualPath, projectRoot.backing,
-              projectRoot.virtualPath, descriptors.parent,
-              descriptors.target);
-          return startFsAsync(
-              handle, runtime,
-              [result = std::move(result)]() mutable {
-                return std::move(result);
-              });
+          auto prepared = std::make_shared<FsAsyncResult>();
+          std::function<FsAsyncResult()> committedWork =
+              [prepared]() mutable { return std::move(*prepared); };
+          std::function<void()> committedPrepare =
+              [&runtime, principal, resolvedA = std::move(resolvedA),
+               prepared]() mutable {
+                auto descriptors = openArmedLinkTarget(
+                    runtime, resolvedA.backing, resolvedA.virtualPath,
+                    kFsSurfaceReadlink, "");
+                auto projectRoot = exactResolveVfsPath(runtime, "/project");
+                auto result = fsReadlinkArmedWork(
+                    runtime, principal,
+                    descriptors.authorizationBackingPath,
+                    resolvedA.virtualPath, projectRoot.backing,
+                    projectRoot.virtualPath, descriptors.parent,
+                    descriptors.target);
+                *prepared = std::move(result);
+              };
+          return startCommittedFsAsync(
+              handle, runtime, std::move(committedWork),
+              std::move(committedPrepare));
         }
         if (armed && op == "statfs") {
           auto descriptors = openArmedListTarget(
@@ -6402,12 +7105,17 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               });
         }
         if (armed && op == "mkdir") {
-          createArmedDirectory(
-              runtime, resolvedA.backing, resolvedA.virtualPath,
-              y < 0 ? 0777 : static_cast<int>(y));
-          return startFsAsync(handle, runtime, []() {
-            return fsAsyncOk();
-          });
+          std::function<FsAsyncResult()> committedWork =
+              []() { return fsAsyncOk(); };
+          std::function<void()> committedPrepare =
+              [&runtime, resolvedA = std::move(resolvedA), y]() mutable {
+                createArmedDirectory(
+                    runtime, resolvedA.backing, resolvedA.virtualPath,
+                    y < 0 ? 0777 : static_cast<int>(y));
+              };
+          return startCommittedFsAsync(
+              handle, runtime, std::move(committedWork),
+              std::move(committedPrepare));
         }
         if (armed && op == "truncate") {
           auto descriptors = openArmedWriteTarget(

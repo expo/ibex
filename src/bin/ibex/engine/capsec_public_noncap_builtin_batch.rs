@@ -122,6 +122,87 @@ struct PublicBatchArtifact {
     executions: Vec<serde_json::Value>,
 }
 
+/// Test-only armed engine facade. Its `eval_immediate` spelling preserves the
+/// existing public-builtin harness while every source string is consumed as a
+/// closed authenticated submission, never by the post-bootstrap bare evaluator.
+/// Reclaiming the sequence between calls is safe because the Host's cached
+/// session token owns the single monotonic ordinal stream.
+/// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry —
+/// armed project source enters only through authenticated session submission.
+struct AuthenticatedNoncapEngine {
+    host: crate::host::Host,
+    engine: HermesEngine,
+}
+
+impl std::ops::Deref for AuthenticatedNoncapEngine {
+    type Target = HermesEngine;
+
+    fn deref(&self) -> &Self::Target {
+        &self.engine
+    }
+}
+
+impl AuthenticatedNoncapEngine {
+    async fn eval_immediate(&self, source: &str) -> anyhow::Result<Option<String>> {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+
+        let session = self.host.mint_armed_session_token()?;
+        let mut sequence =
+            ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
+        let request = sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })?
+            .authorize_inline()
+            .bind_bytes(source.as_bytes().to_vec())
+            .into_request()?;
+        let ordinal = request.submission_ordinal();
+        let evaluation = self
+            .engine
+            .evaluate_authenticated(&session, request)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "authenticated public-builtin submission {ordinal} failed: {error:#}"
+                )
+            })?;
+        match evaluation {
+            AuthenticatedEvaluation::Empty => Ok(None),
+            AuthenticatedEvaluation::Value { display, receipt } => {
+                self.engine
+                    .release_undisplayed_value(receipt.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "authenticated public-builtin submission {ordinal} lost its value receipt"
+                        )
+                    })?)
+                    .await?;
+                match display.kind {
+                    AuthenticatedDisplayKind::Undefined => Ok(None),
+                    AuthenticatedDisplayKind::String => serde_json::from_str(&display.text)
+                        .map(Some)
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "authenticated public-builtin submission {ordinal} returned an invalid string display: {error}"
+                            )
+                        }),
+                    _ => Ok(Some(display.text)),
+                }
+            }
+            AuthenticatedEvaluation::Throw(thrown) => anyhow::bail!(
+                "authenticated public-builtin submission {ordinal} threw: {thrown:?}"
+            ),
+            AuthenticatedEvaluation::Cancelled => anyhow::bail!(
+                "authenticated public-builtin submission {ordinal} was cancelled"
+            ),
+            AuthenticatedEvaluation::Lifecycle(code) => anyhow::bail!(
+                "authenticated public-builtin submission {ordinal} exited with lifecycle code {code}"
+            ),
+        }
+    }
+}
+
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)
         .expect("public recipe evidence must have a canonical JSON encoding");
@@ -712,6 +793,22 @@ fn export_module_preload_script(invocation: &BuiltinInvocation) -> String {
     )
 }
 
+async fn authenticated_noncap_engine(
+    host: &crate::host::Host,
+    digest: &str,
+) -> AuthenticatedNoncapEngine {
+    let engine = HermesEngine::new_with_armed_snapshot(Some(digest))
+        .expect("create authenticated noncap builtin engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load authenticated noncap builtin runtime");
+    AuthenticatedNoncapEngine {
+        host: host.clone(),
+        engine,
+    }
+}
+
 async fn drive_invocation_to_quiescence(
     engine: &HermesEngine,
     completion: &CompletionExpectation,
@@ -734,7 +831,7 @@ async fn drive_invocation_to_quiescence(
 }
 
 async fn execute_recipe(
-    engine: &HermesEngine,
+    engine: &AuthenticatedNoncapEngine,
     recipe: &Recipe,
     engine_binary_digest: &str,
 ) -> std::result::Result<serde_json::Value, String> {
@@ -914,16 +1011,11 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
             snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(builtin_imports);
         });
-    assert_ne!(crate::host::abi::install_host(host), 0);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before noncap builtin public probes");
-    let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
-        .expect("create exact noncap builtin engine");
-    engine
-        .load_runtime()
-        .await
-        .expect("load exact noncap builtin runtime");
+    let engine = authenticated_noncap_engine(&host, &digest).await;
     let mut executions = Vec::with_capacity(recipes.len());
     let mut failures = Vec::new();
     for (index, recipe) in recipes.iter().enumerate() {
@@ -1070,14 +1162,9 @@ async fn noncap_observer_covers_ready_work_before_completion() {
     let _lock = hermes_engine_test_lock().lock().await;
     let (host, digest) =
         build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
-    assert_ne!(crate::host::abi::install_host(host), 0);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
-    let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
-        .expect("create exact completion-proof engine");
-    engine
-        .load_runtime()
-        .await
-        .expect("load exact completion-proof runtime");
+    let engine = authenticated_noncap_engine(&host, &digest).await;
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
         "public.noncap.ready-work-completion"
     ));
@@ -1116,14 +1203,9 @@ async fn authored_call_harness_never_counts_a_throw_as_body_entry() {
         build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
             snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
         });
-    assert_ne!(crate::host::abi::install_host(host), 0);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
-    let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
-        .expect("create exact authored-call marker engine");
-    engine
-        .load_runtime()
-        .await
-        .expect("load exact authored-call marker runtime");
+    let engine = authenticated_noncap_engine(&host, &digest).await;
 
     let invalid = path_basename_call_invocation(serde_json::json!({
         "kind": "json",
@@ -1176,22 +1258,22 @@ async fn manifest_builtin_fanout_preserves_terminal_authority_checks() {
             snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:fs"]);
         },
     );
-    assert_ne!(crate::host::abi::install_host(host), 0);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
-    let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
-        .expect("create exact builtin terminal authority engine");
-    engine
-        .load_runtime()
-        .await
-        .expect("load exact builtin terminal authority runtime");
+    let engine = authenticated_noncap_engine(&host, &digest).await;
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(
             "public.builtin.internal-fanout-terminal-denial"
         )
     );
+    // Authenticated project source names the armed VFS namespace, never the
+    // backing host path used to materialize this fixture.
+    // @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings —
+    // project files are addressed through their logical `/project` mount.
+    let virtual_secret = "/project/secret.txt";
     let script = format!(
         "(function(){{var fs;try{{fs=require('node:fs');}}catch(error){{return 'import-denied';}}try{{fs.readFileSync({},'utf8');return 'terminal-allowed';}}catch(error){{return 'terminal-denied';}}}})()",
-        serde_json::to_string(&secret.to_string_lossy()).expect("serialize terminal fixture path")
+        serde_json::to_string(virtual_secret).expect("serialize virtual terminal path")
     );
     let result = engine
         .eval_immediate(&script)
@@ -1213,5 +1295,5 @@ async fn manifest_builtin_fanout_preserves_terminal_authority_checks() {
     );
     assert!(typed.iter().any(|decision| {
         decision.evidence.outcome == capsec_semantics::decision::DecisionOutcome::Deny
-    }));
+    }), "terminal observation contained no denial: {typed:#?}");
 }

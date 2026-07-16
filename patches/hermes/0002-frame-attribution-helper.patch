@@ -26,7 +26,7 @@
 # the whole stack is in place, so the forward reference is fine.
 diff --git a/include/hermes/VM/CapabilityAttribution.h b/include/hermes/VM/CapabilityAttribution.h
 new file mode 100644
-index 000000000..2b1a48add
+index 0000000000000000000000000000000000000000..2b1a48add48d6a1bd3f5b900ebcc5056202267e1
 --- /dev/null
 +++ b/include/hermes/VM/CapabilityAttribution.h
 @@ -0,0 +1,37 @@
@@ -68,7 +68,7 @@ index 000000000..2b1a48add
 +
 +#endif // HERMES_VM_CAPABILITYATTRIBUTION_H
 diff --git a/lib/VM/CMakeLists.txt b/lib/VM/CMakeLists.txt
-index 663a0455e..d265d76bf 100644
+index 663a0455edd2d6fa560f5e278a2bc91f23b37b7b..d265d76bffdfb443c53c931748c856f1426f3f12 100644
 --- a/lib/VM/CMakeLists.txt
 +++ b/lib/VM/CMakeLists.txt
 @@ -11,6 +11,7 @@ set(source_files
@@ -81,7 +81,7 @@ index 663a0455e..d265d76bf 100644
    DictPropertyMap.cpp
 diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
 new file mode 100644
-index 000000000..0cd93dc8f
+index 0000000000000000000000000000000000000000..5e8ecbac03df48c2e34251e85aecf4b2b3f19088
 --- /dev/null
 +++ b/lib/VM/CapabilityAttribution.cpp
 @@ -0,0 +1,148 @@

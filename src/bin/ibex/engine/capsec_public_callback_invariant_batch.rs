@@ -118,6 +118,87 @@ struct ScenarioExecution {
     legacy_observation_count: usize,
 }
 
+/// Test-only armed engine facade. Its `eval_immediate` spelling preserves the
+/// existing conformance harness shape, but every call consumes a closed,
+/// authenticated REPL submission; it never reaches Hermes' sealed bare
+/// evaluator. Short-lived sequence claims remain one monotonic stream because
+/// the Host caches the exact session token and its ordinal state.
+/// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry —
+/// armed project source enters only through authenticated session submission.
+struct AuthenticatedCallbackEngine {
+    host: crate::host::Host,
+    engine: HermesEngine,
+}
+
+impl std::ops::Deref for AuthenticatedCallbackEngine {
+    type Target = HermesEngine;
+
+    fn deref(&self) -> &Self::Target {
+        &self.engine
+    }
+}
+
+impl AuthenticatedCallbackEngine {
+    async fn eval_immediate(&self, source: &str) -> anyhow::Result<Option<String>> {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+
+        let session = self.host.mint_armed_session_token()?;
+        let mut sequence =
+            ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
+        let request = sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })?
+            .authorize_inline()
+            .bind_bytes(source.as_bytes().to_vec())
+            .into_request()?;
+        let ordinal = request.submission_ordinal();
+        let evaluation = self
+            .engine
+            .evaluate_authenticated(&session, request)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "authenticated callback submission {ordinal} failed: {error:#}"
+                )
+            })?;
+        match evaluation {
+            AuthenticatedEvaluation::Empty => Ok(None),
+            AuthenticatedEvaluation::Value { display, receipt } => {
+                self.engine
+                    .release_undisplayed_value(receipt.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "authenticated callback submission {ordinal} lost its value receipt"
+                        )
+                    })?)
+                    .await?;
+                match display.kind {
+                    AuthenticatedDisplayKind::Undefined => Ok(None),
+                    AuthenticatedDisplayKind::String => serde_json::from_str(&display.text)
+                        .map(Some)
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "authenticated callback submission {ordinal} returned an invalid string display: {error}"
+                            )
+                        }),
+                    _ => Ok(Some(display.text)),
+                }
+            }
+            AuthenticatedEvaluation::Throw(thrown) => anyhow::bail!(
+                "authenticated callback submission {ordinal} threw: {thrown:?}"
+            ),
+            AuthenticatedEvaluation::Cancelled => anyhow::bail!(
+                "authenticated callback submission {ordinal} was cancelled"
+            ),
+            AuthenticatedEvaluation::Lifecycle(code) => anyhow::bail!(
+                "authenticated callback submission {ordinal} exited with lifecycle code {code}"
+            ),
+        }
+    }
+}
+
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)
         .expect("callback invariant evidence must have canonical JSON bytes");
@@ -432,7 +513,7 @@ fn invariant_selector() -> serde_json::Value {
         "cap": "env:read",
         "resource": {
             "kind": "environment-name",
-            "target": "broker-base",
+            "target": "principal-overlay",
             "name": "PATH",
         },
     })
@@ -713,6 +794,7 @@ fn prepare_embedder_artifact_fixture() -> EmbedderArtifactFixture {
     .expect("checked armed snapshot fixture must be JSON");
     snapshot["workflow"] = serde_json::json!("production");
     snapshot["effectiveMode"] = serde_json::json!("enforce");
+    snapshot["environmentBase"] = serde_json::json!([]);
     snapshot["engine"] = serde_json::json!({
         "target": embedder_runtime_target_triple(),
         "binaryDigest": engine.binary_digest,
@@ -742,6 +824,25 @@ fn prepare_embedder_artifact_fixture() -> EmbedderArtifactFixture {
         "hostPath": artifact_host_path(&project_root),
         "object": artifact_object_identity(&project_root),
     }]);
+    let project_path = artifact_host_path(&project_root);
+    snapshot["projectRootDiscovery"] = serde_json::json!({
+        "origin": project_path,
+        "selectedRoot": artifact_host_path(&project_root),
+        "markerKind": "explicit-project",
+        "markerPath": artifact_host_path(&project_root),
+        "markerSetVersion": capsec_semantics::arming::PROJECT_ROOT_MARKER_SET_VERSION,
+    });
+    let fixture_bindings: Vec<capsec_semantics::arming::ArmedRootBinding> =
+        serde_json::from_value(snapshot["rootBindings"].clone()).unwrap();
+    snapshot["pathCanonicalizers"] = serde_json::to_value(
+        capsec_semantics::path_alias::contract_fixture_canonicalizer_rows(
+            fixture_bindings
+                .iter()
+                .map(|binding| (binding.object.platform, binding.object.volume.clone())),
+        )
+        .expect("derive embedder fixture path canonicalizers"),
+    )
+    .expect("serialize embedder fixture path canonicalizers");
 
     let policy_bytes = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -797,6 +898,15 @@ fn prepare_embedder_artifact_fixture() -> EmbedderArtifactFixture {
             .map(|feature| feature.as_str().unwrap().into())
             .collect(),
         package_graph_digest: digest_at(&["packageGraph", "digest"]),
+        entry: serde_json::from_value(snapshot["entry"].clone()).unwrap(),
+        project_root_discovery: serde_json::from_value(
+            snapshot["projectRootDiscovery"].clone(),
+        )
+        .unwrap(),
+        path_canonicalizers: serde_json::from_value(
+            snapshot["pathCanonicalizers"].clone(),
+        )
+        .unwrap(),
         protected_artifacts: vec![
             ExpectedProtectedArtifact {
                 role: capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy,
@@ -933,6 +1043,85 @@ fn assert_context_principal(
         .is_some_and(|value| value.strip_prefix("u64:").is_some_and(|raw| raw.parse::<u64>().is_ok())));
 }
 
+fn callback_module_id(result: &serde_json::Value) -> u64 {
+    result["context"]["principalId"]
+        .as_str()
+        .expect("callback context has no principal id")
+        .strip_prefix("u64:")
+        .expect("callback context principal id is not tagged")
+        .parse()
+        .expect("callback context principal id is not numeric")
+}
+
+/// Exercise the same principal-authenticating Host boundary captured by the
+/// sealed `Ibex.permissions` bootstrap facade. The facade itself is
+/// deliberately absent after arming, so the conformance harness carries the
+/// one-shot callback observation into the native boundary instead of making a
+/// bare-eval exception or restoring a session-wide authority surface.
+/// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence —
+/// typed grant mutation authenticates the executing principal at the Host ABI.
+fn request_typed_dynamic_for_callback(
+    result: &serde_json::Value,
+    request: &serde_json::Value,
+) -> std::result::Result<bool, String> {
+    let request = capsec_semantics::canonical::to_jcs_bytes(request)
+        .map_err(|error| format!("cannot encode typed permission request: {error}"))?;
+    let outcome = unsafe {
+        crate::host::abi::ex_host_typed_dynamic_grant(
+            callback_module_id(result),
+            request.as_ptr(),
+            request.len(),
+        )
+    };
+    match outcome {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err("Typed permission request refused".into()),
+    }
+}
+
+/// Re-attenuate through the production Host ABI using the principal observed
+/// inside the scheduled callback. Root callback scenarios have a one-principal
+/// constrained stack; the ABI still resolves that opaque engine id through the
+/// installed armed Host before it accepts the request.
+/// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence —
+/// bearer minting is actor- and constrained-stack-authenticated.
+fn mint_typed_handle_for_callback(
+    result: &serde_json::Value,
+    request: &serde_json::Value,
+) -> std::result::Result<String, String> {
+    let module_id = callback_module_id(result);
+    let module_ids = [module_id];
+    let request = capsec_semantics::canonical::to_jcs_bytes(request)
+        .map_err(|error| format!("cannot encode typed handle request: {error}"))?;
+    let output = unsafe {
+        crate::host::abi::ex_host_typed_handle_mint(
+            module_id,
+            module_ids.as_ptr(),
+            module_ids.len(),
+            request.as_ptr(),
+            request.len(),
+        )
+    };
+    if output.is_null() {
+        return Err("typed handle host is unavailable".into());
+    }
+    let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
+        .to_bytes()
+        .to_vec();
+    crate::host::abi::ex_host_free_string(output);
+    let envelope: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("typed handle response is not JSON: {error}"))?;
+    if let Some(error) = envelope["error"].as_str() {
+        return Err(error.to_owned());
+    }
+    envelope["handleId"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| "Typed handle mint returned no handleId".into())
+}
+
 fn assert_package_global_withholding(result: &serde_json::Value) {
     assert_eq!(
         result["globals"],
@@ -1001,7 +1190,7 @@ fn assert_typed_decisions(
     }
 }
 
-async fn read_callback_result(engine: &HermesEngine) -> serde_json::Value {
+async fn read_callback_result(engine: &AuthenticatedCallbackEngine) -> serde_json::Value {
     let encoded = engine
         .eval_immediate("JSON.stringify(globalThis.__capsecCallbackResult)")
         .await
@@ -1010,7 +1199,7 @@ async fn read_callback_result(engine: &HermesEngine) -> serde_json::Value {
     serde_json::from_str(&encoded).expect("callback public-operation result must be JSON")
 }
 
-async fn prewarm_package_public_operation(engine: &HermesEngine) {
+async fn prewarm_package_public_operation(engine: &AuthenticatedCallbackEngine) {
     engine
         .eval_immediate("require('image-lib'); 'ready'")
         .await
@@ -1018,7 +1207,7 @@ async fn prewarm_package_public_operation(engine: &HermesEngine) {
 }
 
 async fn invoke_package_environment_read(
-    engine: &HermesEngine,
+    engine: &AuthenticatedCallbackEngine,
     session_id: &str,
 ) -> ObservedInvocation {
     prewarm_package_public_operation(engine).await;
@@ -1047,7 +1236,7 @@ require('image-lib')(function(result) {{ globalThis.__capsecCallbackResult = res
     }
 }
 
-async fn schedule_package_environment_read(engine: &HermesEngine) {
+async fn schedule_package_environment_read(engine: &AuthenticatedCallbackEngine) {
     prewarm_package_public_operation(engine).await;
     let observer_name = engine
         .install_capsec_context_test_observer()
@@ -1068,7 +1257,7 @@ setTimeout(require('image-lib'), 0, function(result) {{ globalThis.__capsecCallb
 }
 
 async fn take_scheduled_package_operation(
-    engine: &HermesEngine,
+    engine: &AuthenticatedCallbackEngine,
     session_id: &str,
 ) -> ObservedInvocation {
     begin_observation(session_id);
@@ -1085,7 +1274,7 @@ async fn take_scheduled_package_operation(
 }
 
 async fn invoke_root_environment_read(
-    engine: &HermesEngine,
+    engine: &AuthenticatedCallbackEngine,
     session_id: &str,
 ) -> ObservedInvocation {
     let observer_name = engine
@@ -1119,8 +1308,35 @@ async fn invoke_root_environment_read(
     }
 }
 
+async fn observe_root_authority_seal(
+    engine: &AuthenticatedCallbackEngine,
+) -> serde_json::Value {
+    let observer_name = engine
+        .install_capsec_context_test_observer()
+        .await
+        .expect("install root authority-seal context observer");
+    let script = format!(
+        r#"JSON.stringify((function(name) {{
+  var observer = globalThis[name];
+  var removed = delete globalThis[name];
+  if (typeof observer !== 'function' || !removed || (name in globalThis)) throw new Error('CapSec context observer was project-reachable');
+  return {{
+    context: observer(),
+    facadeWithheld: typeof Ibex === 'object' && typeof Ibex.permissions === 'undefined' && typeof Ibex.authority === 'undefined'
+  }};
+}})({0}))"#,
+        serde_json::to_string(&observer_name).unwrap()
+    );
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("observe armed root authority seal")
+        .expect("root authority-seal observer returned no result");
+    serde_json::from_str(&encoded).expect("root authority-seal observation must be JSON")
+}
+
 async fn invoke_attribution_guard_callback(
-    engine: &HermesEngine,
+    engine: &AuthenticatedCallbackEngine,
     session_id: &str,
     request: &serde_json::Value,
 ) -> ObservedInvocation {
@@ -1133,16 +1349,13 @@ async fn invoke_attribution_guard_callback(
 var observer = globalThis[{0}];
 var removed = delete globalThis[{0}];
 if (typeof observer !== 'function' || !removed || ({0} in globalThis)) throw new Error('CapSec context observer was project-reachable');
-setTimeout(function(observer, request) {{
-  var result = {{context: observer(), requestRefused: false, errorMessage: null}};
-  try {{ result.requestRefused = !Ibex.permissions.requestTyped(request); }}
-  catch (error) {{ result.requestRefused = true; result.errorMessage = String(error && error.message || error); }}
+setTimeout(function(observer) {{
+  var result = {{context: observer()}};
   try {{ result.value = typeof process.env.PATH === 'string'; }}
   catch (error) {{ result.threw = String(error && error.message || error); }}
   globalThis.__capsecCallbackResult = result;
-}}, 0, observer, {1});"#,
-        serde_json::to_string(&observer_name).unwrap(),
-        serde_json::to_string(request).unwrap()
+}}, 0, observer);"#,
+        serde_json::to_string(&observer_name).unwrap()
     );
     engine
         .eval_immediate(&script)
@@ -1154,7 +1367,17 @@ setTimeout(function(observer, request) {{
         .await
         .expect("drive public attribution-guard callback");
     let typed_decisions = finish_observation(session_id);
-    let result = read_callback_result(engine).await;
+    let mut result = read_callback_result(engine).await;
+    match request_typed_dynamic_for_callback(&result, request) {
+        Ok(granted) => {
+            result["requestRefused"] = serde_json::Value::Bool(!granted);
+            result["errorMessage"] = serde_json::Value::Null;
+        }
+        Err(error) => {
+            result["requestRefused"] = serde_json::Value::Bool(true);
+            result["errorMessage"] = serde_json::Value::String(error);
+        }
+    }
     ObservedInvocation {
         result,
         typed_decisions,
@@ -1162,7 +1385,7 @@ setTimeout(function(observer, request) {{
 }
 
 async fn invoke_root_handle_mint_callback(
-    engine: &HermesEngine,
+    engine: &AuthenticatedCallbackEngine,
     session_id: &str,
     request: &serde_json::Value,
 ) -> ObservedInvocation {
@@ -1175,14 +1398,10 @@ async fn invoke_root_handle_mint_callback(
 var observer = globalThis[{0}];
 var removed = delete globalThis[{0}];
 if (typeof observer !== 'function' || !removed || ({0} in globalThis)) throw new Error('CapSec context observer was project-reachable');
-setTimeout(function(observer, request) {{
-  var result = {{context: observer()}};
-  try {{ result.value = Ibex.authority.mintHandle(request); }}
-  catch (error) {{ result.threw = String(error && error.message || error); }}
-  globalThis.__capsecCallbackResult = result;
-}}, 0, observer, {1});"#,
-        serde_json::to_string(&observer_name).unwrap(),
-        serde_json::to_string(request).unwrap()
+setTimeout(function(observer) {{
+  globalThis.__capsecCallbackResult = {{context: observer()}};
+}}, 0, observer);"#,
+        serde_json::to_string(&observer_name).unwrap()
     );
     engine
         .eval_immediate(&script)
@@ -1194,7 +1413,17 @@ setTimeout(function(observer, request) {{
         .await
         .expect("drive public handle-mint callback");
     let typed_decisions = finish_observation(session_id);
-    let result = read_callback_result(engine).await;
+    let mut result = read_callback_result(engine).await;
+    match mint_typed_handle_for_callback(&result, request) {
+        Ok(handle_id) => {
+            result["value"] = serde_json::Value::String(handle_id);
+            result["threw"] = serde_json::Value::Null;
+        }
+        Err(error) => {
+            result["value"] = serde_json::Value::Null;
+            result["threw"] = serde_json::Value::String(error);
+        }
+    }
     ObservedInvocation {
         result,
         typed_decisions,
@@ -1210,13 +1439,20 @@ fn install_armed_host(host: &crate::host::Host) -> HostResetGuard {
     HostResetGuard
 }
 
-async fn armed_engine(digest: &str) -> HermesEngine {
+async fn armed_engine(
+    host: &crate::host::Host,
+    digest: &str,
+) -> AuthenticatedCallbackEngine {
     let engine = HermesEngine::new_with_armed_snapshot(Some(digest))
         .expect("create exact callback invariant engine");
     engine
         .load_runtime()
         .await
         .expect("load exact callback invariant runtime");
+    let engine = AuthenticatedCallbackEngine {
+        host: host.clone(),
+        engine,
+    };
     assert_eq!(
         engine
             .eval_immediate("typeof __hostCall + '/' + typeof __hostCallAsync")
@@ -1232,7 +1468,7 @@ async fn armed_engine(digest: &str) -> HermesEngine {
 async fn execute_attribution_missing(recipe: &Recipe) -> ScenarioExecution {
     let (host, digest) = build_callback_host(None, None, false, None);
     let _reset = install_armed_host(&host);
-    let engine = armed_engine(&digest).await;
+    let engine = armed_engine(&host, &digest).await;
     let before = host.typed_generations().unwrap();
     let session = format!("callback-attribution:{}", recipe.plan_digest);
     let request = serde_json::json!({
@@ -1247,7 +1483,10 @@ async fn execute_attribution_missing(recipe: &Recipe) -> ScenarioExecution {
     assert_eq!(invocation.result["requestRefused"], true);
     assert!(invocation.result["errorMessage"]
         .as_str()
-        .is_some_and(|message| message.contains("refused")));
+        .is_some_and(|message| message.contains("refused")),
+        "unexpected attribution-refusal result: {}",
+        invocation.result
+    );
     assert!(invocation.result["threw"].is_null());
     assert_typed_decisions(
         &invocation.typed_decisions,
@@ -1284,7 +1523,7 @@ async fn execute_generation_recheck(
 
     let (host, digest) = build_callback_host(Some(package), None, true, None);
     let _reset = install_armed_host(&host);
-    let engine = armed_engine(&digest).await;
+    let engine = armed_engine(&host, &digest).await;
     let selector: AuthoritySelector = serde_json::from_value(invariant_selector()).unwrap();
     let grant_id = NonEmptyString::new(format!(
         "callback-generation-{}",
@@ -1375,7 +1614,7 @@ async fn execute_generation_recheck(
 async fn execute_principal_restore(recipe: &Recipe, package: &PackageFixture) -> ScenarioExecution {
     let (host, digest) = build_callback_host(Some(package), Some("environment"), false, None);
     let _reset = install_armed_host(&host);
-    let engine = armed_engine(&digest).await;
+    let engine = armed_engine(&host, &digest).await;
     let package_session = format!("callback-package-principal:{}", recipe.plan_digest);
     schedule_package_environment_read(&engine).await;
     let package_invocation = take_scheduled_package_operation(&engine, &package_session).await;
@@ -1466,7 +1705,7 @@ async fn execute_snapshot_mismatch(recipe: &Recipe, package: &PackageFixture) ->
     });
     let source_invocation = {
         let _reset = install_armed_host(&source_host);
-        let engine = armed_engine(&source_digest).await;
+        let engine = armed_engine(&source_host, &source_digest).await;
         let session = format!("callback-source-snapshot:{}", recipe.plan_digest);
         let invocation = invoke_root_handle_mint_callback(&engine, &session, &request).await;
         assert_context_principal(&invocation.result, &source_host, &root);
@@ -1486,7 +1725,7 @@ async fn execute_snapshot_mismatch(recipe: &Recipe, package: &PackageFixture) ->
     assert_ne!(source_digest, target_digest);
     let target_invocation = {
         let _reset = install_armed_host(&target_host);
-        let engine = armed_engine(&target_digest).await;
+        let engine = armed_engine(&target_host, &target_digest).await;
         let session = format!("callback-target-snapshot:{}", recipe.plan_digest);
         let invocation = invoke_root_handle_mint_callback(&engine, &session, &request).await;
         assert_context_principal(&invocation.result, &target_host, &root);
@@ -1526,34 +1765,32 @@ async fn execute_snapshot_mismatch(recipe: &Recipe, package: &PackageFixture) ->
 async fn execute_cannot_widen(recipe: &Recipe) -> ScenarioExecution {
     let (host, digest) = build_callback_host(None, None, false, None);
     let _reset = install_armed_host(&host);
-    let engine = armed_engine(&digest).await;
+    let engine = armed_engine(&host, &digest).await;
     let before = host.typed_generations().unwrap();
     let request = serde_json::json!({
         "grantId": format!("cannot-widen-{}", recipe.plan_digest.trim_start_matches("sha256-")),
         "principal": root_principal_value(),
         "authority": invariant_selector(),
     });
-    let script = format!(
-        r#"JSON.stringify((function(request) {{
-  try {{ return {{requestRefused: !Ibex.permissions.requestTyped(request), errorMessage: null}}; }}
-  catch (error) {{ return {{requestRefused: true, errorMessage: String(error && error.message || error)}}; }}
-}})({}))"#,
-        serde_json::to_string(&request).unwrap()
-    );
     let session = format!("callback-cannot-widen:{}", recipe.plan_digest);
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session));
-    let encoded = engine
-        .eval_immediate(&script)
-        .await
-        .expect("execute cannot-widen public bridge")
-        .expect("cannot-widen bridge returned no result");
-    let bridge: serde_json::Value =
-        serde_json::from_str(&encoded).expect("cannot-widen result must be JSON");
+    let mut boundary = observe_root_authority_seal(&engine).await;
+    match request_typed_dynamic_for_callback(&boundary, &request) {
+        Ok(granted) => {
+            boundary["requestRefused"] = serde_json::Value::Bool(!granted);
+            boundary["errorMessage"] = serde_json::Value::Null;
+        }
+        Err(error) => {
+            boundary["requestRefused"] = serde_json::Value::Bool(true);
+            boundary["errorMessage"] = serde_json::Value::String(error);
+        }
+    }
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     assert!(legacy.is_empty());
     assert!(typed.is_empty());
-    assert_eq!(bridge["requestRefused"], true);
-    assert!(bridge["errorMessage"]
+    assert_eq!(boundary["facadeWithheld"], true);
+    assert_eq!(boundary["requestRefused"], true);
+    assert!(boundary["errorMessage"]
         .as_str()
         .is_some_and(|message| message.contains("refused")));
     let after = host.typed_generations().unwrap();
@@ -1579,41 +1816,46 @@ async fn execute_cannot_widen(recipe: &Recipe) -> ScenarioExecution {
 async fn execute_post_lockdown(recipe: &Recipe) -> ScenarioExecution {
     let (host, digest) = build_callback_host(None, None, false, None);
     let _reset = install_armed_host(&host);
-    let engine = armed_engine(&digest).await;
+    let engine = armed_engine(&host, &digest).await;
     let before = host.typed_generations().unwrap();
     let request = serde_json::json!({
         "grantId": format!("post-lockdown-{}", recipe.plan_digest.trim_start_matches("sha256-")),
         "principal": root_principal_value(),
         "authority": invariant_selector(),
     });
+    let observer_name = engine
+        .install_capsec_context_test_observer()
+        .await
+        .expect("install post-lockdown context observer");
     let script = format!(
-        r#"JSON.stringify((function(request) {{
+        r#"JSON.stringify((function(name) {{
+  var observer = globalThis[name];
+  var removed = delete globalThis[name];
+  if (typeof observer !== 'function' || !removed || (name in globalThis)) throw new Error('CapSec context observer was project-reachable');
   var descriptor = Object.getOwnPropertyDescriptor(globalThis, '__ibexLockedDown');
   var hatches = ['__exactSetActiveModuleId','__exactGrantCapability','__exactSetPendingPackageId','__exactRegisterPackage','__exactCheckImport','__exactSetCompartmentFor','__exactDeepFreeze','__exactNativeFreeze'];
   var hatchesAbsent = hatches.every(function(name) {{ return !(name in globalThis); }});
   var compartment = globalThis.__compartments['image-lib@2.4.1'];
   var compartmentWithholdsAuthority = compartment.Ibex === undefined && compartment.__exactTypedPermissionRequest === undefined;
+  var rootWithholdsAuthority = typeof Ibex === 'object' && typeof Ibex.permissions === 'undefined' && typeof Ibex.authority === 'undefined';
   var prototypeMutationBlocked = false;
   try {{ Object.defineProperty(Object.prototype, '__capsecLockdownMutation', {{value: true}}); }} catch (_) {{}}
   prototypeMutationBlocked = Object.prototype.__capsecLockdownMutation !== true;
-  var functionTamed = false;
-  try {{ Function('return 1')(); }} catch (_) {{ functionTamed = true; }}
-  var evalTamed = false;
-  try {{ (0, eval)('1'); }} catch (_) {{ evalTamed = true; }}
-  var authorityRequestRefused = false;
-  try {{ authorityRequestRefused = !Ibex.permissions.requestTyped(request); }}
-  catch (_) {{ authorityRequestRefused = true; }}
+  var functionTamed = globalThis['Function'].__ibexTamed === true;
+  var evalTamed = globalThis['eval'].__ibexTamed === true;
   return {{
+    context: observer(),
     structuralLockdown: globalThis.__ibexLockedDown === true && descriptor && descriptor.writable === false && descriptor.configurable === false,
-    intrinsicsFrozen: Object.isFrozen(Object.prototype) && Object.isFrozen(Function.prototype),
-    evaluatorsTamed: functionTamed && evalTamed && Function.__ibexTamed === true && eval.__ibexTamed === true,
+    intrinsicsFrozen: Object.isFrozen(Object.prototype) && Object.isFrozen(globalThis['Function'].prototype),
+    evaluatorsTamed: functionTamed && evalTamed,
     hatchesAbsent: hatchesAbsent,
     compartmentWithholdsAuthority: compartmentWithholdsAuthority,
+    rootWithholdsAuthority: rootWithholdsAuthority,
     prototypeMutationBlocked: prototypeMutationBlocked,
-    authorityRequestRefused: authorityRequestRefused
+    authorityRequestRefused: false
   }};
-}})({}))"#,
-        serde_json::to_string(&request).unwrap()
+}})({0}))"#,
+        serde_json::to_string(&observer_name).unwrap()
     );
     let session = format!("callback-post-lockdown:{}", recipe.plan_digest);
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session));
@@ -1622,8 +1864,21 @@ async fn execute_post_lockdown(recipe: &Recipe) -> ScenarioExecution {
         .await
         .expect("execute post-lockdown invariant")
         .expect("post-lockdown invariant returned no result");
-    let checks: serde_json::Value =
+    let mut checks: serde_json::Value =
         serde_json::from_str(&encoded).expect("post-lockdown result must be JSON");
+    let eval_refusal = engine
+        .eval_immediate("(0, eval)('1')")
+        .await
+        .expect_err("persistent authenticated source must reject eval syntax");
+    assert!(
+        eval_refusal
+            .to_string()
+            .contains("eval syntax is closed in a persistent session"),
+        "unexpected persistent-eval refusal: {eval_refusal:#}"
+    );
+    checks["authorityRequestRefused"] = serde_json::Value::Bool(
+        request_typed_dynamic_for_callback(&checks, &request).is_err(),
+    );
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     assert!(legacy.is_empty());
     assert!(typed.is_empty());
@@ -1633,6 +1888,7 @@ async fn execute_post_lockdown(recipe: &Recipe) -> ScenarioExecution {
         "evaluatorsTamed",
         "hatchesAbsent",
         "compartmentWithholdsAuthority",
+        "rootWithholdsAuthority",
         "prototypeMutationBlocked",
         "authorityRequestRefused",
     ] {
@@ -1643,7 +1899,14 @@ async fn execute_post_lockdown(recipe: &Recipe) -> ScenarioExecution {
     }
     let after = host.typed_generations().unwrap();
     assert_eq!(after, before);
-    let mut checks = checks;
+    checks
+        .as_object_mut()
+        .expect("post-lockdown checks must be an object")
+        .remove("context");
+    checks
+        .as_object_mut()
+        .expect("post-lockdown checks must be an object")
+        .remove("rootWithholdsAuthority");
     checks["bridgeExecuted"] = serde_json::Value::Bool(true);
     checks["generationsBefore"] = generations_value(before);
     checks["generationsAfter"] = generations_value(after);
@@ -1666,7 +1929,7 @@ fn reset_exact_abi_probe() {
     EXACT_ABI_PROBE_PAYLOAD_LEN.store(0, std::sync::atomic::Ordering::SeqCst);
 }
 
-async fn install_exact_endowment(engine: &HermesEngine) -> serde_json::Value {
+async fn install_exact_endowment(engine: &AuthenticatedCallbackEngine) -> serde_json::Value {
     let runtime = engine
         .ensure_runtime()
         .await
@@ -1720,10 +1983,11 @@ async fn install_exact_endowment(engine: &HermesEngine) -> serde_json::Value {
 }
 
 async fn execute_exact_host_call_round_trip(recipe: &Recipe) -> ScenarioExecution {
-    let (_reset, digest) = install_armed_exact_test_host();
+    let (host, digest) = build_armed_exact_test_host();
+    let _reset = install_armed_host(&host);
     reset_exact_abi_probe();
     unsafe { ibex_test_reset_exact_host_completion_observer() };
-    let engine = armed_engine(&digest).await;
+    let engine = armed_engine(&host, &digest).await;
     let session = format!("exact-host-call-round-trip:{}", recipe.plan_digest);
     begin_observation(&session);
     let descriptor = install_exact_endowment(&engine).await;
@@ -1810,9 +2074,10 @@ async fn execute_exact_host_call_round_trip(recipe: &Recipe) -> ScenarioExecutio
 }
 
 async fn execute_exact_endowment_install(recipe: &Recipe) -> ScenarioExecution {
-    let (_reset, digest) = install_armed_exact_test_host();
+    let (host, digest) = build_armed_exact_test_host();
+    let _reset = install_armed_host(&host);
     reset_exact_abi_probe();
-    let engine = armed_engine(&digest).await;
+    let engine = armed_engine(&host, &digest).await;
     let session = format!("exact-endowment-install:{}", recipe.plan_digest);
     begin_observation(&session);
     let descriptor = install_exact_endowment(&engine).await;

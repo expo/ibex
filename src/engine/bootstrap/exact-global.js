@@ -654,17 +654,20 @@
   });
   E.gc = function() {};
   // Exact.env and Bun.env are aliases, not independent environment stores.
-  // Keeping one object identity preserves process.env's exact-name read
-  // mediation, JS-local overlay precedence/tombstones, and closed armed
-  // enumeration without introducing a native environment setter.
-  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  // Armed reads, writes, deletes, and enumeration stay on the caller-sensitive
+  // native principal overlay. Pin the alias so one package cannot replace the
+  // shared facade for every other principal.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  var nativePrincipalEnvironmentOverlay =
+    typeof g.__exactSetEnv === 'function';
   try {
     Object.defineProperty(E, 'env', {
-      configurable: true,
+      configurable: !nativePrincipalEnvironmentOverlay,
       enumerable: true,
       get: function() { return g.process && g.process.env; }
     });
   } catch (err) {
+    if (nativePrincipalEnvironmentOverlay) throw err;
     defineExactValue('env', g.process && g.process.env);
   }
   E.sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms || 0); }); };

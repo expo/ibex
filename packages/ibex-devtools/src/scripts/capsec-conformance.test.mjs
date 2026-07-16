@@ -8,8 +8,24 @@ import {
   selectCandidateTarget,
   validateConformanceReportSemantics,
 } from "./capsec-conformance.mjs";
+import Ajv2020 from "ajv/dist/2020.js";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import { canonicalJson } from "./capsec-contract.mjs";
+
+const readSchema = (name) =>
+  JSON.parse(
+    fs.readFileSync(
+      new URL(`../../../../capsec/schema/${name}`, import.meta.url),
+      "utf8",
+    ),
+  );
+
+const compileConformanceSchema = (schema) => {
+  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  ajv.addSchema(readSchema("common.schema.json"));
+  return ajv.compile(schema);
+};
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -53,6 +69,7 @@ const bindings = {
   registryDigest: `sha256-${"E".repeat(43)}`,
   recipeCatalogDigest: `sha256-${"F".repeat(43)}`,
   publicSurfaceExecutionDigest: `sha256-${"G".repeat(43)}`,
+  outputDispositionEvidenceRawContentDigest: `sha256-${"H".repeat(43)}`,
 };
 const digestContract = {
   domains: { conformance: "ibex:capsec:conformance:1" },
@@ -105,6 +122,95 @@ const pass = {
 };
 
 describe("capsec target conformance", () => {
+  test("strict schema requires exact output evidence only for a conformant report", () => {
+    const schema = readSchema("conformance-report.schema.json");
+    const validate = compileConformanceSchema(schema);
+    const schemaBindings = {
+      ...bindings,
+      sourceTreeDigest: sha("source-tree"),
+      engine: {
+        ...bindings.engine,
+        binaryDigest: sha("engine-binary"),
+      },
+      vocabularyDigest: sha("vocabulary"),
+      registryDigest: sha("registry"),
+      recipeCatalogDigest: sha("recipe-catalog"),
+      publicSurfaceExecutionDigest: sha("public-surface-execution"),
+      outputDispositionEvidenceRawContentDigest: sha(
+        "output-disposition-evidence",
+      ),
+    };
+    const schemaEvidence = {
+      ...pass.evidence,
+      engineBinaryDigest: schemaBindings.engine.binaryDigest,
+    };
+    const schemaPass = {
+      ...pass,
+      artifactDigest: sha(schemaEvidence),
+      bindingDigest: executionBindingDigest({
+        bindings: {
+          ...schemaBindings,
+          implementationManifestDigest: sha(implementation),
+        },
+        target,
+        fixtureCatalogDigest,
+      }),
+      evidence: schemaEvidence,
+    };
+    const incompleteBindings = structuredClone(schemaBindings);
+    delete incompleteBindings.outputDispositionEvidenceRawContentDigest;
+    const incomplete = buildConformanceReport({
+      coverage,
+      implementation,
+      target,
+      executions: [],
+      bindings: incompleteBindings,
+      digestContract,
+    });
+    expect(validate(incomplete)).toBe(true);
+
+    const conformant = buildConformanceReport({
+      coverage,
+      implementation,
+      target,
+      executions: [schemaPass],
+      bindings: schemaBindings,
+      digestContract,
+    });
+    expect(validate(conformant)).toBe(true);
+
+    const missingEvidence = structuredClone(conformant);
+    delete missingEvidence.bindings.outputDispositionEvidenceRawContentDigest;
+    expect(validate(missingEvidence)).toBe(false);
+    expect(validate.errors).toContainEqual(
+      expect.objectContaining({
+        instancePath: "/bindings",
+        keyword: "required",
+        params: {
+          missingProperty: "outputDispositionEvidenceRawContentDigest",
+        },
+      }),
+    );
+
+    const malformedEvidence = structuredClone(conformant);
+    malformedEvidence.bindings.outputDispositionEvidenceRawContentDigest =
+      "sha256-invalid";
+    expect(validate(malformedEvidence)).toBe(false);
+
+    const missingConditionalType = structuredClone(schema);
+    delete missingConditionalType.allOf[0].then.properties.bindings.type;
+    expect(() => compileConformanceSchema(missingConditionalType)).toThrow(
+      /strict mode: missing type "object" for keyword "required"/u,
+    );
+
+    const missingConditionalProperty = structuredClone(schema);
+    delete missingConditionalProperty.allOf[0].then.properties.bindings
+      .properties;
+    expect(() => compileConformanceSchema(missingConditionalProperty)).toThrow(
+      /strict mode: required property "outputDispositionEvidenceRawContentDigest" is not defined/u,
+    );
+  });
+
   test("selects one declared target explicitly once the matrix has multiple candidates", () => {
     const windowsTarget = {
       triple: "x86_64-pc-windows-msvc",
@@ -120,6 +226,19 @@ describe("capsec target conformance", () => {
     expect(() => selectCandidateTarget(rules, "unknown-target")).toThrow(
       /exactly one declared candidate/,
     );
+    expect(() =>
+      selectCandidateTarget(
+        {
+          initialProfile: {
+            candidateTargets: [
+              target,
+              { ...target, features: ["native-compartments"] },
+            ],
+          },
+        },
+        target.triple,
+      ),
+    ).toThrow(/exactly one declared candidate/);
     expect(
       selectCandidateTarget({
         initialProfile: { candidateTargets: [target] },
@@ -183,12 +302,14 @@ describe("capsec target conformance", () => {
   });
 
   test("inventory obligations without executions remain incomplete", () => {
+    const incompleteBindings = structuredClone(bindings);
+    delete incompleteBindings.outputDispositionEvidenceRawContentDigest;
     const report = buildConformanceReport({
       coverage,
       implementation,
       target,
       executions: [],
-      bindings,
+      bindings: incompleteBindings,
       digestContract,
     });
     expect(report.status).toBe("incomplete");
@@ -198,7 +319,12 @@ describe("capsec target conformance", () => {
       missingFixtures: 1,
     });
     expect(report.executions).toEqual([]);
-    expect(() => assertReportMayAdvertise(report)).toThrow(/incomplete/);
+    expect(
+      report.bindings.outputDispositionEvidenceRawContentDigest,
+    ).toBeUndefined();
+    expect(() => assertReportMayAdvertise(report)).toThrow(
+      /cannot advertise without .*output-disposition evidence bindings/,
+    );
   });
 
   test("a unique bound passing execution completes its exact cell", () => {
@@ -221,7 +347,12 @@ describe("capsec target conformance", () => {
     const unbound = structuredClone(report);
     delete unbound.bindings.publicSurfaceExecutionDigest;
     expect(() => assertReportMayAdvertise(unbound)).toThrow(
-      /without recipe and public-surface evidence bindings/,
+      /without recipe, public-surface, and output-disposition evidence bindings/,
+    );
+    const noOutputEvidence = structuredClone(report);
+    delete noOutputEvidence.bindings.outputDispositionEvidenceRawContentDigest;
+    expect(() => assertReportMayAdvertise(noOutputEvidence)).toThrow(
+      /output-disposition evidence bindings/,
     );
     expect(() =>
       validateConformanceReportSemantics(report, {
@@ -242,6 +373,42 @@ describe("capsec target conformance", () => {
         digestContract,
       }),
     ).toThrow(/derived evidence/);
+
+    const swappedOutputEvidence = structuredClone(report);
+    swappedOutputEvidence.bindings.outputDispositionEvidenceRawContentDigest =
+      `sha256-${"I".repeat(43)}`;
+    expect(() =>
+      validateConformanceReportSemantics(swappedOutputEvidence, {
+        coverage,
+        implementation,
+        target,
+        digestContract,
+      }),
+    ).toThrow(/execution binding/);
+
+    const noEvidenceBindings = structuredClone(bindings);
+    delete noEvidenceBindings.outputDispositionEvidenceRawContentDigest;
+    const passWithoutEvidenceBinding = {
+      ...pass,
+      bindingDigest: executionBindingDigest({
+        bindings: {
+          ...noEvidenceBindings,
+          implementationManifestDigest: sha(implementation),
+        },
+        target,
+        fixtureCatalogDigest,
+      }),
+    };
+    expect(() =>
+      buildConformanceReport({
+        coverage,
+        implementation,
+        target,
+        executions: [passWithoutEvidenceBinding],
+        bindings: noEvidenceBindings,
+        digestContract,
+      }),
+    ).toThrow(/conformant report requires verified output-disposition evidence/);
   });
 
   test("rejects unknown, duplicate, and unbound execution claims", () => {

@@ -92,6 +92,41 @@ fn windows_file_handle_lifetime_is_shared_with_workers() {
 }
 
 #[test]
+fn windows_fs_workers_share_the_runtime_generation_lease_contract() {
+    for source in [POSIX_FS, WINDOWS_FS] {
+        assert!(source.contains("enum class FsOperationLeaseState"));
+        assert!(source.contains("FsOperationLeaseState::Queued"));
+        assert!(source.contains("FsOperationLeaseState::Committed"));
+        assert!(source.contains("cancelQueued(RuntimeCallbackTarget target)"));
+        assert!(source.contains("void exactCancelQueuedFsOperations("));
+        assert!(source.contains("operationLease->target = target"));
+        assert!(source.contains("operationLease->principalStack = principalStack"));
+        assert!(source.contains("operationLease->decidedWork = workPtr"));
+    }
+    assert!(POSIX_FS.contains("lease->acquireForWorker()"));
+    assert!(WINDOWS_FS.contains("lease->commit()"));
+    assert!(RUNTIME_INTERNAL.contains("void exactCancelQueuedFsOperations("));
+    let destroy = &RUNTIME[RUNTIME
+        .find("extern \"C\" void ex_hermes_destroy(")
+        .expect("runtime destroy entry")..];
+    assert_before(
+        destroy,
+        "exactCancelQueuedFsOperations(target)",
+        "finishRuntimeTeardown(target)",
+    );
+    assert_before(
+        destroy,
+        "finishRuntimeTeardown(target)",
+        "ex_host_vfs_unbind_runtime(runtime->runtime_nonce)",
+    );
+    assert_before(
+        destroy,
+        "ex_host_vfs_unbind_runtime(runtime->runtime_nonce)",
+        "exactCleanupRuntimeFileDescriptors(runtime->runtime_nonce)",
+    );
+}
+
+#[test]
 fn terminal_session_descriptor_policy_precedes_cross_platform_native_routes() {
     for symbol in [
         "ex_host_session_descriptor_is_protected",
@@ -363,7 +398,7 @@ fn windows_open_async_paths_preserve_both_spellings_across_workers() {
     assert!(path_entry
         .contains("fsPathOpWork(\n                  runtimeNonce, op, a, b, x, y, principal)"));
 
-    let stat_entry = source_section(WINDOWS_FS, "auto fsStatAsyncFn =", "auto installSync =");
+    let stat_entry = source_section(WINDOWS_FS, "auto fsStatAsyncFn =", "auto makeSync =");
     assert!(stat_entry.contains("auto path = exactResolveVfsPath("));
     assert!(stat_entry.contains("requireReadCapability(runtime, path.virtualPath)"));
     assert!(stat_entry.contains("backingPath = path.backing"));
@@ -584,6 +619,9 @@ fn windows_armed_mutation_closure_precedes_path_and_fd_lookup() {
     );
     let truncate = source_section(WINDOWS_FS, "auto truncateFn =", "auto utimesFn =");
     assert!(!truncate.contains("refuseClosedArmedFsMutation"));
-    assert!(WINDOWS_FS.contains("installSync(\"__exactFsFsyncSync\""));
-    assert!(WINDOWS_FS.contains("installSync(\"__exactFsFdatasyncSync\""));
+    assert!(WINDOWS_FS
+        .contains("rt, \"__exactFsFsyncSync\", makeSync(\"__exactFsFsyncSync\", \"fsync\", 0)"));
+    assert!(WINDOWS_FS.contains(
+        "\"__exactFsFdatasyncSync\",\n      makeSync(\"__exactFsFdatasyncSync\", \"fdatasync\", 1)"
+    ));
 }

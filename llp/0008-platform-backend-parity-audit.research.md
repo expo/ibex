@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
+**Revised:** 2026-07-15 (the degraded Linux curl CLI fallback now selects only fixed absolute executable paths, disables curlrc, and passes an empty child environment); 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback replaced std::system with direct argv spawning — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -28,10 +28,13 @@ Linux native networking is a libcurl-backed profile for Fetch and WebSocket:
 - `IBEX_ALLOW_CURL_CLI_FALLBACK=1` intentionally opts into a degraded local
   build: fetch runs the `curl` CLI, WebSocket is unavailable, and the build
   emits a warning.
-- The CLI fallback spawns `curl` via `posix_spawnp` with an argv array — never
-  a shell — and binds the URL with `--url` so request data (method, headers,
-  URL) cannot be reinterpreted as shell syntax or curl options; request/response
-  bodies stage through `mkstemp` (0600) temp files (ENG-23874; the earlier
+- The CLI fallback selects `curl` from a fixed list of absolute executable
+  paths and invokes it via `posix_spawn` with an explicit empty environment and
+  `-q` as its first option. It therefore consults neither ambient `PATH`, proxy
+  variables, nor curl configuration. It uses an argv array — never a shell —
+  and binds the URL with `--url` so request data (method, headers, URL) cannot
+  be reinterpreted as shell syntax or curl options; request/response bodies
+  stage through `mkstemp` (0600) temp files (ENG-23874; the earlier
   `std::system` transport made every future flag change a potential
   command-injection surface even though its arguments were shell-quoted).
 

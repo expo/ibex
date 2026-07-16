@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import {
   canonicalJson,
   capsecRoot,
+  parseJsonStrict,
   readJsonStrict,
   repoRoot,
 } from "./capsec-contract.mjs";
@@ -43,7 +44,9 @@ import {
   buildOutputDispositionDataset,
   buildOutputShapeCatalog,
   renderOutputDispositionMarkdown,
+  validateTrackedOutputDispositionEvidenceSentinel,
 } from "./capsec-output-dispositions.mjs";
+import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
 import { validateIngressObligationDataset } from "./capsec-ingress-obligations.mjs";
 import {
   assertConfinedGeneratedFile,
@@ -193,6 +196,9 @@ function prettyJson(value) {
 function rawContentDigest(content) {
   return `sha256-${crypto.createHash("sha256").update(content, "utf8").digest("base64url")}`;
 }
+
+const ownedByCurrentUser = (metadata) =>
+  typeof process.getuid !== "function" || metadata.uid === process.getuid();
 
 function relativeOutputPath(filePath) {
   return path.relative(repoRoot, filePath).split(path.sep).join("/");
@@ -678,11 +684,18 @@ export function readImmutablePromotionArtifact(
   } catch {
     throw new Error(`${label} content-addressed artifact is missing`);
   }
-  if (!pathMetadata.isFile() || pathMetadata.isSymbolicLink()) {
-    throw new Error(`${label} is not an immutable regular file`);
+  if (
+    !pathMetadata.isFile() ||
+    pathMetadata.isSymbolicLink() ||
+    pathMetadata.nlink !== 1 ||
+    !ownedByCurrentUser(pathMetadata)
+  ) {
+    throw new Error(
+      `${label} is not an immutable regular file owned solely by the current user`,
+    );
   }
   let descriptor;
-  let text;
+  let bytes;
   try {
     descriptor = fs.openSync(
       artifactPath,
@@ -691,22 +704,35 @@ export function readImmutablePromotionArtifact(
     const openedMetadata = fs.fstatSync(descriptor);
     if (
       !openedMetadata.isFile() ||
+      openedMetadata.nlink !== 1 ||
+      !ownedByCurrentUser(openedMetadata) ||
       openedMetadata.dev !== pathMetadata.dev ||
       openedMetadata.ino !== pathMetadata.ino
     ) {
       throw new Error(`${label} changed while it was being opened`);
     }
-    text = fs.readFileSync(descriptor, "utf8");
+    bytes = fs.readFileSync(descriptor);
+    const currentMetadata = fs.lstatSync(artifactPath);
+    if (
+      !currentMetadata.isFile() ||
+      currentMetadata.isSymbolicLink() ||
+      currentMetadata.nlink !== 1 ||
+      !ownedByCurrentUser(currentMetadata) ||
+      currentMetadata.dev !== openedMetadata.dev ||
+      currentMetadata.ino !== openedMetadata.ino
+    ) {
+      throw new Error(`${label} changed while it was being read`);
+    }
   } catch (error) {
     if (error?.message?.startsWith(label)) throw error;
     throw new Error(`${label} could not be opened without following links`);
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
   }
-  if (rawContentDigest(text) !== digest) {
+  if (rawContentDigest(bytes) !== digest) {
     throw new Error(`${label} raw content digest differs`);
   }
-  return readJsonStrict(artifactPath);
+  return parseJsonStrict(bytes, label);
 }
 
 function verifyReportSourceRevision(attestation, allowedReportPaths) {
@@ -766,6 +792,8 @@ export function loadTargetPromotions({
   coverage,
   implementation,
   inventory,
+  outputShapeCatalog,
+  outputDispositionRows,
   rules,
 }) {
   const attestationPath = path.join(
@@ -785,6 +813,9 @@ export function loadTargetPromotions({
   }
   const validateReport = ajv.getSchema(
     "https://ibex.dev/capsec/schema/conformance-report.schema.json",
+  );
+  const validateOutputDispositionEvidence = ajv.getSchema(
+    "https://ibex.dev/capsec/schema/output-disposition-evidence.schema.json",
   );
   const digestVectors = readJsonStrict(
     path.join(capsecRoot, "examples", "digest-vectors.canonical.json"),
@@ -809,11 +840,13 @@ export function loadTargetPromotions({
   const seenReports = new Set();
   const seenRecipeCatalogs = new Set();
   const seenPublicExecutions = new Set();
+  const seenOutputDispositionEvidence = new Set();
   const promotions = [];
   const allowedReportPaths = attestations.attestations.flatMap((attestation) => [
     `capsec/conformance/reports/${attestation.reportRawContentDigest}.json`,
     `capsec/conformance/recipe-catalogs/${attestation.recipeCatalogRawContentDigest}.json`,
     `capsec/conformance/public-surface-executions/${attestation.publicSurfaceExecutionRawContentDigest}.json`,
+    `capsec/conformance/output-disposition-evidence/${attestation.outputDispositionEvidenceRawContentDigest}.json`,
   ]);
   for (const attestation of attestations.attestations) {
     const targetKey = canonicalJson(attestation.target);
@@ -840,11 +873,23 @@ export function loadTargetPromotions({
         "target attestations reuse one public execution artifact for multiple targets",
       );
     }
+    if (
+      seenOutputDispositionEvidence.has(
+        attestation.outputDispositionEvidenceRawContentDigest,
+      )
+    ) {
+      throw new Error(
+        "target attestations reuse one output-disposition evidence artifact for multiple targets",
+      );
+    }
     seenTargets.add(targetKey);
     seenReports.add(attestation.reportRawContentDigest);
     seenRecipeCatalogs.add(attestation.recipeCatalogRawContentDigest);
     seenPublicExecutions.add(
       attestation.publicSurfaceExecutionRawContentDigest,
+    );
+    seenOutputDispositionEvidence.add(
+      attestation.outputDispositionEvidenceRawContentDigest,
     );
     verifyReportSourceRevision(attestation, allowedReportPaths);
 
@@ -865,6 +910,27 @@ export function loadTargetPromotions({
       digestContract: rules.digestContract,
     });
     assertReportMayAdvertise(report);
+    const outputDispositionEvidence = readImmutablePromotionArtifact(
+      "output-disposition-evidence",
+      attestation.outputDispositionEvidenceRawContentDigest,
+      "attested output-disposition evidence",
+    );
+    if (!validateOutputDispositionEvidence?.(outputDispositionEvidence)) {
+      throw new Error(
+        `invalid attested output-disposition evidence: ${ajv.errorsText(validateOutputDispositionEvidence?.errors)}`,
+      );
+    }
+    const outputDispositionEvidenceState =
+      validatePromotableOutputDispositionEvidence({
+        catalog: outputShapeCatalog,
+        dispositionRows: outputDispositionRows,
+        evidence: outputDispositionEvidence,
+      });
+    assertOutputDispositionEvidenceMatchesReport(
+      outputDispositionEvidenceState,
+      report,
+      attestation.outputDispositionEvidenceRawContentDigest,
+    );
     const recipeCatalog = readImmutablePromotionArtifact(
       "recipe-catalogs",
       attestation.recipeCatalogRawContentDigest,
@@ -937,13 +1003,15 @@ export function loadTargetPromotions({
       report.bindings.publicSurfaceExecutionDigest !==
         attestation.publicSurfaceExecutionDigest ||
       publicSurfaceExecutions.publicSurfaceExecutionDigest !==
-        attestation.publicSurfaceExecutionDigest
+        attestation.publicSurfaceExecutionDigest ||
+      report.bindings.outputDispositionEvidenceRawContentDigest !==
+        attestation.outputDispositionEvidenceRawContentDigest
     ) {
       throw new Error(
         "target attestation differs from the report or current semantic identities",
       );
     }
-    promotions.push({ attestation, report });
+    promotions.push({ attestation, report, outputDispositionEvidence });
   }
   promotions.sort((left, right) =>
     compareText(
@@ -952,6 +1020,26 @@ export function loadTargetPromotions({
     ),
   );
   return promotions;
+}
+
+export function assertOutputDispositionEvidenceMatchesReport(
+  evidenceState,
+  report,
+  rawContentDigest,
+) {
+  const bindings = report?.bindings;
+  if (
+    evidenceState?.status !== "verified" ||
+    bindings?.outputDispositionEvidenceRawContentDigest !== rawContentDigest ||
+    evidenceState?.sourceRevision !== bindings?.sourceRevision ||
+    evidenceState?.sourceTreeDigest !== bindings?.sourceTreeDigest ||
+    canonicalJson(evidenceState?.target) !== canonicalJson(bindings?.target) ||
+    canonicalJson(evidenceState?.engine) !== canonicalJson(bindings?.engine)
+  ) {
+    throw new Error(
+      "target promotion is closed because the output-disposition evidence raw digest or exact source, target, and loaded-engine binding differs from the report",
+    );
+  }
 }
 
 function buildTargetAdvertisements(promotions, targetCellsText) {
@@ -976,6 +1064,8 @@ function buildTargetAdvertisements(promotions, targetCellsText) {
         report.bindings.publicSurfaceExecutionDigest,
       publicSurfaceExecutionRawContentDigest:
         attestation.publicSurfaceExecutionRawContentDigest,
+      outputDispositionEvidenceRawContentDigest:
+        attestation.outputDispositionEvidenceRawContentDigest,
     })),
   };
 }
@@ -1116,6 +1206,7 @@ export async function renderCapsecRegistry() {
     outputDispositionEvidence,
     "output disposition evidence",
   );
+  validateTrackedOutputDispositionEvidenceSentinel(outputDispositionEvidence);
   const outputShapeCatalog = buildOutputShapeCatalog({
     coverage,
     implementationRows,
@@ -1259,16 +1350,10 @@ export async function renderCapsecRegistry() {
     coverage,
     implementation: implementationManifest,
     inventory,
+    outputShapeCatalog,
+    outputDispositionRows: outputDispositionDataset.rows,
     rules,
   });
-  if (
-    promotions.length > 0 &&
-    outputDispositionDataset.evidence.status !== "verified"
-  ) {
-    throw new Error(
-      "target promotion is closed until loaded-engine output dispositions are verified",
-    );
-  }
   targetCells = buildTargetCells(
     coverage,
     candidateTargets,

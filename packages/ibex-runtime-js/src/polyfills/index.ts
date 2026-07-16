@@ -40,35 +40,10 @@ export function installPolyfills(): void {
   installTypedArrayPolyfills();
   installIteratorPolyfills();
 
-  // Intl polyfills are deferred until first access to reduce startup cost.
-  // Hermes provides an empty Intl object; we proxy it so that accessing
-  // any Intl method (e.g., Intl.DateTimeFormat) triggers the full install.
-  const g = globalThis as any;
-  if (typeof g.Intl === 'object' && g.Intl !== null) {
-    const realIntl = g.Intl;
-    let installed = false;
-    function ensureIntl() {
-      if (installed) return;
-      installed = true;
-      // Restore the real Intl before installing so the polyfills
-      // can detect what's already there.
-      g.Intl = realIntl;
-      installIntlPolyfills();
-    }
-    g.Intl = new Proxy(realIntl, {
-      get(target: any, prop: string | symbol, receiver: any) {
-        ensureIntl();
-        return Reflect.get(g.Intl, prop, receiver);
-      },
-      has(target: any, prop: string | symbol) {
-        ensureIntl();
-        return Reflect.has(g.Intl, prop);
-      },
-    });
-  } else {
-    // No Intl object at all — install eagerly
-    installIntlPolyfills();
-  }
+  // @ref LLP 0023#6-path-bearing-observables — install the finite authored
+  // Intl surface directly. A Proxy over the host namespace would expose an
+  // engine-dependent open member domain to packages.
+  installIntlPolyfills();
 }
 
 // Re-export individual installers for selective use

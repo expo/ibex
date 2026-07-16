@@ -68,6 +68,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactChown",
   "__exactClipboardRead",
   "__exactClipboardWrite",
+  "__exactCompatModes",
   "__exactCopyFile",
   "__exactCreateHandle",
   "__exactDeepFreeze",
@@ -221,6 +222,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactPlatform",
   "__exactPlatformVersion",
   "__exactPollSignal",
+  "__exactProcessIpcBootstrap",
   "__exactRandomBytes",
   "__exactReadFile",
   "__exactReaddir",
@@ -2873,13 +2875,14 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
   "__exactOSVersion",
 ]);
 
-// Keep this approval independent from inventory discovery. Changing a Hermes
-// pin or its source patch stack changes the source-derived review ID; the
-// classifier must then fail until evaluator reachability is reviewed here too.
+// Keep this approval independent from inventory discovery. Changing a pinned
+// Hermes artifact profile, the source patch/build authorities, or lockdown
+// taming changes the source-derived review ID; the classifier must then fail
+// until every reachable evaluator alias is reviewed here too.
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.86bbb94224f546648e67ea39ce56b5f276b6fc06657fb595e7abcf6705e45601";
+  "hermes-evaluators.7a10496d4f374bc8b354f6255d78f2e503d7a13ce7355a267c594699f74ec161";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
@@ -4666,6 +4669,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   ],
   __exactProcessCompatFixRan: [""],
   __exactProcessCompatFixSawProcess: [""],
+  __exactProcessIpcBootstrap: ["close", "fd", "serialization"],
   __exactReadableStreamCompatIteratorPatchScheduled: [""],
   __exactReapplyCompatPolyfills: [""],
   __exactRequire: [""],
@@ -5176,6 +5180,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_value_release",
     "ex_hermes_value_safe_throw_metadata",
     "ex_hermes_value_stage1_text",
+    "ex_host_armed_bootstrap_compatibility_flags",
     "ex_host_armed_endowments",
     "ex_host_authorize_exact_endowment",
     "ex_host_authorize_typed_environment_read_stack",
@@ -6014,10 +6019,14 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:transformDynamicImport",
     "function:javascript:transformImportMeta",
     "function:javascript:wrapAsyncModule",
+    "function:rust:authenticated_module_resolve_options",
+    "function:rust:authenticated_resolver_base_dir",
     "function:rust:build_builtin_registry",
     "function:rust:builtin_module_debug_entries",
+    "function:rust:duplicate_resolver_fd",
     "function:rust:is_builtin_specifier",
     "function:rust:is_registered_builtin_specifier",
+    "function:rust:lexical_absolute_path_for_resolver",
     "function:rust:load_module_source",
     "function:rust:load_source",
     "function:rust:load_source_bytes",
@@ -6025,13 +6034,19 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:module_kind_from_path",
     "function:rust:module_resolve_options",
     "function:rust:normalize_import_target",
+    "function:rust:open_resolver_boundary",
     "function:rust:package_name_and_root_in_node_modules",
     "function:rust:package_root_in_node_modules",
     "function:rust:pick_package_import_path",
     "function:rust:private_resolver_handle_is_canonical",
     "function:rust:resolve",
+    "function:rust:resolve_bounded_unix_path",
+    "function:rust:resolve_builtin_meta",
     "function:rust:resolve_direct_file_meta",
+    "function:rust:resolve_direct_file_meta_authenticated",
     "function:rust:resolve_meta",
+    "function:rust:resolve_meta_authenticated",
+    "function:rust:resolve_meta_from_authenticated_bound_package",
     "function:rust:resolve_meta_from_bound_package",
     "function:rust:resolve_package_import",
     "function:rust:resolve_package_import_target",
@@ -6040,7 +6055,19 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:resolve_with_oxc",
     "function:rust:resolve_with_oxc_at",
     "function:rust:resolve_with_resolver_at",
+    "function:rust:resolver_boundary_refusal",
+    "function:rust:resolver_canonical_path",
+    "function:rust:resolver_component_cstring",
+    "function:rust:resolver_fstat",
+    "function:rust:resolver_fstatat_nofollow",
+    "function:rust:resolver_manifest_not_found",
+    "function:rust:resolver_metadata_from_stat",
+    "function:rust:resolver_open_directory_at",
+    "function:rust:resolver_read_link_at",
+    "function:rust:resolver_relative_components",
     "function:rust:resolver_session_handle_is_canonical",
+    "function:rust:resolver_stat_is_dir",
+    "function:rust:resolver_stat_is_symlink",
     "function:rust:strip_file_module_decorations",
     "function:rust:transpile_module",
     "import-needs",
@@ -6148,8 +6175,6 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:cache:command-new",
     "operation:cache:create_dir",
     "operation:cache:create_dir_all",
-    "operation:cache:env-temp_dir",
-    "operation:cache:env-var",
     "operation:cache:metadata",
     "operation:cache:new",
     "operation:cache:process-id",
@@ -6166,8 +6191,6 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:load:command-new",
     "operation:load:create_dir",
     "operation:load:create_dir_all",
-    "operation:load:env-temp_dir",
-    "operation:load:env-var",
     "operation:load:metadata",
     "operation:load:new",
     "operation:load:process-id",
@@ -6185,13 +6208,14 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:resolution:create_dir",
     "operation:resolution:create_dir_all",
     "operation:resolution:env-current_dir",
-    "operation:resolution:env-temp_dir",
-    "operation:resolution:env-var",
+    "operation:resolution:from-owned-fd",
     "operation:resolution:metadata",
     "operation:resolution:new",
+    "operation:resolution:open",
     "operation:resolution:process-id",
     "operation:resolution:read",
     "operation:resolution:read_dir",
+    "operation:resolution:read_link",
     "operation:resolution:read_to_string",
     "operation:resolution:remove_dir_all",
     "operation:resolution:remove_file",
@@ -6200,13 +6224,13 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:resolution:symlink_metadata",
     "operation:resolution:write",
     "operation:subprocess:command-new",
+    "operation:subprocess:new",
+    "operation:subprocess:process-id",
     "operation:subprocess:status",
     "operation:transform:canonicalize",
     "operation:transform:command-new",
     "operation:transform:create_dir",
     "operation:transform:create_dir_all",
-    "operation:transform:env-temp_dir",
-    "operation:transform:env-var",
     "operation:transform:metadata",
     "operation:transform:new",
     "operation:transform:process-id",
@@ -6226,15 +6250,14 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "require-resolve",
     "route:cache:rust:cache_tag",
     "route:cache:rust:capture_transpile_tool_directory",
-    "route:cache:rust:compute_transpile_override_identity",
     "route:cache:rust:compute_transpile_tooling_hash",
+    "route:cache:rust:configure_transpile_subprocess_environment",
     "route:cache:rust:directory_size",
-    "route:cache:rust:drop",
     "route:cache:rust:enforce_transpile_cache_quota",
     "route:cache:rust:ensure_transpile_cache_dir",
-    "route:cache:rust:find_js_runner",
     "route:cache:rust:format_oxc_errors",
     "route:cache:rust:from_value",
+    "route:cache:rust:legacy_runtime_transform",
     "route:cache:rust:module_cache_key",
     "route:cache:rust:output_has_esm_module_syntax",
     "route:cache:rust:oxc_target",
@@ -6246,6 +6269,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:cache:rust:run_transpile_command",
     "route:cache:rust:run_transpile_override",
     "route:cache:rust:run_transpile_subprocess",
+    "route:cache:rust:runtime_transform",
     "route:cache:rust:selected_engine_cache_tag",
     "route:cache:rust:selected_transform_engine",
     "route:cache:rust:sha256_hex",
@@ -6253,7 +6277,6 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:cache:rust:transpile_cache_dir",
     "route:cache:rust:transpile_cache_is_valid",
     "route:cache:rust:transpile_override_identity",
-    "route:cache:rust:transpile_script_path",
     "route:cache:rust:transpile_source_to_cjs",
     "route:cache:rust:transpile_to_cjs",
     "route:cache:rust:transpile_tooling_hash",
@@ -6266,18 +6289,18 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:cache:rust:walk_transpile_tool_directory",
     "route:load:rust:cache_tag",
     "route:load:rust:capture_transpile_tool_directory",
-    "route:load:rust:compute_transpile_override_identity",
     "route:load:rust:compute_transpile_tooling_hash",
+    "route:load:rust:configure_transpile_subprocess_environment",
     "route:load:rust:contains_using_keyword",
     "route:load:rust:directory_size",
-    "route:load:rust:drop",
     "route:load:rust:enforce_transpile_cache_quota",
     "route:load:rust:ensure_transpile_cache_dir",
-    "route:load:rust:find_js_runner",
     "route:load:rust:format_oxc_errors",
     "route:load:rust:from_value",
+    "route:load:rust:legacy_runtime_transform",
     "route:load:rust:load_module_source",
     "route:load:rust:load_source",
+    "route:load:rust:load_source_bytes",
     "route:load:rust:module_cache_key",
     "route:load:rust:needs_js_downlevel",
     "route:load:rust:needs_transpile",
@@ -6291,6 +6314,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:run_transpile_command",
     "route:load:rust:run_transpile_override",
     "route:load:rust:run_transpile_subprocess",
+    "route:load:rust:runtime_transform",
     "route:load:rust:scan_balanced_region",
     "route:load:rust:scan_block_scoped_loop_closures",
     "route:load:rust:selected_engine_cache_tag",
@@ -6306,7 +6330,6 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:transpile_cache_is_valid",
     "route:load:rust:transpile_module",
     "route:load:rust:transpile_override_identity",
-    "route:load:rust:transpile_script_path",
     "route:load:rust:transpile_source_to_cjs",
     "route:load:rust:transpile_target_for_source",
     "route:load:rust:transpile_to_cjs",
@@ -6318,49 +6341,88 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:verify_transpile_override_identity",
     "route:load:rust:wait_for_transpile_test_barrier",
     "route:load:rust:walk_transpile_tool_directory",
+    "route:resolution:rust:authenticated_module_resolve_options",
+    "route:resolution:rust:authenticated_resolver_base_dir",
+    "route:resolution:rust:boundary_root",
+    "route:resolution:rust:bounded_unix_parent",
+    "route:resolution:rust:bounded_unix_read_link",
+    "route:resolution:rust:bounded_unix_symlink_metadata",
     "route:resolution:rust:cache_tag",
+    "route:resolution:rust:canonicalize",
     "route:resolution:rust:capture_transpile_tool_directory",
-    "route:resolution:rust:compute_transpile_override_identity",
     "route:resolution:rust:compute_transpile_tooling_hash",
+    "route:resolution:rust:configure_transpile_subprocess_environment",
     "route:resolution:rust:contains_using_keyword",
     "route:resolution:rust:directory_size",
-    "route:resolution:rust:drop",
+    "route:resolution:rust:duplicate_resolver_fd",
     "route:resolution:rust:enforce_transpile_cache_quota",
     "route:resolution:rust:ensure_transpile_cache_dir",
-    "route:resolution:rust:find_js_runner",
+    "route:resolution:rust:file_system",
     "route:resolution:rust:find_package_root",
     "route:resolution:rust:format_oxc_errors",
     "route:resolution:rust:from_value",
+    "route:resolution:rust:inputs",
+    "route:resolution:rust:legacy_runtime_transform",
+    "route:resolution:rust:lexical_absolute_path_for_resolver",
     "route:resolution:rust:load_module_source",
     "route:resolution:rust:load_source",
+    "route:resolution:rust:manifest_input",
+    "route:resolution:rust:metadata",
     "route:resolution:rust:module_cache_key",
     "route:resolution:rust:module_kind_from_path",
+    "route:resolution:rust:module_resolve_options",
     "route:resolution:rust:needs_js_downlevel",
     "route:resolution:rust:needs_transpile",
+    "route:resolution:rust:new",
     "route:resolution:rust:normalize_import_target",
+    "route:resolution:rust:normalize_in_boundary",
+    "route:resolution:rust:normalized",
+    "route:resolution:rust:open_resolver_boundary",
     "route:resolution:rust:output_has_esm_module_syntax",
     "route:resolution:rust:oxc_target",
     "route:resolution:rust:package_name_and_root_in_node_modules",
     "route:resolution:rust:package_name_from_bare_specifier",
     "route:resolution:rust:package_root_in_node_modules",
     "route:resolution:rust:package_version_for",
+    "route:resolution:rust:parse_manifest",
     "route:resolution:rust:pick_package_import_path",
     "route:resolution:rust:program_has_top_level_await",
     "route:resolution:rust:prune_transpile_cache_to_limit",
     "route:resolution:rust:publish_transpile_artifact",
+    "route:resolution:rust:read",
+    "route:resolution:rust:read_link",
     "route:resolution:rust:read_package_manifest",
+    "route:resolution:rust:read_to_string",
     "route:resolution:rust:read_transpile_cache",
     "route:resolution:rust:resolve",
+    "route:resolution:rust:resolve_bounded_unix_path",
+    "route:resolution:rust:resolve_builtin_meta",
+    "route:resolution:rust:resolve_direct_file_meta_authenticated",
     "route:resolution:rust:resolve_meta",
+    "route:resolution:rust:resolve_meta_authenticated",
+    "route:resolution:rust:resolve_meta_from_authenticated_bound_package",
     "route:resolution:rust:resolve_package_import",
     "route:resolution:rust:resolve_package_import_target",
     "route:resolution:rust:resolve_transpile_cache_dir",
     "route:resolution:rust:resolve_with_oxc",
     "route:resolution:rust:resolve_with_oxc_at",
     "route:resolution:rust:resolve_with_resolver_at",
+    "route:resolution:rust:resolver_boundary_refusal",
+    "route:resolution:rust:resolver_canonical_path",
+    "route:resolution:rust:resolver_component_cstring",
+    "route:resolution:rust:resolver_fstat",
+    "route:resolution:rust:resolver_fstatat_nofollow",
+    "route:resolution:rust:resolver_manifest_not_found",
+    "route:resolution:rust:resolver_metadata_from_stat",
+    "route:resolution:rust:resolver_open_directory_at",
+    "route:resolution:rust:resolver_read_link_at",
+    "route:resolution:rust:resolver_relative_components",
+    "route:resolution:rust:resolver_stat_is_dir",
+    "route:resolution:rust:resolver_stat_is_symlink",
     "route:resolution:rust:run_transpile_command",
     "route:resolution:rust:run_transpile_override",
     "route:resolution:rust:run_transpile_subprocess",
+    "route:resolution:rust:runtime_transform",
     "route:resolution:rust:scan_balanced_region",
     "route:resolution:rust:scan_block_scoped_loop_closures",
     "route:resolution:rust:selected_engine_cache_tag",
@@ -6372,35 +6434,37 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:source_needs_for_of_scoping_fix",
     "route:resolution:rust:source_needs_loop_scope_downlevel",
     "route:resolution:rust:strip_file_module_decorations",
+    "route:resolution:rust:symlink_metadata",
     "route:resolution:rust:touch_transpile_artifact",
     "route:resolution:rust:transpile_cache_dir",
     "route:resolution:rust:transpile_cache_is_valid",
     "route:resolution:rust:transpile_module",
     "route:resolution:rust:transpile_override_identity",
-    "route:resolution:rust:transpile_script_path",
     "route:resolution:rust:transpile_source_to_cjs",
     "route:resolution:rust:transpile_target_for_source",
     "route:resolution:rust:transpile_to_cjs",
     "route:resolution:rust:transpile_tooling_hash",
     "route:resolution:rust:transpile_with_oxc",
     "route:resolution:rust:transpile_with_swc",
+    "route:resolution:rust:uncaptured_package_manifest_probes",
     "route:resolution:rust:unique_staged_transpile_input",
     "route:resolution:rust:unique_tmp_path",
     "route:resolution:rust:verify_transpile_override_identity",
     "route:resolution:rust:wait_for_transpile_test_barrier",
     "route:resolution:rust:walk_transpile_tool_directory",
+    "route:subprocess:rust:configure_transpile_subprocess_environment",
     "route:subprocess:rust:run_transpile_subprocess",
+    "route:subprocess:rust:unique_tmp_path",
     "route:transform:rust:cache_tag",
     "route:transform:rust:capture_transpile_tool_directory",
-    "route:transform:rust:compute_transpile_override_identity",
     "route:transform:rust:compute_transpile_tooling_hash",
+    "route:transform:rust:configure_transpile_subprocess_environment",
     "route:transform:rust:directory_size",
-    "route:transform:rust:drop",
     "route:transform:rust:enforce_transpile_cache_quota",
     "route:transform:rust:ensure_transpile_cache_dir",
-    "route:transform:rust:find_js_runner",
     "route:transform:rust:format_oxc_errors",
     "route:transform:rust:from_value",
+    "route:transform:rust:legacy_runtime_transform",
     "route:transform:rust:module_cache_key",
     "route:transform:rust:output_has_esm_module_syntax",
     "route:transform:rust:oxc_target",
@@ -6412,6 +6476,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:transform:rust:run_transpile_command",
     "route:transform:rust:run_transpile_override",
     "route:transform:rust:run_transpile_subprocess",
+    "route:transform:rust:runtime_transform",
     "route:transform:rust:selected_engine_cache_tag",
     "route:transform:rust:selected_transform_engine",
     "route:transform:rust:sha256_hex",
@@ -6420,7 +6485,6 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:transform:rust:transpile_cache_is_valid",
     "route:transform:rust:transpile_module",
     "route:transform:rust:transpile_override_identity",
-    "route:transform:rust:transpile_script_path",
     "route:transform:rust:transpile_source_to_cjs",
     "route:transform:rust:transpile_to_cjs",
     "route:transform:rust:transpile_tooling_hash",
@@ -6448,17 +6512,19 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:<dynamic>:cpp:::environ",
     "env:<dynamic>:cpp:GetEnvironmentStringsW",
     "env:<dynamic>:cpp:_NSGetEnviron",
+    "env:<dynamic>:cpp:_dupenv_s",
+    "env:<dynamic>:cpp:environ",
     "env:<dynamic>:cpp:getenv",
     "env:<dynamic>:javascript:process-binding-flow",
     "env:<dynamic>:javascript:process.env",
     "env:<dynamic>:javascript:process.env[]",
     "env:<dynamic>:javascript:process[]",
+    "env:<dynamic>:rust:Command::default_env",
+    "env:<dynamic>:rust:Command::env_clear",
     "env:<dynamic>:rust:env::var",
     "env:<dynamic>:rust:env::var_os",
-    "env:<dynamic>:rust:env::vars",
-    "env:<dynamic>:rust:env_flag_enabled",
-    "env:<dynamic>:rust:runtime_env",
-    "env:<dynamic>:rust:timeout_from_env",
+    "env:APPDATA",
+    "env:BUN_RUNTIME_TRANSPILER_CACHE_PATH",
     "env:CLICOLOR_FORCE",
     "env:COLORTERM",
     "env:COLUMNS",
@@ -6504,7 +6570,6 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:EX_COMPAT_POLYFILLS_SOURCE",
     "env:EX_CONSOLE_ENHANCE_HBC",
     "env:EX_CONSOLE_ENHANCE_SOURCE",
-    "env:EX_DISABLE_BYTECODE_SANITY_CHECK",
     "env:EX_EXACT_GLOBAL_HBC",
     "env:EX_EXACT_GLOBAL_SOURCE",
     "env:EX_FORM_DATA_HBC",
@@ -6542,9 +6607,6 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:EX_WEB_STREAMS_POLYFILL_SOURCE",
     "env:FORCE_COLOR",
     "env:HOME",
-    "env:HOST",
-    "env:HOSTNAME",
-    "env:IBEX_AWAIT_UNWRAP_TIMEOUT_MS",
     "env:IBEX_BUNDLE_CACHE_MAX_BYTES",
     "env:IBEX_BYTECODE_CACHE_MAX_BYTES",
     "env:IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT",
@@ -6573,12 +6635,17 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
     "env:IBEX_TEST_HBC_COMPILE_BARRIER",
     "env:IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS",
+    "env:IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
     "env:IBEX_TEST_TRANSPILE_INPUT_BARRIER",
     "env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
     "env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
+    "env:LANG",
+    "env:LC_ALL",
     "env:LINES",
+    "env:LOCALAPPDATA",
     "env:NODE_CHANNEL_FD",
     "env:NODE_DEBUG",
+    "env:NODE_DISABLE_COMPILE_CACHE",
     "env:NODE_ENV",
     "env:NODE_EXTRA_CA_CERTS",
     "env:NODE_PENDING_DEPRECATION",
@@ -6595,6 +6662,8 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:USERNAME",
     "env:USERPROFILE",
     "env:WPT_SERVER_URL",
+    "env:XDG_CACHE_HOME",
+    "env:XDG_CONFIG_HOME",
     "env:__exactEnvProxy",
     "evaluation:__has_include:18ool1z:stream-enhance",
     "evaluation:__has_include:18ool1z:stream-stability-patch",
@@ -6608,6 +6677,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "evaluation:installGlobals:freeze-seal",
     "evaluation:installGlobals:fs-handle",
     "evaluation:installGlobals:lockdown",
+    "evaluation:installGlobals:native-freeze-conformance-observation",
     "evaluation:installGlobals:web-crypto",
     "evaluation:installGlobals:web-storage",
     "evaluation:installWebSocketGlobals:windows-websocket-shim",
@@ -6625,6 +6695,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:installCryptoHostFunctions:installDnsHostFunctions",
     "install-route:installCryptoHostFunctions:installZlibHostFunctions",
     "install-route:installGlobals:installAndroidHostFunctions",
+    "install-route:installGlobals:installBootstrapCompatibilityModes",
     "install-route:installGlobals:installChildProcessHostFunctions",
     "install-route:installGlobals:installConsoleGlobals",
     "install-route:installGlobals:installCryptoHostFunctions",
@@ -6650,6 +6721,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "installer:installAndroidEnvironmentGlobals",
     "installer:installAndroidHostFunctions",
     "installer:installAndroidLocationBridge",
+    "installer:installBootstrapCompatibilityModes",
     "installer:installChildProcessHostFunctions",
     "installer:installCompartmentRegistry",
     "installer:installConsoleGlobals",
@@ -6683,6 +6755,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "legacy-process-compat",
     "lockdown-install",
     "module-loader-install",
+    "private:ibex:session-worker-bootstrap:v1",
     "runtime-create",
     "scheduler-principal-capture",
     "script:bootstrap",
@@ -6703,6 +6776,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "script:lazy-getters",
     "script:lockdown",
     "script:module-loader",
+    "script:native-freeze-conformance-observation",
     "script:process-compat-fix",
     "script:promise-unwrap",
     "script:shared-runtime-bundle",
@@ -7938,6 +8012,80 @@ function loaderSourceSelectionEffectSpec(options) {
   );
 }
 
+function boundedResolverTraversalEffectSpec(options = {}) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "metadata-only",
+        when: [{ fact: "loader.resolver.io", equals: "metadata-only" }],
+        actions: ["fs:list"],
+      },
+      {
+        id: "symlink-target",
+        when: [{ fact: "loader.resolver.io", equals: "symlink-target" }],
+        actions: ["fs:list", "fs:read"],
+      },
+    ],
+    "loader",
+    "WP7",
+    options,
+  );
+}
+
+function boundedResolverSelectionEffectSpec(options = {}) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "no-host-lookup",
+        when: [{ fact: "loader.resolver.io", equals: "none" }],
+        actions: [],
+      },
+      {
+        id: "metadata-only",
+        when: [{ fact: "loader.resolver.io", equals: "metadata-only" }],
+        actions: ["fs:list"],
+      },
+      {
+        id: "symlink-target",
+        when: [{ fact: "loader.resolver.io", equals: "symlink-target" }],
+        actions: ["fs:list", "fs:read"],
+      },
+    ],
+    "loader",
+    "WP7",
+    options,
+  );
+}
+
+function authenticatedResolverInputConstructionEffectSpec(options = {}) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "descriptor-relative-posix",
+        when: [
+          {
+            fact: "loader.resolver.backend",
+            equals: "descriptor-relative-posix",
+          },
+        ],
+        actions: ["fs:list"],
+        lifetimeContract: "file-handle",
+      },
+      {
+        id: "unsupported",
+        when: [
+          { fact: "loader.resolver.backend", equals: "unsupported" },
+        ],
+        actions: [],
+        lifetimeContract: "operation",
+      },
+    ],
+    "loader",
+    "WP7",
+    { ...options, lifetimeContract: "file-handle" },
+  );
+}
+
 function fullLoaderEffectSpec(options) {
   return conditionalBranchEffectSpec(
     [
@@ -8045,6 +8193,29 @@ function loaderExecutableRouteEffectSpec(options) {
 
 function closedSpec(action, implementationOwner, rationale) {
   return { classification: "closed", action, implementationOwner, rationale };
+}
+
+function closedWithNoEffectBranchesSpec(
+  action,
+  implementationOwner,
+  rationale,
+  fact = "process.listener.event",
+) {
+  return {
+    ...closedSpec(action, implementationOwner, rationale),
+    logicalBranches: [
+      {
+        id: "before-exit",
+        when: [{ fact, equals: "before-exit" }],
+        disposition: "no-effect",
+      },
+      {
+        id: "exit",
+        when: [{ fact, equals: "exit" }],
+        disposition: "no-effect",
+      },
+    ],
+  };
 }
 
 function nonCapabilitySpec(rationaleId, implementationOwner = "WP1") {
@@ -9451,8 +9622,16 @@ function loaderClassification(surface) {
 
   if (name.startsWith("operation:")) {
     const operation = name.split(":").at(-1);
+    if (operation === "open") {
+      return effectSpec(["fs:list"], "loader", "WP7", {
+        ...loaderOptions,
+        lifetimeContract: "file-handle",
+      });
+    }
     if (
-      /^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(operation)
+      /^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(
+        operation,
+      )
     ) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
@@ -9477,6 +9656,9 @@ function loaderClassification(surface) {
     if (/^(?:env-current_dir|env-temp_dir|process-id)$/u.test(operation)) {
       return effectSpec(["sys:read"], "system", "WP7");
     }
+    if (operation === "from-owned-fd") {
+      return nonCapabilitySpec("retained-object-wrapper", "WP7");
+    }
     if (/^(?:command-new|from_raw_fd|new)$/u.test(operation)) {
       return nonCapabilitySpec("unbound-owned-resource", "WP7");
     }
@@ -9494,18 +9676,92 @@ function loaderClassification(surface) {
   if (name.startsWith("route:")) {
     const functionName = name.split(":").at(-1);
     if (
-      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|strip_file_module_decorations|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path)$/u.test(
+      /^(?:authenticated_module_resolve_options|boundary_root|duplicate_resolver_fd|file_system|inputs|lexical_absolute_path_for_resolver|manifest_input|normalize_in_boundary|normalized|resolver_component_cstring|resolver_relative_components|uncaptured_package_manifest_probes)$/u.test(
+        functionName,
+      )
+    ) {
+      return nonCapabilitySpec("authority-control-plane", "WP7");
+    }
+    if (
+      /^(?:resolver_boundary_refusal|resolver_canonical_path|resolver_manifest_not_found|resolver_metadata_from_stat|resolver_stat_is_dir|resolver_stat_is_symlink)$/u.test(
         functionName,
       )
     ) {
       return nonCapabilitySpec("internal-data-transform", "WP1");
     }
     if (
+      /^(?:module_resolve_options|parse_manifest|read|read_to_string|resolve_builtin_meta)$/u.test(
+        functionName,
+      )
+    ) {
+      return nonCapabilitySpec("module-reachability-only", "WP7");
+    }
+    if (
+      /^(?:authenticated_resolver_base_dir|metadata|read_link|resolve_meta_authenticated|symlink_metadata)$/u.test(
+        functionName,
+      )
+    ) {
+      return boundedResolverSelectionEffectSpec(loaderOptions);
+    }
+    if (
+      /^(?:bounded_unix_parent|resolve_bounded_unix_path)$/u.test(functionName)
+    ) {
+      return boundedResolverTraversalEffectSpec({
+        ...loaderOptions,
+        lifetimeContract: "file-handle",
+      });
+    }
+    if (
+      /^(?:bounded_unix_read_link|bounded_unix_symlink_metadata|canonicalize|resolve_direct_file_meta_authenticated|resolve_meta_from_authenticated_bound_package)$/u.test(
+        functionName,
+      )
+    ) {
+      return boundedResolverTraversalEffectSpec(loaderOptions);
+    }
+    if (
+      /^(?:open_resolver_boundary|resolver_open_directory_at)$/u.test(
+        functionName,
+      )
+    ) {
+      return effectSpec(["fs:list"], "loader", "WP7", {
+        ...loaderOptions,
+        lifetimeContract: "file-handle",
+      });
+    }
+    if (/^(?:resolver_fstat|resolver_fstatat_nofollow)$/u.test(functionName)) {
+      return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
+    }
+    if (functionName === "resolver_read_link_at") {
+      return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
+    }
+    if (functionName === "new") {
+      return authenticatedResolverInputConstructionEffectSpec(loaderOptions);
+    }
+    if (functionName === "configure_transpile_subprocess_environment") {
+      // This route only removes ambient authority and writes fixed values onto
+      // an unspawned, host-owned Command. The eventual status() row carries
+      // the process effect; treating this hardening step as another spawn
+      // would double-charge one subprocess.
+      // @ref LLP 0023#6-path-bearing-observables — private compiler inputs are
+      // confinement controls, while process creation remains independently rowed.
+      return nonCapabilitySpec("authority-control-plane", "WP7");
+    }
+    if (
+      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|strip_file_module_decorations|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path)$/u.test(
+        functionName,
+      )
+    ) {
+      return nonCapabilitySpec("internal-data-transform", "WP1");
+    }
+    if (/^(?:legacy_runtime_transform|runtime_transform)$/u.test(functionName)) {
+      return nonCapabilitySpec("authority-control-plane", "WP7");
+    }
+    if (
       /^(?:selected_engine_cache_tag|selected_transform_engine)$/u.test(
         functionName,
       )
     ) {
-      return effectSpec(["env:read"], "environment", "WP7");
+      return nonCapabilitySpec("internal-data-transform", "WP1");
     }
     if (
       /^(?:find_package_root|normalize_import_target|transpile_cache_is_valid)$/u.test(
@@ -9715,6 +9971,75 @@ function loaderClassification(surface) {
     ) {
       return loaderSourceSelectionEffectSpec(loaderOptions);
     }
+    if (
+      new Set([
+        "function:rust:authenticated_resolver_base_dir",
+        "function:rust:resolve_meta_authenticated",
+      ]).has(name)
+    ) {
+      return boundedResolverSelectionEffectSpec(loaderOptions);
+    }
+    if (
+      new Set([
+        "function:rust:resolve_direct_file_meta_authenticated",
+        "function:rust:resolve_meta_from_authenticated_bound_package",
+      ]).has(name)
+    ) {
+      return boundedResolverTraversalEffectSpec(loaderOptions);
+    }
+    if (name === "function:rust:resolve_bounded_unix_path") {
+      return boundedResolverTraversalEffectSpec({
+        ...loaderOptions,
+        lifetimeContract: "file-handle",
+      });
+    }
+    if (
+      new Set([
+        "function:rust:open_resolver_boundary",
+        "function:rust:resolver_open_directory_at",
+      ]).has(name)
+    ) {
+      return effectSpec(["fs:list"], "loader", "WP7", {
+        ...loaderOptions,
+        lifetimeContract: "file-handle",
+      });
+    }
+    if (
+      new Set([
+        "function:rust:resolver_fstat",
+        "function:rust:resolver_fstatat_nofollow",
+      ]).has(name)
+    ) {
+      return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
+    }
+    if (name === "function:rust:resolver_read_link_at") {
+      return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
+    }
+    if (name === "function:rust:duplicate_resolver_fd") {
+      return nonCapabilitySpec("authority-control-plane", "WP7");
+    }
+    if (
+      new Set([
+        "function:rust:authenticated_module_resolve_options",
+        "function:rust:lexical_absolute_path_for_resolver",
+        "function:rust:resolver_component_cstring",
+        "function:rust:resolver_relative_components",
+      ]).has(name)
+    ) {
+      return nonCapabilitySpec("authority-control-plane", "WP7");
+    }
+    if (
+      new Set([
+        "function:rust:resolver_boundary_refusal",
+        "function:rust:resolver_canonical_path",
+        "function:rust:resolver_manifest_not_found",
+        "function:rust:resolver_metadata_from_stat",
+        "function:rust:resolver_stat_is_dir",
+        "function:rust:resolver_stat_is_symlink",
+      ]).has(name)
+    ) {
+      return nonCapabilitySpec("internal-data-transform", "WP1");
+    }
     if (name === "function:javascript:__exactresolvesessionpath") {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
@@ -9749,6 +10074,7 @@ function loaderClassification(surface) {
         "function:rust:is_registered_builtin_specifier",
         "function:rust:module_kind_from_path",
         "function:rust:module_resolve_options",
+        "function:rust:resolve_builtin_meta",
         "function:rust:strip_file_module_decorations",
       ]).has(name)
     ) {
@@ -9944,7 +10270,25 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
   "IBEX_TEST_HBC_COMPILE_BARRIER",
   "IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS",
+  "IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS",
   "IBEX_TEST_TRANSPILE_INPUT_BARRIER",
+]);
+
+// These names are written only onto a freshly created child Command after its
+// inherited environment has been cleared. They harden the tool child; they do
+// not read or mutate the Ibex process environment. Keep both the names and the
+// required source-discovery shape exact so an ambient read cannot silently
+// inherit this non-capability classification.
+// @ref LLP 0023#6-path-bearing-observables
+const FIXED_CHILD_ENVIRONMENT_CONTROLS = new Set([
+  "APPDATA",
+  "BUN_RUNTIME_TRANSPILER_CACHE_PATH",
+  "LANG",
+  "LC_ALL",
+  "LOCALAPPDATA",
+  "NODE_DISABLE_COMPILE_CACHE",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
 ]);
 
 const BOOTSTRAP_STARTUP_ENVIRONMENT_CONTROLS = new Set([
@@ -10093,6 +10437,21 @@ function startupEnvironmentClassification(surface) {
   const accessDirections = surface.metadata?.accessDirections ?? [];
   const writesEnvironment =
     accessDirections.includes("write") || accessDirections.includes("unset");
+
+  if (FIXED_CHILD_ENVIRONMENT_CONTROLS.has(environmentName)) {
+    const metadata = surface.metadata ?? {};
+    const exactFixedChildWrite =
+      metadata.evidenceType === "static-runtime-environment-control" &&
+      metadata.dynamic === false &&
+      JSON.stringify(metadata.accessDirections) === '["write"]' &&
+      JSON.stringify(metadata.accessors) === '["Command::env"]' &&
+      JSON.stringify(metadata.authoredNames) ===
+        JSON.stringify([authoredEnvironmentName]) &&
+      JSON.stringify(metadata.contexts) === '["spawn-child-env"]' &&
+      JSON.stringify(metadata.languages) === '["rust"]';
+    if (!exactFixedChildWrite) return null;
+    return nonCapabilitySpec("authority-control-plane", "WP7");
+  }
 
   if (CLOSED_STARTUP_ENVIRONMENT_CONTROLS.has(environmentName)) {
     return closedSpec(
@@ -10299,6 +10658,18 @@ function startupClassification(surface) {
     return startupEnvironmentClassification(surface);
   }
 
+  if (name === "private:ibex:session-worker-bootstrap:v1") {
+    if (
+      surface.metadata?.evidenceType === "private-session-worker-bootstrap" &&
+      surface.metadata?.argument === "__ibex-session-worker-v1" &&
+      surface.metadata?.javascriptReachability === "none" &&
+      surface.metadata?.visibility === "private-supervisor-worker"
+    ) {
+      return nonCapabilitySpec("terminal-session-control", "WP7");
+    }
+    return null;
+  }
+
   // REPL history is supervisor-owned and has no JavaScript callable, but its
   // platform locator and hardened journal still exercise explicit root-owned
   // effects. Project scope derivation is tied to the armed project object;
@@ -10355,7 +10726,7 @@ function startupClassification(surface) {
 
   if (surface.metadata?.evidenceType === "startup-evaluation-route") {
     const installGlobalsMatch =
-      /^evaluation:installglobals:(capability-hardening|eager-install-seal|form-data|freeze-seal|fs-handle|lockdown|web-crypto|web-storage)$/u.exec(
+      /^evaluation:installglobals:(capability-hardening|eager-install-seal|form-data|freeze-seal|fs-handle|lockdown|native-freeze-conformance-observation|web-crypto|web-storage)$/u.exec(
         name,
       );
     if (installGlobalsMatch) {
@@ -10369,6 +10740,13 @@ function startupClassification(surface) {
       }
       if (label === "form-data") {
         return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+      }
+      // This source label exists only under
+      // IBEX_CAPSEC_CONFORMANCE_OBSERVER. It evaluates four fixed, inert
+      // sentinels in the trusted bootstrap window and retains only a bitmask;
+      // it exposes no package callable and carries no external authority.
+      if (label === "native-freeze-conformance-observation") {
+        return nonCapabilitySpec("runtime-bootstrap-state", "WP10");
       }
       return nonCapabilitySpec("authority-control-plane", "WP4");
     }
@@ -10452,6 +10830,7 @@ function startupClassification(surface) {
         "installer:installandroidenvironmentglobals",
         "installer:installandroidhostfunctions",
         "installer:installandroidlocationbridge",
+        "installer:installbootstrapcompatibilitymodes",
         "installer:installchildprocesshostfunctions",
         "installer:installcompartmentregistry",
         "installer:installconsoleglobals",
@@ -10515,6 +10894,7 @@ function startupClassification(surface) {
         "script:compat-polyfills",
         "script:console",
         "script:form-data",
+        "script:native-freeze-conformance-observation",
         "script:process-compat-fix",
         "script:promise-unwrap",
         "script:shared-runtime-bundle",
@@ -10710,6 +11090,13 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       return null;
     }
     return dualNativeSpecification;
+  }
+  if (authoredGlobalName === "__exactProcessIpcBootstrap") {
+    return closedSpec(
+      "ipc:channel",
+      "WP7",
+      "The inherited diagnostic child-process socket, serialization mode, and identity-bound close hook are private, one-shot bootstrap inputs; armed and project-visible IPC remain closed.",
+    );
   }
   const globalName = authoredGlobalName.toLowerCase();
   const member = authoredMember.toLowerCase();
@@ -11201,7 +11588,18 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       );
     }
     if (
-      /^(?:_uncaughtexceptionhandler|_unhandledrejectionhandler|domain|addlistener|emit|emitwarning|eventnames|getmaxlisteners|hasuncaughtexceptioncapturecallback|listenercount|listeners|off|on|once|prependlistener|prependoncelistener|rawlisteners|removealllisteners|removelistener|setmaxlisteners|setuncaughtexceptioncapturecallback)$/u.test(
+      /^(?:addlistener|listenercount|listeners|off|on|once|prependlistener|prependoncelistener|rawlisteners|removealllisteners|removelistener)$/u.test(
+        member,
+      )
+    ) {
+      return closedWithNoEffectBranchesSpec(
+        "runtime:inspect",
+        "WP7",
+        "Process event and exception-handler surfaces use a shared process-wide listener registry; exit and beforeExit select the session-owned no-effect branch.",
+      );
+    }
+    if (
+      /^(?:_uncaughtexceptionhandler|_unhandledrejectionhandler|domain|emit|emitwarning|eventnames|getmaxlisteners|hasuncaughtexceptioncapturecallback|setmaxlisteners|setuncaughtexceptioncapturecallback)$/u.test(
         member,
       )
     ) {
@@ -12208,6 +12606,7 @@ function hostAbiClassification(name) {
   }
   if (
     new Set([
+      "exhostarmedbootstrapcompatibilityflags",
       "exhostarmedendowments",
       "exhostauthorizeexactendowment",
       "exhostinstallarmed",
@@ -12665,6 +13064,19 @@ function classifyConcreteSurface(surface) {
     }
     if (surface.name === "__exactFsMutationGuard") {
       return nonCapabilitySpec("authority-control-plane", "WP5");
+    }
+    if (surface.name === "__exactCompatModes") {
+      return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+    }
+    if (
+      surface.name === "__exactProcessIpcBootstrap" ||
+      surface.name.startsWith("__exactProcessIpcBootstrap.")
+    ) {
+      return closedSpec(
+        "ipc:channel",
+        "WP7",
+        "The inherited diagnostic child-process socket, serialization mode, and identity-bound close hook are private, one-shot bootstrap inputs; armed and project-visible IPC remain closed.",
+      );
     }
     if (
       new Set([
@@ -13426,12 +13838,72 @@ function semanticEdge(surface, specification, context) {
         `${surface.observedKey}: closed action ${specification.action} is not deny-only`,
       );
     }
+    let logicalBranches;
+    if (specification.logicalBranches !== undefined) {
+      if (
+        !Array.isArray(specification.logicalBranches) ||
+        specification.logicalBranches.length === 0
+      ) {
+        throw new Error(
+          `${surface.observedKey}: closed edge has no logical no-effect branches`,
+        );
+      }
+      const seenIds = new Set();
+      const priorConditions = [];
+      logicalBranches = specification.logicalBranches
+        .map((branch) => {
+          const branchId = validateStableId(branch.id, "logical branch id");
+          if (seenIds.has(branchId)) {
+            throw new Error(
+              `${surface.observedKey}: duplicate logical branch ${branchId}`,
+            );
+          }
+          seenIds.add(branchId);
+          if (branch.disposition !== "no-effect") {
+            throw new Error(
+              `${surface.observedKey}: closed logical branch ${branchId} must be no-effect`,
+            );
+          }
+          const when = [...branch.when]
+            .map((condition) => ({
+              fact: validateStableId(condition.fact, "logical branch fact"),
+              equals: validateStableId(
+                condition.equals,
+                "logical branch fact value",
+              ),
+            }))
+            .sort((left, right) =>
+              utf8Compare(
+                JSON.stringify([left.fact, left.equals]),
+                JSON.stringify([right.fact, right.equals]),
+              ),
+            );
+          if (when.length === 0) {
+            throw new Error(
+              `${surface.observedKey}: closed logical branch ${branchId} has no predicate`,
+            );
+          }
+          if (
+            priorConditions.some((prior) =>
+              logicalBranchConditionsOverlap(prior, when),
+            )
+          ) {
+            throw new Error(
+              `${surface.observedKey}: overlapping logical branch conditions`,
+            );
+          }
+          priorConditions.push(when);
+          return { id: branchId, when, disposition: "no-effect" };
+        })
+        .sort((left, right) => utf8Compare(left.id, right.id));
+    }
     return {
       id,
       classification: "closed",
       surface: semanticSurface,
       cap: specification.action,
       rationale: specification.rationale,
+      ...(logicalBranches === undefined ? {} : { logicalBranches }),
     };
   }
   if (!specification.actions?.length) {

@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-07 (ENG-22991: first-class TypeScript runtime direction clarified without reopening the transform-engine choice)
+**Revised:** 2026-07-15 (subprocess override trust boundary and self-contained dependency requirement clarified)
 **Related:** LLP 0007
 
 ## Decision
@@ -57,7 +57,13 @@ parity fixtures, but it cannot honestly claim to replace SWC for runtime-loaded
 ## Consequences
 
 - Cache keys include the selected in-process transform engine.
-- `EXACT_TRANSPILE_SCRIPT` remains the explicit subprocess override.
+- `EXACT_TRANSPILE_SCRIPT` remains an operator-trusted developer escape hatch,
+  not a hermetic package resolver. Ibex identity-binds and stages the entry's
+  immediate parent subtree and invokes it with a closed environment, private
+  configuration, and an authenticated runner. Overrides must therefore keep
+  every executable dependency self-contained in that subtree and must not rely
+  on ancestor `node_modules`, package metadata, environment files, or runner
+  configuration discovery.
 - `IBEX_RUNTIME_TRANSFORM=oxc` is useful for fixture work and future migration
   spikes, not production default behavior.
 - The default switch is blocked on either a Rolldown/Oxc path compatible with

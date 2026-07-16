@@ -398,13 +398,15 @@ async fn run_server(
                 tokio::spawn(async move {
                     if let Err(err) = handle_connection(
                         stream,
-                        backend,
-                        local_addr,
-                        connected,
-                        notify,
-                        debugger_ready,
-                        debugger_notify,
-                        permit,
+                        ConnectionContext {
+                            backend,
+                            local_addr,
+                            connected,
+                            notify,
+                            debugger_ready,
+                            debugger_notify,
+                            connection_permit: permit,
+                        },
                     )
                     .await
                     {
@@ -416,16 +418,29 @@ async fn run_server(
     }
 }
 
-async fn handle_connection(
-    stream: tokio::net::TcpStream,
+struct ConnectionContext {
     backend: Arc<dyn CdpBackend>,
     local_addr: SocketAddr,
     connected: Arc<AtomicBool>,
     notify: Arc<Notify>,
     debugger_ready: Arc<AtomicBool>,
     debugger_notify: Arc<Notify>,
-    _connection_permit: OwnedSemaphorePermit,
+    connection_permit: OwnedSemaphorePermit,
+}
+
+async fn handle_connection(
+    stream: tokio::net::TcpStream,
+    context: ConnectionContext,
 ) -> Result<()> {
+    let ConnectionContext {
+        backend,
+        local_addr,
+        connected,
+        notify,
+        debugger_ready,
+        debugger_notify,
+        connection_permit: _connection_permit,
+    } = context;
     let mut stream = stream;
     let mut peek_buf = [0u8; 2048];
     let peek_len = tokio::time::timeout(CDP_PEEK_TIMEOUT, stream.peek(&mut peek_buf))
