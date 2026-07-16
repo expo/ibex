@@ -343,9 +343,16 @@ the ABI symbols and version query remain present when it is off, and installatio
 returns the stable unsupported result.
 
 The service owns no Hermes or JSI value. `open_realm` receives a ref-counted
-plain-native client sink and must return without invoking it. A callback during
-`open_realm` is a protocol violation and fails installation. A successful open
-may retain the sink for later service-thread callbacks. This foundation
+plain-native client sink. It may call `retain_client`/`release_client` while
+opening, and it must retain the sink before storing the sink/context beyond
+that call, but it may neither call `on_event` nor publish an event-producing
+path yet. After a successful open, Ibex validates the returned identities,
+makes its mailbox live, and invokes the required one-way `activate_realm`
+hook. That invocation is the callback-admission linearization point: the
+service may deliver synchronously from the hook or later on a service thread.
+An event callback before activation is an unambiguous protocol violation;
+this explicit handshake avoids the otherwise uncloseable race between
+`open_realm` returning and Ibex marking the mailbox live. This foundation
 checkpoint records and discards those plain events only; it does not install
 `navigator.gpu`, `createImageBitmap`, or any other JavaScript API. Presence of
 the C ABI is therefore neither WebGPU support nor conformance evidence.
@@ -357,10 +364,14 @@ additive owner-thread transaction:
 1. `ex_hermes_begin_embedder_capabilities_v1` enters `Configuring` before user
    evaluation.
 2. The embedder installs the Exact operation ingress and any authenticated GPU
-   service. Setters publish only removable provisional state.
+   service in either order. Setters publish only removable provisional state;
+   GPU registration copies the function table and retains the service but does
+   not open a realm.
 3. `ex_hermes_finalize_embedder_capabilities_v1` verifies that the installed
-   capability set exactly equals the armed snapshot, refreshes the compartment
-   baseline once, and seals the Exact method.
+   capability set exactly equals the armed snapshot, opens the GPU realm with
+   the now-final app/agent context, refreshes the compartment baseline once,
+   and seals the Exact method. Thus GPU-first and Exact-ingress-first
+   installation cannot select different realm identities.
 
 `ex_hermes_eval` refuses while the transaction is `Configuring` or failed.
 Finalization failure rolls back the provisional Exact method, closes any opened
@@ -370,8 +381,9 @@ an armed snapshot that expects more than that Exact ingress cannot use the
 legacy path.
 
 GPU teardown is a nonblocking release path. Runtime destruction changes the
-plain callback mailbox to `Detached`, calls `close_realm` once, releases its
-service reference, and proceeds without waiting for a provider terminal event.
+plain callback mailbox to `Closing`, calls `close_realm` once, changes the
+mailbox to `Detached`, releases its service reference, and proceeds without
+waiting for a provider terminal event.
 The service may finish or quarantine backend work in native state and release
 its retained mailbox later. Late callbacks observe `Detached` and are discarded
 without dereferencing a runtime address. No realm-long native-worker pin is

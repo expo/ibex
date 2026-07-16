@@ -166,6 +166,8 @@ typedef struct ExactGpuServiceApiV1 {
                           void* client_context,
                           ExactGpuRealmTokenV1* out_realm,
                           ExactGpuAccountTokenV1* out_account);
+    void (*activate_realm)(void* service_context,
+                           ExactGpuRealmTokenV1 realm);
     int32_t (*submit)(void* service_context,
                       ExactGpuRealmTokenV1 realm,
                       const ExactGpuSemanticCallV1* call);
@@ -236,8 +238,17 @@ size_t ex_hermes_gpu_provider_descriptor_size_v1(void);
 /// EXACT_GPU_PROVIDER_UNSUPPORTED when Ibex was built without
 /// `webgpu-binding`. It never publishes navigator.gpu or another JS surface.
 /// Must run inside the additive capability transaction on the runtime owner
-/// thread. Service calls must return promptly and must not invoke the client
-/// sink reentrantly; a callback before open_realm returns is a protocol error.
+/// thread. Registration retains and copies provisional service state;
+/// open_realm runs once during transaction finalization, after all setters have
+/// supplied the app/agent context, so setter order cannot change realm
+/// identity. During open_realm the service may use retain_client and
+/// release_client for plain-native mailbox ownership; retaining is required
+/// before storing the sink/context beyond the call. It must not invoke
+/// on_event or publish an event-producing path until Ibex calls the one-way
+/// activate_realm hook. That invocation is the callback-admission
+/// linearization point, so event callbacks may begin synchronously from the
+/// hook. Service calls must return promptly. An event callback before
+/// activation is a protocol error.
 int32_t ex_hermes_set_gpu_provider_v1(
     ExactHermesRuntime* runtime,
     const ExactHermesGpuProviderDescriptorV1* descriptor);

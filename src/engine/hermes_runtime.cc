@@ -4822,6 +4822,15 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_AUTHENTICATION_FAILED;
   }
+  // Open the provisional GPU realm only after every capability setter has
+  // supplied its identity. This makes GPU-first and Exact-ingress-first
+  // transactions select the same app/agent realm context.
+  if (exactGpuActivateInstall(runtime) != EXACT_GPU_PROVIDER_OK) {
+    rollbackExactHostIngress(runtime);
+    exactGpuRollbackInstall(runtime);
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
+  }
 
   try {
     if (!finalizeCompartmentBaselineForEmbedder(runtime) ||
@@ -5015,7 +5024,6 @@ extern "C" int ex_hermes_set_exact_host_call_async(
             runtime->host_context_id, kEmbedderCapabilityExactIngress) != 1 ||
         !finalizeCompartmentBaselineForEmbedder(runtime) ||
         !sealExactHostIngress(runtime)) {
-      runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
       throw facebook::jsi::JSError(
           rt,
           "exact.invokeHostAsync could not authenticate and finalize the package-compartment baseline");

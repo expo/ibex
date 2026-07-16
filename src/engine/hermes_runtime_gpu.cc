@@ -149,11 +149,9 @@ bool validOperationIds(const uint32_t* operations, size_t count) {
 }
 
 bool validServiceApi(const ExactGpuServiceApiV1* api) {
-  return api && api->struct_size >= sizeof(ExactGpuServiceApiV1) &&
-      api->abi_version == EXACT_GPU_SERVICE_ABI_VERSION_V1 &&
-      api->feature_bits == 0 && api->retain_service && api->release_service &&
-      api->open_realm && api->submit && api->retire && api->cancel &&
-      api->close_realm;
+  return api->feature_bits == 0 && api->retain_service &&
+      api->release_service && api->open_realm && api->activate_realm &&
+      api->submit && api->retire && api->cancel && api->close_realm;
 }
 #endif
 
@@ -237,20 +235,31 @@ extern "C" int32_t ex_hermes_set_gpu_provider_v1(
     return EXACT_GPU_PROVIDER_INVALID_STATE;
   }
   if (runtime->gpu_binding) return EXACT_GPU_PROVIDER_ALREADY_INSTALLED;
-  if (!descriptor ||
-      descriptor->struct_size < sizeof(ExactHermesGpuProviderDescriptorV1) ||
-      descriptor->abi_version != EXACT_GPU_SERVICE_ABI_VERSION_V1 ||
-      descriptor->flags != 0 || descriptor->reserved != 0 ||
+  // Each size/version gate precedes every later-field read. A caller may pass
+  // only the prefix it advertises; never inspect abi_version (or the nested
+  // function table) after a short-size rejection.
+  if (!descriptor) return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+  if (descriptor->struct_size < sizeof(ExactHermesGpuProviderDescriptorV1)) {
+    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+  }
+  if (descriptor->abi_version != EXACT_GPU_SERVICE_ABI_VERSION_V1) {
+    return EXACT_GPU_PROVIDER_ABI_MISMATCH;
+  }
+  if (!descriptor->api) return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+  if (descriptor->api->struct_size < sizeof(ExactGpuServiceApiV1)) {
+    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+  }
+  if (descriptor->api->abi_version != EXACT_GPU_SERVICE_ABI_VERSION_V1) {
+    return EXACT_GPU_PROVIDER_ABI_MISMATCH;
+  }
+  if (descriptor->flags != 0 || descriptor->reserved != 0 ||
       descriptor->topology_id !=
           EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_DEVICE_V1 ||
       !validProfileId(descriptor->profile_id, descriptor->profile_id_len) ||
       !validOperationIds(
           descriptor->sorted_operation_ids, descriptor->operation_id_count) ||
       !validServiceApi(descriptor->api)) {
-    return descriptor &&
-            descriptor->abi_version != EXACT_GPU_SERVICE_ABI_VERSION_V1
-        ? EXACT_GPU_PROVIDER_ABI_MISMATCH
-        : EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
+    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
   }
 
   if (ex_host_authorize_exact_gpu_provider(
@@ -268,9 +277,15 @@ extern "C" int32_t ex_hermes_set_gpu_provider_v1(
     return EXACT_GPU_PROVIDER_AUTHENTICATION_FAILED;
   }
 
-  auto binding = std::make_shared<ExactGpuRuntimeBinding>();
-  binding->api = *descriptor->api;
-  binding->mailbox = new ExactGpuClientMailbox(exactRuntimeCallbackTarget(runtime));
+  std::shared_ptr<ExactGpuRuntimeBinding> binding;
+  try {
+    binding = std::make_shared<ExactGpuRuntimeBinding>();
+    binding->api = *descriptor->api;
+    binding->mailbox =
+        new ExactGpuClientMailbox(exactRuntimeCallbackTarget(runtime));
+  } catch (...) {
+    return EXACT_GPU_PROVIDER_OPEN_FAILED;
+  }
   try {
     binding->api.retain_service(binding->api.service_context);
     binding->service_retained = true;
@@ -278,6 +293,25 @@ extern "C" int32_t ex_hermes_set_gpu_provider_v1(
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_GPU_PROVIDER_OPEN_FAILED;
   }
+
+  // Registration is provisional. Realm creation is deliberately deferred to
+  // the one-shot transaction finalizer, after every setter has run, so an
+  // app/agent context installed by the Exact ingress cannot depend on setter
+  // order. The mailbox stays Installing and has not been shared with the
+  // provider yet.
+  runtime->gpu_binding = std::move(binding);
+  return EXACT_GPU_PROVIDER_OK;
+#endif
+}
+
+int32_t exactGpuActivateInstall(ExactHermesRuntime* runtime) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)runtime;
+  return EXACT_GPU_PROVIDER_OK;
+#else
+  if (!runtime || !runtime->gpu_binding) return EXACT_GPU_PROVIDER_OK;
+  auto& binding = runtime->gpu_binding;
+  if (binding->realm_open) return EXACT_GPU_PROVIDER_OK;
 
   ExactGpuRealmOpenV1 open = {
       sizeof(ExactGpuRealmOpenV1),
@@ -303,9 +337,10 @@ extern "C" int32_t ex_hermes_set_gpu_provider_v1(
   bool activated = false;
   if (status == 0 && binding->realm != 0 && binding->account != 0) {
     binding->mailbox->realm.store(binding->realm, std::memory_order_release);
-    // This CAS is the callback-admission linearization point. A callback that
-    // wins the competing Installing -> ProtocolViolation transition makes the
-    // open fail; one that observes Live is necessarily admitted after open.
+    // The provider may retain the plain-native sink during open_realm, but it
+    // is forbidden to call on_event or publish an event producer until
+    // activate_realm. An event callback that wins this competing transition
+    // is therefore unambiguously early.
     auto expected = GpuMailboxPhase::Installing;
     activated = binding->mailbox->phase.compare_exchange_strong(
         expected,
@@ -321,14 +356,21 @@ extern "C" int32_t ex_hermes_set_gpu_provider_v1(
     // close; treating every returned nonzero realm as live prevents a partial
     // open from leaking backend state.
     if (binding->realm != 0) binding->realm_open = true;
-    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
-    binding->detach();
     return protocolViolation ? EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION
                              : EXACT_GPU_PROVIDER_OPEN_FAILED;
   }
 
   binding->realm_open = true;
-  runtime->gpu_binding = std::move(binding);
+  // Activation invocation, not open_realm return, is the service-visible
+  // callback-admission linearization point. Live is published first so a
+  // conforming provider may deliver synchronously from this one-way hook.
+  try {
+    binding->api.activate_realm(binding->api.service_context, binding->realm);
+  } catch (...) {
+    binding->mailbox->phase.store(
+        GpuMailboxPhase::ProtocolViolation, std::memory_order_release);
+    return EXACT_GPU_PROVIDER_OPEN_FAILED;
+  }
   return EXACT_GPU_PROVIDER_OK;
 #endif
 }

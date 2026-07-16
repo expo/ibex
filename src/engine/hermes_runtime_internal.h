@@ -1298,6 +1298,7 @@ bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
                           std::function<void()> fn);
 
 bool exactGpuBindingInstalled(const ExactHermesRuntime* runtime);
+int32_t exactGpuActivateInstall(ExactHermesRuntime* runtime);
 void exactGpuRollbackInstall(ExactHermesRuntime* runtime);
 void exactGpuBeginRuntimeTeardown(ExactHermesRuntime* runtime);
 

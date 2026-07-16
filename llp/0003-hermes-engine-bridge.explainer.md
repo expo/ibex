@@ -232,14 +232,19 @@ only the runtime pointer-plus-nonce identity, atomic lifecycle state, and
 bounded event metadata `[observed]` (`src/engine/hermes_runtime_gpu.cc`;
 [LLP 0002 §The optional Exact GPU service registration seam](./0002-host-embedding-abi.spec.md#the-optional-exact-gpu-service-registration-seam)).
 
-The mailbox moves `Installing -> Live -> Closing -> Detached`. Service
-callbacks are forbidden before `open_realm` returns. A live callback may never
-touch JSI on the service thread; this first checkpoint records/discards the
-event and publishes no JS surface. Runtime destruction marks the mailbox
-detached before issuing the nonblocking realm close and never waits for a
-terminal provider callback. A service-retained mailbox can therefore receive a
-late callback safely, report it discarded, and release itself after the runtime
-and address are gone. A later WebGPU wrapper may use the ordinary callback queue
+The mailbox moves `Installing -> Live -> Closing -> Detached`. The provider
+may call the sink's plain-native `retain_client`/`release_client` ownership
+hooks during `open_realm`, and must retain before storing the sink/context
+beyond that call. It may not call `on_event` or publish an event-producing
+path until Ibex publishes `Live` and invokes the required one-way
+`activate_realm` hook; that invocation is the admission linearization point,
+so a conforming provider may callback synchronously from it. A live callback
+may never touch JSI on the service thread; this first checkpoint
+records/discards the event and publishes no JS surface. Runtime destruction marks the mailbox
+`Closing`, issues the nonblocking realm close, then marks it `Detached`, and
+never waits for a terminal provider callback. A service-retained mailbox can
+therefore receive a late callback safely, report it discarded, and release
+itself after the runtime and address are gone. A later WebGPU wrapper may use the ordinary callback queue
 only after taking a short pointer-plus-nonce pin for the enqueue; it may not
 change this detached native ownership model.
 

@@ -209,6 +209,7 @@ struct ExactGpuServiceApiV1 {
             *mut u64,
         ) -> i32,
     >,
+    activate_realm: Option<extern "C" fn(*mut std::ffi::c_void, u64)>,
     submit: Option<extern "C" fn(*mut std::ffi::c_void, u64, *const std::ffi::c_void) -> i32>,
     retire: Option<extern "C" fn(*mut std::ffi::c_void, u64, *const std::ffi::c_void) -> i32>,
     cancel: Option<extern "C" fn(*mut std::ffi::c_void, u64, u64) -> i32>,
@@ -4294,6 +4295,9 @@ cp \"$input\" \"$out\"\n";
         retain_service_calls: usize,
         release_service_calls: usize,
         open_calls: usize,
+        open_context_kinds: Vec<u32>,
+        activate_calls: usize,
+        activation_receipt: Option<i32>,
         close_calls: usize,
         early_receipt: Option<i32>,
         retained_client: Option<RetainedGpuTestClient>,
@@ -4342,7 +4346,7 @@ cp \"$input\" \"$out\"\n";
             std::mem::size_of::<ExactGpuRealmOpenV1>() as u32
         );
         assert_eq!(open.abi_version, EXACT_GPU_SERVICE_ABI_VERSION_V1);
-        assert_eq!(open.context_kind, 1);
+        assert!(open.context_kind == 1 || open.context_kind == 2);
         assert_ne!(open.runtime_nonce, 0);
         unsafe {
             *out_realm = 41;
@@ -4352,6 +4356,7 @@ cp \"$input\" \"$out\"\n";
         let mode = {
             let mut state = fake_gpu_state().lock().unwrap();
             state.open_calls += 1;
+            state.open_context_kinds.push(open.context_kind);
             state.mode
         };
         if mode == 1 {
@@ -4370,7 +4375,7 @@ cp \"$input\" \"$out\"\n";
             };
             let receipt = sink.on_event.unwrap()(client_context, &event);
             fake_gpu_state().lock().unwrap().early_receipt = Some(receipt);
-        } else if mode == 2 {
+        } else if mode == 2 || mode == 3 {
             sink.retain_client.unwrap()(client_context);
             fake_gpu_state().lock().unwrap().retained_client = Some(RetainedGpuTestClient {
                 sink,
@@ -4379,6 +4384,40 @@ cp \"$input\" \"$out\"\n";
             });
         }
         0
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    extern "C" fn fake_gpu_activate_realm(_context: *mut std::ffi::c_void, realm: u64) {
+        assert_eq!(realm, 41);
+        let synchronous_client = {
+            let mut state = fake_gpu_state().lock().unwrap();
+            state.activate_calls += 1;
+            if state.mode == 3 {
+                Some(state.retained_client.unwrap())
+            } else {
+                None
+            }
+        };
+        if let Some(client) = synchronous_client {
+            let event = ExactGpuServiceEventV1 {
+                struct_size: std::mem::size_of::<ExactGpuServiceEventV1>() as u32,
+                abi_version: EXACT_GPU_SERVICE_ABI_VERSION_V1,
+                kind: EXACT_GPU_EVENT_REALM_CLOSED,
+                flags: 0,
+                realm_token: client.realm,
+                operation_id: 0,
+                completion_id: 0,
+                status: 0,
+                reserved: 0,
+                payload: std::ptr::null(),
+                payload_len: 0,
+            };
+            let receipt = client.sink.on_event.unwrap()(client.context as *mut _, &event);
+            client.sink.release_client.unwrap()(client.context as *mut _);
+            let mut state = fake_gpu_state().lock().unwrap();
+            state.activation_receipt = Some(receipt);
+            state.retained_client = None;
+        }
     }
 
     #[cfg(feature = "webgpu-binding")]
@@ -4430,6 +4469,7 @@ cp \"$input\" \"$out\"\n";
             retain_service: Some(fake_gpu_retain_service),
             release_service: Some(fake_gpu_release_service),
             open_realm: Some(fake_gpu_open_realm),
+            activate_realm: Some(fake_gpu_activate_realm),
             submit: Some(fake_gpu_submit),
             retire: Some(fake_gpu_retire),
             cancel: Some(fake_gpu_cancel),
@@ -4658,6 +4698,7 @@ cp \"$input\" \"$out\"\n";
         runtime
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
+                assert_eq!(fake_gpu_state().lock().unwrap().open_calls, 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
             })
             .unwrap();
@@ -4676,6 +4717,73 @@ cp \"$input\" \"$out\"\n";
         let state = fake_gpu_state().lock().unwrap();
         assert_eq!(state.retain_service_calls, 1);
         assert_eq!(state.open_calls, 1);
+        assert_eq!(state.open_context_kinds, vec![1]);
+        assert_eq!(state.activate_calls, 1);
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_first_transaction_uses_later_agent_context_at_finalize() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(0);
+        let engine = HermesEngine::new().unwrap();
+        assert!(engine.runtime_bundle_installed().await.unwrap());
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        let api = fake_gpu_api();
+        let descriptor = fake_gpu_descriptor(&api, &operations, test_gpu_digests());
+
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
+                assert_eq!(fake_gpu_state().lock().unwrap().open_calls, 0);
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        2,
+                        operations.as_ptr(),
+                        operations.len(),
+                        std::ptr::null(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+            })
+            .unwrap();
+
+        let state = fake_gpu_state().lock().unwrap();
+        assert_eq!(state.open_calls, 1);
+        assert_eq!(state.open_context_kinds, vec![2]);
+        assert_eq!(state.activate_calls, 1);
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_activation_invocation_admits_synchronous_callback() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(3);
+        let engine = HermesEngine::new().unwrap();
+        assert!(engine.runtime_bundle_installed().await.unwrap());
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        let api = fake_gpu_api();
+        let descriptor = fake_gpu_descriptor(&api, &operations, test_gpu_digests());
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+            })
+            .unwrap();
+
+        let state = fake_gpu_state().lock().unwrap();
+        assert_eq!(state.activate_calls, 1);
+        assert_eq!(state.activation_receipt, Some(1));
     }
 
     #[cfg(feature = "webgpu-binding")]
@@ -4712,6 +4820,62 @@ cp \"$input\" \"$out\"\n";
 
     #[cfg(feature = "webgpu-binding")]
     #[tokio::test(flavor = "current_thread")]
+    async fn gpu_registration_validates_size_prefixes_and_nested_abi_before_use() {
+        #[repr(C)]
+        struct SizePrefix {
+            struct_size: u32,
+        }
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(0);
+        let engine = HermesEngine::new().unwrap();
+        assert!(engine.runtime_bundle_installed().await.unwrap());
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        let mut api = fake_gpu_api();
+        let mut descriptor = fake_gpu_descriptor(&api, &operations, test_gpu_digests());
+        let short_descriptor = SizePrefix {
+            struct_size: std::mem::size_of::<SizePrefix>() as u32,
+        };
+        let short_api = SizePrefix {
+            struct_size: std::mem::size_of::<SizePrefix>() as u32,
+        };
+
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(
+                    ex_hermes_set_gpu_provider_v1(
+                        raw,
+                        (&short_descriptor as *const SizePrefix).cast(),
+                    ),
+                    -1,
+                    "a short descriptor prefix must reject before reading abi_version"
+                );
+
+                descriptor.api = (&short_api as *const SizePrefix).cast();
+                assert_eq!(
+                    ex_hermes_set_gpu_provider_v1(raw, &descriptor),
+                    -1,
+                    "a short nested table prefix must reject before reading abi_version"
+                );
+
+                api.abi_version ^= 1;
+                descriptor.api = &api;
+                assert_eq!(
+                    ex_hermes_set_gpu_provider_v1(raw, &descriptor),
+                    -5,
+                    "the independently versioned nested table must report ABI_MISMATCH"
+                );
+            })
+            .unwrap();
+
+        assert_eq!(fake_gpu_state().lock().unwrap().retain_service_calls, 0);
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[tokio::test(flavor = "current_thread")]
     async fn gpu_open_reentrant_callback_is_a_protocol_violation() {
         let _lock = hermes_engine_test_lock().lock().await;
         let _reset = install_test_host_with_allow(&[]);
@@ -4725,11 +4889,17 @@ cp \"$input\" \"$out\"\n";
         runtime
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
-                assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), -8);
+                assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), -4);
             })
             .unwrap();
+        let blocked = engine.eval_immediate("1 + 1").await.unwrap_err();
+        assert!(blocked
+            .to_string()
+            .contains("embedder capability transaction is not finalized"));
         let state = fake_gpu_state().lock().unwrap();
         assert_eq!(state.early_receipt, Some(-1));
+        assert_eq!(state.activate_calls, 0);
         assert_eq!(state.close_calls, 1);
         assert_eq!(state.release_service_calls, 1);
     }
