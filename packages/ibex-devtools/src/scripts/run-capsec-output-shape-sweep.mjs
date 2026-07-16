@@ -318,6 +318,8 @@ const attestEngine = (identityPath) => {
       "test",
       "--bin",
       "ibex",
+      "--features",
+      "capsec-conformance-observer",
       "capsec_loaded_engine_identity_attestation",
       "--",
       "--test-threads=1",

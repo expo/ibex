@@ -246,17 +246,26 @@ async fn capsec_inherited_intrinsic_alias_loaded_execution() {
         "plan structural features do not describe the loaded engine"
     );
 
-    let engine = HermesEngine::new().expect("create inherited intrinsic probe engine");
+    let (host, snapshot_digest) =
+        build_armed_test_host_at(None, false, false, false, Vec::new());
+    assert_ne!(
+        crate::host::abi::install_host(host.clone()),
+        0,
+        "install inherited-intrinsic authenticated Host"
+    );
+    let _reset = HostResetGuard;
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create armed inherited intrinsic probe engine");
     engine
         .load_runtime()
         .await
         .expect("load the exact runtime before inherited intrinsic probe");
+    // The content-addressed probe is authored source and therefore enters the
+    // mapped engine only as an armed, authenticated session submission.
+    // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+    let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
     let script = format!("JSON.stringify({})", plan.probe.source);
-    let encoded = engine
-        .eval_immediate(&script)
-        .await
-        .expect("execute inherited intrinsic probe in loaded Hermes")
-        .expect("loaded inherited intrinsic probe returned no value");
+    let encoded = evaluator.eval_string(&engine, &script).await;
     let observation: Value = serde_json::from_str(&encoded)
         .expect("loaded inherited intrinsic probe returned invalid JSON");
     assert_eq!(observation["schema"], OBSERVATION_SCHEMA);
@@ -267,6 +276,9 @@ async fn capsec_inherited_intrinsic_alias_loaded_execution() {
         observation["structuralFeatures"],
         json!(&plan.target.features)
     );
+    evaluator
+        .finish(&engine, "inherited intrinsic alias probe")
+        .expect("finish authenticated inherited-intrinsic publications");
 
     let identity_after = HermesEngine::loaded_engine_identity()
         .expect("identify Hermes factory-object file snapshot after intrinsic probe");

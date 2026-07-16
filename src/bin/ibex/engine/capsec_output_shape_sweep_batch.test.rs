@@ -103,119 +103,6 @@ JSON.stringify({
 });
 "#;
 
-const RESOLVER_SWEEP_SCRIPT: &str = r#"
-(function () {
-  'use strict';
-  var probes = __IBEX_OUTPUT_SHAPE_PROBES__;
-
-  function valueShape(value) {
-    if (value === null) return 'null';
-    if (Array.isArray(value)) return 'array';
-    return typeof value;
-  }
-
-  function jsonValue(value, shape) {
-    if (shape === 'undefined' || shape === 'function' || shape === 'symbol') return null;
-    if (shape === 'bigint') return String(value);
-    if (shape === 'object' || shape === 'array') {
-      try { return JSON.parse(JSON.stringify(value)); } catch (_) { return null; }
-    }
-    return value;
-  }
-
-  function returned(value) {
-    var shape = valueShape(value);
-    return { kind: 'return', rawValueShape: shape, value: jsonValue(value, shape), errorCode: null };
-  }
-
-  function absent() {
-    return { kind: 'absent', rawValueShape: 'absent', value: null, errorCode: null };
-  }
-
-  function stableErrorCode(error) {
-    if (error && typeof error.code === 'string' && error.code) return error.code;
-    return 'ERR_IBEX_UNCLASSIFIED_' + String(error && error.name || 'ERROR')
-      .replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
-  }
-
-  function thrown(error) {
-    return { kind: 'throw', rawValueShape: 'throw', value: null, errorCode: stableErrorCode(error) };
-  }
-
-  function selectComponent(value, component) {
-    var arrayProjection = /\[\]$/.test(component);
-    var name = arrayProjection ? component.slice(0, -2) : component;
-    var selected = name ? value && value[name] : value;
-    return { value: selected, arrayProjection: arrayProjection };
-  }
-
-  function fieldAt(record, path) {
-    var components = path.split('.');
-    var current = record;
-    for (var index = 0; index < components.length; index++) {
-      var selected = selectComponent(current, components[index]);
-      current = selected.value;
-      if (selected.arrayProjection && index + 1 < components.length) {
-        var tail = components.slice(index + 1).join('.');
-        return Array.isArray(current) ? current.map(function (item) { return fieldAt(item, tail); }) : undefined;
-      }
-    }
-    return current;
-  }
-
-  function recordValue(record, output) {
-    if (output === '[[return]]') return record;
-    if (output.indexOf('field:') === 0) return fieldAt(record, output.slice(6));
-    throw new Error('unsupported resolver record path ' + output);
-  }
-
-  function specifierFor(variant) {
-    if (variant === 'builtin') return 'node:path';
-    if (variant === 'package' || variant === 'private-compat') return 'image-lib';
-    if (variant === 'refused') return './missing-output-shape.js';
-    return './output-shape.js';
-  }
-
-  function observe(row) {
-    var source = row.probe.sourceDescriptor;
-    try {
-      var resolver = globalThis[source.surfaceName];
-      if (typeof resolver !== 'function') throw new Error(source.surfaceName + ' is unavailable');
-      var encoded = resolver(specifierFor(source.returnVariant), __IBEX_OUTPUT_SHAPE_REFERRER__);
-      var record = encoded === null ? null : JSON.parse(encoded);
-      var value = recordValue(record, source.output);
-      var raw = value === undefined ? absent() : returned(value);
-      return {
-        key: row.key,
-        proof: {
-          kind: 'loaded-engine-return-record',
-          fixtureId: row.probe.fixtureId,
-          sourceDescriptorDigest: row.probe.sourceDescriptorDigest,
-          recordPath: row.probe.recordPath,
-          rawValueShape: raw.rawValueShape
-        },
-        raw: raw
-      };
-    } catch (error) {
-      var raw = thrown(error);
-      return {
-        key: row.key,
-        proof: {
-          kind: 'loaded-engine-return-record',
-          fixtureId: row.probe.fixtureId,
-          sourceDescriptorDigest: row.probe.sourceDescriptorDigest,
-          recordPath: row.probe.recordPath,
-          rawValueShape: raw.rawValueShape
-        },
-        raw: raw
-      };
-    }
-  }
-
-  return JSON.stringify(probes.map(observe));
-})()
-"#;
-
 const STRUCTURED_SWEEP_SCRIPT: &str = r#"
 (function () {
   'use strict';
@@ -1522,35 +1409,14 @@ fn is_generic_loaded_realm_surface(row: &Value) -> bool {
             && row["key"]["sourceKind"] == "runtime-owned")
 }
 
-async fn immediate_structured_results(
-    engine: &HermesEngine,
-    rows: &[Value],
-    script_template: &str,
-    referrer: &str,
-) -> Vec<Value> {
-    if rows.is_empty() {
-        return Vec::new();
-    }
-    let encoded = serde_json::to_string(rows).expect("serialize output-shape structured probes");
-    let script = script_template
-        .replace("__IBEX_OUTPUT_SHAPE_PROBES__", &encoded)
-        .replace(
-            "__IBEX_OUTPUT_SHAPE_REFERRER__",
-            &serde_json::to_string(referrer).expect("serialize output-shape referrer"),
-        );
-    let encoded = engine
-        .eval_immediate(&script)
-        .await
-        .expect("execute immediate output-shape structured sweep")
-        .expect("immediate output-shape structured sweep returned no result");
-    let value: Value = serde_json::from_str(&encoded)
-        .expect("immediate output-shape structured sweep returned invalid JSON");
-    let results = value
-        .as_array()
-        .expect("immediate output-shape structured sweep did not return an array")
-        .clone();
-    assert_eq!(results.len(), rows.len());
-    results
+fn resolver_unexercisable(row: &Value) -> Value {
+    json!({
+        "key": row["key"].clone(),
+        "reason": format!(
+            "resolver bridge {} is bootstrap-private and sealed before authenticated source ingress; diagnostic or pre-bootstrap bare evaluation is not execution evidence",
+            source_surface_name(row)
+        )
+    })
 }
 
 async fn loaded_structured_results(
@@ -3002,35 +2868,22 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
     );
     assert_eq!(
         routed_structured_keys, expected_structured_keys,
-        "loaded-engine route families must cover the authenticated structured plan exactly"
+        "loaded-engine route families must cover the structured plan exactly"
     );
 
-    // Private-compat records exist only on the unarmed/dev resolver route.
-    // Exercise that route in a separate runtime loaded from the same exact
-    // binary before installing the armed Host used by the public realm.
-    let private_resolver_results = {
-        let private_host = crate::host::Host::new(crate::host::HostConfig {
-            mode: crate::host::SecurityMode::Audit,
-            root_dir: Some(project_root.clone()),
-            ..Default::default()
-        });
-        assert_ne!(crate::host::abi::install_host(private_host), 0);
-        let reset = HostResetGuard;
-        let private_engine = HermesEngine::new().expect("create private-compat resolver runtime");
-        let private_referrer = project_root.join("entry.mjs");
-        let results = immediate_structured_results(
-            &private_engine,
-            &private_resolver_rows,
-            RESOLVER_SWEEP_SCRIPT,
-            private_referrer
-                .to_str()
-                .expect("output-shape referrer must be UTF-8"),
-        )
-        .await;
-        drop(private_engine);
-        drop(reset);
-        results
-    };
+    // Raw resolver bridges are reachable only while the trusted bootstrap is
+    // constructing its private loader. Armed lockdown deletes them before
+    // authenticated project source can execute, while the private-compat
+    // branch exists only in an unarmed diagnostic runtime. Neither route is
+    // authenticated output evidence, so retain every row as an explicit
+    // residual instead of reopening the bare pre-bootstrap evaluator.
+    // @ref LLP 0023#acceptance-criteria — resolver bridges are
+    // unreachable from post-arming JavaScript.
+    let resolver_unexercisable = private_resolver_rows
+        .iter()
+        .chain(&armed_resolver_rows)
+        .map(resolver_unexercisable)
+        .collect::<Vec<_>>();
 
     let module_specifiers = descriptor_rows
         .iter()
@@ -3075,13 +2928,6 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
         .expect("create exact output-shape Hermes runtime");
     let native_freeze_results = native_freeze_batch::results(&engine, &native_freeze_rows).await;
-    let armed_resolver_results = immediate_structured_results(
-        &engine,
-        &armed_resolver_rows,
-        RESOLVER_SWEEP_SCRIPT,
-        "/project/entry.mjs",
-    )
-    .await;
     engine
         .load_runtime()
         .await
@@ -3344,10 +3190,8 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
             serde_json::to_string(&result["key"]).expect("serialize unexercisable descriptor key")
         })
         .collect::<BTreeSet<_>>();
-    let structured_by_key = private_resolver_results
+    let structured_by_key = loaded_realm_results
         .into_iter()
-        .chain(armed_resolver_results)
-        .chain(loaded_realm_results)
         .chain(private_vfs_results)
         .chain(authenticated_source_results)
         .chain(safe_throw_metadata_results)
@@ -3364,8 +3208,9 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
             (key, result)
         })
         .collect::<std::collections::BTreeMap<_, _>>();
-    let structured_unexercisable_keys = authored_builtin_unexercisable
+    let structured_unexercisable_keys = resolver_unexercisable
         .iter()
+        .chain(&authored_builtin_unexercisable)
         .chain(&global_accessor_unexercisable)
         .chain(&global_callable_unexercisable)
         .chain(&closed_control_unexercisable)
@@ -3382,10 +3227,11 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         .collect::<BTreeSet<_>>();
     assert_eq!(
         structured_accounted_keys, expected_structured_keys,
-        "loaded-engine structured observations and explicit residuals must join the authenticated plan exactly"
+        "loaded-engine structured observations and explicit residuals must join the structured plan exactly"
     );
     let mut results = Vec::with_capacity(rows.len());
     let mut unexercisable = descriptor_unexercisable;
+    unexercisable.extend(resolver_unexercisable);
     unexercisable.extend(authored_builtin_unexercisable);
     unexercisable.extend(global_accessor_unexercisable);
     unexercisable.extend(global_callable_unexercisable);

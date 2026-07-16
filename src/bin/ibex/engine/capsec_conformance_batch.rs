@@ -2124,7 +2124,10 @@ async fn capsec_public_native_recipe_batch() {
 }
 
 mod inherited_intrinsic_alias {
-    use super::{hermes_engine_test_lock, HermesEngine};
+    use super::super::{
+        build_armed_test_host_at, hermes_engine_test_lock, AuthenticatedReplTestEvaluator,
+        HermesEngine, HostResetGuard,
+    };
     use crate::engine::Engine as _;
     include!("capsec_inherited_intrinsic_alias_batch.test.rs");
 }

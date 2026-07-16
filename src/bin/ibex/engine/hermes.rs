@@ -4849,6 +4849,7 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
         let _ = fs::remove_dir_all(&temp_root);
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn capsec_loaded_engine_identity_attestation() {
         let Ok(output_path) = std::env::var("IBEX_CAPSEC_ENGINE_IDENTITY_OUTPUT") else {
@@ -4871,16 +4872,31 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
         assert_eq!(identity.engine_artifact_path, expected_path);
         assert_eq!(identity.binary_digest, expected_digest);
 
-        let engine = HermesEngine::new().expect("exact Hermes engine must initialize");
+        let (host, snapshot_digest) =
+            build_armed_test_host_at(None, false, false, false, Vec::new());
+        assert_ne!(
+            crate::host::abi::install_host(host.clone()),
+            0,
+            "install authenticated engine-attestation Host"
+        );
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("exact armed Hermes engine must initialize");
         engine
             .load_runtime()
             .await
             .expect("exact Hermes runtime bundle must load");
-        let marker = engine
-            .eval_immediate("'IBEX_CAPSEC_EXACT_ENGINE_EXECUTED'")
-            .await
-            .expect("exact Hermes artifact must evaluate the attestation program");
-        assert_eq!(marker.as_deref(), Some("IBEX_CAPSEC_EXACT_ENGINE_EXECUTED"));
+        // The marker is project source, so even this identity-only executor
+        // must prove the mapped engine through the armed authenticated ingress.
+        // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+        let marker = evaluator
+            .eval_string(&engine, "'IBEX_CAPSEC_EXACT_ENGINE_EXECUTED'")
+            .await;
+        assert_eq!(marker, "IBEX_CAPSEC_EXACT_ENGINE_EXECUTED");
+        evaluator
+            .finish(&engine, "loaded-engine identity attestation")
+            .expect("finish authenticated engine-attestation publications");
         let verified = ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity)
             .expect("loaded Hermes object changed during exact-artifact execution");
         assert_eq!(verified, identity);
@@ -5882,6 +5898,11 @@ cp \"$input\" \"$out\"\n";
                 panic!("authenticated .load fixture did not throw: {evaluation:?}")
             };
             thrown
+        }
+
+        fn finish(&mut self, engine: &HermesEngine, context: &str) -> anyhow::Result<()> {
+            self.publications.drain(engine, context)?;
+            self.publications.require_no_due_schedules(context)
         }
     }
 

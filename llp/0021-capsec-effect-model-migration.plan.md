@@ -5,6 +5,10 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-15 (ENG-24578 residualizes raw resolver-output rows:
+the resolver bridges are bootstrap-private and sealed before authenticated
+project-source ingress, so unarmed or pre-bootstrap bare evaluation cannot
+serve as execution evidence.)
 **Revised:** 2026-07-15 (ENG-24578 binds cwd disclosure to the public
 `process.cwd` facade over the sealed private bridge, and records the legacy
 `.node`/`.wasm` resolver facets as residual until an authenticated source-bound
