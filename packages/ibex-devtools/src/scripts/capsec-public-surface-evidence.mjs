@@ -1346,6 +1346,39 @@ function validateRuntimeInvocation(observation, recipe) {
       }
     }
     if (
+      authored.invocationSchema ===
+        "ibex/capsec-native-global-invocation/1" &&
+      authored.kind === "global-property-read"
+    ) {
+      exactKeys(
+        invocation.result,
+        ["kind", "globalName", "valueType", "ownerDepths", "cleanup"],
+        `${recipe.fixtureId}: global read result`,
+      );
+      const descriptor = authored.sourceDescriptor;
+      const inherited = descriptor?.memberKinds?.includes("inherited") === true;
+      const ownerDepths = invocation.result.ownerDepths;
+      if (
+        invocation.result.globalName !== authored.globalName ||
+        typeof invocation.result.valueType !== "string" ||
+        invocation.result.cleanup !== "none" ||
+        !Array.isArray(descriptor?.access?.path) ||
+        !Array.isArray(ownerDepths) ||
+        ownerDepths.length !== descriptor.access.path.length ||
+        !ownerDepths.every(
+          (depth) => Number.isSafeInteger(depth) && depth >= 0,
+        ) ||
+        (inherited &&
+          (descriptor.valueShape !== "data" ||
+            !descriptor.memberKinds.includes("static") ||
+            ownerDepths.at(-1) === 0))
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: global read did not prove its exact property owner chain`,
+        );
+      }
+    }
+    if (
       authored.invocationSchema === "ibex/capsec-host-abi-invocation/1"
     ) {
       exactKeys(

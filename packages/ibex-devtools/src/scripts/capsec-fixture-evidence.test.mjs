@@ -13,6 +13,9 @@ import {
 } from "./capsec-conformance.mjs";
 import { canonicalJson } from "./capsec-contract.mjs";
 import {
+  validatePublicFixtureRuntimeObservation,
+} from "./capsec-public-surface-evidence.mjs";
+import {
   buildExactFixtureEvidenceBindingArtifact,
   EXACT_FIXTURE_EVIDENCE_COMMAND,
   exactFixtureEvidenceRecipes,
@@ -256,12 +259,14 @@ describe("Exact fixture-evidence pilot", () => {
       executions: artifact.executions,
       bindings: context.bindings,
       digestContract: context.digestContract,
+      recipeCatalog: context.recipeCatalog,
+      validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
     });
     expect(report.status).toBe("incomplete");
     expect(report.summary).toMatchObject({
-      requiredFixtures: 22_988,
+      requiredFixtures: 22_990,
       passedFixtures: 7,
-      missingFixtures: 22_981,
+      missingFixtures: 22_983,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(/incomplete/u);
@@ -316,6 +321,21 @@ describe("Exact fixture-evidence pilot", () => {
       "9,8,7";
     expect(() =>
       validateExactFixtureEvidenceArtifact(wrongRuntime, context),
+    ).toThrow(/single-use Exact completion route/u);
+    wrongRuntime.executions[0].artifactDigest = digest(
+      wrongRuntime.executions[0].evidence,
+    );
+    expect(() =>
+      buildConformanceReport({
+        coverage: context.coverage,
+        implementation: context.implementation,
+        target: context.target,
+        executions: wrongRuntime.executions,
+        bindings: context.bindings,
+        digestContract: context.digestContract,
+        recipeCatalog: context.recipeCatalog,
+        validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
+      }),
     ).toThrow(/single-use Exact completion route/u);
   });
 });

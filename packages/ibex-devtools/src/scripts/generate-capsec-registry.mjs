@@ -38,7 +38,10 @@ import {
   assertRecipeCatalogComplete,
   buildConformanceRecipeCatalog,
 } from "./capsec-conformance-recipes.mjs";
-import { assertPublicSurfaceExecutionComplete } from "./capsec-public-surface-evidence.mjs";
+import {
+  assertPublicSurfaceExecutionComplete,
+  validatePublicFixtureRuntimeObservation,
+} from "./capsec-public-surface-evidence.mjs";
 import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
@@ -811,13 +814,6 @@ export function loadTargetPromotions({
         `invalid attested conformance report: ${ajv.errorsText(validateReport?.errors)}`,
       );
     }
-    validateConformanceReportSemantics(report, {
-      coverage,
-      implementation,
-      target: attestation.target,
-      digestContract: rules.digestContract,
-    });
-    assertReportMayAdvertise(report);
     const recipeCatalog = readImmutablePromotionArtifact(
       "recipe-catalogs",
       attestation.recipeCatalogRawContentDigest,
@@ -896,6 +892,15 @@ export function loadTargetPromotions({
         "target attestation differs from the report or current semantic identities",
       );
     }
+    validateConformanceReportSemantics(report, {
+      coverage,
+      implementation,
+      target: attestation.target,
+      digestContract: rules.digestContract,
+      recipeCatalog,
+      validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
+    });
+    assertReportMayAdvertise(report);
     promotions.push({ attestation, report });
   }
   promotions.sort((left, right) =>

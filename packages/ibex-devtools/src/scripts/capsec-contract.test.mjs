@@ -548,6 +548,28 @@ describe("LLP 0021 capsec contract", () => {
     }
   });
 
+  test("conformance fixture plans accept capability action IDs", () => {
+    const contract = loadAndValidateContract();
+    const validate = contract.ajv.getSchema(
+      "https://ibex.dev/capsec/schema/conformance-report.schema.json#/$defs/fixturePlan",
+    );
+    const plan = {
+      fixtureId: "surface.test.main.allow",
+      edgeIds: ["surface.test"],
+      implementationBranchIds: ["surface.test.main"],
+      enforcementBranchIds: ["surface.test.main"],
+      terminalObservedKey: "native-op:test",
+      classification: "effects",
+      actionIds: ["fs:read", "fs:write"],
+      expectedObservation: {
+        kind: "enforcement-branch",
+        branchId: "surface.test.main",
+      },
+    };
+    expect(validate(plan)).toBe(true);
+    expect(validate({ ...plan, actionIds: ["fs-read"] })).toBe(false);
+  });
+
   test("armed graph and protected-object joins fail closed", () => {
     const contract = loadAndValidateContract();
     const missingGuard = structuredClone(contract.armed);

@@ -117750,6 +117750,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.startup.env.ibex.capsec.fixture.evidence.binding.09iafhp",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.ibex.capsec.fixture.evidence.binding.09iafhp.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.capsec.fixture.evidence.output.16bqkc9",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.ibex.capsec.fixture.evidence.output.16bqkc9.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2",
       "target": {
         "triple": "aarch64-apple-darwin",

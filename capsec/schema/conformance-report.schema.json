@@ -330,7 +330,7 @@
         "enforcementBranchIds": { "$ref": "#/$defs/idSet" },
         "terminalObservedKey": { "type": "string", "minLength": 1 },
         "classification": { "type": "string", "minLength": 1 },
-        "actionIds": { "$ref": "#/$defs/idSet" },
+        "actionIds": { "$ref": "#/$defs/actionIdSet" },
         "expectedObservation": {
           "oneOf": [
             {
@@ -377,6 +377,13 @@
       "uniqueItems": true,
       "items": {
         "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+      }
+    },
+    "actionIdSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
       }
     }
   }

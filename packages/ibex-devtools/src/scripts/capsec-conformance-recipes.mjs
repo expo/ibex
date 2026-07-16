@@ -907,12 +907,14 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactBrotliDecompressSync",
-    nativeNoEffectTemplate(2, [
+    nativeNoEffectTemplate(4, [
       nativeResultArgument("__exactBrotliCompressSync", 2, [
         literalArgument("ibex"),
         literalArgument(4),
       ]),
       literalArgument(true),
+      literalArgument(0),
+      literalArgument(1024),
     ]),
   ],
   [
@@ -930,7 +932,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactInflateSync",
-    nativeNoEffectTemplate(5, [
+    nativeNoEffectTemplate(6, [
       nativeResultArgument("__exactDeflateSync", 4, [
         literalArgument("ibex"),
         literalArgument(6),
@@ -941,6 +943,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       literalArgument(true),
       literalArgument(0),
       literalArgument(null),
+      literalArgument(1024),
     ]),
   ],
   [
@@ -1138,7 +1141,6 @@ const NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES = new Map([
 
 const GLOBAL_READ_INACCESSIBLE_MEMBER_KINDS = new Set([
   "dynamic-table",
-  "inherited",
   "inherited-shape",
   "instance-property",
   "namespace-alias",
@@ -1168,6 +1170,9 @@ function nativePublicReadDescriptor(surface) {
     metadata.memberKinds.some((kind) =>
       GLOBAL_READ_INACCESSIBLE_MEMBER_KINDS.has(kind),
     ) ||
+    (metadata.memberKinds.includes("inherited") &&
+      (metadata.valueShape !== "data" ||
+        !metadata.memberKinds.includes("static"))) ||
     !Array.isArray(surface.sourceRefs) ||
     surface.sourceRefs.length === 0 ||
     !surface.sourceRefs.every((sourceRef) =>

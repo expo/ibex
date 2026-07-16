@@ -1376,7 +1376,13 @@ function globalReadObservation(recipe) {
       surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
       globalName: invocation.globalName,
       sourceDescriptorDigest: invocation.sourceDescriptorDigest,
-      result: { kind: "return", valueType: "string", ownerDepths: [0, 0] },
+      result: {
+        kind: "return",
+        globalName: invocation.globalName,
+        valueType: "string",
+        ownerDepths: [0, 0],
+        cleanup: "none",
+      },
       executionProof: { kind: "global-property-read", bodyEntered: true },
     },
     legacyObservationCount: 0,
@@ -1981,6 +1987,35 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).not.toThrow();
+    const inheritedRecipe = structuredClone(recipe);
+    inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptor.memberKinds = [
+      "inherited",
+      "static",
+    ];
+    inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    const inheritedObservation = globalReadObservation(inheritedRecipe);
+    inheritedObservation.invocation.result.ownerDepths = [0, 1];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inheritedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: inheritedObservation,
+        coverage,
+      }),
+    ).not.toThrow();
+    inheritedObservation.invocation.result.ownerDepths = [0, 0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inheritedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: inheritedObservation,
+        coverage,
+      }),
+    ).toThrow(/exact property owner chain/);
+
     observation.invocation.executionProof.kind = "native-return";
     expect(() =>
       buildPublicFixtureEvidence({

@@ -254864,6 +254864,26 @@
       "rationale": "IBEX_CAPSEC_ALLOW_ADVISORY can weaken, widen, or replace shared runtime security and trust behavior."
     },
     {
+      "id": "surface.startup.env.ibex.capsec.fixture.evidence.binding.09iafhp",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.startup.env.ibex.capsec.fixture.evidence.output.16bqkc9",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2",
       "classification": "non-capability",
       "surface": {

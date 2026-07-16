@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(205);
+    expect(nativePublicFixtures).toHaveLength(264);
     expect(
       nativePublicFixtures
         .filter(
@@ -124,7 +124,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(131);
+    ).toHaveLength(190);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -559,6 +559,32 @@ describe("exact-target CapSec executable recipes", () => {
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("binds bounded decompression probes to their complete source arities", () => {
+    const expected = new Map([
+      ["__exactBrotliDecompressSync", 4],
+      ["__exactInflateSync", 6],
+    ]);
+    const rows = recipes.recipes.filter((recipe) =>
+      expected.has(recipe.publicSurfaceProbe?.invocation?.globalName),
+    );
+    expect(rows).toHaveLength(2);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.sourceDescriptor.arity).toBe(
+        expected.get(invocation.globalName),
+      );
+      expect(invocation.arguments).toHaveLength(
+        expected.get(invocation.globalName),
+      );
+      expect(invocation.arguments.at(-1)).toEqual({
+        kind: "json-literal",
+        value: 1024,
+      });
+      expect(recipe.status).toBe("fully-executable");
+      expect(recipe.residualReasons).toEqual([]);
     }
   });
 
@@ -1332,6 +1358,46 @@ describe("exact-target CapSec executable recipes", () => {
     expect(
       recipe.publicSurfaceProbe.invocation.sourceDescriptorDigest,
     ).toMatch(/^sha256-/u);
+
+    for (const surfaceObservedKey of [
+      "native-op:global:CloseEvent.AT_TARGET",
+      "native-op:global:WebSocketError.ABORT_ERR",
+    ]) {
+      const inherited = recipes.recipes.find(
+        (candidate) =>
+          candidate.scenario === "non-capability" &&
+          candidate.publicSurfaceProbe?.surfaceObservedKey ===
+            surfaceObservedKey,
+      );
+      expect(inherited).toMatchObject({
+        classification: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            kind: "global-property-read",
+            sourceDescriptor: {
+              valueShape: "data",
+              memberKinds: expect.arrayContaining(["inherited", "static"]),
+            },
+          },
+        },
+      });
+    }
+
+    const prototypeAccessorRows = recipes.recipes.filter((candidate) =>
+      candidate.route.surfaceObservedKeys.includes(
+        "native-op:global:Intl.Locale.prototype.textInfo",
+      ),
+    );
+    expect(prototypeAccessorRows.length).toBeGreaterThan(0);
+    expect(
+      prototypeAccessorRows.every(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.kind !==
+          "global-property-read",
+      ),
+    ).toBe(true);
   });
 
   test("binds nested native argument producers and exact absence probes", () => {

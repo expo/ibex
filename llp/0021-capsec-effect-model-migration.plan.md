@@ -543,11 +543,17 @@ an already-built pair against the checked registry, loaded engine, package
 graph/root objects, and protected artifacts, then replaces its construction
 nonce and digest; it cannot advertise a target. The package-side producer and
 normal Exact artifact publication, Apple/Windows conformance reports, and
-target advertisements remain incomplete. The refreshed catalog has 22,988
-required fixtures, 4,539 fully executable recipes, and 18,449 unresolved
+target advertisements remain incomplete. The refreshed catalog has 22,990
+required fixtures, 4,598 fully executable recipes, and 18,392 unresolved
 fixtures, so the existing Apple matrix remains unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
+
+The source-bound native-read harness admits inherited members only for 57
+static data constants whose descriptors prove the exact property path. Runtime
+evidence records the owner depth for every path segment and requires a positive
+final depth; own-property substitution, inherited callables/accessors, instance
+members, and dynamic tables remain rejected.
 
 ### WP0 artifacts and gate
 
@@ -1230,7 +1236,7 @@ freshening, and the unendowed-operation closure. Every
 exact target and mapped engine identity, full fixture plan, recipe/public
 digests, producer command and exit status, and the fresh runtime observation.
 The runner validates the artifact through its `--fixture-evidence` path and
-credits exactly seven passes; the other 22,981 obligations remain missing, so
+credits exactly seven passes; the other 22,983 obligations remain missing, so
 the report remains `incomplete` and the target remains unadvertised. Missing,
 duplicate, stale, mismatched-plan/engine, or mechanism-invalid pilot evidence
 fails closed rather than reverting to zero credited rows.

@@ -1123,7 +1123,6 @@ fn validate_global_read_descriptor(
     }
     for forbidden in [
         "dynamic-table",
-        "inherited",
         "inherited-shape",
         "instance-property",
         "namespace-alias",
@@ -1133,6 +1132,10 @@ fn validate_global_read_descriptor(
         "prototype-method",
     ] {
         assert!(!descriptor.member_kinds.iter().any(|kind| kind == forbidden));
+    }
+    if descriptor.member_kinds.iter().any(|kind| kind == "inherited") {
+        assert_eq!(descriptor.value_shape, "data");
+        assert!(descriptor.member_kinds.iter().any(|kind| kind == "static"));
     }
     let expected_observed_key = if descriptor.export_name.starts_with('_') {
         format!("native-op:{}", descriptor.export_name)
@@ -1217,6 +1220,35 @@ fn validate_native_runtime_observation(
                 "{}: public native invocation did not return: {invocation_result}",
                 recipe.fixture_id
             );
+            if invocation.kind == "global-property-read" {
+                let descriptor: GlobalReadSourceDescriptor =
+                    serde_json::from_value(invocation.source_descriptor.clone())
+                        .expect("global read source descriptor must be typed");
+                let result = invocation_result
+                    .as_object()
+                    .expect("global property read result must be an object");
+                assert_eq!(result.len(), 5);
+                for key in ["kind", "globalName", "valueType", "ownerDepths", "cleanup"] {
+                    assert!(result.contains_key(key), "global read result lacks {key}");
+                }
+                assert!(invocation_result["valueType"].is_string());
+                assert_eq!(invocation_result["cleanup"], "none");
+                let owner_depths = invocation_result["ownerDepths"]
+                    .as_array()
+                    .expect("global read result has no owner depths");
+                assert_eq!(owner_depths.len(), descriptor.access.path.len());
+                assert!(owner_depths.iter().all(|depth| depth.as_u64().is_some()));
+                let inherited = descriptor
+                    .member_kinds
+                    .iter()
+                    .any(|kind| kind == "inherited");
+                if inherited {
+                    assert!(owner_depths
+                        .last()
+                        .and_then(serde_json::Value::as_u64)
+                        .is_some_and(|depth| depth > 0));
+                }
+            }
             serde_json::json!({
                 "kind": if invocation.kind == "global-property-read" {
                     "global-property-read"
