@@ -97,6 +97,10 @@ jobs:
       - name: Run native ESM and CommonJS record corpus
         shell: bash
         run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            export PATH="/c/Strawberry/perl/bin:$PATH"
+            perl -MLocale::Maketext::Simple -e 1
+          fi
           cargo check --all-targets
           cargo check --all-targets --no-default-features
           scripts/run-tests.sh --scope lib --features module-runner \
@@ -179,6 +183,10 @@ jobs:
       - name: Collect fail-loud clean-build and loader baseline
         shell: bash
         run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            export PATH="/c/Strawberry/perl/bin:$PATH"
+            perl -MLocale::Maketext::Simple -e 1
+          fi
           node packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs \
             --samples 5 \
             --no-default-features \
