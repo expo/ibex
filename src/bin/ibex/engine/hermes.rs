@@ -4470,7 +4470,7 @@ cp \"$input\" \"$out\"\n";
     extern "C" fn fake_gpu_cancel(
         _context: *mut std::ffi::c_void,
         _realm: u64,
-        _operation_id: u64,
+        _completion_id: u64,
     ) -> i32 {
         0
     }

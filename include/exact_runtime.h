@@ -115,6 +115,10 @@ typedef struct ExactGpuSemanticCallV1 {
     uint32_t abi_version;
     uint32_t operation_id;
     uint32_t flags;
+    /// Nonzero and strictly increasing within one realm across every accepted
+    /// submit. Cancellation or completion does not make an earlier accepted
+    /// ID reusable. This is an identity allocator contract, not a device/queue
+    /// ordering domain.
     uint64_t completion_id;
     uint64_t device_ordinal;
     uint64_t queue_ordinal;
@@ -176,7 +180,7 @@ typedef struct ExactGpuServiceApiV1 {
                       const ExactGpuRetireBatchV1* batch);
     int32_t (*cancel)(void* service_context,
                       ExactGpuRealmTokenV1 realm,
-                      uint64_t operation_id);
+                      uint64_t completion_id);
     int32_t (*close_realm)(void* service_context,
                            ExactGpuRealmTokenV1 realm,
                            uint64_t close_ordinal);

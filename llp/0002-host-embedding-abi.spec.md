@@ -396,6 +396,13 @@ checkpoint records and discards those plain events only; it does not install
 `navigator.gpu`, `createImageBitmap`, or any other JavaScript API. Presence of
 the C ABI is therefore neither WebGPU support nor conformance evidence.
 
+Each accepted `ExactGpuSemanticCallV1.completion_id` is nonzero and strictly
+increasing within its realm. Completion, cancellation, and retirement never
+make an earlier accepted value reusable. A call rejected before admission does
+not consume its candidate ID. This is a bounded anti-ABA identity allocator
+contract; it does not stand in for the independent realm, device, queue, or
+physical-provider sequencing domains owned by Exact.
+
 The previous Exact setter finalized the package baseline immediately because it
 was the only package-visible native addition. Multi-capability embedders use an
 additive owner-thread transaction:
