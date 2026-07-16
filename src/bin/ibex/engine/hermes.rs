@@ -5626,10 +5626,128 @@ cp \"$input\" \"$out\"\n";
         }
     }
 
+    /// Test-only lifecycle controller for authenticated source helpers. Tests
+    /// must consume the same bounded, paired publication stream as a session
+    /// worker; ignoring it eventually converts valid source into fail-loud
+    /// queue overflow.
+    /// @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION requires
+    /// every authenticated unit to be published exactly once to its controller.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[derive(Default)]
+    struct AuthenticatedPublicationTracker {
+        active_work_units: std::collections::BTreeMap<u64, AuthenticatedWorkUnitEvent>,
+        due_schedules: std::collections::BTreeSet<u64>,
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl AuthenticatedPublicationTracker {
+        fn drain(&mut self, engine: &HermesEngine, context: &str) -> anyhow::Result<()> {
+            while let Some(event) = engine.next_authenticated_work_unit()? {
+                match event.phase {
+                    AuthenticatedWorkUnitPhase::Due => {
+                        anyhow::ensure!(
+                            event.kind == AuthenticatedWorkUnitKind::Timer
+                                && event.target_id == 0
+                                && event.scheduling_id != 0,
+                            "{context} published malformed Due identities"
+                        );
+                        anyhow::ensure!(
+                            self.due_schedules.insert(event.scheduling_id),
+                            "{context} published duplicate Due for scheduling identity {}",
+                            event.scheduling_id
+                        );
+                    }
+                    AuthenticatedWorkUnitPhase::Undue => {
+                        anyhow::ensure!(
+                            event.kind == AuthenticatedWorkUnitKind::Timer
+                                && event.target_id == 0
+                                && event.scheduling_id != 0,
+                            "{context} published malformed Undue identities"
+                        );
+                        anyhow::ensure!(
+                            self.due_schedules.remove(&event.scheduling_id),
+                            "{context} published Undue for unknown scheduling identity {}",
+                            event.scheduling_id
+                        );
+                    }
+                    AuthenticatedWorkUnitPhase::Begin => {
+                        if event.kind == AuthenticatedWorkUnitKind::Timer
+                            && event.scheduling_id != 0
+                        {
+                            self.due_schedules.remove(&event.scheduling_id);
+                        }
+                        anyhow::ensure!(
+                            self.active_work_units
+                                .insert(event.target_id, event)
+                                .is_none(),
+                            "{context} published duplicate Begin for target {}",
+                            event.target_id
+                        );
+                    }
+                    AuthenticatedWorkUnitPhase::Suspended => {
+                        let begin =
+                            self.active_work_units
+                                .get(&event.target_id)
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "{context} suspended target {} without Begin",
+                                        event.target_id
+                                    )
+                                })?;
+                        anyhow::ensure!(
+                            begin.kind == event.kind && begin.scheduling_id == event.scheduling_id,
+                            "{context} changed target {} identity at suspension",
+                            event.target_id
+                        );
+                    }
+                    AuthenticatedWorkUnitPhase::End => {
+                        let begin =
+                            self.active_work_units
+                                .remove(&event.target_id)
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "{context} ended target {} without Begin",
+                                        event.target_id
+                                    )
+                                })?;
+                        anyhow::ensure!(
+                            begin.kind == event.kind && begin.scheduling_id == event.scheduling_id,
+                            "{context} changed target {} identity between Begin and End",
+                            event.target_id
+                        );
+                    }
+                }
+            }
+            anyhow::ensure!(
+                self.active_work_units.is_empty(),
+                "{context} left {} work unit(s) without End",
+                self.active_work_units.len()
+            );
+            if let Some(event) = engine.next_authenticated_cancellation()? {
+                anyhow::bail!(
+                    "{context} published unexpected cancellation for target {}: {:?}",
+                    event.target_id,
+                    event.resolution
+                );
+            }
+            Ok(())
+        }
+
+        fn require_no_due_schedules(&self, context: &str) -> anyhow::Result<()> {
+            anyhow::ensure!(
+                self.due_schedules.is_empty(),
+                "{context} finished with ready timer scheduling identities {:?}",
+                self.due_schedules
+            );
+            Ok(())
+        }
+    }
+
     #[cfg(feature = "capsec-conformance-observer")]
     struct AuthenticatedReplTestEvaluator {
         session: ibex_runtime::engine::evaluation::ArmedSessionToken,
         sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
+        publications: AuthenticatedPublicationTracker,
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -5641,7 +5759,11 @@ cp \"$input\" \"$out\"\n";
             let sequence =
                 ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
                     .expect("create authenticated test submission sequence");
-            Self { session, sequence }
+            Self {
+                session,
+                sequence,
+                publications: AuthenticatedPublicationTracker::default(),
+            }
         }
 
         async fn evaluate(
@@ -5651,6 +5773,9 @@ cp \"$input\" \"$out\"\n";
         ) -> AuthenticatedEvaluation {
             use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
+            self.publications
+                .drain(engine, "authenticated REPL test source")
+                .expect("drain authenticated REPL publications before evaluation");
             let request = self
                 .sequence
                 .mint_repl(LogicalPath {
@@ -5663,10 +5788,11 @@ cp \"$input\" \"$out\"\n";
                 .bind_bytes(source.as_bytes().to_vec())
                 .into_request()
                 .expect("bind authenticated test source");
-            engine
-                .evaluate_authenticated(&self.session, request)
-                .await
-                .expect("evaluate authenticated test source")
+            let evaluation = engine.evaluate_authenticated(&self.session, request).await;
+            self.publications
+                .drain(engine, "authenticated REPL test source")
+                .expect("drain authenticated REPL publications after evaluation");
+            evaluation.expect("evaluate authenticated test source")
         }
 
         async fn eval_string(&mut self, engine: &HermesEngine, source: &str) -> String {
@@ -5685,6 +5811,9 @@ cp \"$input\" \"$out\"\n";
                 )
                 .await
                 .expect("release authenticated test value");
+            self.publications
+                .drain(engine, "authenticated REPL test value release")
+                .expect("drain authenticated REPL publications after value release");
             serde_json::from_str(&display.text)
                 .expect("authenticated string display must be valid JSON")
         }
@@ -5704,6 +5833,9 @@ cp \"$input\" \"$out\"\n";
                 )
                 .await
                 .expect("release authenticated Stage-1 fixture value");
+            self.publications
+                .drain(engine, "authenticated Stage-1 test value release")
+                .expect("drain authenticated Stage-1 publications after value release");
             display
         }
 
@@ -5738,10 +5870,14 @@ cp \"$input\" \"$out\"\n";
                 .bind_bytes(source.as_bytes().to_vec())
                 .into_request()
                 .expect("bind authenticated .load fixture");
-            let evaluation = engine
-                .evaluate_authenticated(&self.session, request)
-                .await
-                .expect("evaluate authenticated .load fixture");
+            self.publications
+                .drain(engine, "authenticated .load test source")
+                .expect("drain authenticated .load publications before evaluation");
+            let evaluation = engine.evaluate_authenticated(&self.session, request).await;
+            self.publications
+                .drain(engine, "authenticated .load test source")
+                .expect("drain authenticated .load publications after evaluation");
+            let evaluation = evaluation.expect("evaluate authenticated .load fixture");
             let AuthenticatedEvaluation::Throw(thrown) = evaluation else {
                 panic!("authenticated .load fixture did not throw: {evaluation:?}")
             };

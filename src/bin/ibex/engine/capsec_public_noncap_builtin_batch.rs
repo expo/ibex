@@ -126,12 +126,17 @@ struct PublicBatchArtifact {
 /// existing public-builtin harness while every source string is consumed as a
 /// closed authenticated submission, never by the post-bootstrap bare evaluator.
 /// Reclaiming the sequence between calls is safe because the Host's cached
-/// session token owns the single monotonic ordinal stream.
+/// session token owns the single monotonic ordinal stream. The facade also
+/// acts as the authenticated lifecycle controller: it continuously consumes
+/// and validates the runtime's bounded work-unit publication stream.
 /// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry —
 /// armed project source enters only through authenticated session submission.
+/// @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION requires
+/// every unit to reach a controller with pairing and scheduling identity.
 struct AuthenticatedNoncapEngine {
     host: crate::host::Host,
     engine: HermesEngine,
+    publications: AuthenticatedPublicationTracker,
 }
 
 impl std::ops::Deref for AuthenticatedNoncapEngine {
@@ -143,9 +148,10 @@ impl std::ops::Deref for AuthenticatedNoncapEngine {
 }
 
 impl AuthenticatedNoncapEngine {
-    async fn eval_immediate(&self, source: &str) -> anyhow::Result<Option<String>> {
+    async fn eval_immediate(&mut self, source: &str) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
+        self.drain_publications()?;
         let session = self.host.mint_armed_session_token()?;
         let mut sequence =
             ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
@@ -159,25 +165,30 @@ impl AuthenticatedNoncapEngine {
             .bind_bytes(source.as_bytes().to_vec())
             .into_request()?;
         let ordinal = request.submission_ordinal();
-        let evaluation = self
-            .engine
-            .evaluate_authenticated(&session, request)
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!(
-                    "authenticated public-builtin submission {ordinal} failed: {error:#}"
-                )
-            })?;
+        let evaluation = self.engine.evaluate_authenticated(&session, request).await;
+        self.drain_publications()?;
+        let evaluation = evaluation.map_err(|error| {
+            anyhow::anyhow!("authenticated public-builtin submission {ordinal} failed: {error:#}")
+        })?;
         match evaluation {
             AuthenticatedEvaluation::Empty => Ok(None),
             AuthenticatedEvaluation::Value { display, receipt } => {
-                self.engine
+                let release = self
+                    .engine
                     .release_undisplayed_value(receipt.ok_or_else(|| {
                         anyhow::anyhow!(
                             "authenticated public-builtin submission {ordinal} lost its value receipt"
                         )
                     })?)
-                    .await?;
+                    .await;
+                let publications = self.drain_publications();
+                match (release, publications) {
+                    (Err(release_error), Err(publication_error)) => anyhow::bail!(
+                        "authenticated public-builtin submission {ordinal} failed to release its value ({release_error:#}) and its publication stream ({publication_error:#})"
+                    ),
+                    (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
+                    (Ok(()), Ok(())) => {}
+                }
                 match display.kind {
                     AuthenticatedDisplayKind::Undefined => Ok(None),
                     AuthenticatedDisplayKind::String => serde_json::from_str(&display.text)
@@ -200,6 +211,20 @@ impl AuthenticatedNoncapEngine {
                 "authenticated public-builtin submission {ordinal} exited with lifecycle code {code}"
             ),
         }
+    }
+
+    fn drain_publications(&mut self) -> anyhow::Result<()> {
+        self.publications
+            .drain(&self.engine, "public builtin probe")
+    }
+
+    fn finish(&mut self) -> anyhow::Result<()> {
+        self.drain_publications()?;
+        self.require_no_due_schedules("public builtin probes")
+    }
+
+    fn require_no_due_schedules(&self, context: &str) -> anyhow::Result<()> {
+        self.publications.require_no_due_schedules(context)
     }
 }
 
@@ -339,7 +364,10 @@ fn validate_byte_array(value: &serde_json::Value, context: &str) {
     let bytes = value
         .as_array()
         .unwrap_or_else(|| panic!("{context} must be an array"));
-    assert!(!bytes.is_empty() && bytes.len() <= 64, "{context} is unbounded");
+    assert!(
+        !bytes.is_empty() && bytes.len() <= 64,
+        "{context} is unbounded"
+    );
     assert!(
         bytes
             .iter()
@@ -391,11 +419,7 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
             assert_object_keys(argument, &["kind"], "authored special argument");
         }
         "constant-function" => {
-            assert_object_keys(
-                argument,
-                &["kind", "value"],
-                "constant function argument",
-            );
+            assert_object_keys(argument, &["kind", "value"], "constant function argument");
             assert!(
                 serde_json::to_vec(&object["value"]).unwrap().len() <= 1024,
                 "constant function result is unbounded"
@@ -432,9 +456,7 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
             let source = object["source"]
                 .as_str()
                 .expect("regexp source must be text");
-            let flags = object["flags"]
-                .as_str()
-                .expect("regexp flags must be text");
+            let flags = object["flags"].as_str().expect("regexp flags must be text");
             assert!(source.len() <= 128 && flags.len() <= 8);
             assert!(flags.chars().all(|flag| "dgimsuvy".contains(flag)));
         }
@@ -451,7 +473,10 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
                 .expect("bigint argument must be bounded decimal text");
         }
         "setup-value" => {
-            assert!(allow_setup_value, "setup value used outside its authored setup");
+            assert!(
+                allow_setup_value,
+                "setup value used outside its authored setup"
+            );
             assert_object_keys(argument, &["kind", "name"], "setup value argument");
             assert_eq!(object["name"], "tracked");
         }
@@ -508,7 +533,10 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
             let owner = setup["ownerExportName"]
                 .as_str()
                 .expect("constructed owner name must be text");
-            assert_eq!(descriptor.access.path.first().map(String::as_str), Some(owner));
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some(owner)
+            );
             let constructor_arguments = setup["constructorArguments"]
                 .as_array()
                 .expect("constructor arguments must be an array");
@@ -529,7 +557,10 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 .as_str()
                 .expect("buffer owner name must be text");
             assert!(matches!(owner, "Buffer" | "SlowBuffer"));
-            assert_eq!(descriptor.access.path.first().map(String::as_str), Some(owner));
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some(owner)
+            );
             validate_byte_array(&setup["bytes"], "buffer receiver bytes");
         }
         "call-tracker-owner" => {
@@ -560,7 +591,10 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 .as_str()
                 .expect("zlib owner name must be text");
             assert!(is_zlib_owner(owner));
-            assert_eq!(descriptor.access.path.first().map(String::as_str), Some(owner));
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some(owner)
+            );
             assert!(setup["ensureNativeStream"].is_boolean());
         }
         "stream-owner" => {
@@ -575,7 +609,10 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
                 .as_str()
                 .expect("stream owner name must be text");
             assert!(is_stream_owner(owner));
-            assert_eq!(descriptor.access.path.first().map(String::as_str), Some(owner));
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some(owner)
+            );
             assert!(setup["endedInput"].is_boolean());
         }
         other => panic!("unsupported authored builtin setup kind {other}"),
@@ -723,7 +760,14 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         assert_eq!(proof.kind, "normal-return-from-source-call");
         assert!(matches!(
             proof.result_type.as_str(),
-            "bigint" | "boolean" | "function" | "null" | "number" | "object" | "string" | "undefined"
+            "bigint"
+                | "boolean"
+                | "function"
+                | "null"
+                | "number"
+                | "object"
+                | "string"
+                | "undefined"
         ));
         validate_call_setup(invocation, &descriptor);
     }
@@ -769,9 +813,7 @@ fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
     catalog
         .recipes
         .iter()
-        .filter(|recipe| {
-            recipe.status == "fully-executable" && public_probe(recipe).is_some()
-        })
+        .filter(|recipe| recipe.status == "fully-executable" && public_probe(recipe).is_some())
         .inspect(|recipe| validate_probe(recipe, &public_probe(recipe).unwrap()))
         .collect()
 }
@@ -806,11 +848,12 @@ async fn authenticated_noncap_engine(
     AuthenticatedNoncapEngine {
         host: host.clone(),
         engine,
+        publications: AuthenticatedPublicationTracker::default(),
     }
 }
 
 async fn drive_invocation_to_quiescence(
-    engine: &HermesEngine,
+    engine: &mut AuthenticatedNoncapEngine,
     completion: &CompletionExpectation,
     fixture_id: &str,
 ) -> std::result::Result<(), String> {
@@ -821,22 +864,33 @@ async fn drive_invocation_to_quiescence(
             "{fixture_id}: public builtin completion expectation is not the reviewed bound"
         ));
     }
-    tokio::time::timeout(
+    let quiescence = tokio::time::timeout(
         std::time::Duration::from_millis(completion.timeout_milliseconds),
         engine.drive_event_loop(),
     )
-    .await
-    .map_err(|_| format!("{fixture_id}: public builtin probe did not reach event-loop quiescence"))?
-    .map_err(|error| format!("{fixture_id}: public builtin event-loop completion failed: {error:#}"))
+    .await;
+    engine.drain_publications().map_err(|error| {
+        format!("{fixture_id}: public builtin work-unit publication failed: {error:#}")
+    })?;
+    let quiescence = quiescence
+        .map_err(|_| {
+            format!("{fixture_id}: public builtin probe did not reach event-loop quiescence")
+        })?
+        .map_err(|error| {
+            format!("{fixture_id}: public builtin event-loop completion failed: {error:#}")
+        });
+    quiescence?;
+    engine
+        .require_no_due_schedules(fixture_id)
+        .map_err(|error| error.to_string())
 }
 
 async fn execute_recipe(
-    engine: &AuthenticatedNoncapEngine,
+    engine: &mut AuthenticatedNoncapEngine,
     recipe: &Recipe,
     engine_binary_digest: &str,
 ) -> std::result::Result<serde_json::Value, String> {
-    let probe = public_probe(recipe)
-        .expect("builtin recipe has no public probe");
+    let probe = public_probe(recipe).expect("builtin recipe has no public probe");
     // Import-only and exported-operation obligations are distinct. Load the
     // exact public module and settle its event loop before opening an export
     // observer so synchronous or deferred initialization cannot be attributed
@@ -883,12 +937,9 @@ async fn execute_recipe(
     // Keep the observer open across all ready/future work owned by this call.
     // A bounded failure stops the batch before a later fixture can inherit it.
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-    let quiescence = drive_invocation_to_quiescence(
-        engine,
-        &probe.invocation.completion,
-        &recipe.fixture_id,
-    )
-    .await;
+    let quiescence =
+        drive_invocation_to_quiescence(engine, &probe.invocation.completion, &recipe.fixture_id)
+            .await;
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     quiescence?;
     let invocation_result: serde_json::Value =
@@ -999,9 +1050,7 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     );
     let builtin_imports = recipes
         .iter()
-        .map(|recipe| {
-            public_probe(recipe).unwrap().invocation.module_specifier
-        })
+        .map(|recipe| public_probe(recipe).unwrap().invocation.module_specifier)
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
@@ -1015,11 +1064,11 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     let _reset = HostResetGuard;
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before noncap builtin public probes");
-    let engine = authenticated_noncap_engine(&host, &digest).await;
+    let mut engine = authenticated_noncap_engine(&host, &digest).await;
     let mut executions = Vec::with_capacity(recipes.len());
     let mut failures = Vec::new();
     for (index, recipe) in recipes.iter().enumerate() {
-        match execute_recipe(&engine, recipe, &identity_before.binary_digest).await {
+        match execute_recipe(&mut engine, recipe, &identity_before.binary_digest).await {
             Ok(execution) => executions.push(execution),
             Err(error) => {
                 failures.push(error);
@@ -1040,6 +1089,9 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         failures.len(),
         failures.join("\n")
     );
+    engine
+        .finish()
+        .expect("finish authenticated public-builtin publication stream");
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     assert_eq!(executions.len(), recipes.len());
     let identity_after = HermesEngine::loaded_engine_identity()
@@ -1164,10 +1216,12 @@ async fn noncap_observer_covers_ready_work_before_completion() {
         build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
     assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
-    let engine = authenticated_noncap_engine(&host, &digest).await;
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-        "public.noncap.ready-work-completion"
-    ));
+    let mut engine = authenticated_noncap_engine(&host, &digest).await;
+    assert!(
+        ibex_runtime::host::abi::begin_installed_conformance_observation(
+            "public.noncap.ready-work-completion"
+        )
+    );
     assert_eq!(
         engine
             .eval_immediate(
@@ -1179,7 +1233,7 @@ async fn noncap_observer_covers_ready_work_before_completion() {
         Some("scheduled")
     );
     drive_invocation_to_quiescence(
-        &engine,
+        &mut engine,
         &CompletionExpectation {
             kind: EVENT_LOOP_COMPLETION_KIND.to_owned(),
             timeout_milliseconds: EVENT_LOOP_COMPLETION_TIMEOUT_MS,
@@ -1194,6 +1248,9 @@ async fn noncap_observer_covers_ready_work_before_completion() {
         !typed.is_empty(),
         "the observer must remain open while scheduled work reaches its typed gate"
     );
+    engine
+        .finish()
+        .expect("finish ready-work publication stream");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1205,7 +1262,7 @@ async fn authored_call_harness_never_counts_a_throw_as_body_entry() {
         });
     assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
-    let engine = authenticated_noncap_engine(&host, &digest).await;
+    let mut engine = authenticated_noncap_engine(&host, &digest).await;
 
     let invalid = path_basename_call_invocation(serde_json::json!({
         "kind": "json",
@@ -1238,6 +1295,9 @@ async fn authored_call_harness_never_counts_a_throw_as_body_entry() {
         "normal-return-from-source-call"
     );
     assert_eq!(valid_result["valueType"], "string");
+    engine
+        .finish()
+        .expect("finish authored-call publication stream");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1260,7 +1320,7 @@ async fn manifest_builtin_fanout_preserves_terminal_authority_checks() {
     );
     assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
-    let engine = authenticated_noncap_engine(&host, &digest).await;
+    let mut engine = authenticated_noncap_engine(&host, &digest).await;
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(
             "public.builtin.internal-fanout-terminal-denial"
@@ -1293,7 +1353,13 @@ async fn manifest_builtin_fanout_preserves_terminal_authority_checks() {
         !typed.is_empty(),
         "the fs terminal must execute a typed decision"
     );
-    assert!(typed.iter().any(|decision| {
-        decision.evidence.outcome == capsec_semantics::decision::DecisionOutcome::Deny
-    }), "terminal observation contained no denial: {typed:#?}");
+    assert!(
+        typed.iter().any(|decision| {
+            decision.evidence.outcome == capsec_semantics::decision::DecisionOutcome::Deny
+        }),
+        "terminal observation contained no denial: {typed:#?}"
+    );
+    engine
+        .finish()
+        .expect("finish builtin-terminal publication stream");
 }
