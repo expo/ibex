@@ -43,6 +43,25 @@ use capsec_semantics::model::{Digest as CapsecDigest, NonEmptyString};
 pub const SPIKE_TRANSFORM_FINGERPRINT: &str =
     "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1";
 
+#[derive(Debug, thiserror::Error)]
+#[error("{reason}")]
+struct UnsupportedModuleRunnerShape {
+    reason: String,
+}
+
+fn unsupported_module_runner_shape(reason: impl Into<String>) -> anyhow::Error {
+    UnsupportedModuleRunnerShape {
+        reason: reason.into(),
+    }
+    .into()
+}
+
+pub(crate) fn unsupported_module_runner_reason(error: &anyhow::Error) -> Option<&str> {
+    error
+        .downcast_ref::<UnsupportedModuleRunnerShape>()
+        .map(|unsupported| unsupported.reason.as_str())
+}
+
 pub fn module_artifact_transform_fingerprint_v1(
     hermes_target: &str,
 ) -> Result<TransformFingerprintV1> {
@@ -797,7 +816,9 @@ pub fn produce_module_artifact_v1(
         .iter()
         .map(|edge| {
             if edge.has_options {
-                bail!("dynamic import options are not yet representable in ModuleArtifact v1");
+                return Err(unsupported_module_runner_shape(
+                    "dynamic import options are not yet representable in ModuleArtifact v1",
+                ));
             }
             match edge.specifier.as_deref() {
                 Some(specifier) => Ok(DynamicEdgeV1::Literal {
@@ -915,12 +936,14 @@ pub fn produce_commonjs_artifact_v1(
     };
     visitor.visit_program(&program);
     if let Some(site) = visitor.computed_require_site {
-        bail!(
+        return Err(unsupported_module_runner_shape(format!(
             "computed CommonJS require at transformed byte offset {site} has no authenticated finite candidate table"
-        );
+        )));
     }
     if visitor.dynamic_edges.iter().any(|edge| edge.has_options) {
-        bail!("dynamic import options are not yet representable in ModuleArtifact v1");
+        return Err(unsupported_module_runner_shape(
+            "dynamic import options are not yet representable in ModuleArtifact v1",
+        ));
     }
 
     let detector = lex_commonjs(&intermediate.code)?;
@@ -1983,6 +2006,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("computed CommonJS require"));
+        assert!(unsupported_module_runner_reason(&error).is_some());
     }
 
     #[test]

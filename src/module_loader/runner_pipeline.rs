@@ -28,7 +28,7 @@ use super::graph::{GraphEdgeKey, SynchronousGraphPlan};
 use super::identity::{ResolutionKind, SourceId};
 use super::producer_spike::{
     produce_builtin_artifact_v1, produce_commonjs_artifact_v1, produce_json_artifact_v1,
-    produce_module_artifact_v1,
+    produce_module_artifact_v1, unsupported_module_runner_reason,
 };
 use super::ModuleKind;
 
@@ -315,7 +315,7 @@ pub fn build_authenticated_source_graph_v1(
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("module");
-        let artifact = match module.kind {
+        let produced = match module.kind {
             ModuleKind::Esm => produce_module_artifact_v1(
                 source_id.clone(),
                 source_name,
@@ -323,7 +323,7 @@ pub fn build_authenticated_source_graph_v1(
                 source,
                 producer_binary_digest.clone(),
                 hermes_target,
-            )?,
+            ),
             ModuleKind::CommonJs => produce_commonjs_artifact_v1(
                 source_id.clone(),
                 source_name,
@@ -331,20 +331,29 @@ pub fn build_authenticated_source_graph_v1(
                 source,
                 producer_binary_digest.clone(),
                 hermes_target,
-            )?,
+            ),
             ModuleKind::Json => produce_json_artifact_v1(
                 source_id.clone(),
                 source,
                 producer_binary_digest.clone(),
                 hermes_target,
-            )?,
+            ),
             ModuleKind::Builtin => produce_builtin_artifact_v1(
                 source_id.clone(),
                 source_name,
                 source,
                 producer_binary_digest.clone(),
                 hermes_target,
-            )?,
+            ),
+        };
+        let artifact = match produced {
+            Ok(artifact) => artifact,
+            Err(error) => {
+                if let Some(reason) = unsupported_module_runner_reason(&error) {
+                    return Ok(legacy(reason));
+                }
+                return Err(error);
+            }
         };
         if artifact
             .semantics
