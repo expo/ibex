@@ -598,8 +598,8 @@ checked registry, canonical empty package policy/graph, and strict Exact
 manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
-advertisements remain incomplete. The refreshed catalog has 23,137 required
-fixtures, 4,774 fully executable recipes, and 18,363 unresolved
+advertisements remain incomplete. The refreshed catalog has 23,126 required
+fixtures, 4,774 fully executable recipes, and 18,352 unresolved
 fixtures. The latest source-bound tranche adds five cached system-information
 authorization scenarios and twelve asynchronous path-operation scenarios for
 the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime`
@@ -616,7 +616,10 @@ longer exist: the timer, samples, counters, and options are captured behind the
 deliberate `__exactMemoryDebug` diagnostic API. Six `__OriginalPromise`
 surfaces likewise no longer exist: rejection tracking
 retains the unwrapped constructor in its install closure instead of publishing
-a project-visible bypass around the wrapped global constructor. The resource
+a project-visible bypass around the wrapped global constructor. Eleven
+write-only process-compatibility diagnostics likewise no longer publish
+bootstrap progress, fallback objects, or exception strings to project code;
+the sole control predicate is local to the compatibility IIFE. The resource
 recipes create, exercise, and release their runtime/principal-owned
 native state in one bounded invocation. Fourteen Linux/Android-only
 `node:constants` exports now carry source-bound Apple absence evidence from the

@@ -196081,96 +196081,6 @@
       }
     },
     {
-      "id": "surface.native.op.exactfinalversionsdefineok.0r9u3a7",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsDefineOK"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionserror.19l9hx8",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsError"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsfixran.05o62vy",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsFixRan"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsnewprotook.03htkto",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsNewProtoOK"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsobj.0blhx7r",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsObj"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsopenssl.0fh3xv8",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsOpenssl"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsopensslafter.1qabgvy",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsOpensslAfter"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsprotook.1q93zhu",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsProtoOK"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionssame.0n8ritg",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsSame"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
       "id": "surface.native.op.exactfsclose.0r6l8ou",
       "classification": "non-capability",
       "surface": {
@@ -202902,26 +202812,6 @@
       },
       "cap": "process:signal",
       "rationale": "Process signal control is closed in the initial profile."
-    },
-    {
-      "id": "surface.native.op.exactprocesscompatfixran.0tw23io",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactProcessCompatFixRan"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
-      "id": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactProcessCompatFixSawProcess"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
       "id": "surface.native.op.exactrandombytes.05df739",

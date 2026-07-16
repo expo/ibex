@@ -152906,285 +152906,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactfinalversionsdefineok.0r9u3a7",
-      "observedKey": "native-op:__exactFinalVersionsDefineOK",
-      "branchId": "surface.native.op.exactfinalversionsdefineok.0r9u3a7.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsdefineok.0r9u3a7.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsDefineOK"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsDefineOK"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsDefineOK"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsDefineOK"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsDefineOK"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsdefineok.0r9u3a7.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionserror.19l9hx8",
-      "observedKey": "native-op:__exactFinalVersionsError",
-      "branchId": "surface.native.op.exactfinalversionserror.19l9hx8.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionserror.19l9hx8.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsError"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsError"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsError"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsError"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsError"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionserror.19l9hx8.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsfixran.05o62vy",
-      "observedKey": "native-op:__exactFinalVersionsFixRan",
-      "branchId": "surface.native.op.exactfinalversionsfixran.05o62vy.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsfixran.05o62vy.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsFixRan"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsFixRan"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsFixRan"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsFixRan"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsFixRan"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsfixran.05o62vy.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsnewprotook.03htkto",
-      "observedKey": "native-op:__exactFinalVersionsNewProtoOK",
-      "branchId": "surface.native.op.exactfinalversionsnewprotook.03htkto.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsnewprotook.03htkto.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsNewProtoOK"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsNewProtoOK"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsNewProtoOK"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsNewProtoOK"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsNewProtoOK"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsnewprotook.03htkto.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsobj.0blhx7r",
-      "observedKey": "native-op:__exactFinalVersionsObj",
-      "branchId": "surface.native.op.exactfinalversionsobj.0blhx7r.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsobj.0blhx7r.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsObj"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsObj"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsObj"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsObj"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsObj"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsobj.0blhx7r.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsopenssl.0fh3xv8",
-      "observedKey": "native-op:__exactFinalVersionsOpenssl",
-      "branchId": "surface.native.op.exactfinalversionsopenssl.0fh3xv8.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsopenssl.0fh3xv8.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsOpenssl"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpenssl"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpenssl"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsOpenssl"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpenssl"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsopenssl.0fh3xv8.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsopensslafter.1qabgvy",
-      "observedKey": "native-op:__exactFinalVersionsOpensslAfter",
-      "branchId": "surface.native.op.exactfinalversionsopensslafter.1qabgvy.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsopensslafter.1qabgvy.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsOpensslAfter"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpensslAfter"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpensslAfter"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsOpensslAfter"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpensslAfter"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsopensslafter.1qabgvy.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsprotook.1q93zhu",
-      "observedKey": "native-op:__exactFinalVersionsProtoOK",
-      "branchId": "surface.native.op.exactfinalversionsprotook.1q93zhu.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsprotook.1q93zhu.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsProtoOK"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsProtoOK"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsProtoOK"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsProtoOK"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsProtoOK"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsprotook.1q93zhu.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionssame.0n8ritg",
-      "observedKey": "native-op:__exactFinalVersionsSame",
-      "branchId": "surface.native.op.exactfinalversionssame.0n8ritg.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionssame.0n8ritg.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsSame"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsSame"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsSame"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsSame"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsSame"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionssame.0n8ritg.default.closed"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactfsclose.0r6l8ou",
       "observedKey": "native-op:__exactFsClose",
       "branchId": "surface.native.op.exactfsclose.0r6l8ou.default",
@@ -160079,68 +159800,6 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.native.op.exactpollsignal.1l4dydk.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactprocesscompatfixran.0tw23io",
-      "observedKey": "native-op:__exactProcessCompatFixRan",
-      "branchId": "surface.native.op.exactprocesscompatfixran.0tw23io.default",
-      "enforcementBranchId": "surface.native.op.exactprocesscompatfixran.0tw23io.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactProcessCompatFixRan"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixRan"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixRan"
-        ],
-        "terminalObservedKey": "native-op:__exactProcessCompatFixRan"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixRan"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactprocesscompatfixran.0tw23io.default.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49",
-      "observedKey": "native-op:__exactProcessCompatFixSawProcess",
-      "branchId": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49.default",
-      "enforcementBranchId": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactProcessCompatFixSawProcess"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixSawProcess"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixSawProcess"
-        ],
-        "terminalObservedKey": "native-op:__exactProcessCompatFixSawProcess"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixSawProcess"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactprocesscompatfixsawprocess.1y24i49.default.non-capability"
       ]
     },
     {
@@ -264065,15 +263724,6 @@
         "surface.native.op.exactdebugmodulesource.17ymgg1",
         "surface.native.op.exactdebugmodulesources.0897z1y",
         "surface.native.op.exactdebugmodulesources.length.0srmigk",
-        "surface.native.op.exactfinalversionsdefineok.0r9u3a7",
-        "surface.native.op.exactfinalversionserror.19l9hx8",
-        "surface.native.op.exactfinalversionsfixran.05o62vy",
-        "surface.native.op.exactfinalversionsnewprotook.03htkto",
-        "surface.native.op.exactfinalversionsobj.0blhx7r",
-        "surface.native.op.exactfinalversionsopenssl.0fh3xv8",
-        "surface.native.op.exactfinalversionsopensslafter.1qabgvy",
-        "surface.native.op.exactfinalversionsprotook.1q93zhu",
-        "surface.native.op.exactfinalversionssame.0n8ritg",
         "surface.native.op.exactgetgcstats.1ay069w",
         "surface.native.op.exactgetheapinfo.0kb2eh1",
         "surface.native.op.exactgetsourcecachestats.16llubz",
@@ -264210,7 +263860,7 @@
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 468 observed surface edges."
+      "rationale": "Closed by 459 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -265192,44 +264842,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-kEsvacispLO2WI3AfSmq4VW8MluSf-f_PQHou-LYkPI"
+      "rawContentDigest": "sha256-_M4BDl5XoCg1rDq29e0k8MySYEv24xKr3izgqq9_Uuo"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-vg8m0_jnC7wNL5SyUi56_hmF4k6hSsKqsMUmMzRP1xA"
+      "rawContentDigest": "sha256-pcieR4sZiBS4UOc4cjCSRK1azRQbkWVmME7537wvHl8"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-Tjxg4pk3MWkJJbTWGxEXgOiDovjpAlf-si0YPdp9KSs"
+      "rawContentDigest": "sha256-TS0s9jXpfBusoHltZPZ_c6BOnSrrZHAyIEbr5fXlYcQ"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-MDJxcrhlQ7DVWI0bV4Y3H1oJNST-EjVm5j2I3thogS0"
+      "rawContentDigest": "sha256-PXoE9HPV72lX5SY1pa5_Q0zn-NP0-HEo5lsQ8JhU5Yk"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-We5o5r6jTzNTDnmnAaNCd-Y_eJONyIyxPrhtEB8986I"
+      "rawContentDigest": "sha256-dnuEGH6gihq5FFATlQPXgtfoORicser3Geh_lKspWws"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-S51IuJtVJXFJFt2DUya0KCviJncwnz_RqZdPffiLWNE"
+      "rawContentDigest": "sha256-J-7E_qFn-uii1BE0aGKtjL4feMLm-UkyjXV1KL9R3ao"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-E_NBvn5LMopLKdisbj7yyUSXqefqNmn3DjUYnbBrGgw"
+      "rawContentDigest": "sha256-euAccv3zUa3g7Y8N5hZ0p7hST5doxbHzeojlMT19KRA"
     }
   ],
   "counts": {
-    "observedReferences": 12773,
-    "logicalSurfaces": 7123,
-    "enforcementBranches": 7322,
-    "coverageEdges": 7123,
-    "targetCells": 7123
+    "observedReferences": 12762,
+    "logicalSurfaces": 7112,
+    "enforcementBranches": 7311,
+    "coverageEdges": 7112,
+    "targetCells": 7112
   }
 }
