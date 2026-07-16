@@ -287,16 +287,51 @@ const DISCOVERY_OR_LATER = new Set([
   "cleanup",
 ]);
 
+// Direct-adapter recipes are fixed contract vectors rather than filesystem
+// observations. Materialize requested-only path exemplars on the adapter's
+// synthetic bound volume, with stable per-path identities, when a declared
+// edge exercises a later stage.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+function conformancePathObject(requested, role) {
+  return {
+    platform: "unix",
+    volume: "dev-1",
+    file: `recipe-${role}-${taggedDigest(requested).slice(7, 23)}`,
+  };
+}
+
 function occurrenceResourceAtStage(input, stage) {
   const resource = clone(input);
   const commitOrLater = COMMIT_OR_LATER.has(stage);
   const discoveryOrLater = DISCOVERY_OR_LATER.has(stage);
   if (resource.kind === "path-occurrence") {
     if (!discoveryOrLater) {
+      resource.objectState = "unknown";
       delete resource.parentObject;
       delete resource.finalObject;
+      delete resource.finalObjectGeneration;
+    } else {
+      if (resource.objectState === "unknown") resource.objectState = "existing";
+      resource.parentObject ??= conformancePathObject(
+        resource.requested,
+        "parent",
+      );
+      if (resource.objectState === "existing") {
+        resource.finalObject ??= conformancePathObject(
+          resource.requested,
+          "final",
+        );
+      } else {
+        delete resource.finalObject;
+        delete resource.finalObjectGeneration;
+      }
     }
-    if (!commitOrLater) delete resource.retainedHandle;
+    if (commitOrLater) {
+      resource.retainedHandle ??=
+        `recipe-handle-${taggedDigest(resource.requested).slice(7, 23)}`;
+    } else {
+      delete resource.retainedHandle;
+    }
   } else if (resource.kind === "network-occurrence") {
     const publicAddress = "93.184.216.34";
     if (stage === "requested") {

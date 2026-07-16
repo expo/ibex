@@ -12,6 +12,7 @@ import {
   fixtureCatalogForTarget,
   fixtureExecutionPlans,
 } from "./capsec-conformance.mjs";
+import { validateOccurrenceSemantics } from "./capsec-contract.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 import {
@@ -31,6 +32,7 @@ describe("exact-target CapSec executable recipes", () => {
   let expectedFixtureIds;
   let capabilityDefinitions;
   let occurrenceExamples;
+  let rules;
   let selectorExamples;
 
   beforeAll(async () => {
@@ -38,7 +40,7 @@ describe("exact-target CapSec executable recipes", () => {
     const implementation = readJson(
       "capsec/generated/implementation-manifest.json",
     );
-    const rules = readJson("capsec/registry/policy-rules.json");
+    rules = readJson("capsec/registry/policy-rules.json");
     const target = rules.initialProfile.candidateTargets[0];
     const catalog = fixtureCatalogForTarget({
       coverage,
@@ -2140,6 +2142,95 @@ describe("exact-target CapSec executable recipes", () => {
       );
       expect(gates).toHaveLength(decision.effects.length);
     }
+  });
+
+  test("projects path facts to their exact adapter stage", () => {
+    let pathEffects = 0;
+    const discoveryOrLater = new Set([
+      "discovery",
+      "candidate",
+      "commit",
+      "delivery",
+      "repeat",
+      "cleanup",
+    ]);
+    const commitOrLater = new Set([
+      "commit",
+      "delivery",
+      "repeat",
+      "cleanup",
+    ]);
+    for (const recipe of recipes.recipes) {
+      for (const probeCase of recipe.adapterProbe?.cases ?? []) {
+        let decision;
+        try {
+          decision = JSON.parse(probeCase.decisionSetJson);
+        } catch {
+          continue;
+        }
+        for (const effect of decision.effects) {
+          if (effect.resource.kind !== "path-occurrence") continue;
+          pathEffects += 1;
+          if (!discoveryOrLater.has(probeCase.stage)) {
+            expect(effect.resource.objectState).toBe("unknown");
+            expect(effect.resource.parentObject).toBeUndefined();
+            expect(effect.resource.finalObject).toBeUndefined();
+            expect(effect.resource.finalObjectGeneration).toBeUndefined();
+          } else {
+            expect(effect.resource.objectState).not.toBe("unknown");
+            expect(effect.resource.parentObject).toBeDefined();
+            if (effect.resource.objectState === "existing") {
+              expect(effect.resource.finalObject).toBeDefined();
+            } else {
+              expect(effect.resource.finalObject).toBeUndefined();
+            }
+          }
+          if (commitOrLater.has(probeCase.stage)) {
+            expect(effect.resource.retainedHandle).toBeDefined();
+          } else {
+            expect(effect.resource.retainedHandle).toBeUndefined();
+          }
+        }
+      }
+    }
+    expect(pathEffects).toBeGreaterThan(0);
+  });
+
+  test("emits semantically valid occurrences for every allow adapter case", () => {
+    const definitionsById = new Map(
+      capabilityDefinitions.definitions.map((definition) => [
+        definition.id,
+        definition,
+      ]),
+    );
+    let cwdCommitEffects = 0;
+    for (const recipe of recipes.recipes) {
+      if (recipe.scenario !== "allow") continue;
+      for (const probeCase of recipe.adapterProbe?.cases ?? []) {
+        const decision = JSON.parse(probeCase.decisionSetJson);
+        decision.effects.forEach((effect, effectIndex) => {
+          if (effect.cap === "path:cwd-mutate" && probeCase.stage === "commit") {
+            cwdCommitEffects += 1;
+          }
+          expect(() =>
+            validateOccurrenceSemantics(
+              {
+                cap: effect.cap,
+                stage: decision.context.stage,
+                actor: decision.context.actor,
+                effectOwner: effect.effectOwner,
+                constrainedPrincipals: decision.context.constrainedPrincipals,
+                resource: effect.resource,
+              },
+              definitionsById,
+              rules,
+              `${recipe.fixtureId}:${probeCase.stage}:${effectIndex}`,
+            ),
+          ).not.toThrow();
+        });
+      }
+    }
+    expect(cwdCommitEffects).toBe(3);
   });
 
   test("freezes registry-valid derived templates for Rust ingestion", () => {

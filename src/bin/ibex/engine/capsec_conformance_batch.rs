@@ -580,6 +580,39 @@ async fn capsec_executable_recipe_adapter_batch() {
         .await
         .expect("load runtime in exact recipe engine");
 
+    // The adapter cases are a diagnostic execution of the registry's fixed
+    // model vectors, not public JavaScript or filesystem observations. Their
+    // synthetic path occurrences intentionally use the contract fixture's
+    // `unix` / `dev-1` volume. Install a separate unclaimed Host for that
+    // direct adapter after the real loaded engine has authenticated its VFS;
+    // the engine keeps its exact claimed Host context and the adapter keeps
+    // the authored decision-set bytes unchanged.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    let (adapter_host, _adapter_snapshot_digest) = build_armed_test_host_control(
+        None,
+        false,
+        false,
+        false,
+        required_floor(&catalog),
+        Vec::new(),
+        false,
+        0,
+        None,
+        |snapshot| {
+            snapshot["rootBindings"][1]["object"] = serde_json::json!({
+                "platform": "unix",
+                "volume": "dev-1",
+                "file": "inode-10",
+            });
+        },
+    );
+    assert_ne!(
+        crate::host::abi::install_host(adapter_host),
+        0,
+        "install exact typed-adapter Host"
+    );
+    let _adapter_reset = HostResetGuard;
+
     let work = catalog
         .recipes
         .iter()
