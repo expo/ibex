@@ -598,8 +598,8 @@ checked registry, canonical empty package policy/graph, and strict Exact
 manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
-advertisements remain incomplete. The refreshed catalog has 23,123 required
-fixtures, 4,774 fully executable recipes, and 18,349 unresolved
+advertisements remain incomplete. The refreshed catalog has 23,122 required
+fixtures, 4,774 fully executable recipes, and 18,348 unresolved
 fixtures. The latest source-bound tranche adds five cached system-information
 authorization scenarios and twelve asynchronous path-operation scenarios for
 the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime`
@@ -625,7 +625,8 @@ rather than a project-writable global. Bundled-entry remap consumption is now
 tracked by exact host entry-path value in the trusted module-loader closure
 while the host entry-path input remains explicit. The libuv EOF value is now an
 immutable constant at both internal consumers rather than a project-writable
-transport sentinel. The resource
+transport sentinel. Readable-stream compatibility retry scheduling is likewise
+captured inside bootstrap rather than exposed as a mutable global. The resource
 recipes create, exercise, and release their runtime/principal-owned
 native state in one bounded invocation. Fourteen Linux/Android-only
 `node:constants` exports now carry source-bound Apple absence evidence from the

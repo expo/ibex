@@ -2836,9 +2836,6 @@
   if (typeof g.__exactInstallReadableStreamIteratorCompat === "function") {
     try {
       g.__exactInstallReadableStreamIteratorCompat();
-      if (typeof g.__exactReadableStreamCompatIteratorPatchScheduled !== "undefined") {
-        g.__exactReadableStreamCompatIteratorPatchScheduled = false;
-      }
     } catch (err) {}
   }
 

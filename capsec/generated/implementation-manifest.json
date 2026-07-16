@@ -159775,40 +159775,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88",
-      "observedKey": "native-op:__exactReadableStreamCompatIteratorPatchScheduled",
-      "branchId": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88.default",
-      "enforcementBranchId": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactReadableStreamCompatIteratorPatchScheduled"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#__exactReadableStreamCompatIteratorPatchScheduled",
-          "src/engine/bootstrap/exact-global.js#__exactReadableStreamCompatIteratorPatchScheduled"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#__exactReadableStreamCompatIteratorPatchScheduled",
-          "src/engine/bootstrap/exact-global.js#__exactReadableStreamCompatIteratorPatchScheduled"
-        ],
-        "terminalObservedKey": "native-op:__exactReadableStreamCompatIteratorPatchScheduled"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/compat-polyfills.js#__exactReadableStreamCompatIteratorPatchScheduled",
-        "src/engine/bootstrap/exact-global.js#__exactReadableStreamCompatIteratorPatchScheduled"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88.default.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactreaddir.0tg30vk",
       "observedKey": "native-op:__exactReaddir",
       "branchId": "surface.native.op.exactreaddir.0tg30vk.default",
@@ -264749,44 +264715,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-FcO-GETfA12MPW3LIlhFxx_CX2XJhjb67jiuvbtZutc"
+      "rawContentDigest": "sha256-SfpPZ3G2SU3hdZjK9RHVyQyoNbsUNiTZswdSjcnOp0c"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-28-tcNCsYtdYJEpOLAgKZgjFp9InBVZN8RczLkaDOwc"
+      "rawContentDigest": "sha256-Pdr_d-KB06tDJP2gZCcZ6ZLqp3N3cjZTSgLSox86hlk"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-7mn_N8yjMXjkgS_5CNcZclH2WDdi8eFeKd8P5rrVyOs"
+      "rawContentDigest": "sha256-SbUAXsL5ylBbY3A2devitkf4GNSDZeUyz1KC9CcQaWs"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-qvelmKfD2ESosmHvdZ2i6izDSzFQwAv7R55brOFUf78"
+      "rawContentDigest": "sha256-Hz8YnkK_YA2AKgHPLTVIM3dyPDJ36ULIK9GI3poli0k"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-ZoHYJCITjFt-fONUemqrG64j3j4nARvLe7ccmNLf-vE"
+      "rawContentDigest": "sha256-jK2Hey4xPOHOMKCVHphac8kcDWOgQbluagnJr5d99BU"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-xEdQHpaD-jDPKsFzcoJW89sTzz4cn0r7EkaxQ8phSIU"
+      "rawContentDigest": "sha256-kRCP539S16nc7FUJoJbkJvVRV-lkumnruf_Gj2ZoXm8"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-SerBWQiv-wCaLXcH8sKBB9g3r03zCdsImxK9qxGOdE8"
+      "rawContentDigest": "sha256-q4HCYM926sXGxmmkBK10HmroMkY-S2gQ8e2a-NCui4w"
     }
   ],
   "counts": {
-    "observedReferences": 12759,
-    "logicalSurfaces": 7109,
-    "enforcementBranches": 7308,
-    "coverageEdges": 7109,
-    "targetCells": 7109
+    "observedReferences": 12757,
+    "logicalSurfaces": 7108,
+    "enforcementBranches": 7307,
+    "coverageEdges": 7108,
+    "targetCells": 7108
   }
 }

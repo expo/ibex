@@ -202804,16 +202804,6 @@
       "rationale": "Random byte generation carries no external authority in the package threat model."
     },
     {
-      "id": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactReadableStreamCompatIteratorPatchScheduled"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
       "id": "surface.native.op.exactreaddir.0tg30vk",
       "classification": "effects",
       "surface": {

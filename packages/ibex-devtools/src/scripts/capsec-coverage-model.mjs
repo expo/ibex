@@ -4606,7 +4606,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "pipeConstants",
     "tcpConstants",
   ],
-  __exactReadableStreamCompatIteratorPatchScheduled: [""],
   __exactReapplyCompatPolyfills: [""],
   __exactRequire: [""],
   __exactRuntime: [
