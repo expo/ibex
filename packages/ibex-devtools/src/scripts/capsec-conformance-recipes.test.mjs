@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(351);
+    expect(nativePublicFixtures).toHaveLength(387);
     expect(
       nativePublicFixtures
         .filter(
@@ -2145,10 +2145,13 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.globalName ===
         "__exactGetHostname",
     );
-    expect(hostname).toHaveLength(2);
+    expect(hostname).toHaveLength(5);
     expect(hostname.map((recipe) => recipe.scenario)).toEqual([
       "allow",
       "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
     ]);
     for (const recipe of hostname) {
       expect(recipe).toMatchObject({
@@ -2168,13 +2171,13 @@ describe("exact-target CapSec executable recipes", () => {
         },
       });
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow"
-          ? ["requested", "commit"]
-          : ["requested"],
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "commit"],
       );
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-      ).toBe(recipe.scenario === "allow" ? 2 : 1);
+      ).toBe(recipe.scenario === "deny" ? 1 : 2);
     }
   });
 
@@ -2205,10 +2208,13 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
       );
-      expect(directSystemInfo).toHaveLength(2);
+      expect(directSystemInfo).toHaveLength(5);
       expect(directSystemInfo.map((recipe) => recipe.scenario)).toEqual([
         "allow",
         "deny",
+        "malformed",
+        "missing-attribution",
+        "wrong-principal",
       ]);
       for (const recipe of directSystemInfo) {
         expect(recipe).toMatchObject({
@@ -2230,13 +2236,13 @@ describe("exact-target CapSec executable recipes", () => {
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedStages,
         ).toEqual(
-          recipe.scenario === "allow"
-            ? ["requested", "commit"]
-            : ["requested"],
+          recipe.scenario === "deny"
+            ? ["requested"]
+            : ["requested", "commit"],
         );
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-        ).toBe(recipe.scenario === "allow" ? 2 : 1);
+        ).toBe(recipe.scenario === "deny" ? 1 : 2);
       }
     }
   });
@@ -2246,10 +2252,13 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName === "__exactGetEnv",
     );
-    expect(environmentRead).toHaveLength(2);
+    expect(environmentRead).toHaveLength(5);
     expect(environmentRead.map((recipe) => recipe.scenario)).toEqual([
       "allow",
       "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
     ]);
     for (const recipe of environmentRead) {
       expect(recipe).toMatchObject({
@@ -2274,9 +2283,9 @@ describe("exact-target CapSec executable recipes", () => {
         },
       });
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow"
-          ? ["requested", "commit"]
-          : ["requested"],
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "commit"],
       );
     }
   });
@@ -2286,8 +2295,14 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName === "print",
     );
-    expect(print).toHaveLength(2);
-    expect(print.map((recipe) => recipe.scenario)).toEqual(["allow", "deny"]);
+    expect(print).toHaveLength(5);
+    expect(print.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
     for (const recipe of print) {
       expect(recipe).toMatchObject({
         actionIds: ["stdio:write"],
@@ -2316,13 +2331,13 @@ describe("exact-target CapSec executable recipes", () => {
         },
       });
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow"
-          ? ["requested", "commit", "repeat"]
-          : ["requested"],
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "commit", "repeat"],
       );
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-      ).toBe(recipe.scenario === "allow" ? 3 : 1);
+      ).toBe(recipe.scenario === "deny" ? 1 : 3);
     }
   });
 

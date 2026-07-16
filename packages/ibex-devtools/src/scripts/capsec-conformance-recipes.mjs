@@ -653,11 +653,26 @@ const nativeSystemInfoTemplate = (name) =>
   Object.freeze({
     actionIds: ["sys:read"],
     arguments: [],
-    expectedDecisionCounts: { allow: 2, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit"],
       deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
     },
     requiredFloor: [
       {
@@ -706,11 +721,26 @@ const nativeEnvironmentReadTemplate = (name) =>
   Object.freeze({
     actionIds: ["env:read"],
     arguments: [literalArgument(name)],
-    expectedDecisionCounts: { allow: 2, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit"],
       deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
     },
     requiredFloor: [
       {
@@ -729,11 +759,26 @@ const nativePrintTemplate = () =>
   Object.freeze({
     actionIds: ["stdio:write"],
     arguments: [literalArgument("ibex-capsec-print")],
-    expectedDecisionCounts: { allow: 3, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit", "repeat"],
       deny: ["requested"],
+      malformed: ["requested", "commit", "repeat"],
+      "missing-attribution": ["requested", "commit", "repeat"],
+      "wrong-principal": ["requested", "commit", "repeat"],
     },
     requiredFloor: [
       {
