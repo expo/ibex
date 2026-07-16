@@ -2217,6 +2217,27 @@ static FsAsyncResult fsChmodArmedWork(
   return fsAsyncOk();
 }
 
+static FsAsyncResult fsUtimeArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& target,
+    double atime,
+    double mtime) {
+  constexpr uint32_t kFsPathAsyncSurface = 13;
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 2, kFsPathAsyncSurface, *parent, *target,
+          0, 1, nullptr) != 1) {
+    return fsAsyncError(EACCES, "utime", path);
+  }
+  struct timeval times[2] = {
+      fsTimevalFromDouble(atime), fsTimevalFromDouble(mtime)};
+  if (::futimes(*target, times) != 0) {
+    return fsAsyncError(errno, "utime", path);
+  }
+  return fsAsyncOk();
+}
+
 static FsAsyncResult fsPathOpWork(
     const std::string& op,
     const std::string& a,
@@ -5033,6 +5054,20 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
                target = std::move(descriptors.target), mode = x]() {
                 return fsChmodArmedWork(
                     principal, path, parent, target, mode);
+              });
+        }
+        if (ex_host_is_armed() == 1 && op == "utime") {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Timestamp mutation follows commit and worker-side repeat authorization of the retained object.
+          constexpr uint32_t kFsPathAsyncSurface = 13;
+          auto descriptors = openArmedWriteTarget(
+              runtime, a, kFsPathAsyncSurface, O_RDONLY, 0, true, "");
+          return startFsAsync(
+              handle, runtime,
+              [principal, path = a, parent = std::move(descriptors.parent),
+               target = std::move(descriptors.target), atime = x,
+               mtime = y]() {
+                return fsUtimeArmedWork(
+                    principal, path, parent, target, atime, mtime);
               });
         }
         if (ex_host_is_armed() == 1 && op == "mkdtemp") {

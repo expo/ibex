@@ -1638,7 +1638,10 @@ async fn execute_native_public_recipe(
             (
                 Some(NativeProbeArgument::JsonLiteral { value: operation }),
                 Some(NativeProbeArgument::JsonLiteral { value: path }),
-            ) if matches!(operation.as_str(), Some("truncate" | "chmod")) => Some((
+            ) if matches!(
+                operation.as_str(),
+                Some("truncate" | "chmod" | "utime")
+            ) => Some((
                 operation.as_str().unwrap().to_owned(),
                 path.as_str()
                     .expect("filesystem file fixture path must be a string")
@@ -1733,6 +1736,18 @@ async fn execute_native_public_recipe(
                     metadata.permissions().mode() & 0o777,
                     0o600,
                     "retained chmod fixture has the wrong final mode"
+                );
+            }
+            if operation == "utime" {
+                assert_eq!(
+                    metadata
+                        .modified()
+                        .expect("read retained utime fixture timestamp")
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("retained utime fixture timestamp predates epoch")
+                        .as_secs(),
+                    2,
+                    "retained utime fixture has the wrong final timestamp"
                 );
             }
             invocation_result["cleanup"] =
