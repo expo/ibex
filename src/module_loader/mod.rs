@@ -327,6 +327,7 @@ impl ModuleLoader {
             package_name,
             package_root,
             ResolutionKind::CommonJsRequire,
+            &ImportAttributes::default(),
         )
     }
 
@@ -336,6 +337,7 @@ impl ModuleLoader {
         package_name: &str,
         package_root: &Path,
         kind: ResolutionKind,
+        attributes: &ImportAttributes,
     ) -> Result<ResolvedModule> {
         let specifier = specifier.trim();
         let requested_name = package_name_from_bare_specifier(specifier)
@@ -386,7 +388,7 @@ impl ModuleLoader {
             .get("version")
             .and_then(Value::as_str)
             .map(str::to_owned);
-        Ok(resolved)
+        Self::validate_import_attributes(resolved, kind, attributes)
     }
 
     fn resolve_package_import(

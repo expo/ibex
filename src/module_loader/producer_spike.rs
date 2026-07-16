@@ -32,8 +32,8 @@ use sha2::{Digest, Sha256};
 
 use super::artifact::{
     digest_bytes, source_integrity, CanonicalSourceId, CommonJsExportsV1, DynamicEdgeV1,
-    ExportDescriptorV1, ModuleArtifactV1, ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1,
-    SourceGoalV1, SourceMapV1, StaticEdgeV1, TransformFingerprintV1,
+    ExportDescriptorV1, ModuleArtifactV1, ModulePayloadV1, ModuleSemanticsV1, ProducerIdentityV1,
+    SourceDialectV1, SourceGoalV1, SourceMapV1, StaticEdgeV1, TransformFingerprintV1,
     MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
 };
 use super::commonjs_lexer::{lex_commonjs, CJS_MODULE_LEXER_VERSION};
@@ -75,6 +75,15 @@ fn commonjs_artifact_transform_fingerprint_v1(
         source_integrity(b"typescript=strip;jsx=classic;module-goal=false;decorators=off")?;
     fingerprint.output_options_digest =
         source_integrity(b"factory=commonjs-wrapper;source-map=v3-source-id;minify=false")?;
+    Ok(fingerprint)
+}
+
+fn json_artifact_transform_fingerprint_v1(hermes_target: &str) -> Result<TransformFingerprintV1> {
+    let mut fingerprint = module_artifact_transform_fingerprint_v1(hermes_target)?;
+    fingerprint.typescript_jsx_options_digest =
+        source_integrity(b"strict-json=true;duplicate-keys=reject")?;
+    fingerprint.output_options_digest =
+        source_integrity(b"factory=json-default-export;source-map=v3-source-id;minify=false")?;
     Ok(fingerprint)
 }
 
@@ -1003,6 +1012,83 @@ pub fn produce_commonjs_artifact_v1(
     )
 }
 
+/// Produce one strict JSON record whose sole export is `default`. The original
+/// bytes remain the integrity input; only the trusted factory embeds canonical
+/// JCS so whitespace and object-order choices cannot become executable text.
+pub fn produce_json_artifact_v1(
+    source_id: SourceId,
+    source: &str,
+    producer_binary_digest: CapsecDigest,
+    hermes_target: &str,
+) -> Result<ModuleArtifactV1> {
+    let value = capsec_semantics::strict_json::parse_strict(source)
+        .map_err(|error| anyhow!("JSON module is not strict JSON: {error}"))?;
+    let canonical = capsec_semantics::canonical::to_jcs_bytes(&value)
+        .map_err(|error| anyhow!("JSON module cannot be canonicalized: {error}"))?;
+    let canonical = String::from_utf8(canonical).context("canonical JSON is not UTF-8")?;
+    let factory_source = format!(
+        "function ($export) {{ return {{ declare: function () {{}}, execute: function () {{ $export('default', {canonical}); }} }}; }}"
+    );
+    let factory_digest =
+        digest_bytes(MODULE_ARTIFACT_FACTORY_DOMAIN_V1, factory_source.as_bytes())?;
+    ModuleArtifactV1::new_inline(
+        ModuleSemanticsV1 {
+            source_id: CanonicalSourceId(source_id.clone()),
+            source_goal: SourceGoalV1::Json,
+            dialect: None,
+            source_integrity: source_integrity(source.as_bytes())?,
+            transform_fingerprint: json_artifact_transform_fingerprint_v1(hermes_target)?,
+            static_edges: Vec::new(),
+            dynamic_edges: Vec::new(),
+            export_descriptors: Vec::new(),
+            commonjs_exports: None,
+            has_top_level_await: false,
+            factory_digest,
+            source_map: SourceMapV1 {
+                version: 3,
+                source_ids: vec![CanonicalSourceId(source_id)],
+                names: Vec::new(),
+                mappings: String::new(),
+            },
+        },
+        factory_source,
+        ProducerIdentityV1::InProcess {
+            producer_id: NonEmptyString::new("ibex-runtime-oxc").map_err(anyhow::Error::msg)?,
+            producer_binary_digest,
+        },
+    )
+}
+
+/// Builtins are authenticated registry sources with CommonJS execution
+/// semantics. They retain the distinct Builtin source goal and SourceId so
+/// package code cannot counterfeit host-owned module identity.
+pub fn produce_builtin_artifact_v1(
+    source_id: SourceId,
+    source_name: &str,
+    source: &str,
+    producer_binary_digest: CapsecDigest,
+    hermes_target: &str,
+) -> Result<ModuleArtifactV1> {
+    let path = PathBuf::from(format!("{source_name}.js"));
+    let staging_id = SourceId::synthetic("builtin-producer", source_name)?;
+    let artifact = produce_commonjs_artifact_v1(
+        staging_id,
+        source_name,
+        &path,
+        source,
+        producer_binary_digest,
+        hermes_target,
+    )?;
+    let ModulePayloadV1::Inline { factory_source, .. } = artifact.payload else {
+        unreachable!()
+    };
+    let mut semantics = artifact.semantics;
+    semantics.source_id = CanonicalSourceId(source_id.clone());
+    semantics.source_map.source_ids = vec![CanonicalSourceId(source_id)];
+    semantics.source_goal = SourceGoalV1::Builtin;
+    ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer)
+}
+
 fn source_dialect(path: &Path) -> Result<SourceDialectV1> {
     match path
         .extension()
@@ -1897,5 +1983,31 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("computed CommonJS require"));
+    }
+
+    #[test]
+    fn json_artifact_is_strict_and_exports_canonical_default() {
+        let artifact = produce_json_artifact_v1(
+            SourceId::synthetic("fixture", "data-json").unwrap(),
+            "{\"z\":1,\"a\":[true,null]}",
+            source_integrity(b"producer-binary").unwrap(),
+            "hermes-bytecode-96",
+        )
+        .unwrap();
+        assert_eq!(artifact.semantics.source_goal, SourceGoalV1::Json);
+        assert_eq!(artifact.semantics.dialect, None);
+        let ModulePayloadV1::Inline { factory_source, .. } = artifact.payload else {
+            unreachable!()
+        };
+        assert!(factory_source.contains("$export('default', {\"a\":[true,null],\"z\":1})"));
+
+        let duplicate = produce_json_artifact_v1(
+            SourceId::synthetic("fixture", "duplicate-json").unwrap(),
+            "{\"value\":1,\"value\":2}",
+            source_integrity(b"producer-binary").unwrap(),
+            "hermes-bytecode-96",
+        )
+        .unwrap_err();
+        assert!(duplicate.to_string().contains("strict JSON"));
     }
 }

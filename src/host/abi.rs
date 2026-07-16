@@ -563,14 +563,16 @@ pub(crate) fn resolve_module_for_runner(
     referrer: Option<&std::path::Path>,
     requester_module_id: Option<&str>,
     kind: crate::module_loader::identity::ResolutionKind,
+    attributes: &crate::module_loader::identity::ImportAttributes,
 ) -> anyhow::Result<crate::module_loader::ResolvedModule> {
     with_host(
         |host| {
-            let mut meta = host.resolve_module_meta_for_principal_typed(
+            let mut meta = host.resolve_module_meta_for_principal_typed_with_attributes(
                 specifier,
                 referrer,
                 requester_module_id,
                 kind,
+                attributes,
             )?;
             if meta
                 .path

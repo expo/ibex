@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
+**Revised:** 2026-07-15 (ENG-25061 added host-owned builtin records and strict shared-identity JSON records across source/prepared ESM and CommonJS paths); 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
 promise-returning CommonJS-to-ESM import ABI); 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
 snapshot adapters); 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
 producer adapter, and tamper fixtures)
@@ -205,7 +205,19 @@ may leave partial new records.
 JSON retains one ordinary file-backed identity. ESM JSON imports require the
 pinned import attribute; CommonJS JSON requires by extension. Both adapt the
 same record. Ibex's `require` extension inside ESM follows the CommonJS request
-rules rather than defining another interop mode.
+rules rather than defining another interop mode. The trusted producer parses
+strict JSON (including duplicate-key rejection), binds integrity to the
+original bytes, and embeds canonical JCS only in a factory whose single export
+is `default`. ESM observes that default through the normal namespace; CommonJS
+`require()` returns the JSON value directly.
+
+Builtins retain `SourceGoal: Builtin` and their manifest-derived builtin
+`SourceId`; they cannot be represented by a package-owned file identity.
+Their embedded registry source uses the CommonJS lifecycle and typed builtin
+edges. A builtin is charged to the authenticated root initialization owner,
+and a root-principal carrier may contain builtin entries without changing
+their host-owned SourceIds. Package policy is checked by the no-probe armed
+resolver before the exact builtin target enters the graph.
 
 ## Canonical artifacts and acceptance fixtures
 

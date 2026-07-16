@@ -673,8 +673,11 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             // record-owned decisions. They use the initialization task
             // boundary rather than inheriting an importer context.
             let artifact = record.artifact.artifact();
-            let initialization =
-                GraphAuthorityContext::initialization(source_id.clone(), context.graph_generation)?;
+            let initialization = GraphAuthorityContext::initialization_as(
+                source_id.clone(),
+                context.effect_owner.clone(),
+                context.graph_generation,
+            )?;
             let carrier_digest = match &artifact.payload {
                 ModulePayloadV1::Inline { .. } => None,
                 ModulePayloadV1::Carrier { carrier_digest, .. } => Some(carrier_digest.clone()),
@@ -911,7 +914,15 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             return Ok(());
         }
         let record = self.record(source_id)?;
-        if record.artifact.artifact().semantics.source_goal == SourceGoalV1::CommonJs {
+        if record.artifact.artifact().semantics.source_goal == SourceGoalV1::Json {
+            names.insert("default".to_owned());
+            visiting.remove(source_id);
+            return Ok(());
+        }
+        if matches!(
+            record.artifact.artifact().semantics.source_goal,
+            SourceGoalV1::CommonJs | SourceGoalV1::Builtin
+        ) {
             names.insert("default".to_owned());
             names.insert("module.exports".to_owned());
             names.extend(self.commonjs_export_names(source_id, &mut BTreeSet::new())?);
@@ -950,7 +961,21 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             return Ok(Resolution::Missing);
         }
         let record = self.record(source_id)?;
-        if record.artifact.artifact().semantics.source_goal == SourceGoalV1::CommonJs {
+        if record.artifact.artifact().semantics.source_goal == SourceGoalV1::Json {
+            visiting.remove(&key);
+            return Ok(if name == "default" {
+                Resolution::Found(ExportTarget {
+                    record: source_id.clone(),
+                    binding: name.to_owned(),
+                })
+            } else {
+                Resolution::Missing
+            });
+        }
+        if matches!(
+            record.artifact.artifact().semantics.source_goal,
+            SourceGoalV1::CommonJs | SourceGoalV1::Builtin
+        ) {
             let is_export = name == "default"
                 || name == "module.exports"
                 || self

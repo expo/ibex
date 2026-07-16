@@ -130,6 +130,14 @@ impl GraphAuthorityContext {
             .defining_principal()
             .cloned()
             .ok_or_else(|| anyhow!("factory initialization needs a defining principal"))?;
+        Self::initialization_as(record, principal, graph_generation)
+    }
+
+    pub fn initialization_as(
+        record: SourceId,
+        principal: Principal,
+        graph_generation: u64,
+    ) -> Result<Self> {
         Self::new(
             record,
             principal.clone(),
@@ -145,10 +153,15 @@ impl GraphAuthorityContext {
         if self.graph_generation == 0 {
             bail!("graph authority context generation must be nonzero");
         }
-        let requester = self
-            .requesting_record
-            .defining_principal()
-            .ok_or_else(|| anyhow!("graph operation requester has no defining principal"))?;
+        let requester = match self.requesting_record.defining_principal() {
+            Some(principal) => principal,
+            None if matches!(&self.requesting_record, SourceId::Builtin { .. })
+                && self.effect_owner.is_root() =>
+            {
+                &self.effect_owner
+            }
+            None => bail!("graph operation requester has no defining principal"),
+        };
         if requester != &self.effect_owner {
             bail!("graph operation effect owner is not the requesting record owner");
         }
@@ -393,16 +406,23 @@ impl<'policy, P: GraphImportPolicy> ModuleGraphAuthorizer<'policy, P> {
         if decision.resource.requester != decision.context.requesting_record {
             bail!("graph decision resource requester disagrees with its context");
         }
-        let importer = decision
-            .resource
-            .requester
-            .defining_principal()
-            .ok_or_else(|| anyhow!("graph requester has no authenticated principal"))?;
-        let imported = decision
-            .resource
-            .target
-            .defining_principal()
-            .ok_or_else(|| anyhow!("graph target has no authenticated principal"))?;
+        let importer = match decision.resource.requester.defining_principal() {
+            Some(principal) => principal,
+            None if matches!(&decision.resource.requester, SourceId::Builtin { .. }) => {
+                &decision.context.effect_owner
+            }
+            None => bail!("graph requester has no authenticated principal"),
+        };
+        // A builtin SourceId is host-owned rather than package-owned. Its
+        // public spelling and source key were already authenticated against
+        // the immutable snapshot by the no-probe host resolver; treating the
+        // resulting exact target as importer-owned here prevents inventing a
+        // forgeable pseudo-principal while retaining the typed graph receipt.
+        let imported = match decision.resource.target.defining_principal() {
+            Some(principal) => principal,
+            None if matches!(&decision.resource.target, SourceId::Builtin { .. }) => importer,
+            None => bail!("graph target has no authenticated principal"),
+        };
         if decision.kind.is_edge() && importer != imported {
             let conditions = decision
                 .resource

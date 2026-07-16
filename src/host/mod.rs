@@ -2103,6 +2103,7 @@ impl Host {
             None,
             false,
             crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            &crate::module_loader::identity::ImportAttributes::default(),
         )?;
         self.load_authenticated_module_source(meta)
     }
@@ -2119,6 +2120,7 @@ impl Host {
             requester_module_id,
             false,
             crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            &crate::module_loader::identity::ImportAttributes::default(),
         )?;
         self.load_authenticated_module_source(meta)
     }
@@ -2136,6 +2138,7 @@ impl Host {
             requester_module_id,
             false,
             kind,
+            &crate::module_loader::identity::ImportAttributes::default(),
         )?;
         self.load_authenticated_module_source(meta)
     }
@@ -2323,6 +2326,7 @@ impl Host {
             requester_module_id,
             true,
             crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            &crate::module_loader::identity::ImportAttributes::default(),
         )
     }
 
@@ -2339,6 +2343,26 @@ impl Host {
             requester_module_id,
             true,
             kind,
+            &crate::module_loader::identity::ImportAttributes::default(),
+        )
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    pub(crate) fn resolve_module_meta_for_principal_typed_with_attributes(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+        requester_module_id: Option<&str>,
+        kind: crate::module_loader::identity::ResolutionKind,
+        attributes: &crate::module_loader::identity::ImportAttributes,
+    ) -> anyhow::Result<ResolvedModule> {
+        self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            requester_module_id,
+            true,
+            kind,
+            attributes,
         )
     }
 
@@ -2349,13 +2373,13 @@ impl Host {
         requester_module_id: Option<&str>,
         authorize_path_disclosure: bool,
         resolution_kind: crate::module_loader::identity::ResolutionKind,
+        import_attributes: &crate::module_loader::identity::ImportAttributes,
     ) -> anyhow::Result<ResolvedModule> {
         if self.unarmed_closed {
             anyhow::bail!("unarmed host cannot resolve executable modules");
         }
         let resolution_conditions =
             crate::module_loader::identity::ConditionSet::for_kind(resolution_kind);
-        let import_attributes = crate::module_loader::identity::ImportAttributes::default();
         let armed_resolution = if let Some(snapshot) = self.armed_snapshot.as_deref() {
             let root_principal = self
                 .typed_imports
@@ -2389,7 +2413,7 @@ impl Host {
                 self.module_loader.is_builtin_specifier(specifier),
                 resolution_kind,
                 &resolution_conditions,
-                &import_attributes,
+                import_attributes,
             )?;
             let requester_key = requester_module_id
                 .map(str::to_owned)
@@ -2426,15 +2450,21 @@ impl Host {
         // require.resolve must not reveal existent-vs-missing unauthorized
         // targets through resolver errors or timing.
         let mut meta = match armed_resolution.as_ref().map(|(_, _, _, _, plan)| plan) {
-            Some(ArmedModuleResolution::BoundPackage { name, root }) => self
-                .module_loader
-                .resolve_meta_from_bound_package_typed(specifier, name, root, resolution_kind)?,
+            Some(ArmedModuleResolution::BoundPackage { name, root }) => {
+                self.module_loader.resolve_meta_from_bound_package_typed(
+                    specifier,
+                    name,
+                    root,
+                    resolution_kind,
+                    import_attributes,
+                )?
+            }
             _ => self.module_loader.resolve_meta_typed(
                 specifier,
                 referrer,
                 resolution_kind,
                 &resolution_conditions,
-                &import_attributes,
+                import_attributes,
             )?,
         };
         if let Some(path) = meta.path.as_ref() {
@@ -4452,13 +4482,21 @@ mod tests {
             .unwrap();
         let entry = fixture.path().join("entry.mjs");
         let dependency = fixture.path().join("dependency.cjs");
+        let data = fixture.path().join("data.json");
         std::fs::write(
             &entry,
-            "import { value } from './dependency.cjs'; export const result = value + 1;\n",
+            "import { value } from './dependency.cjs'; import data from './data.json' with { type: 'json' }; import path from 'node:path'; export const result = value + data.bump + (path.basename('/tmp/check.txt') === 'check.txt' ? 0 : 100);\n",
         )
         .unwrap();
-        std::fs::write(&dependency, "exports.value = 41;\n").unwrap();
-        crate::host::abi::install_host(example_armed_host());
+        std::fs::write(
+            &dependency,
+            "exports.value = 39 + require('./data.json').bump;\n",
+        )
+        .unwrap();
+        std::fs::write(&data, "{\"bump\":2}\n").unwrap();
+        crate::host::abi::install_host(example_armed_host_with(|value| {
+            value["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
+        }));
         let producer = digest_bytes("prepared-source-graph-test", b"producer").unwrap();
         let graph =
             match build_authenticated_source_graph_v1(&entry, producer.clone(), "hermes-test")
@@ -4472,15 +4510,15 @@ mod tests {
                     )
                 }
             };
-        assert_eq!(graph.records().count(), 2);
+        assert_eq!(graph.records().count(), 4);
         let deployment = digest_bytes("prepared-source-graph-test", b"deployment").unwrap();
         let artifact_dir = fixture.path().join("bundle-artifact");
         std::fs::create_dir(&artifact_dir).unwrap();
         let cache =
             publish_prepared_source_graph_v1(&graph, &artifact_dir, deployment.clone()).unwrap();
         let loaded = load_prepared_source_graph_v1(&cache, &producer, &deployment).unwrap();
-        assert_eq!(loaded.records().count(), 2);
-        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 2);
+        assert_eq!(loaded.records().count(), 4);
+        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 4);
         let plan = loaded.plan().unwrap();
         let (configs, contexts) = loaded.native_execution_inputs(1).unwrap();
         let entries = loaded.prepared_entries().unwrap().unwrap();
@@ -4504,7 +4542,7 @@ mod tests {
             native.evaluate().unwrap();
             assert_eq!(
                 native.namespace_json(loaded.entry()).unwrap(),
-                r#"{"result":42}"#
+                r#"{"result":43}"#
             );
             drop(native);
             drop(runtime);

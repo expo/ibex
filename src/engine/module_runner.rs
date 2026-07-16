@@ -330,6 +330,44 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
         )
     }
 
+    pub fn compile_verified_json_factory(
+        &'runtime self,
+        verified: VerifiedModuleArtifactV1<'_>,
+        principal_id: u32,
+        compartment_identity: Option<&str>,
+        graph_generation: u64,
+        source_label: &str,
+    ) -> Result<CompiledModuleFactory<'runtime>> {
+        self.compile_verified_factory_for_goal(
+            verified,
+            SourceGoalV1::Json,
+            2,
+            principal_id,
+            compartment_identity,
+            graph_generation,
+            source_label,
+        )
+    }
+
+    pub fn compile_verified_builtin_factory(
+        &'runtime self,
+        verified: VerifiedModuleArtifactV1<'_>,
+        principal_id: u32,
+        compartment_identity: Option<&str>,
+        graph_generation: u64,
+        source_label: &str,
+    ) -> Result<CompiledModuleFactory<'runtime>> {
+        self.compile_verified_factory_for_goal(
+            verified,
+            SourceGoalV1::Builtin,
+            3,
+            principal_id,
+            compartment_identity,
+            graph_generation,
+            source_label,
+        )
+    }
+
     fn compile_verified_factory_for_goal(
         &'runtime self,
         verified: VerifiedModuleArtifactV1<'_>,
@@ -428,9 +466,8 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
         let native_goal = match artifact.semantics.source_goal {
             SourceGoalV1::Module => 0,
             SourceGoalV1::CommonJs => 1,
-            SourceGoalV1::Json | SourceGoalV1::Builtin => {
-                bail!("prepared factory loading requires an executable source goal")
-            }
+            SourceGoalV1::Json => 2,
+            SourceGoalV1::Builtin => 3,
         };
         let native_encoding = match &manifest.encoding {
             PreparedCarrierEncodingV1::JavascriptFactoryTable => 0,
@@ -1378,16 +1415,27 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                         generation,
                         &config.source_label,
                     )?,
-                    SourceGoalV1::Json | SourceGoalV1::Builtin => {
-                        bail!("native executable graph does not yet admit JSON or builtin records")
-                    }
+                    SourceGoalV1::Json => runtime.compile_verified_json_factory(
+                        verified,
+                        config.principal_id,
+                        config.compartment_identity.as_deref(),
+                        generation,
+                        &config.source_label,
+                    )?,
+                    SourceGoalV1::Builtin => runtime.compile_verified_builtin_factory(
+                        verified,
+                        config.principal_id,
+                        config.compartment_identity.as_deref(),
+                        generation,
+                        &config.source_label,
+                    )?,
                 },
             };
             let record = match plan.source_goal(source_id)? {
-                SourceGoalV1::Module => {
+                SourceGoalV1::Module | SourceGoalV1::Json => {
                     NativeLinkedRecord::Esm(factory.create_record(&context, source_id)?)
                 }
-                SourceGoalV1::CommonJs => {
+                SourceGoalV1::CommonJs | SourceGoalV1::Builtin => {
                     let dirname = Path::new(&config.source_label)
                         .parent()
                         .and_then(Path::to_str)
@@ -1406,7 +1454,6 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                     let adapter = record.create_esm_adapter()?;
                     NativeLinkedRecord::CommonJs { record, adapter }
                 }
-                SourceGoalV1::Json | SourceGoalV1::Builtin => unreachable!(),
             };
             records.insert(source_id.clone(), record);
             meta_urls.insert(source_id.clone(), config.meta_url);

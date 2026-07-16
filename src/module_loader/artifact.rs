@@ -620,7 +620,7 @@ fn validate_semantics(semantics: &ModuleSemanticsV1) -> Result<()> {
     }
     let executable_source = matches!(
         semantics.source_goal,
-        SourceGoalV1::Module | SourceGoalV1::CommonJs
+        SourceGoalV1::Module | SourceGoalV1::CommonJs | SourceGoalV1::Builtin
     );
     if executable_source != semantics.dialect.is_some() {
         bail!("source dialect presence disagrees with source goal");
@@ -638,7 +638,7 @@ fn validate_semantics(semantics: &ModuleSemanticsV1) -> Result<()> {
                 bail!("CommonJS require edges require CommonJs source goal");
             }
         }
-        SourceGoalV1::CommonJs => {
+        SourceGoalV1::CommonJs | SourceGoalV1::Builtin => {
             if semantics
                 .static_edges
                 .iter()
@@ -648,7 +648,7 @@ fn validate_semantics(semantics: &ModuleSemanticsV1) -> Result<()> {
                 bail!("ESM static edges/exports require Module source goal");
             }
         }
-        SourceGoalV1::Json | SourceGoalV1::Builtin => {
+        SourceGoalV1::Json => {
             if !semantics.static_edges.is_empty()
                 || !semantics.dynamic_edges.is_empty()
                 || !semantics.export_descriptors.is_empty()
@@ -658,7 +658,7 @@ fn validate_semantics(semantics: &ModuleSemanticsV1) -> Result<()> {
         }
     }
     match (&semantics.commonjs_exports, semantics.source_goal) {
-        (Some(exports), SourceGoalV1::CommonJs) => {
+        (Some(exports), SourceGoalV1::CommonJs | SourceGoalV1::Builtin) => {
             if exports.detector != semantics.transform_fingerprint.commonjs_detector
                 || exports.detector_version
                     != semantics.transform_fingerprint.commonjs_detector_version
@@ -687,7 +687,9 @@ fn validate_semantics(semantics: &ModuleSemanticsV1) -> Result<()> {
                 bail!("CommonJS reexport lacks a matching require edge");
             }
         }
-        (None, SourceGoalV1::CommonJs) => bail!("CommonJS artifact lacks detector output"),
+        (None, SourceGoalV1::CommonJs | SourceGoalV1::Builtin) => {
+            bail!("CommonJS-shaped artifact lacks detector output")
+        }
         (Some(_), _) => bail!("CommonJS detector output is invalid for this source goal"),
         (None, _) => {}
     }
@@ -1176,7 +1178,7 @@ mod tests {
             (
                 SourceGoalV1::Builtin,
                 SourceId::builtin("ibex-runtime", "node:path").unwrap(),
-                None,
+                Some(SourceDialectV1::Js),
             ),
             (
                 SourceGoalV1::Module,
@@ -1186,12 +1188,13 @@ mod tests {
         ];
         for (goal, source_id, dialect) in variants {
             let factory = "function () { return { execute: function () {} }; }";
-            let commonjs_exports = (goal == SourceGoalV1::CommonJs).then(|| CommonJsExportsV1 {
-                detector: fingerprint().commonjs_detector,
-                detector_version: fingerprint().commonjs_detector_version,
-                names: vec![NonEmptyString::new("answer").unwrap()],
-                reexports: Vec::new(),
-            });
+            let commonjs_exports = matches!(goal, SourceGoalV1::CommonJs | SourceGoalV1::Builtin)
+                .then(|| CommonJsExportsV1 {
+                    detector: fingerprint().commonjs_detector,
+                    detector_version: fingerprint().commonjs_detector_version,
+                    names: vec![NonEmptyString::new("answer").unwrap()],
+                    reexports: Vec::new(),
+                });
             let semantics = ModuleSemanticsV1 {
                 source_id: CanonicalSourceId(source_id.clone()),
                 source_goal: goal,

@@ -171,6 +171,9 @@ facebook::jsi::Value requireEsmRecord(
   if (record.export_cells.count("module.exports") != 0) {
     return readBinding(rt, runtime, recordId, record, "module.exports");
   }
+  if (record.source_goal == 2) {
+    return readBinding(rt, runtime, recordId, record, "default");
+  }
   if (!record.namespace_object) {
     throw facebook::jsi::JSError(rt, "required ES module namespace is unavailable");
   }
@@ -900,7 +903,7 @@ extern "C" int32_t ex_hermes_module_compile_factory(
 
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
-  if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 1 ||
+  if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 3 ||
       out_factory == nullptr ||
       semantic_digest == nullptr || factory_source == nullptr ||
       source_id == nullptr || source_id_len == 0 || factory_source_len == 0 ||
@@ -1068,7 +1071,7 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
 
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
-  if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 1 ||
+  if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 3 ||
       carrier_encoding > 1 || out_factory == nullptr ||
       semantic_digest == nullptr || source_id == nullptr || source_id_len == 0 ||
       carrier_digest == nullptr ||
@@ -1267,7 +1270,8 @@ extern "C" int32_t ex_hermes_commonjs_create_record(
   auto contextIt = runtime->graph_contexts.find(context.opaque[2]);
   if (factoryIt == runtime->module_factories.end() ||
       contextIt == runtime->graph_contexts.end() ||
-      factoryIt->second.source_goal != 1 ||
+      (factoryIt->second.source_goal != 1 &&
+       factoryIt->second.source_goal != 3) ||
       factoryIt->second.graph_generation != factory.opaque[1] ||
       contextIt->second.graph_generation != context.opaque[1] ||
       factoryIt->second.source_id !=
@@ -1630,7 +1634,8 @@ extern "C" int32_t ex_hermes_module_create_record(
   auto contextIt = runtime->graph_contexts.find(context.opaque[2]);
   if (factoryIt == runtime->module_factories.end() ||
       contextIt == runtime->graph_contexts.end() ||
-      factoryIt->second.source_goal != 0 ||
+      (factoryIt->second.source_goal != 0 &&
+       factoryIt->second.source_goal != 2) ||
       factoryIt->second.graph_generation != factory.opaque[1] ||
       contextIt->second.graph_generation != context.opaque[1] ||
       factoryIt->second.source_id !=
@@ -1639,6 +1644,7 @@ extern "C" int32_t ex_hermes_module_create_record(
   }
   NativeModuleRecordEntry entry;
   entry.graph_generation = factory.opaque[1];
+  entry.source_goal = factoryIt->second.source_goal;
   entry.source_id.assign(reinterpret_cast<const char*>(source_id), source_id_len);
   entry.context_handle_id = context.opaque[2];
   entry.factory = factoryIt->second.factory;

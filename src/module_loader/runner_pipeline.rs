@@ -26,7 +26,10 @@ use super::carrier::{
 };
 use super::graph::{GraphEdgeKey, SynchronousGraphPlan};
 use super::identity::{ResolutionKind, SourceId};
-use super::producer_spike::{produce_commonjs_artifact_v1, produce_module_artifact_v1};
+use super::producer_spike::{
+    produce_builtin_artifact_v1, produce_commonjs_artifact_v1, produce_json_artifact_v1,
+    produce_module_artifact_v1,
+};
 use super::ModuleKind;
 
 #[derive(Debug, Clone)]
@@ -188,10 +191,15 @@ impl SourceModuleGraphV1 {
         let mut configs = BTreeMap::new();
         let mut authority_contexts = BTreeMap::new();
         for (source_id, record) in &self.records {
-            let principal = source_id
-                .defining_principal()
-                .cloned()
-                .ok_or_else(|| anyhow!("source graph record has no defining principal"))?;
+            let principal = match source_id.defining_principal().cloned() {
+                Some(principal) => principal,
+                None if matches!(source_id, SourceId::Builtin { .. }) => principal_ids
+                    .keys()
+                    .find(|principal| principal.is_root())
+                    .cloned()
+                    .ok_or_else(|| anyhow!("builtin graph record has no root runtime owner"))?,
+                None => bail!("source graph record has no defining principal"),
+            };
             let principal_id = *principal_ids
                 .get(&principal)
                 .ok_or_else(|| anyhow!("source graph principal has no runtime projection"))?;
@@ -267,6 +275,7 @@ pub fn build_authenticated_source_graph_v1(
         None,
         None,
         ResolutionKind::Entry,
+        &super::identity::ImportAttributes::default(),
     )?;
     let entry_id = entry_module
         .source_id
@@ -278,10 +287,6 @@ pub fn build_authenticated_source_graph_v1(
     {
         bail!("authenticated entry is not owned by the project root");
     }
-    if !matches!(entry_module.kind, ModuleKind::Esm | ModuleKind::CommonJs) {
-        return Ok(legacy("entry source goal is JSON or builtin"));
-    }
-
     let mut queue = VecDeque::from([entry_module]);
     let mut records = BTreeMap::new();
     while let Some(module) = queue.pop_front() {
@@ -292,13 +297,16 @@ pub fn build_authenticated_source_graph_v1(
         if records.contains_key(&source_id) {
             continue;
         }
-        if !matches!(module.kind, ModuleKind::Esm | ModuleKind::CommonJs) {
-            return Ok(legacy("module graph reaches JSON or builtin interop"));
-        }
-        let path = module
-            .path
-            .clone()
-            .ok_or_else(|| anyhow!("source module has no authenticated path"))?;
+        let path = match module.path.clone() {
+            Some(path) => path,
+            None if module.kind == ModuleKind::Builtin => match &source_id {
+                SourceId::Builtin { source_key, .. } => {
+                    PathBuf::from(format!("builtin:{}.js", source_key.as_str()))
+                }
+                _ => bail!("builtin module has a non-builtin SourceId"),
+            },
+            None => bail!("source module has no authenticated path"),
+        };
         let source = module
             .source
             .as_deref()
@@ -324,7 +332,19 @@ pub fn build_authenticated_source_graph_v1(
                 producer_binary_digest.clone(),
                 hermes_target,
             )?,
-            ModuleKind::Json | ModuleKind::Builtin => unreachable!(),
+            ModuleKind::Json => produce_json_artifact_v1(
+                source_id.clone(),
+                source,
+                producer_binary_digest.clone(),
+                hermes_target,
+            )?,
+            ModuleKind::Builtin => produce_builtin_artifact_v1(
+                source_id.clone(),
+                source_name,
+                source,
+                producer_binary_digest.clone(),
+                hermes_target,
+            )?,
         };
         if artifact
             .semantics
@@ -336,26 +356,20 @@ pub fn build_authenticated_source_graph_v1(
                 "computed dynamic import has no authenticated finite candidate table",
             ));
         }
-        if artifact_has_import_attributes(&artifact) {
-            return Ok(legacy(
-                "import attributes require JSON or another unsupported interop shape",
-            ));
-        }
         let mut bindings = BTreeMap::new();
         for key in artifact_edge_requests(&artifact) {
+            let attributes = artifact_edge_attributes(&artifact, &key)?;
             let target = crate::host::abi::resolve_module_for_runner(
                 &key.specifier,
                 Some(&path),
                 None,
                 key.resolution_kind,
+                &attributes,
             )?;
             let target_id = target
                 .source_id
                 .clone()
                 .ok_or_else(|| anyhow!("authenticated dependency produced no SourceId"))?;
-            if !matches!(target.kind, ModuleKind::Esm | ModuleKind::CommonJs) {
-                return Ok(legacy("module graph reaches JSON or builtin interop"));
-            }
             if let Some(previous) = bindings.insert(key.clone(), target_id.clone()) {
                 if previous != target_id {
                     bail!("one typed authored edge resolved to two SourceIds");
@@ -430,11 +444,21 @@ pub fn publish_prepared_source_graph_v1(
     let result = (|| -> Result<()> {
         let producer_id =
             NonEmptyString::new(PREPARED_GRAPH_PRODUCER_ID).map_err(anyhow::Error::msg)?;
+        let root_principal = graph
+            .records
+            .keys()
+            .filter_map(SourceId::defining_principal)
+            .find(|principal| principal.is_root())
+            .cloned()
+            .ok_or_else(|| anyhow!("prepared graph has no root principal"))?;
         let mut grouped: BTreeMap<Principal, Vec<(SourceId, NonEmptyString)>> = BTreeMap::new();
         for (source_id, record) in &graph.records {
             let principal = source_id
                 .defining_principal()
                 .cloned()
+                .or_else(|| {
+                    matches!(source_id, SourceId::Builtin { .. }).then(|| root_principal.clone())
+                })
                 .ok_or_else(|| anyhow!("prepared carrier record has no defining principal"))?;
             let entry_id = NonEmptyString::new(record.artifact.semantic_digest.as_str())
                 .map_err(anyhow::Error::msg)?;
@@ -489,9 +513,11 @@ pub fn publish_prepared_source_graph_v1(
             .records
             .iter()
             .map(|(source_id, record)| {
-                let principal = source_id
-                    .defining_principal()
-                    .ok_or_else(|| anyhow!("prepared record has no principal"))?;
+                let principal = match source_id.defining_principal() {
+                    Some(principal) => principal,
+                    None if matches!(source_id, SourceId::Builtin { .. }) => &root_principal,
+                    None => bail!("prepared record has no principal"),
+                };
                 let carrier_index = *carrier_indexes
                     .get(principal)
                     .ok_or_else(|| anyhow!("prepared record has no carrier"))?;
@@ -620,14 +646,16 @@ pub fn load_prepared_source_graph_v1(
             bail!("prepared graph record identity disagrees with its artifact");
         }
         let path = PathBuf::from(&indexed.path);
-        if !path.is_absolute() {
+        if !path.is_absolute() && !matches!(indexed.source_id, SourceId::Builtin { .. }) {
             bail!("prepared graph source label is not absolute");
         }
-        crate::host::abi::authenticate_prepared_module_record(
-            &path,
-            &indexed.source_id,
-            &indexed.artifact.semantics.source_integrity,
-        )?;
+        if !matches!(indexed.source_id, SourceId::Builtin { .. }) {
+            crate::host::abi::authenticate_prepared_module_record(
+                &path,
+                &indexed.source_id,
+                &indexed.artifact.semantics.source_integrity,
+            )?;
+        }
         let mut bindings = BTreeMap::new();
         for binding in indexed.bindings {
             let key = GraphEdgeKey::new(binding.specifier, binding.resolution_kind);
@@ -636,11 +664,13 @@ pub fn load_prepared_source_graph_v1(
             }
         }
         for key in artifact_edge_requests(&indexed.artifact) {
+            let attributes = artifact_edge_attributes(&indexed.artifact, &key)?;
             let resolved = crate::host::abi::resolve_module_for_runner(
                 &key.specifier,
                 Some(&path),
                 None,
                 key.resolution_kind,
+                &attributes,
             )?;
             let observed = resolved
                 .source_id
@@ -738,25 +768,63 @@ fn artifact_edge_requests(artifact: &ModuleArtifactV1) -> Vec<GraphEdgeKey> {
     requests
 }
 
-fn artifact_has_import_attributes(artifact: &ModuleArtifactV1) -> bool {
-    artifact.semantics.static_edges.iter().any(|edge| {
-        let attributes = match edge {
-            StaticEdgeV1::CommonJsRequire { .. } => return false,
+fn artifact_edge_attributes(
+    artifact: &ModuleArtifactV1,
+    key: &GraphEdgeKey,
+) -> Result<super::identity::ImportAttributes> {
+    let mut matches = Vec::new();
+    for edge in &artifact.semantics.static_edges {
+        let (specifier, resolution_kind, attributes) = match edge {
+            StaticEdgeV1::CommonJsRequire { specifier } => (
+                specifier.as_str(),
+                ResolutionKind::CommonJsRequire,
+                super::identity::ImportAttributes::default(),
+            ),
             StaticEdgeV1::SideEffect { attributes, .. }
             | StaticEdgeV1::Default { attributes, .. }
             | StaticEdgeV1::Namespace { attributes, .. }
             | StaticEdgeV1::Named { attributes, .. }
             | StaticEdgeV1::ReExportNamed { attributes, .. }
             | StaticEdgeV1::ReExportStar { attributes, .. }
-            | StaticEdgeV1::ReExportNamespace { attributes, .. } => attributes,
+            | StaticEdgeV1::ReExportNamespace { attributes, .. } => (
+                match edge {
+                    StaticEdgeV1::SideEffect { specifier, .. }
+                    | StaticEdgeV1::Default { specifier, .. }
+                    | StaticEdgeV1::Namespace { specifier, .. }
+                    | StaticEdgeV1::Named { specifier, .. }
+                    | StaticEdgeV1::ReExportNamed { specifier, .. }
+                    | StaticEdgeV1::ReExportStar { specifier, .. }
+                    | StaticEdgeV1::ReExportNamespace { specifier, .. } => specifier.as_str(),
+                    StaticEdgeV1::CommonJsRequire { .. } => unreachable!(),
+                },
+                ResolutionKind::EsmStatic,
+                attributes.clone(),
+            ),
         };
-        !attributes.is_empty()
-    }) || artifact.semantics.dynamic_edges.iter().any(|edge| {
-        matches!(
-            edge,
-            DynamicEdgeV1::Literal { attributes, .. } if !attributes.is_empty()
-        )
-    })
+        if specifier == key.specifier && resolution_kind == key.resolution_kind {
+            matches.push(attributes);
+        }
+    }
+    for edge in &artifact.semantics.dynamic_edges {
+        if let DynamicEdgeV1::Literal {
+            specifier,
+            attributes,
+        } = edge
+        {
+            if specifier.as_str() == key.specifier
+                && key.resolution_kind == ResolutionKind::DynamicImport
+            {
+                matches.push(attributes.clone());
+            }
+        }
+    }
+    matches.sort();
+    matches.dedup();
+    match matches.as_slice() {
+        [attributes] => Ok(attributes.clone()),
+        [] => bail!("typed artifact edge has no import-attribute record"),
+        _ => bail!("one typed artifact edge spelling has conflicting import attributes"),
+    }
 }
 
 #[cfg(test)]
@@ -777,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn import_attributes_select_the_bounded_interop_path_before_resolution() {
+    fn import_attributes_are_recovered_for_typed_authenticated_resolution() {
         let artifact = produce_module_artifact_v1(
             SourceId::synthetic("runner-pipeline-test", "entry.mjs").unwrap(),
             "entry.mjs",
@@ -787,6 +855,9 @@ mod tests {
             "hermes-test",
         )
         .unwrap();
-        assert!(artifact_has_import_attributes(&artifact));
+        let key = artifact_edge_requests(&artifact).remove(0);
+        assert!(artifact_edge_attributes(&artifact, &key)
+            .unwrap()
+            .asserts_json());
     }
 }

@@ -100,8 +100,16 @@ impl PreparedModuleCarrierV1 {
             }
             previous = Some(entry_id.as_str());
             let artifact = verified.artifact();
-            let Some(principal) = artifact.semantics.source_id.0.defining_principal() else {
-                bail!("v1 executable carriers require file-backed SourceIds");
+            let principal = match artifact.semantics.source_id.0.defining_principal() {
+                Some(principal) => principal,
+                None if matches!(
+                    &artifact.semantics.source_id.0,
+                    super::identity::SourceId::Builtin { .. }
+                ) && defining_principal.is_root() =>
+                {
+                    &defining_principal
+                }
+                None => bail!("v1 executable carrier SourceId has no authenticated owner"),
             };
             if principal != &defining_principal {
                 bail!("prepared carrier cannot cross defining principals");
@@ -204,7 +212,13 @@ impl PreparedModuleCarrierV1 {
             if semantics_digest(&entry.semantics)? != entry.semantic_digest {
                 bail!("prepared carrier entry semantic digest is stale");
             }
-            if entry.semantics.source_id.0.defining_principal() != Some(&self.defining_principal) {
+            let owner_agrees = entry.semantics.source_id.0.defining_principal()
+                == Some(&self.defining_principal)
+                || (matches!(
+                    &entry.semantics.source_id.0,
+                    super::identity::SourceId::Builtin { .. }
+                ) && self.defining_principal.is_root());
+            if !owner_agrees {
                 bail!("prepared carrier entry crosses its defining principal");
             }
         }
