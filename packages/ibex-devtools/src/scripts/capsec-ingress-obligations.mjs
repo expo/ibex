@@ -642,7 +642,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-product-execution",
       "async fn eval_code(",
       "async fn build_bytecode(",
-      "sha256-YrlBPJ0LIwVxZu8xEnAhkJNw2GMSV9e0414uoflBkUA",
+      "sha256-xJgqyLLZVegHPE2YDWeOXEp2amOerSkzpXnbvAR78v4",
     ),
     freezeReviewedRange(
       "file-program-adapter",
@@ -654,7 +654,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-file-runtime",
       "async fn run_file(",
       "async fn run_file_with_execution_adapter(",
-      "sha256-OaWs5jxvij8xlEf_lfkf9f67f1uwzFY6spoHmaTTTjI",
+      "sha256-q5hVF2q87SToxcfJLMZ1iXlTjhvXcbAcTEnZpmU_Heo",
     ),
   ]),
   "src/bin/ibex/repl/mod.rs": Object.freeze([
@@ -748,7 +748,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "sealed-bare-evaluator",
       'extern "C" int ex_hermes_eval(',
       'extern "C" int ibex_test_install_capsec_context_observer(',
-      "sha256-P-RMZe0UMKUl50nYkNCDJTR9QNNqB8urqGRr4RShSRo",
+      "sha256-kh3KQCFc4DST1V69TUsd0A1w3gNxnGjLe3El45h2ypw",
     ),
   ]),
   "src/engine/hermes_structured.rs": Object.freeze([
@@ -756,13 +756,13 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "lowered-session-protocol",
       "use super::session_lowering::{",
       "pub struct StructuredEvaluation {",
-      "sha256-qlofcPLgtmBlhezslWr9iGqQ6-AgxP1SHtlrV_lyqjg",
+      "sha256-E3Yx5XcKP7UpME-HY61cd6MLV5029hFVJEf-etsopWk",
     ),
     freezeReviewedRange(
       "authenticated-lowering-adapter",
       "unsafe fn admit_authenticated_submission(",
       "/// Poll the nonblocking native settlement state for one exact suspended",
-      "sha256-GYDkwjCsjZ27yxXkW8N0_aUfAtmefetzshwcXSgqIEE",
+      "sha256-Mfh8LvKU8o1eD7hUiePRyCMJHuLDkl_oeaw1_bav0Nw",
     ),
   ]),
   "src/engine/session_lowering.rs": Object.freeze([

@@ -340,7 +340,6 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                         reject = std::move(it->second.reject);
                         principal = it->second.principal;
                         requestUrl = std::move(it->second.url);
-                        wrapper->fetchCallbacks.erase(it);
                       });
                       if (!alive) {
                         exactUnpinRuntimeNativeWorker(target);
@@ -348,10 +347,21 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                       }
 
                       if (!resolve || !reject) {
+                        withRuntimePinned(target, [&]() {
+                          std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
+                          wrapper->fetchCallbacks.erase(req_id);
+                        });
+                        ex_hermes_notify_callback();
                         exactUnpinRuntimeNativeWorker(target);
                         return;
                       }
 
+                      // Keep the request registered until its completion is
+                      // visible in callbackQueue. Otherwise the event loop can
+                      // observe neither source in the erase-before-enqueue gap
+                      // and return a still-pending fetch promise as settled.
+                      // @ref LLP 0003#the-event-loop — pending work remains
+                      // continuously visible across the native-to-runtime handoff.
                       pushRuntimeCallback(
                           target,
                           [resolve,
@@ -443,6 +453,16 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
                             } catch (...) {
                             }
                           });
+                      withRuntimePinned(target, [&]() {
+                        std::lock_guard<std::mutex> lock(wrapper->fetchMutex);
+                        wrapper->fetchCallbacks.erase(req_id);
+                      });
+                      // pushRuntimeCallback wakes the host after publication,
+                      // but the runtime may drain that callback before this
+                      // worker releases the overlapping fetch keepalive. Wake
+                      // once more after the release so that inverse race cannot
+                      // strand the loop waiting on work that is now complete.
+                      ex_hermes_notify_callback();
                       exactUnpinRuntimeNativeWorker(target);
                     },
                     nullptr);

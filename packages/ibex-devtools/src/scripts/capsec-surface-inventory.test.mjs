@@ -3559,6 +3559,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       }
       var localRequire = function() {};
       var moduleDynamicImport = function() {};
+      var moduleStaticImport = function() {};
       globalThis.require = function() {};
       globalThis.require.resolve = function() {};
       globalThis.__exactRequire = function() {};
@@ -3578,6 +3579,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "entry:global-require",
         "entry:require-resolve",
         "entry:module-dynamic-import",
+        "entry:module-static-import",
       ]),
     );
 
@@ -3718,15 +3720,15 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "selected_engine_cache_tag",
         "transpile_source_to_cjs",
       ]) {
-        expect(rows.map((row) => row.name), `${category}:${accessor}`).toContain(
-          `route:${category}:rust:${accessor}`,
-        );
+        expect(
+          rows.map((row) => row.name),
+          `${category}:${accessor}`,
+        ).toContain(`route:${category}:rust:${accessor}`);
       }
     }
     expect(
-      rows.find(
-        (row) => row.name === "route:load:rust:transpile_module",
-      ).metadata.calleeDefinitions,
+      rows.find((row) => row.name === "route:load:rust:transpile_module")
+        .metadata.calleeDefinitions,
     ).toEqual(
       expect.arrayContaining([
         "module_loader::CapturedModuleLoaderEnvironment::legacy_runtime_transform",
@@ -3745,8 +3747,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ]),
     );
     expect(
-      rows.find((row) => row.name === "route:resolution:rust:metadata")
-        .metadata.calleeDefinitions,
+      rows.find((row) => row.name === "route:resolution:rust:metadata").metadata
+        .calleeDefinitions,
     ).toEqual(
       expect.arrayContaining([
         "module_loader::BoundedResolverFileSystem::manifest_input",
@@ -3767,9 +3769,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "symlink_metadata",
     ]) {
       expect(
-        rows.find(
-          (row) => row.name === `route:resolution:rust:${callback}`,
-        ).metadata.definitions,
+        rows.find((row) => row.name === `route:resolution:rust:${callback}`)
+          .metadata.definitions,
         callback,
       ).toEqual([
         `module_loader::BoundedResolverFileSystem as ResolverFileSystem::${callback}`,
@@ -3787,8 +3788,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         .metadata.targetVariant,
     ).toBe("posix");
     expect(
-      rows.find((row) => row.name === "route:resolution:rust:metadata")
-        .metadata.branches,
+      rows.find((row) => row.name === "route:resolution:rust:metadata").metadata
+        .branches,
     ).toEqual([
       {
         id: "descriptor-relative-posix",
@@ -3804,8 +3805,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       rows.find(
         (row) =>
-          row.name ===
-          "route:resolution:rust:authenticated_resolver_base_dir",
+          row.name === "route:resolution:rust:authenticated_resolver_base_dir",
       ).metadata.calleeDefinitions,
     ).toEqual(
       expect.arrayContaining([
@@ -3815,9 +3815,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     );
     expect(
       rows.find(
-        (row) =>
-          row.name ===
-          "route:cache:rust:walk_transpile_tool_directory",
+        (row) => row.name === "route:cache:rust:walk_transpile_tool_directory",
       ).metadata.calleeDefinitions,
     ).toContain(
       "module_loader::capture_transpile_tool_directory::walk_transpile_tool_directory",
@@ -3931,9 +3929,9 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(
       receiverFixtureSource.match(/scanner_receiver_fixture\(\);/gu),
     ).toHaveLength(1);
-    expect(receiverFixtureSource.match(/runner_name\.status\(\);/gu)).toHaveLength(
-      1,
-    );
+    expect(
+      receiverFixtureSource.match(/runner_name\.status\(\);/gu),
+    ).toHaveLength(1);
     const receiverRows = scanRustLoaderRoutes([
       {
         sourcePath: "src/module_loader/mod.rs",
@@ -4017,9 +4015,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       },
     ]);
     expect(
-      ownerDecoy.find(
-        (row) => row.name === "route:resolution:rust:metadata",
-      ).metadata.definitions,
+      ownerDecoy.find((row) => row.name === "route:resolution:rust:metadata")
+        .metadata.definitions,
     ).toEqual([
       "module_loader::BoundedResolverFileSystem as ResolverFileSystem::metadata",
     ]);
@@ -4442,9 +4439,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       ]);
     }
     expect(
-      rows.find(
-        (row) => row.name === "env:<dynamic>:rust:Command::default_env",
-      ).metadata.occurrences,
+      rows.find((row) => row.name === "env:<dynamic>:rust:Command::default_env")
+        .metadata.occurrences,
     ).toHaveLength(2);
     for (const name of ["env:EXACT_IPC_FD", "env:EXACT_IPC_SERIALIZATION"]) {
       expect(rows.find((row) => row.name === name).metadata.contexts).toEqual([
@@ -4476,9 +4472,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
         .occurrences,
     ).toHaveLength(2);
     expect(
-      rows.some(
-        (row) => row.name === "env:<dynamic>:cpp:env_flag_enabled",
-      ),
+      rows.some((row) => row.name === "env:<dynamic>:cpp:env_flag_enabled"),
     ).toBe(false);
     expect(
       rows.some((row) =>
@@ -4494,9 +4488,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       expect(
         [
           ...new Set(
-            row.metadata.occurrences.map(
-              (occurrence) => occurrence.sourceRef,
-            ),
+            row.metadata.occurrences.map((occurrence) => occurrence.sourceRef),
           ),
         ].sort(),
         row.name,
@@ -5136,7 +5128,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
 
   test("every live fixed reference joins one exact structural definition", () => {
     const rows = fixedRuntimeSurfaceInventory();
-    expect(rows).toHaveLength(88);
+    expect(rows).toHaveLength(92);
     expect(() => validateFixedRuntimeSurfaceRefs(repoRoot, rows)).not.toThrow();
   });
 
@@ -5814,7 +5806,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    expect(first.hostAbi).toHaveLength(278);
+    expect(first.hostAbi).toHaveLength(306);
     for (const [name, sourceRef] of [
       [
         "evaluation:installGlobals:native-freeze-conformance-observation",
@@ -5825,9 +5817,10 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
         "src/engine/hermes_runtime.cc#script:<native-freeze-conformance-observation>",
       ],
     ]) {
-      expect(first.startup.find((row) => row.name === name), name).toMatchObject(
-        { sourceRefs: [sourceRef] },
-      );
+      expect(
+        first.startup.find((row) => row.name === name),
+        name,
+      ).toMatchObject({ sourceRefs: [sourceRef] });
     }
     expect(
       first.hostAbi.every(
@@ -5888,7 +5881,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 228,
+      "output-bearing": 256,
       "structural-only": 50,
     });
     expect(
@@ -5921,7 +5914,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 59, out: 158, return: 210 });
+    ).toEqual({ callback: 59, out: 177, return: 238 });
     expect(
       Object.fromEntries(
         [
@@ -5936,8 +5929,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "none:void": 68,
       "value:aggregate": 17,
-      "value:pointer": 46,
-      "value:scalar": 147,
+      "value:pointer": 48,
+      "value:scalar": 173,
     });
     expect(
       Object.fromEntries(
@@ -5953,8 +5946,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual({
       "callback-payload": 38,
       inout: 8,
-        input: 564,
-      output: 47,
+        input: 734,
+      output: 66,
     });
 
     const accountFor = (name) =>
@@ -6195,7 +6188,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
     ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(145);
+    ).toHaveLength(147);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);
@@ -6639,9 +6632,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
             "_NSGetEnviron",
             "_dupenv_s",
             "environ",
-          ].some(
-            (accessor) => row.metadata.accessors.includes(accessor),
-          ),
+          ].some((accessor) => row.metadata.accessors.includes(accessor)),
         )
         .map((row) => row.metadata.accessors[0]),
     ).toEqual([
@@ -6659,12 +6650,9 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "src/engine/hermes_runtime_process_setup.cc#::environ:dynamic:read",
     );
     expect(
-      environmentRows.find((row) =>
-        row.metadata.accessors.includes("environ"),
-      ).sourceRefs,
-    ).toEqual([
-      "src/engine/hermes_runtime_process.cc#environ:dynamic:read",
-    ]);
+      environmentRows.find((row) => row.metadata.accessors.includes("environ"))
+        .sourceRefs,
+    ).toEqual(["src/engine/hermes_runtime_process.cc#environ:dynamic:read"]);
     for (const row of environmentRows) {
       for (const ref of row.sourceRefs) {
         expect(ref).not.toMatch(

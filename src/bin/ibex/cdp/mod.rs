@@ -1184,6 +1184,7 @@ mod tests {
     use anyhow::{anyhow, Result};
     use futures_util::{SinkExt, StreamExt};
     use serde_json::Value;
+    use std::io::ErrorKind;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1191,6 +1192,7 @@ mod tests {
     use tokio::sync::Semaphore;
     use tokio_tungstenite::tungstenite::http::Request;
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+    use tokio_tungstenite::tungstenite::Error as WebSocketError;
     use tokio_tungstenite::tungstenite::Message;
 
     struct NoopBackend;
@@ -1262,6 +1264,30 @@ mod tests {
         .await
         .ok()
         .flatten()
+    }
+
+    async fn send_oversized_and_expect_size_rejection(
+        socket: &mut tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        message: Message,
+    ) {
+        match socket.send(message).await {
+            Ok(()) => assert_eq!(next_close_code(socket).await, Some(CloseCode::Size)),
+            Err(WebSocketError::Io(error))
+                if matches!(
+                    error.kind(),
+                    ErrorKind::BrokenPipe
+                        | ErrorKind::ConnectionAborted
+                        | ErrorKind::ConnectionReset
+                ) =>
+            {
+                // The server enforces the frame limit before assembly. Some TCP
+                // stacks report that fail-closed rejection while the client is
+                // still writing, before the WebSocket close frame can be read.
+            }
+            Err(error) => panic!("unexpected oversized-message send error: {error}"),
+        }
     }
 
     fn masked_frame(fin: bool, opcode: u8, payload: &[u8]) -> Vec<u8> {
@@ -1397,10 +1423,11 @@ mod tests {
         let server = start_test_server();
 
         let mut text = connect_websocket(&server).await;
-        text.send(Message::Text("x".repeat(CDP_MAX_TEXT_MESSAGE_BYTES + 1)))
-            .await
-            .unwrap();
-        assert_eq!(next_close_code(&mut text).await, Some(CloseCode::Size));
+        send_oversized_and_expect_size_rejection(
+            &mut text,
+            Message::Text("x".repeat(CDP_MAX_TEXT_MESSAGE_BYTES + 1)),
+        )
+        .await;
 
         let mut binary = connect_websocket(&server).await;
         binary.send(Message::Binary(vec![0; 1024])).await.unwrap();
@@ -1410,14 +1437,11 @@ mod tests {
         );
 
         let mut oversized_binary = connect_websocket(&server).await;
-        oversized_binary
-            .send(Message::Binary(vec![0; CDP_MAX_TEXT_MESSAGE_BYTES + 1]))
-            .await
-            .unwrap();
-        assert_eq!(
-            next_close_code(&mut oversized_binary).await,
-            Some(CloseCode::Size)
-        );
+        send_oversized_and_expect_size_rejection(
+            &mut oversized_binary,
+            Message::Binary(vec![0; CDP_MAX_TEXT_MESSAGE_BYTES + 1]),
+        )
+        .await;
         server.stop();
     }
 

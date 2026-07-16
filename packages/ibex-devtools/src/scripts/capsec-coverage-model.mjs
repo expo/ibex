@@ -34,6 +34,7 @@ const SURFACE_KINDS = new Set([
 const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__StringBuffer",
   "__compartments",
+  "__esModule",
   "__ex_p",
   "__ibexCapsecContextObserver_",
   "__exact",
@@ -2837,6 +2838,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
 // join; this list prevents a reviewed constructor family from blessing a new
 // member with a suggestive or effectful name.
 const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
+  "__esModule",
   "__exact",
   "__exactCancel",
   "__exactCaptureSessionStaticImport",
@@ -5113,6 +5115,13 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_bytecode_version",
     "ex_hermes_callback_backlog",
     "ex_hermes_cancel_structured_work_target",
+    "ex_hermes_commonjs_create_record",
+    "ex_hermes_commonjs_record_create_esm_adapter",
+    "ex_hermes_commonjs_record_declare_export",
+    "ex_hermes_commonjs_record_evaluate",
+    "ex_hermes_commonjs_record_link_dynamic_import",
+    "ex_hermes_commonjs_record_link_require",
+    "ex_hermes_commonjs_record_link_require_esm",
     "ex_hermes_create",
     "ex_hermes_create_armed",
     "ex_hermes_create_diagnostic",
@@ -5147,7 +5156,25 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_gc",
     "ex_hermes_get_gc_stats",
     "ex_hermes_get_heap_info",
+    "ex_hermes_graph_context_create",
+    "ex_hermes_graph_context_retain",
     "ex_hermes_has_pending_tasks",
+    "ex_hermes_module_compile_factory",
+    "ex_hermes_module_create_record",
+    "ex_hermes_module_load_carrier_factory",
+    "ex_hermes_module_pin_generation",
+    "ex_hermes_module_record_declare_export",
+    "ex_hermes_module_record_instantiate",
+    "ex_hermes_module_record_link_dependency",
+    "ex_hermes_module_record_link_dynamic_import",
+    "ex_hermes_module_record_link_export",
+    "ex_hermes_module_record_link_import",
+    "ex_hermes_module_record_namespace_json",
+    "ex_hermes_module_record_poll_evaluation",
+    "ex_hermes_module_record_run_declare",
+    "ex_hermes_module_record_run_execute",
+    "ex_hermes_module_release_handle",
+    "ex_hermes_module_unpin_generation",
     "ex_hermes_next_timer",
     "ex_hermes_notify_callback",
     "ex_hermes_now_ms",
@@ -5176,6 +5203,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_take_async_failure_event",
     "ex_hermes_take_cancellation_event",
     "ex_hermes_take_work_unit_event",
+    "ex_hermes_try_destroy",
     "ex_hermes_value_kind",
     "ex_hermes_value_release",
     "ex_hermes_value_safe_throw_metadata",
@@ -5192,6 +5220,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_authorize_typed_print_stack",
     "ex_host_authorize_typed_system_info_stack",
     "ex_host_authorize_typed_udp_datagram_stack",
+    "ex_host_build_exact_armed_embedder_artifacts",
     "ex_host_check_capability",
     "ex_host_check_capability_no_follow_final",
     "ex_host_check_capability_stack",
@@ -5285,6 +5314,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_permission_revoke",
     "ex_host_permission_status",
     "ex_host_prepare_armed_embedder_artifacts",
+    "ex_host_prepare_exact_armed_embedder_artifacts",
     "ex_host_random_fill",
     "ex_host_register_module_package",
     "ex_host_release_context",
@@ -5962,6 +5992,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "entry:load-internal",
     "entry:local-require",
     "entry:module-dynamic-import",
+    "entry:module-static-import",
     "entry:require-resolve",
     "entry:resolve-path",
     "esm-module",
@@ -5999,6 +6030,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:makeWindowsCryptoModule",
     "function:javascript:moduleDynamicImport",
     "function:javascript:moduleResolutionError",
+    "function:javascript:moduleStaticImport",
     "function:javascript:originalModuleRegistryForRecord",
     "function:javascript:packagePrincipalFor",
     "function:javascript:principalForOriginal",
@@ -6028,6 +6060,8 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:is_registered_builtin_specifier",
     "function:rust:lexical_absolute_path_for_resolver",
     "function:rust:load_module_source",
+    "function:rust:load_runner_source",
+    "function:rust:load_runner_source_bytes",
     "function:rust:load_source",
     "function:rust:load_source_bytes",
     "function:rust:module_cache_key",
@@ -6046,8 +6080,12 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:resolve_direct_file_meta_authenticated",
     "function:rust:resolve_meta",
     "function:rust:resolve_meta_authenticated",
+    "function:rust:resolve_meta_authenticated_typed",
     "function:rust:resolve_meta_from_authenticated_bound_package",
+    "function:rust:resolve_meta_from_authenticated_bound_package_typed",
     "function:rust:resolve_meta_from_bound_package",
+    "function:rust:resolve_meta_from_bound_package_typed",
+    "function:rust:resolve_meta_typed",
     "function:rust:resolve_package_import",
     "function:rust:resolve_package_import_target",
     "function:rust:resolve_package_link",
@@ -6070,6 +6108,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:resolver_stat_is_symlink",
     "function:rust:strip_file_module_decorations",
     "function:rust:transpile_module",
+    "function:rust:validate_import_attributes",
     "import-needs",
     "import-policy-bare",
     "import-policy-resolved-path",
@@ -6169,6 +6208,10 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "lazy-installer:__exactEnsureStreamEnhance:stream/web",
     "lazy-installer:__exactEnsureWebCrypto:crypto",
     "lazy-installer:__exactEnsureWebCrypto:node:crypto",
+    "module-runner-cache-access",
+    "module-runner-edge-authorization",
+    "module-runner-prepared-carrier-access",
+    "module-runner-trusted-source-acquisition",
     "native-addon-module",
     "native-resolve",
     "operation:cache:canonicalize",
@@ -6400,7 +6443,10 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:resolve_direct_file_meta_authenticated",
     "route:resolution:rust:resolve_meta",
     "route:resolution:rust:resolve_meta_authenticated",
+    "route:resolution:rust:resolve_meta_authenticated_typed",
     "route:resolution:rust:resolve_meta_from_authenticated_bound_package",
+    "route:resolution:rust:resolve_meta_from_authenticated_bound_package_typed",
+    "route:resolution:rust:resolve_meta_typed",
     "route:resolution:rust:resolve_package_import",
     "route:resolution:rust:resolve_package_import_target",
     "route:resolution:rust:resolve_transpile_cache_dir",
@@ -6449,6 +6495,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:uncaptured_package_manifest_probes",
     "route:resolution:rust:unique_staged_transpile_input",
     "route:resolution:rust:unique_tmp_path",
+    "route:resolution:rust:validate_import_attributes",
     "route:resolution:rust:verify_transpile_override_identity",
     "route:resolution:rust:wait_for_transpile_test_barrier",
     "route:resolution:rust:walk_transpile_tool_directory",
@@ -6611,6 +6658,8 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_BYTECODE_CACHE_MAX_BYTES",
     "env:IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT",
     "env:IBEX_CAPSEC_ALLOW_ADVISORY",
+    "env:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING",
+    "env:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT",
     "env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT",
     "env:IBEX_CAPSEC_RECIPE_CATALOG",
     "env:IBEX_CDP_LOG",
@@ -6619,6 +6668,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_HERMESC_TIMEOUT_MS",
     "env:IBEX_HERMES_TOOL_DIR",
     "env:IBEX_HTTP_MAX_REQUEST_BODY_BYTES",
+    "env:IBEX_LEGACY_MODULE_LOADER",
     "env:IBEX_LOCKDOWN",
     "env:IBEX_LOOP_TRACE",
     "env:IBEX_NO_BYTECODE",
@@ -8073,9 +8123,7 @@ function authenticatedResolverInputConstructionEffectSpec(options = {}) {
       },
       {
         id: "unsupported",
-        when: [
-          { fact: "loader.resolver.backend", equals: "unsupported" },
-        ],
+        when: [{ fact: "loader.resolver.backend", equals: "unsupported" }],
         actions: [],
         lifetimeContract: "operation",
       },
@@ -9553,6 +9601,19 @@ function loaderClassification(surface) {
   };
   const fullLoaderEffects = () => fullLoaderEffectSpec(loaderOptions);
 
+  if (name === "module-runner-edge-authorization") {
+    return nonCapabilitySpec("authority-control-plane", "WP8");
+  }
+  if (
+    new Set([
+      "module-runner-cache-access",
+      "module-runner-prepared-carrier-access",
+      "module-runner-trusted-source-acquisition",
+    ]).has(name)
+  ) {
+    return nonCapabilitySpec("trusted-loader-source-acquisition", "WP7");
+  }
+
   // Escape hatches precede both source-derived function and kind families.
   if (/wasi|wasm/u.test(name)) {
     return closedSpec(
@@ -9629,9 +9690,7 @@ function loaderClassification(surface) {
       });
     }
     if (
-      /^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(
-        operation,
-      )
+      /^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(operation)
     ) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
@@ -9697,7 +9756,7 @@ function loaderClassification(surface) {
       return nonCapabilitySpec("module-reachability-only", "WP7");
     }
     if (
-      /^(?:authenticated_resolver_base_dir|metadata|read_link|resolve_meta_authenticated|symlink_metadata)$/u.test(
+      /^(?:authenticated_resolver_base_dir|metadata|read_link|resolve_meta_authenticated|resolve_meta_authenticated_typed|symlink_metadata)$/u.test(
         functionName,
       )
     ) {
@@ -9712,7 +9771,7 @@ function loaderClassification(surface) {
       });
     }
     if (
-      /^(?:bounded_unix_read_link|bounded_unix_symlink_metadata|canonicalize|resolve_direct_file_meta_authenticated|resolve_meta_from_authenticated_bound_package)$/u.test(
+      /^(?:bounded_unix_read_link|bounded_unix_symlink_metadata|canonicalize|resolve_direct_file_meta_authenticated|resolve_meta_from_authenticated_bound_package|resolve_meta_from_authenticated_bound_package_typed)$/u.test(
         functionName,
       )
     ) {
@@ -9747,13 +9806,15 @@ function loaderClassification(surface) {
       return nonCapabilitySpec("authority-control-plane", "WP7");
     }
     if (
-      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|strip_file_module_decorations|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path)$/u.test(
+      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|strip_file_module_decorations|strip_file_specifier_decorations|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path|validate_import_attributes)$/u.test(
         functionName,
       )
     ) {
       return nonCapabilitySpec("internal-data-transform", "WP1");
     }
-    if (/^(?:legacy_runtime_transform|runtime_transform)$/u.test(functionName)) {
+    if (
+      /^(?:legacy_runtime_transform|runtime_transform)$/u.test(functionName)
+    ) {
       return nonCapabilitySpec("authority-control-plane", "WP7");
     }
     if (
@@ -9788,7 +9849,7 @@ function loaderClassification(surface) {
       return loaderSourceSelectionEffectSpec(loaderOptions);
     }
     if (
-      /^(?:read_package_manifest|package_version_for|resolve_meta|resolve_meta_from_bound_package|resolve_package_import|resolve_package_import_target|resolve_with_oxc|resolve_with_oxc_at|resolve_with_resolver_at)$/u.test(
+      /^(?:read_package_manifest|package_version_for|resolve_meta|resolve_meta_from_bound_package|resolve_meta_from_bound_package_typed|resolve_meta_typed|resolve_package_import|resolve_package_import_target|resolve_with_oxc|resolve_with_oxc_at|resolve_with_resolver_at)$/u.test(
         functionName,
       )
     ) {
@@ -9883,6 +9944,12 @@ function loaderClassification(surface) {
   }
 
   if (name.startsWith("function:")) {
+    if (name === "function:rust:load_runner_source") {
+      return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
+    }
+    if (name === "function:rust:load_runner_source_bytes") {
+      return nonCapabilitySpec("trusted-loader-source-acquisition", "WP7");
+    }
     if (
       new Set([
         "function:javascript:closedgeneratedsingleprincipal",
@@ -9900,18 +9967,47 @@ function loaderClassification(surface) {
         "function:javascript:load",
         "function:javascript:moduledynamicimport",
         "function:javascript:publicimport",
+        "function:javascript:modulestaticimport",
         "function:rust:load_module_source",
         "function:rust:load_source",
         "function:rust:load_source_bytes",
         "function:rust:resolve_meta_from_bound_package",
+        "function:rust:resolve_meta_from_bound_package_typed",
+        "function:rust:resolve_meta_typed",
         "function:rust:resolve",
         "function:rust:resolve_with_oxc_at",
       ]).has(name)
     ) {
       return fullLoaderEffectSpec(loaderOptions);
     }
+    if (
+      new Set([
+        "function:rust:authorize_then_access",
+        "function:rust:with_authorized_access",
+      ]).has(name)
+    ) {
+      return nonCapabilitySpec("trusted-loader-source-acquisition", "WP7");
+    }
+    if (
+      new Set([
+        "function:rust:authorize",
+        "function:rust:authorize_reachable_operations",
+        "function:rust:initialization",
+        "function:rust:validate",
+      ]).has(name)
+    ) {
+      return nonCapabilitySpec("authority-control-plane", "WP8");
+    }
     if (name === "function:rust:is_builtin_specifier") {
       return nonCapabilitySpec("module-reachability-only", "WP7");
+    }
+    if (
+      new Set([
+        "function:rust:strip_file_specifier_decorations",
+        "function:rust:validate_import_attributes",
+      ]).has(name)
+    ) {
+      return nonCapabilitySpec("internal-data-transform", "WP1");
     }
     if (name === "function:rust:normalize_import_target") {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
@@ -9975,6 +10071,7 @@ function loaderClassification(surface) {
       new Set([
         "function:rust:authenticated_resolver_base_dir",
         "function:rust:resolve_meta_authenticated",
+        "function:rust:resolve_meta_authenticated_typed",
       ]).has(name)
     ) {
       return boundedResolverSelectionEffectSpec(loaderOptions);
@@ -9983,6 +10080,7 @@ function loaderClassification(surface) {
       new Set([
         "function:rust:resolve_direct_file_meta_authenticated",
         "function:rust:resolve_meta_from_authenticated_bound_package",
+        "function:rust:resolve_meta_from_authenticated_bound_package_typed",
       ]).has(name)
     ) {
       return boundedResolverTraversalEffectSpec(loaderOptions);
@@ -10262,6 +10360,8 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "EXACT_TEST_SECTION",
   "EXACT_WPT_FIXTURE_CLOSE_SEMANTICS",
   "IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT",
+  "IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING",
+  "IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT",
   "IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT",
   "IBEX_CAPSEC_RECIPE_CATALOG",
   "IBEX_TEST_ARMED_CREATE_PAUSE_MS",
@@ -10332,6 +10432,7 @@ const BOOTSTRAP_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "IBEX_AWAIT_UNWRAP_TIMEOUT_MS",
   "IBEX_CDP_LOG",
   "IBEX_HERMESC_TIMEOUT_MS",
+  "IBEX_LEGACY_MODULE_LOADER",
   "IBEX_LOOP_TRACE",
   "IBEX_NO_BYTECODE",
   "IBEX_NO_DISK_RUNTIME_FALLBACK",
@@ -10975,10 +11076,10 @@ const REVIEWED_SHARED_RUNTIME_INHERITED_SHAPE_ID =
 function reviewedInheritedGlobalShape(surface) {
   return Boolean(
     surface.metadata?.inheritedShape === true &&
-    surface.metadata?.inheritedShapeReviewId ===
-      REVIEWED_SHARED_RUNTIME_INHERITED_SHAPE_ID &&
-    Array.isArray(surface.metadata?.semanticRoles) &&
-    surface.metadata.semanticRoles.includes("inherited-global-shape"),
+      surface.metadata?.inheritedShapeReviewId ===
+        REVIEWED_SHARED_RUNTIME_INHERITED_SHAPE_ID &&
+      Array.isArray(surface.metadata?.semanticRoles) &&
+      surface.metadata.semanticRoles.includes("inherited-global-shape"),
   );
 }
 
@@ -10995,15 +11096,15 @@ function reviewedDynamicGlobalCallShape(surface) {
     : "";
   return Boolean(
     match &&
-    /^sha256-[a-f0-9]{64}$/u.test(evidence) &&
-    evidence.slice("sha256-".length, "sha256-".length + 12) === match[1] &&
-    surface.metadata?.dynamicNamespace === true &&
-    new Set(["iife-call-result", "opaque-call-result"]).has(
-      surface.metadata?.dynamicNamespaceKind,
-    ) &&
-    Array.isArray(surface.metadata?.semanticRoles) &&
-    surface.metadata.semanticRoles.includes("dynamic-call-result-shape") &&
-    REVIEWED_GLOBAL_API_NAMES.has(reviewedRoot),
+      /^sha256-[a-f0-9]{64}$/u.test(evidence) &&
+      evidence.slice("sha256-".length, "sha256-".length + 12) === match[1] &&
+      surface.metadata?.dynamicNamespace === true &&
+      new Set(["iife-call-result", "opaque-call-result"]).has(
+        surface.metadata?.dynamicNamespaceKind,
+      ) &&
+      Array.isArray(surface.metadata?.semanticRoles) &&
+      surface.metadata.semanticRoles.includes("dynamic-call-result-shape") &&
+      REVIEWED_GLOBAL_API_NAMES.has(reviewedRoot),
   );
 }
 
@@ -11022,28 +11123,34 @@ function reviewedPrincipalEnvironmentOverlay(surface) {
   return Boolean(
     contract?.schema ===
       "ibex/principal-environment-overlay-source-contract/1" &&
-    contract.surfaceName === surface.name &&
-    contract.dynamicMember ===
-      "[[dynamic-table:principal-environment-overlay-properties]]" &&
-    contract.globalPath === "process.env" &&
-    contract.binding?.factory === "createEnvProxy" &&
-    contract.binding?.member === "Process.prototype.env" &&
-    contract.factory?.name === "createEnvProxy" &&
-    JSON.stringify(contract.nativeBridges) ===
-      JSON.stringify(["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"]) &&
-    trapRoutes.size === 4 &&
-    routeHas("get", "__exactGetEnv") &&
-    routeHas("set", "__exactSetEnv") &&
-    routeHas("deleteProperty", "__exactSetEnv") &&
-    routeHas("ownKeys", "__exactGetAllEnv") &&
-    routeHas("ownKeys", "__exactGetEnv") &&
-    JSON.stringify(contract.sourceRefs) ===
-      JSON.stringify(surface.sourceRefs) &&
-    Array.isArray(surface.metadata?.memberKinds) &&
-    surface.metadata.memberKinds.includes("dynamic-table") &&
-    Array.isArray(surface.metadata?.semanticRoles) &&
-    surface.metadata.semanticRoles.includes("principal-environment-overlay") &&
-    surface.metadata.semanticRoles.includes("runtime-property-overlay"),
+      contract.surfaceName === surface.name &&
+      contract.dynamicMember ===
+        "[[dynamic-table:principal-environment-overlay-properties]]" &&
+      contract.globalPath === "process.env" &&
+      contract.binding?.factory === "createEnvProxy" &&
+      contract.binding?.member === "Process.prototype.env" &&
+      contract.factory?.name === "createEnvProxy" &&
+      JSON.stringify(contract.nativeBridges) ===
+        JSON.stringify([
+          "__exactGetAllEnv",
+          "__exactGetEnv",
+          "__exactSetEnv",
+        ]) &&
+      trapRoutes.size === 4 &&
+      routeHas("get", "__exactGetEnv") &&
+      routeHas("set", "__exactSetEnv") &&
+      routeHas("deleteProperty", "__exactSetEnv") &&
+      routeHas("ownKeys", "__exactGetAllEnv") &&
+      routeHas("ownKeys", "__exactGetEnv") &&
+      JSON.stringify(contract.sourceRefs) ===
+        JSON.stringify(surface.sourceRefs) &&
+      Array.isArray(surface.metadata?.memberKinds) &&
+      surface.metadata.memberKinds.includes("dynamic-table") &&
+      Array.isArray(surface.metadata?.semanticRoles) &&
+      surface.metadata.semanticRoles.includes(
+        "principal-environment-overlay",
+      ) &&
+      surface.metadata.semanticRoles.includes("runtime-property-overlay"),
   );
 }
 
@@ -12609,9 +12716,11 @@ function hostAbiClassification(name) {
       "exhostarmedbootstrapcompatibilityflags",
       "exhostarmedendowments",
       "exhostauthorizeexactendowment",
+      "exhostbuildexactarmedembedderartifacts",
       "exhostinstallarmed",
       "exhostmatchesarmedsnapshotdigest",
       "exhostpreparearmedembedderartifacts",
+      "exhostprepareexactarmedembedderartifacts",
     ]).has(name)
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
@@ -13011,6 +13120,56 @@ function classifyConcreteSurface(surface) {
         "Value-handle inspection remains worker-private until the structured evaluator and bounded display tree are admitted.",
       );
     }
+    if (
+      new Set([
+        "ex_hermes_commonjs_create_record",
+        "ex_hermes_commonjs_record_declare_export",
+        "ex_hermes_commonjs_record_link_dynamic_import",
+        "ex_hermes_commonjs_record_link_require",
+        "ex_hermes_commonjs_record_link_require_esm",
+        "ex_hermes_graph_context_create",
+        "ex_hermes_graph_context_retain",
+        "ex_hermes_module_create_record",
+        "ex_hermes_module_record_declare_export",
+        "ex_hermes_module_record_link_dependency",
+        "ex_hermes_module_record_link_dynamic_import",
+        "ex_hermes_module_record_link_export",
+        "ex_hermes_module_record_link_import",
+        "ex_hermes_module_pin_generation",
+      ]).has(surface.name)
+    ) {
+      return nonCapabilitySpec("authority-control-plane", "WP8");
+    }
+    if (
+      new Set([
+        "ex_hermes_module_release_handle",
+        "ex_hermes_module_unpin_generation",
+        "ex_hermes_try_destroy",
+      ]).has(surface.name)
+    ) {
+      return nonCapabilitySpec("authority-release", "WP8");
+    }
+    if (
+      new Set([
+        "ex_hermes_commonjs_record_create_esm_adapter",
+        "ex_hermes_commonjs_record_evaluate",
+        "ex_hermes_module_compile_factory",
+        "ex_hermes_module_load_carrier_factory",
+        "ex_hermes_module_record_instantiate",
+        "ex_hermes_module_record_poll_evaluation",
+        "ex_hermes_module_record_run_declare",
+        "ex_hermes_module_record_run_execute",
+      ]).has(surface.name)
+    ) {
+      return nonCapabilitySpec("module-reachability-only", "WP8");
+    }
+    if (surface.name === "ex_hermes_module_record_namespace_json") {
+      return closedSpec(
+        "runtime:inspect",
+        "WP8",
+        "Diagnostic namespace serialization observes live JavaScript values and is closed as runtime inspection.",
+      );
+    }
     if (surface.name === "ex_hermes_current_runtime_nonce") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
@@ -13059,6 +13218,9 @@ function classifyConcreteSurface(surface) {
       return nativeEscapeClassification(text);
     }
     if (!REVIEWED_NATIVE_OPERATION_NAMES.has(surface.name)) return null;
+    if (surface.name === "__esModule") {
+      return nonCapabilitySpec("module-reachability-only", "WP8");
+    }
     if (surface.name === "__ibexCapsecContextObserver_") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }

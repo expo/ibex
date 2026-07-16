@@ -36,6 +36,11 @@ import {
   validateLoadedEngineIdentity,
 } from "./capsec-engine-identity.mjs";
 import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
+import {
+  buildExactFixtureEvidenceBindingArtifact,
+  EXACT_FIXTURE_EVIDENCE_COMMAND,
+  validateExactFixtureEvidenceArtifact,
+} from "./capsec-fixture-evidence.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -55,7 +60,7 @@ const valueOptions = new Set([
 const booleanOptions = new Set(["--expect-incomplete"]);
 const parsedOptions = new Map();
 const parsedFlags = new Set();
-for (let index = 0; index < args.length;) {
+for (let index = 0; index < args.length; ) {
   const name = args[index];
   if (booleanOptions.has(name)) {
     if (parsedFlags.has(name)) {
@@ -67,7 +72,9 @@ for (let index = 0; index < args.length;) {
   }
   const value = args[index + 1];
   if (!valueOptions.has(name)) {
-    throw new Error(`unknown conformance runner option ${JSON.stringify(name)}`);
+    throw new Error(
+      `unknown conformance runner option ${JSON.stringify(name)}`,
+    );
   }
   if (parsedOptions.has(name)) {
     throw new Error(`duplicate conformance runner option ${name}`);
@@ -93,7 +100,7 @@ const engineArtifactPath = path.resolve(
   option("--engine-artifact") ??
     "ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
 );
-const fixtureEvidencePath = option("--fixture-evidence");
+const suppliedFixtureEvidencePath = option("--fixture-evidence");
 const outputDispositionEvidenceInputPath = option(
   "--output-disposition-evidence",
 );
@@ -153,14 +160,18 @@ function readOwnedJson(filePath, label) {
 }
 
 if (!fs.existsSync(engineArtifactPath)) {
-  throw new Error(`bound runtime engine artifact not found: ${engineArtifactPath}`);
+  throw new Error(
+    `bound runtime engine artifact not found: ${engineArtifactPath}`,
+  );
 }
 const initialSourceRevision = git("rev-parse", "HEAD").toString("utf8").trim();
 const initialSourceTree = git("rev-parse", "HEAD^{tree}")
   .toString("utf8")
   .trim();
 if (git("status", "--porcelain").toString("utf8").trim()) {
-  throw new Error("conformance execution requires a clean committed source tree");
+  throw new Error(
+    "conformance execution requires a clean committed source tree",
+  );
 }
 const rules = readJsonStrict(
   path.join(capsecRoot, "registry/policy-rules.json"),
@@ -256,6 +267,14 @@ const publicBatchEvidenceDirectory = path.join(
   evidenceDirectory,
   "public-fixture-batches",
 );
+const fixtureEvidenceBindingPath = path.join(
+  evidenceDirectory,
+  "exact-fixture-evidence-binding.json",
+);
+const producedFixtureEvidencePath = path.join(
+  evidenceDirectory,
+  "exact-fixture-evidence.json",
+);
 execFileSync(
   process.execPath,
   [
@@ -325,7 +344,9 @@ for (const recipe of recipeCatalog.recipes) {
   if (recipe.status !== "fully-executable") continue;
   const command = recipe.publicSurfaceProbe?.command;
   if (!Array.isArray(command) || command.length === 0) {
-    throw new Error(`${recipe.fixtureId}: fully executable recipe has no command`);
+    throw new Error(
+      `${recipe.fixtureId}: fully executable recipe has no command`,
+    );
   }
   const key = canonicalJson(command);
   const entry = publicRecipeCommands.get(key) ?? { command, fixtureIds: [] };
@@ -365,15 +386,18 @@ const publicExecutions = mergePublicBatchExecutions({
   recipeCatalog,
   loadedEngineIdentity,
 });
-commandEvidence.push(...CONFORMANCE_COMMANDS.map(([id, command, commandArgs]) =>
-  runObservedCommand({
-    id,
-    command,
-    args: commandArgs,
-    cwd: repoRoot,
-    evidenceDirectory,
-    env: exactEngineEnvironment,
-  })));
+commandEvidence.push(
+  ...CONFORMANCE_COMMANDS.map(([id, command, commandArgs]) =>
+    runObservedCommand({
+      id,
+      command,
+      args: commandArgs,
+      cwd: repoRoot,
+      evidenceDirectory,
+      env: exactEngineEnvironment,
+    }),
+  ),
+);
 commandEvidence.push(
   runEngineAttestation(
     "exact-loaded-engine-attestation-after-suites",
@@ -384,8 +408,13 @@ const loadedEngineIdentityAfter = readOwnedJson(
   engineIdentityAfterPath,
   "post-suite loaded engine identity",
 );
-if (canonicalJson(loadedEngineIdentityAfter) !== canonicalJson(loadedEngineIdentity)) {
-  throw new Error("loaded engine identity changed across conformance execution");
+if (
+  canonicalJson(loadedEngineIdentityAfter) !==
+  canonicalJson(loadedEngineIdentity)
+) {
+  throw new Error(
+    "loaded engine identity changed across conformance execution",
+  );
 }
 const finalSourceRevision = git("rev-parse", "HEAD").toString("utf8").trim();
 const finalSourceTree = git("rev-parse", "HEAD^{tree}").toString("utf8").trim();
@@ -489,7 +518,9 @@ if (publicSurfaceEvidenceInputPath) {
     engine: bindings.engine,
     coverage,
   });
-  if (canonicalJson(suppliedEvidence) !== canonicalJson(publicSurfaceEvidence)) {
+  if (
+    canonicalJson(suppliedEvidence) !== canonicalJson(publicSurfaceEvidence)
+  ) {
     throw new Error(
       "supplied public evidence differs from the evidence executed by this runner",
     );
@@ -508,28 +539,66 @@ const bindingDigest = executionBindingDigest({
   target,
   fixtureCatalogDigest,
 });
-let executions = [];
-if (fixtureEvidencePath) {
-  const fixtureArtifact = readJsonStrict(
-    path.resolve(repoRoot, fixtureEvidencePath),
+const fixtureEvidenceBinding = buildExactFixtureEvidenceBindingArtifact({
+  recipeCatalog,
+  fixtureCatalog: catalog,
+  bindings,
+  target,
+  fixtureCatalogDigest,
+});
+fs.writeFileSync(
+  fixtureEvidenceBindingPath,
+  `${JSON.stringify(fixtureEvidenceBinding, null, 2)}\n`,
+  { flag: "wx", mode: 0o600 },
+);
+let fixtureEvidencePath;
+if (suppliedFixtureEvidencePath) {
+  fixtureEvidencePath = path.resolve(repoRoot, suppliedFixtureEvidencePath);
+} else {
+  commandEvidence.push(
+    runObservedCommand({
+      id: "exact-fixture-evidence-pilot",
+      command: EXACT_FIXTURE_EVIDENCE_COMMAND[0],
+      args: EXACT_FIXTURE_EVIDENCE_COMMAND.slice(1),
+      cwd: repoRoot,
+      evidenceDirectory,
+      env: {
+        ...exactEngineEnvironment,
+        IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+        IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING: fixtureEvidenceBindingPath,
+        IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT: producedFixtureEvidencePath,
+      },
+    }),
   );
-  if (
-    fixtureArtifact.executionArtifactSchema !== "ibex/capsec-executions/1" ||
-    fixtureArtifact.sourceRevision !== bindings.sourceRevision ||
-    fixtureArtifact.sourceTreeDigest !== bindings.sourceTreeDigest ||
-    canonicalJson(fixtureArtifact.engine) !== canonicalJson(bindings.engine) ||
-    fixtureArtifact.recipeCatalogDigest !== bindings.recipeCatalogDigest ||
-    fixtureArtifact.publicSurfaceExecutionDigest !==
-      bindings.publicSurfaceExecutionDigest ||
-    fixtureArtifact.outputDispositionEvidenceRawContentDigest !==
-      bindings.outputDispositionEvidenceRawContentDigest ||
-    !Array.isArray(fixtureArtifact.executions)
-  ) {
-    throw new Error(
-      "fixture evidence artifact is stale, malformed, or from another revision",
-    );
-  }
-  executions = fixtureArtifact.executions;
+  fixtureEvidencePath = producedFixtureEvidencePath;
+}
+const fixtureArtifact = readOwnedJson(
+  fixtureEvidencePath,
+  "Exact fixture evidence",
+);
+validateExactFixtureEvidenceArtifact(fixtureArtifact, {
+  recipeCatalog,
+  fixtureCatalog: catalog,
+  coverage,
+  bindings,
+  target,
+  fixtureCatalogDigest,
+});
+const executions = fixtureArtifact.executions;
+const sourceRevisionAfterFixtureEvidence = git("rev-parse", "HEAD")
+  .toString("utf8")
+  .trim();
+const sourceTreeAfterFixtureEvidence = git("rev-parse", "HEAD^{tree}")
+  .toString("utf8")
+  .trim();
+if (
+  git("status", "--porcelain").toString("utf8").trim() ||
+  sourceRevisionAfterFixtureEvidence !== initialSourceRevision ||
+  sourceTreeAfterFixtureEvidence !== initialSourceTree
+) {
+  throw new Error(
+    "Exact fixture evidence changed the committed source revision or working tree",
+  );
 }
 // A broad suite pass is prerequisite evidence, never a per-obligation pass.
 // Only fixture-specific commands carrying their own result marker may enter
@@ -537,32 +606,38 @@ if (fixtureEvidencePath) {
 const suiteArtifactDigest = taggedDigest(
   Buffer.from(canonicalJson(commandEvidence), "utf8"),
 );
-const adapterEvidenceDigest = taggedDigest(fs.readFileSync(adapterEvidencePath));
+const adapterEvidenceDigest = taggedDigest(
+  fs.readFileSync(adapterEvidencePath),
+);
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(
   outputPath,
-  `${JSON.stringify({
-    executionArtifactSchema: "ibex/capsec-executions/1",
-    sourceRevision: bindings.sourceRevision,
-    sourceTreeDigest: bindings.sourceTreeDigest,
-    target,
-    engine: bindings.engine,
-    loadedEngineIdentity,
-    bindingDigest,
-    suiteArtifactDigest,
-    recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
-    adapterEvidenceDigest,
-    publicSurfaceExecutionDigest:
-      publicSurfaceEvidence.publicSurfaceExecutionDigest,
-    ...(bindings.outputDispositionEvidenceRawContentDigest === undefined
-      ? {}
-      : {
-          outputDispositionEvidenceRawContentDigest:
-            bindings.outputDispositionEvidenceRawContentDigest,
-        }),
-    commands: commandEvidence,
-    executions,
-  }, null, 2)}\n`,
+  `${JSON.stringify(
+    {
+      executionArtifactSchema: "ibex/capsec-executions/1",
+      sourceRevision: bindings.sourceRevision,
+      sourceTreeDigest: bindings.sourceTreeDigest,
+      target,
+      engine: bindings.engine,
+      loadedEngineIdentity,
+      bindingDigest,
+      suiteArtifactDigest,
+      recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
+      adapterEvidenceDigest,
+      publicSurfaceExecutionDigest:
+        publicSurfaceEvidence.publicSurfaceExecutionDigest,
+      ...(bindings.outputDispositionEvidenceRawContentDigest === undefined
+        ? {}
+        : {
+            outputDispositionEvidenceRawContentDigest:
+              bindings.outputDispositionEvidenceRawContentDigest,
+          }),
+      commands: commandEvidence,
+      executions,
+    },
+    null,
+    2,
+  )}\n`,
 );
 
 const reportGeneratorArgs = [
@@ -663,18 +738,22 @@ if (!expectIncomplete) {
   const ciStatusPath = path.join(realEvidenceRoot, "capsec-ci-status.json");
   fs.writeFileSync(
     ciStatusPath,
-    `${JSON.stringify({
-      statusSchema: "ibex/capsec-ci-evidence-status/1",
-      expectation: "incomplete-and-unadvertised",
-      sourceRevision: bindings.sourceRevision,
-      sourceTreeDigest: bindings.sourceTreeDigest,
-      target,
-      engine: bindings.engine,
-      reportStatus: report.status,
-      reportPath: path.relative(repoRoot, reportPath),
-      executionArtifactPath: path.relative(repoRoot, outputPath),
-      promotionRefusals,
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        statusSchema: "ibex/capsec-ci-evidence-status/1",
+        expectation: "incomplete-and-unadvertised",
+        sourceRevision: bindings.sourceRevision,
+        sourceTreeDigest: bindings.sourceTreeDigest,
+        target,
+        engine: bindings.engine,
+        reportStatus: report.status,
+        reportPath: path.relative(repoRoot, reportPath),
+        executionArtifactPath: path.relative(repoRoot, outputPath),
+        promotionRefusals,
+      },
+      null,
+      2,
+    )}\n`,
   );
   console.log(
     `CapSec evidence complete; target remains intentionally unadvertised (${promotionRefusals

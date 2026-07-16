@@ -341,8 +341,7 @@ function occurrenceResourceAtStage(input, stage) {
       }
     }
     if (commitOrLater) {
-      resource.retainedHandle ??=
-        `recipe-handle-${taggedDigest(resource.requested).slice(7, 23)}`;
+      resource.retainedHandle ??= `recipe-handle-${taggedDigest(resource.requested).slice(7, 23)}`;
     } else {
       delete resource.retainedHandle;
     }
@@ -648,6 +647,10 @@ const nativeResultArgument = (
   requiredSourceArity,
   arguments: argumentsList,
 });
+const tlsEngineArgument = () =>
+  nativeResultArgument("__exactTlsEngineNew", 1, [
+    literalArgument('{"host":"localhost"}'),
+  ]);
 const nativeResultPropertyArgument = (
   property,
   globalName,
@@ -661,20 +664,21 @@ const nativeResultPropertyArgument = (
   arguments: argumentsList,
 });
 const generatedKeyArgument = (keyType, property, options = null) =>
-  nativeResultPropertyArgument(
-    property,
-    "__exactGenerateKeyPairSync",
-    3,
-    [literalArgument(keyType), literalArgument(options), literalArgument(null)],
-  );
+  nativeResultPropertyArgument(property, "__exactGenerateKeyPairSync", 3, [
+    literalArgument(keyType),
+    literalArgument(options),
+    literalArgument(null),
+  ]);
 const nativeNoEffectTemplate = (
   requiredSourceArity,
   argumentsList = [],
   setup = [],
+  expectedCleanup = null,
 ) =>
   Object.freeze({
     actionIds: [],
     arguments: argumentsList,
+    ...(expectedCleanup ? { expectedCleanup } : {}),
     expectedDecisionCounts: { "non-capability": 0 },
     expectedResults: { "non-capability": "return" },
     expectedStages: { "non-capability": [] },
@@ -737,6 +741,40 @@ const nativeCwdObserveTemplate = () =>
     publicAccessObservedKey: "native-op:global:process.cwd",
     setup: [],
   });
+const nativeCachedSystemInfoTemplate = (name, numericName) =>
+  Object.freeze({
+    actionIds: ["sys:read"],
+    arguments: [literalArgument(numericName)],
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "commit"],
+      deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
+    },
+    requiredFloor: [
+      {
+        cap: "sys:read",
+        resource: { kind: "system-info", name },
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [],
+  });
 const nativeEnvironmentReadTemplate = (name) =>
   Object.freeze({
     actionIds: ["env:read"],
@@ -785,6 +823,13 @@ const nativePrintTemplate = () =>
   });
 const projectPathExactResource = (...components) => ({
   kind: "path-exact",
+  path: {
+    root: "project",
+    components: components.map((value) => ({ encoding: "utf8", value })),
+  },
+});
+const projectPathTreeResource = (...components) => ({
+  kind: "path-tree",
   path: {
     root: "project",
     components: components.map((value) => ({ encoding: "utf8", value })),
@@ -870,6 +915,10 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  [
+    "__exactAuthorizeSystemInfo",
+    nativeCachedSystemInfoTemplate("platform", 11),
+  ],
   [
     "queueMicrotask",
     nativeNoEffectTemplate(1, [harnessNoopCallbackArgument()]),
@@ -993,12 +1042,14 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactBrotliDecompressSync",
-    nativeNoEffectTemplate(2, [
+    nativeNoEffectTemplate(4, [
       nativeResultArgument("__exactBrotliCompressSync", 2, [
         literalArgument("ibex"),
         literalArgument(4),
       ]),
       literalArgument(true),
+      literalArgument(0),
+      literalArgument(1024),
     ]),
   ],
   [
@@ -1016,7 +1067,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactInflateSync",
-    nativeNoEffectTemplate(5, [
+    nativeNoEffectTemplate(6, [
       nativeResultArgument("__exactDeflateSync", 4, [
         literalArgument("ibex"),
         literalArgument(6),
@@ -1027,6 +1078,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       literalArgument(true),
       literalArgument(0),
       literalArgument(null),
+      literalArgument(1024),
     ]),
   ],
   [
@@ -1175,6 +1227,184 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     nativeNoEffectTemplate(1, [literalArgument("ibex")]),
   ],
   [
+    "__exactZlibCreate",
+    nativeNoEffectTemplate(
+      5,
+      [
+        literalArgument(0),
+        literalArgument(0),
+        literalArgument(-1),
+        literalArgument(0),
+        literalArgument(null),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
+  ],
+  [
+    "__exactZlibCheckOwner",
+    nativeNoEffectTemplate(
+      1,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
+  ],
+  [
+    "__exactZlibClose",
+    nativeNoEffectTemplate(
+      1,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+      ],
+      [],
+      "consumed-zlib-stream",
+    ),
+  ],
+  [
+    "__exactZlibParams",
+    nativeNoEffectTemplate(
+      3,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+        literalArgument(6),
+        literalArgument(0),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
+  ],
+  [
+    "__exactZlibWrite",
+    nativeNoEffectTemplate(
+      6,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+        literalArgument("ibex"),
+        literalArgument(0),
+        literalArgument(true),
+        literalArgument(false),
+        literalArgument(1024),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
+  ],
+  [
+    "__exactTlsOwnerToken",
+    nativeNoEffectTemplate(
+      2,
+      [literalArgument("new")],
+      [],
+      "closed-tls-owner-token",
+    ),
+  ],
+  [
+    "__exactNetOwner",
+    nativeNoEffectTemplate(3, [literalArgument("new")], [], "none"),
+  ],
+  [
+    "__exactTlsEngineNew",
+    nativeNoEffectTemplate(
+      1,
+      [literalArgument('{"host":"localhost"}')],
+      [],
+      "closed-tls-engine",
+    ),
+  ],
+  [
+    "__exactTlsEngineClose",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "consumed-tls-engine"),
+  ],
+  [
+    "__exactTlsEnginePeerCerts",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "closed-tls-engine"),
+  ],
+  [
+    "__exactTlsEngineReadPlain",
+    nativeNoEffectTemplate(
+      2,
+      [tlsEngineArgument(), literalArgument(1024)],
+      [],
+      "closed-tls-engine",
+    ),
+  ],
+  [
+    "__exactTlsEngineReadTls",
+    nativeNoEffectTemplate(
+      2,
+      [tlsEngineArgument(), literalArgument(1024)],
+      [],
+      "closed-tls-engine",
+    ),
+  ],
+  [
+    "__exactTlsEngineShutdown",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "closed-tls-engine"),
+  ],
+  [
+    "__exactTlsEngineStatus",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "closed-tls-engine"),
+  ],
+  [
+    "__exactTlsEngineTransportEof",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "closed-tls-engine"),
+  ],
+  [
+    "__exactTlsEngineWritePlain",
+    nativeNoEffectTemplate(
+      2,
+      [
+        tlsEngineArgument(),
+        nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+          literalArgument("ibex"),
+        ]),
+      ],
+      [],
+      "closed-tls-engine",
+    ),
+  ],
+  [
+    "__exactTlsEngineWriteTls",
+    nativeNoEffectTemplate(
+      2,
+      [
+        tlsEngineArgument(),
+        nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+          literalArgument(""),
+        ]),
+      ],
+      [],
+      "closed-tls-engine",
+    ),
+  ],
+  [
     "__exactUdpClose",
     nativeNoEffectTemplate(1, [
       nativeResultArgument("__exactUdpSocket", 1, [literalArgument("udp4")]),
@@ -1199,6 +1429,617 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
 ]);
+
+const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
+  [
+    "__exactFsPathAsync",
+    new Map([
+      [
+        "mkdir",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("mkdir"),
+            literalArgument("target/ibex-capsec-fspathasync-mkdir"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactMkdir"],
+          expectedCleanup: "removed-created-directory",
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "discovery", "commit"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "discovery", "commit"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-mkdir",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-mkdir",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "mkdtemp",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("mkdtemp"),
+            literalArgument("target/ibex-capsec-fspathasync-mkdtemp/"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactMkdir"],
+          expectedCleanup: "removed-created-directory",
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "discovery", "commit"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "discovery", "commit"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathTreeResource(
+                "target",
+                "ibex-capsec-fspathasync-mkdtemp",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathTreeResource(
+                "target",
+                "ibex-capsec-fspathasync-mkdtemp",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "readdir",
+        Object.freeze({
+          actionIds: ["fs:list"],
+          arguments: [
+            literalArgument("readdir"),
+            literalArgument("capsec"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactReaddir"],
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "repeat", "repeat"],
+            "branch-selection": ["requested", "discovery", "repeat", "repeat"],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "repeat", "repeat"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+            "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource("capsec"),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "realpath",
+        Object.freeze({
+          actionIds: ["fs:list"],
+          arguments: [
+            literalArgument("realpath"),
+            literalArgument("Cargo.toml"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactRealpath"],
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "repeat", "repeat"],
+            "branch-selection": ["requested", "discovery", "repeat", "repeat"],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "repeat", "repeat"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+            "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource("Cargo.toml"),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "statfs",
+        Object.freeze({
+          actionIds: ["fs:list"],
+          arguments: [
+            literalArgument("statfs"),
+            literalArgument("Cargo.toml"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "repeat", "repeat"],
+            "branch-selection": ["requested", "discovery", "repeat", "repeat"],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "repeat", "repeat"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+            "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource("Cargo.toml"),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "truncate",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("truncate"),
+            literalArgument("target/ibex-capsec-fspathasync-truncate"),
+            literalArgument(null),
+            literalArgument(2),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          expectedCleanup: "removed-owned-file",
+          expectedDecisionCounts: {
+            allow: 5,
+            "branch-selection": 5,
+            deny: 1,
+            malformed: 5,
+            "missing-attribution": 5,
+            "wrong-principal": 5,
+          },
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            deny: ["requested"],
+            malformed: [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-truncate",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-truncate",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "chmod",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("chmod"),
+            literalArgument("target/ibex-capsec-fspathasync-chmod"),
+            literalArgument(null),
+            literalArgument(0o600),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          expectedCleanup: "removed-owned-file",
+          expectedDecisionCounts: {
+            allow: 5,
+            "branch-selection": 5,
+            deny: 1,
+            malformed: 5,
+            "missing-attribution": 5,
+            "wrong-principal": 5,
+          },
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            deny: ["requested"],
+            malformed: [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-chmod",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-chmod",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "utime",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("utime"),
+            literalArgument("target/ibex-capsec-fspathasync-utime"),
+            literalArgument(null),
+            literalArgument(1),
+            literalArgument(2),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          expectedCleanup: "removed-owned-file",
+          expectedDecisionCounts: {
+            allow: 5,
+            "branch-selection": 5,
+            deny: 1,
+            malformed: 5,
+            "missing-attribution": 5,
+            "wrong-principal": 5,
+          },
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            deny: ["requested"],
+            malformed: [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-utime",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-utime",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+    ]),
+  ],
+]);
+
+function logicalBranchIdForPlan(plan, scenario) {
+  const marker = ".logical.";
+  const markerIndex = plan.fixtureId.lastIndexOf(marker);
+  const suffix = `.${scenario}`;
+  if (markerIndex === -1 || !plan.fixtureId.endsWith(suffix)) return null;
+  const branchId = plan.fixtureId.slice(
+    markerIndex + marker.length,
+    -suffix.length,
+  );
+  return branchId || null;
+}
 
 const NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES = new Map([
   [
@@ -1243,7 +2084,6 @@ const NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES = new Map([
 
 const GLOBAL_READ_INACCESSIBLE_MEMBER_KINDS = new Set([
   "dynamic-table",
-  "inherited",
   "inherited-shape",
   "instance-property",
   "namespace-alias",
@@ -1273,6 +2113,9 @@ function nativePublicReadDescriptor(surface) {
     metadata.memberKinds.some((kind) =>
       GLOBAL_READ_INACCESSIBLE_MEMBER_KINDS.has(kind),
     ) ||
+    (metadata.memberKinds.includes("inherited") &&
+      (metadata.valueShape !== "data" ||
+        !metadata.memberKinds.includes("static"))) ||
     !Array.isArray(surface.sourceRefs) ||
     surface.sourceRefs.length === 0 ||
     !surface.sourceRefs.every((sourceRef) =>
@@ -1330,9 +2173,8 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
   ) {
     return clone(argument);
   }
-  const producer = liveByObservedKey.get(
-    `native-op:${argument.globalName}`,
-  )?.metadata?.publicInvocation;
+  const producer = liveByObservedKey.get(`native-op:${argument.globalName}`)
+    ?.metadata?.publicInvocation;
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
@@ -1367,9 +2209,8 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
   ) {
     return clone(setup);
   }
-  const producer = liveByObservedKey.get(
-    `native-op:${setup.globalName}`,
-  )?.metadata?.publicInvocation;
+  const producer = liveByObservedKey.get(`native-op:${setup.globalName}`)
+    ?.metadata?.publicInvocation;
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
@@ -1394,6 +2235,7 @@ function nativePublicProbeForPlan({
   route,
   liveByObservedKey,
   rootDispositionsByObservedKey,
+  coverageByObservedKey,
   adapterProbe,
   target,
 }) {
@@ -1496,6 +2338,9 @@ function nativePublicProbeForPlan({
           setup: [],
         }
       : (NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName) ??
+        NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES.get(
+          invocation.globalName,
+        )?.get(logicalBranchIdForPlan(plan, scenario)) ??
         (plan.actionIds.length === 0 &&
         new Set(["branch-selection", "no-effect"]).has(scenario)
           ? NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES.get(invocation.globalName)
@@ -1538,13 +2383,27 @@ function nativePublicProbeForPlan({
   }
   const sourceDescriptor = clone(invocation);
   const expectedStages = template.expectedStages[scenario];
-  const expectedActionIds = adapterProbe
-    ? canonicalSet(
-        adapterProbe.cases
-          .filter((adapterCase) => expectedStages.includes(adapterCase.stage))
-          .flatMap((adapterCase) => adapterCase.actionIds),
-      )
-    : clone(plan.actionIds);
+  const additionalAllowedCoverageEdgeIds = [];
+  for (const observedKey of template.additionalAllowedCoverageObservedKeys ??
+    []) {
+    const additionalEdge = coverageByObservedKey.get(observedKey);
+    if (!additionalEdge?.id) {
+      return {
+        probe: null,
+        unavailableReason: "native-public-auxiliary-coverage-edge-unavailable",
+      };
+    }
+    additionalAllowedCoverageEdgeIds.push(additionalEdge.id);
+  }
+  const expectedActionIds = template.expectedObservedActionIds?.[scenario]
+    ? clone(template.expectedObservedActionIds[scenario])
+    : adapterProbe
+      ? canonicalSet(
+          adapterProbe.cases
+            .filter((adapterCase) => expectedStages.includes(adapterCase.stage))
+            .flatMap((adapterCase) => adapterCase.actionIds),
+        )
+      : clone(plan.actionIds);
   let publicAccess = null;
   if (template.publicAccessObservedKey) {
     const conformantDisposition = (observedKey) => {
@@ -1636,21 +2495,29 @@ function nativePublicProbeForPlan({
           : {}),
         ...(template.expectedDenyMessageFragment && !publicAccess
           ? {
-              expectedDenyMessageFragment:
-                template.expectedDenyMessageFragment,
+              expectedDenyMessageFragment: template.expectedDenyMessageFragment,
             }
           : {}),
         arguments: template.arguments.map((argument) =>
           bindNativeArgumentSources(argument, liveByObservedKey),
         ),
+        ...(template.completion
+          ? { completion: clone(template.completion) }
+          : {}),
         requiredFloor: clone(template.requiredFloor ?? []),
         setup: template.setup.map((setup) =>
           bindNativeSetupSources(setup, liveByObservedKey),
         ),
         expectedResult: template.expectedResults[scenario],
+        ...(template.expectedCleanup
+          ? { expectedCleanup: template.expectedCleanup }
+          : {}),
         expectedTypedStages: clone(expectedStages),
         expectedTypedDecisionCount: template.expectedDecisionCounts[scenario],
-        allowedCoverageEdgeIds: clone(plan.edgeIds),
+        allowedCoverageEdgeIds: canonicalSet([
+          ...plan.edgeIds,
+          ...additionalAllowedCoverageEdgeIds,
+        ]),
         expectedActionIds,
       },
     },
@@ -2015,6 +2882,7 @@ export function buildConformanceRecipeCatalog({
       route,
       liveByObservedKey,
       rootDispositionsByObservedKey,
+      coverageByObservedKey,
       adapterProbe,
       target,
     });

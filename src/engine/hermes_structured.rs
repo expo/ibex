@@ -251,7 +251,7 @@ const _: () = assert!(STRUCTURED_EVALUATION_VERSION as u32 == ABI_VERSION);
 const _: () = assert!(SESSION_LOWERING_PROTOCOL_VERSION == 1);
 
 extern "C" {
-    fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
+    fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
     fn ex_hermes_structured_session_bind(
         runtime: *mut HermesRuntimeOpaque,
         session_token: *const u8,
@@ -797,7 +797,7 @@ unsafe fn evaluate_authenticated_inner(
     }
     admission.mark_continued();
 
-    let nonce_after = NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(admission.runtime) })
+    let nonce_after = NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(admission.runtime.cast()) })
         .ok_or_else(|| protocol("Hermes runtime stopped during structured evaluation"))?;
     if nonce_after != admission.runtime_nonce {
         return Err(protocol(
@@ -1360,7 +1360,7 @@ impl NativeAdmission {
 impl Drop for NativeAdmission {
     fn drop(&mut self) {
         if self.pending
-            && NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(self.runtime) })
+            && NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(self.runtime.cast()) })
                 == Some(self.runtime_nonce)
         {
             let _ = unsafe {
@@ -1411,7 +1411,7 @@ impl Drop for NativeResultGuard {
         if !self.handle_transferred
             && self.raw.value.runtime_nonce != 0
             && self.raw.value.handle_id != 0
-            && NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(self.runtime) })
+            && NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(self.runtime.cast()) })
                 == Some(self.runtime_nonce)
         {
             let _ = unsafe { ex_hermes_value_release(self.runtime, self.raw.value) };
@@ -1929,7 +1929,7 @@ unsafe fn live_runtime(
         return Err(EngineFault::Structured(StructuredEngineFault::InvalidInput));
     }
     let runtime = runtime.cast::<HermesRuntimeOpaque>();
-    let nonce = NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(runtime) })
+    let nonce = NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(runtime.cast()) })
         .ok_or_else(|| EngineFault::Rejected(Arc::from("Hermes runtime pointer is not live")))?;
     Ok((runtime, nonce))
 }

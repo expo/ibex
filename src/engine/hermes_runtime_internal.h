@@ -44,10 +44,13 @@
 #include <functional>
 #include <initializer_list>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -187,6 +190,102 @@ struct ExactHostCallAsyncEntry {
 };
 
 struct ExactHermesRuntime;
+
+struct ModuleFactoryEntry {
+  uint64_t graph_generation{0};
+  uint8_t source_goal{0};
+  uint32_t principal_id{0};
+  std::string compartment_identity;
+  std::string semantic_digest;
+  std::string source_id;
+  std::shared_ptr<facebook::jsi::Function> factory;
+};
+
+struct GraphContextEntry {
+  uint64_t graph_generation{0};
+  std::string requesting_source_id;
+  uint32_t effect_owner{0};
+  uint32_t schedule_owner{0};
+  std::vector<uint32_t> constrained_principals;
+  uint32_t references{1};
+};
+
+enum class NativeModuleRecordState : uint8_t {
+  New,
+  Instantiated,
+  Declared,
+  Evaluating,
+  Evaluated,
+  Errored,
+};
+
+struct NativeModuleBindingCell {
+  bool initialized{false};
+  std::shared_ptr<facebook::jsi::Value> value;
+  uint64_t alias_record_id{0};
+  std::string alias_export;
+};
+
+struct NativeModuleImportBinding {
+  uint64_t target_record_id{0};
+  std::string target_export;
+};
+
+struct NativeModuleRecordEntry {
+  uint64_t graph_generation{0};
+  uint8_t source_goal{0};
+  std::string source_id;
+  uint64_t context_handle_id{0};
+  std::shared_ptr<facebook::jsi::Function> factory;
+  NativeModuleRecordState state{NativeModuleRecordState::New};
+  std::map<std::string, NativeModuleBindingCell> export_cells;
+  std::map<std::pair<std::string, std::string>, NativeModuleImportBinding>
+      import_bindings;
+  std::set<uint64_t> evaluation_dependencies;
+  std::map<std::string, uint64_t> dynamic_import_bindings;
+  std::shared_ptr<facebook::jsi::Object> namespace_object;
+  std::shared_ptr<facebook::jsi::Function> declare_function;
+  std::shared_ptr<facebook::jsi::Function> execute_function;
+  // A TLA record owns exactly one internal evaluation promise. Both
+  // settlement handlers are attached synchronously before control returns to
+  // Rust; the retained promise keeps suspended work live without making an
+  // individual dynamic-import waiter its cancellation target.
+  // @ref LLP 0026#6-top-level-await-and-dynamic-import
+  std::shared_ptr<facebook::jsi::Object> evaluation_promise;
+  std::string error_message;
+};
+
+enum class NativeCommonJsRecordState : uint8_t {
+  New,
+  Evaluating,
+  Evaluated,
+};
+
+enum class NativeCommonJsRequireTargetKind : uint8_t {
+  CommonJs,
+  Esm,
+};
+
+struct NativeCommonJsRequireBinding {
+  NativeCommonJsRequireTargetKind kind{NativeCommonJsRequireTargetKind::CommonJs};
+  uint64_t record_id{0};
+};
+
+struct NativeCommonJsRecordEntry {
+  uint64_t graph_generation{0};
+  std::string source_id;
+  uint64_t context_handle_id{0};
+  std::shared_ptr<facebook::jsi::Function> factory;
+  NativeCommonJsRecordState state{NativeCommonJsRecordState::New};
+  std::map<std::string, NativeCommonJsRequireBinding> require_bindings;
+  std::map<std::string, uint64_t> dynamic_import_bindings;
+  std::set<std::string> detected_exports;
+  std::string filename;
+  std::string dirname;
+  std::shared_ptr<facebook::jsi::Object> module_object;
+  std::shared_ptr<facebook::jsi::Value> exports_value;
+  uint64_t adapter_record_id{0};
+};
 
 // A runtime address is not an identity: allocators routinely reuse the same
 // address after destroy/recreate. Every asynchronous producer therefore
@@ -444,6 +543,26 @@ struct ExactHermesRuntime {
   std::unordered_map<std::string, std::string> sources_by_name;
   std::unordered_map<std::string, std::string> source_maps_by_name;
   std::thread::id runtime_thread;
+  // Trusted bootstrap scripts execute before this handle is published in the
+  // live runtime registry. Only the constructing owner thread may use that
+  // narrow pre-publication evaluation window.
+  bool bootstrap_in_progress{true};
+  // Private evaluator capabilities captured before lockdown deletes/tames the
+  // corresponding globals. They are reachable only through the native module
+  // ABI and are released on the runtime owner thread during teardown.
+  std::shared_ptr<facebook::jsi::Function> module_function_constructor;
+  std::shared_ptr<facebook::jsi::Function> module_compartment_binder;
+  uint64_t next_module_handle_id{1};
+  std::unordered_map<uint64_t, ModuleFactoryEntry> module_factories;
+  std::unordered_map<uint64_t, GraphContextEntry> graph_contexts;
+  std::unordered_map<uint64_t, NativeModuleRecordEntry> module_records;
+  std::unordered_map<uint64_t, NativeCommonJsRecordEntry> commonjs_records;
+  std::set<uint64_t> pinned_module_generations;
+  // One evaluated prepared carrier table per authenticated principal/content
+  // pair. Individual module handles select factories from this retained table.
+  std::map<std::tuple<uint32_t, std::string, std::string>,
+           std::shared_ptr<facebook::jsi::Object>>
+      prepared_carrier_tables;
   uint64_t next_timer_id{1};
   std::unordered_map<uint64_t, TimerEntry> timers;
   std::deque<NextTickEntry> next_tick;
@@ -557,6 +676,25 @@ struct ExactHermesRuntime {
                                    size_t payload_len,
                                    void* context) = nullptr;
   void* exact_host_call_async_context = nullptr;
+};
+
+/// Common owner-thread, liveness, generation, and non-reentrancy gate for
+/// every entry point that drives JSI or module-runner state.
+/// @ref LLP 0002#runtime-driving-thread-contract
+class ExactRuntimeDriveGuard {
+ public:
+  ExactRuntimeDriveGuard(ExactHermesRuntime* runtime, uint64_t expectedNonce = 0);
+  ~ExactRuntimeDriveGuard();
+  ExactRuntimeDriveGuard(const ExactRuntimeDriveGuard&) = delete;
+  ExactRuntimeDriveGuard& operator=(const ExactRuntimeDriveGuard&) = delete;
+
+  int32_t status() const { return status_; }
+  explicit operator bool() const { return status_ == EXACT_RUNTIME_DRIVE_OK; }
+
+ private:
+  ExactHermesRuntime* runtime_{nullptr};
+  uint64_t nonce_{0};
+  int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
 
 struct NativeWebSocketCallbackContext {
@@ -1632,6 +1770,7 @@ void emitNewScripts(ExactHermesRuntime* runtime,
 void pushRuntimeCallback(RuntimeCallbackTarget target,
                          std::function<void(facebook::jsi::Runtime&)> fn,
                          bool* accepted = nullptr);
+extern "C" void ex_hermes_notify_callback();
 
 // Enqueue a native-resource finalizer without transferring ownership on
 // failure. A successful enqueue guarantees `fn` runs on the runtime thread,

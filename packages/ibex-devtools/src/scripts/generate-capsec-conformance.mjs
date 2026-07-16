@@ -13,6 +13,7 @@ import {
 } from "./capsec-conformance.mjs";
 import { validateRecipeCatalog } from "./capsec-conformance-recipes.mjs";
 import {
+  validatePublicFixtureRuntimeObservation,
   validatePublicSurfaceExecutionArtifact,
 } from "./capsec-public-surface-evidence.mjs";
 import {
@@ -217,6 +218,8 @@ const report = buildConformanceReport({
       : { outputDispositionEvidenceRawContentDigest }),
   },
   digestContract: rules.digestContract,
+  recipeCatalog,
+  validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
 });
 const validate = ajv.getSchema(
   "https://ibex.dev/capsec/schema/conformance-report.schema.json",
@@ -230,6 +233,8 @@ validateConformanceReportSemantics(report, {
   implementation,
   target,
   digestContract: rules.digestContract,
+  recipeCatalog,
+  validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
 });
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`);

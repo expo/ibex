@@ -223,10 +223,7 @@ function streamRootCallSpecs() {
     [streamInstanceArgument("Readable", true), noopArgument()],
     "function",
   );
-  specs.getDefaultHighWaterMark = rootCall(
-    [jsonArgument(false)],
-    "number",
-  );
+  specs.getDefaultHighWaterMark = rootCall([jsonArgument(false)], "number");
   for (const exportName of [
     "isDisturbed",
     "isErrored",
@@ -330,10 +327,7 @@ function exactCryptoCallSpecs() {
       "object",
     ),
     randomBytes: rootCall([jsonArgument(8)], "object"),
-    randomFillSync: rootCall(
-      [uint8ArrayArgument([0, 0, 0, 0])],
-      "object",
-    ),
+    randomFillSync: rootCall([uint8ArrayArgument([0, 0, 0, 0])], "object"),
     randomInt: rootCall([jsonArgument(0), jsonArgument(16)], "number"),
     scryptSync: rootCall(
       [
@@ -387,18 +381,13 @@ function exactCryptoCallSpecs() {
       [...constructorArguments],
     );
   }
-  specs["Hash.copy"] = constructedOwner(
-    "Hash",
-    [],
-    "object",
-    [...CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS],
-  );
-  specs["KeyObject.export"] = constructedOwner(
-    "KeyObject",
-    [],
-    "object",
-    [jsonArgument("secret"), uint8ArrayArgument([0x69, 0x62, 0x65, 0x78])],
-  );
+  specs["Hash.copy"] = constructedOwner("Hash", [], "object", [
+    ...CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS,
+  ]);
+  specs["KeyObject.export"] = constructedOwner("KeyObject", [], "object", [
+    jsonArgument("secret"),
+    uint8ArrayArgument([0x69, 0x62, 0x65, 0x78]),
+  ]);
   for (const ownerExportName of ["Sign", "Verify"]) {
     specs[`${ownerExportName}.constructor`] = constructTarget([
       ...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS,
@@ -430,12 +419,9 @@ function exactCryptoCallSpecs() {
     );
   }
   for (const methodName of ["getPrivateKey", "getPublicKey"]) {
-    specs[`ECDH.${methodName}`] = constructedOwner(
-      "ECDH",
-      [],
-      "object",
-      [...CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS],
-    );
+    specs[`ECDH.${methodName}`] = constructedOwner("ECDH", [], "object", [
+      ...CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS,
+    ]);
   }
   for (const methodName of ["setPrivateKey", "setPublicKey"]) {
     specs[`ECDH.${methodName}`] = constructedOwner(
@@ -504,11 +490,7 @@ const ROOT_CALL_SPECS = Object.freeze({
   node_net: NODE_NET_CALL_SPECS,
   node_perf_hooks: Object.freeze({
     Performance: constructTarget([]),
-    "Performance.clearMarks": constructedOwner(
-      "Performance",
-      [],
-      "undefined",
-    ),
+    "Performance.clearMarks": constructedOwner("Performance", [], "undefined"),
     "Performance.clearMeasures": constructedOwner(
       "Performance",
       [],
@@ -557,10 +539,7 @@ const ROOT_CALL_SPECS = Object.freeze({
     ),
     "Performance.measure": constructedOwner(
       "Performance",
-      [
-        jsonArgument("ibex-measure"),
-        jsonArgument({ start: 0, duration: 1 }),
-      ],
+      [jsonArgument("ibex-measure"), jsonArgument({ start: 0, duration: 1 })],
       "object",
     ),
     "Performance.now": constructedOwner("Performance", [], "number"),
@@ -603,34 +582,22 @@ const ROOT_CALL_SPECS = Object.freeze({
       "string",
     ),
     isAbsolute: rootCall([jsonArgument("/ibex")], "boolean"),
-    join: rootCall(
-      [jsonArgument("/ibex"), jsonArgument("child")],
-      "string",
-    ),
+    join: rootCall([jsonArgument("/ibex"), jsonArgument("child")], "string"),
     normalize: rootCall([jsonArgument("/ibex/../probe/")], "string"),
     parse: rootCall([jsonArgument("/ibex/file.txt")], "object"),
     relative: rootCall(
       [jsonArgument("/ibex"), jsonArgument("/ibex/child")],
       "string",
     ),
-    resolve: rootCall(
-      [jsonArgument("/ibex"), jsonArgument("child")],
-      "string",
-    ),
+    resolve: rootCall([jsonArgument("/ibex"), jsonArgument("child")], "string"),
     toNamespacedPath: rootCall([jsonArgument("/ibex")], "string"),
   }),
   node_querystring: Object.freeze({
     decode: rootCall([jsonArgument("a=1&a=2&b=ibex")], "object"),
-    encode: rootCall(
-      [jsonArgument({ a: ["1", "2"], b: "ibex" })],
-      "string",
-    ),
+    encode: rootCall([jsonArgument({ a: ["1", "2"], b: "ibex" })], "string"),
     escape: rootCall([jsonArgument("ibex probe")], "string"),
     parse: rootCall([jsonArgument("a=1&a=2&b=ibex")], "object"),
-    stringify: rootCall(
-      [jsonArgument({ a: ["1", "2"], b: "ibex" })],
-      "string",
-    ),
+    stringify: rootCall([jsonArgument({ a: ["1", "2"], b: "ibex" })], "string"),
     unescape: rootCall([jsonArgument("ibex%20probe")], "string"),
   }),
   node_string_decoder: Object.freeze({
@@ -654,12 +621,9 @@ const ROOT_CALL_SPECS = Object.freeze({
       "string",
       [jsonArgument("utf8")],
     ),
-    "StringDecoder.toString": constructedOwner(
-      "StringDecoder",
-      [],
-      "string",
-      [jsonArgument("utf8")],
-    ),
+    "StringDecoder.toString": constructedOwner("StringDecoder", [], "string", [
+      jsonArgument("utf8"),
+    ]),
     "StringDecoder.write": constructedOwner(
       "StringDecoder",
       [bufferArgument([0x69, 0x62, 0x65, 0x78])],
@@ -669,14 +633,8 @@ const ROOT_CALL_SPECS = Object.freeze({
   }),
   node_stream: STREAM_ROOT_CALL_SPECS,
   node_url: Object.freeze({
-    canParse: rootCall(
-      [jsonArgument("https://example.test/ibex")],
-      "boolean",
-    ),
-    fileURLToPath: rootCall(
-      [jsonArgument("file:///tmp/ibex")],
-      "string",
-    ),
+    canParse: rootCall([jsonArgument("https://example.test/ibex")], "boolean"),
+    fileURLToPath: rootCall([jsonArgument("file:///tmp/ibex")], "string"),
     format: rootCall(
       [
         jsonArgument({
@@ -693,17 +651,11 @@ const ROOT_CALL_SPECS = Object.freeze({
     parse: rootCall([jsonArgument("https://example.test/ibex")], "object"),
     pathToFileURL: rootCall([jsonArgument("/tmp/ibex")], "object"),
     resolve: rootCall(
-      [
-        jsonArgument("https://example.test/base/"),
-        jsonArgument("../ibex"),
-      ],
+      [jsonArgument("https://example.test/base/"), jsonArgument("../ibex")],
       "string",
     ),
     resolveObject: rootCall(
-      [
-        jsonArgument("https://example.test/base/"),
-        jsonArgument("../ibex"),
-      ],
+      [jsonArgument("https://example.test/base/"), jsonArgument("../ibex")],
       "object",
     ),
     Url: constructTarget([]),
@@ -769,10 +721,7 @@ const ROOT_CALL_SPECS = Object.freeze({
     decode: rootCall([jsonArgument("maana-pta")], "string"),
     encode: rootCall([jsonArgument("mañana")], "string"),
     toASCII: rootCall([jsonArgument("mañana.example")], "string"),
-    toUnicode: rootCall(
-      [jsonArgument("xn--maana-pta.example")],
-      "string",
-    ),
+    toUnicode: rootCall([jsonArgument("xn--maana-pta.example")], "string"),
   }),
   node_assert: Object.freeze({
     AssertionError: constructTarget([
@@ -799,10 +748,7 @@ const ROOT_CALL_SPECS = Object.freeze({
     doesNotThrow: rootCall([noopArgument()], "undefined"),
     equal: rootCall([jsonArgument(1), jsonArgument("1")], "undefined"),
     ifError: rootCall([jsonArgument(null)], "undefined"),
-    match: rootCall(
-      [jsonArgument("ibex"), regexpArgument("ib")],
-      "undefined",
-    ),
+    match: rootCall([jsonArgument("ibex"), regexpArgument("ib")], "undefined"),
     notDeepEqual: rootCall(
       [jsonArgument({ a: 1 }), jsonArgument({ a: 2 })],
       "undefined",
@@ -812,10 +758,7 @@ const ROOT_CALL_SPECS = Object.freeze({
       "undefined",
     ),
     notEqual: rootCall([jsonArgument(1), jsonArgument(2)], "undefined"),
-    notStrictEqual: rootCall(
-      [jsonArgument(1), jsonArgument("1")],
-      "undefined",
-    ),
+    notStrictEqual: rootCall([jsonArgument(1), jsonArgument("1")], "undefined"),
     ok: rootCall([jsonArgument(true)], "undefined"),
     partialDeepStrictEqual: rootCall(
       [jsonArgument({ a: 1, b: 2 }), jsonArgument({ a: 1 })],
@@ -841,14 +784,8 @@ const ROOT_CALL_SPECS = Object.freeze({
       [eventEmitterArgument(), jsonArgument("ibex")],
       "number",
     ),
-    on: rootCall(
-      [eventEmitterArgument(), jsonArgument("ibex")],
-      "object",
-    ),
-    once: rootCall(
-      [eventEmitterArgument(), jsonArgument("ibex")],
-      "object",
-    ),
+    on: rootCall([eventEmitterArgument(), jsonArgument("ibex")], "object"),
+    once: rootCall([eventEmitterArgument(), jsonArgument("ibex")], "object"),
     setMaxListeners: rootCall(
       [jsonArgument(11), eventEmitterArgument()],
       "undefined",
@@ -951,10 +888,7 @@ function eventPrototypeSpec(exportName) {
 const BUFFER_METHOD_SPECS = Object.freeze({
   _toByteString: [[jsonArgument("utf8")], "string"],
   asciiSlice: [[jsonArgument(0), jsonArgument(8)], "string"],
-  asciiWrite: [
-    [jsonArgument("a"), jsonArgument(0), jsonArgument(1)],
-    "number",
-  ],
+  asciiWrite: [[jsonArgument("a"), jsonArgument(0), jsonArgument(1)], "number"],
   base64Slice: [[jsonArgument(0), jsonArgument(8)], "string"],
   base64Write: [
     [jsonArgument("YQ=="), jsonArgument(0), jsonArgument(1)],
@@ -978,10 +912,7 @@ const BUFFER_METHOD_SPECS = Object.freeze({
   equals: [[bufferArgument([0, 1, 2, 3, 4, 5, 6, 7])], "boolean"],
   fill: [[jsonArgument(1), jsonArgument(0), jsonArgument(8)], "object"],
   hexSlice: [[jsonArgument(0), jsonArgument(8)], "string"],
-  hexWrite: [
-    [jsonArgument("61"), jsonArgument(0), jsonArgument(1)],
-    "number",
-  ],
+  hexWrite: [[jsonArgument("61"), jsonArgument(0), jsonArgument(1)], "number"],
   includes: [[jsonArgument(1)], "boolean"],
   indexOf: [[jsonArgument(1)], "number"],
   inspect: [[], "string"],
@@ -1024,10 +955,7 @@ const BUFFER_METHOD_SPECS = Object.freeze({
     "string",
   ],
   ucs2Slice: [[jsonArgument(0), jsonArgument(8)], "string"],
-  ucs2Write: [
-    [jsonArgument("a"), jsonArgument(0), jsonArgument(2)],
-    "number",
-  ],
+  ucs2Write: [[jsonArgument("a"), jsonArgument(0), jsonArgument(2)], "number"],
   utf16beWrite: [
     [jsonArgument("a"), jsonArgument(0), jsonArgument(2)],
     "number",
@@ -1037,17 +965,9 @@ const BUFFER_METHOD_SPECS = Object.freeze({
     "number",
   ],
   utf8Slice: [[jsonArgument(0), jsonArgument(8)], "string"],
-  utf8Write: [
-    [jsonArgument("a"), jsonArgument(0), jsonArgument(1)],
-    "number",
-  ],
+  utf8Write: [[jsonArgument("a"), jsonArgument(0), jsonArgument(1)], "number"],
   write: [
-    [
-      jsonArgument("a"),
-      jsonArgument(0),
-      jsonArgument(1),
-      jsonArgument("utf8"),
-    ],
+    [jsonArgument("a"), jsonArgument(0), jsonArgument(1), jsonArgument("utf8")],
     "number",
   ],
   writeBigInt64BE: [[bigintArgument(-1), jsonArgument(0)], "number"],
@@ -1063,27 +983,15 @@ const BUFFER_METHOD_SPECS = Object.freeze({
   writeInt32BE: [[jsonArgument(-1), jsonArgument(0)], "number"],
   writeInt32LE: [[jsonArgument(-1), jsonArgument(0)], "number"],
   writeInt8: [[jsonArgument(-1), jsonArgument(0)], "number"],
-  writeIntBE: [
-    [jsonArgument(-1), jsonArgument(0), jsonArgument(6)],
-    "number",
-  ],
-  writeIntLE: [
-    [jsonArgument(-1), jsonArgument(0), jsonArgument(6)],
-    "number",
-  ],
+  writeIntBE: [[jsonArgument(-1), jsonArgument(0), jsonArgument(6)], "number"],
+  writeIntLE: [[jsonArgument(-1), jsonArgument(0), jsonArgument(6)], "number"],
   writeUInt16BE: [[jsonArgument(1), jsonArgument(0)], "number"],
   writeUInt16LE: [[jsonArgument(1), jsonArgument(0)], "number"],
   writeUInt32BE: [[jsonArgument(1), jsonArgument(0)], "number"],
   writeUInt32LE: [[jsonArgument(1), jsonArgument(0)], "number"],
   writeUInt8: [[jsonArgument(1), jsonArgument(0)], "number"],
-  writeUIntBE: [
-    [jsonArgument(1), jsonArgument(0), jsonArgument(6)],
-    "number",
-  ],
-  writeUIntLE: [
-    [jsonArgument(1), jsonArgument(0), jsonArgument(6)],
-    "number",
-  ],
+  writeUIntBE: [[jsonArgument(1), jsonArgument(0), jsonArgument(6)], "number"],
+  writeUIntLE: [[jsonArgument(1), jsonArgument(0), jsonArgument(6)], "number"],
 });
 
 const BUFFER_METHOD_ALIASES = Object.freeze({
@@ -1226,11 +1134,7 @@ function zlibPrototypeSpec(exportName) {
     return zlibOwnerCall(ownerExportName, [], "object");
   }
   if (methodName === "setEncoding") {
-    return zlibOwnerCall(
-      ownerExportName,
-      [jsonArgument("utf8")],
-      "object",
-    );
+    return zlibOwnerCall(ownerExportName, [jsonArgument("utf8")], "object");
   }
   if (methodName === "write") {
     return zlibOwnerCall(
@@ -1575,7 +1479,12 @@ function exportAccess(exportName, exportIdioms) {
   return { kind: "export-property", path: segments };
 }
 
-function sourceDescriptor(surface, target, allowedValueShapes) {
+function sourceDescriptor(
+  surface,
+  target,
+  allowedValueShapes,
+  { allowTargetAbsence = false } = {},
+) {
   const metadata = surface?.metadata;
   const availability = platformAvailability(metadata);
   const targetPlatform = platformForTarget(target);
@@ -1600,7 +1509,8 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
     canonicalJson(metadata.publicModuleSpecifiers) !==
       canonicalJson(canonicalSet(metadata.publicModuleSpecifiers)) ||
     availability === false ||
-    (availability &&
+    (!allowTargetAbsence &&
+      availability &&
       (!targetPlatform || !availability.includes(targetPlatform))) ||
     !Array.isArray(surface.sourceRefs) ||
     surface.sourceRefs.length !== 1
@@ -1630,11 +1540,22 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
   return descriptor;
 }
 
-function authoredNonCapabilityBuiltinInvocationDefinition({ surface, target }) {
+function authoredNonCapabilityBuiltinInvocationDefinition({
+  surface,
+  target,
+  allowTargetAbsence = false,
+}) {
+  const availability = platformAvailability(surface?.metadata);
+  const targetPlatform = platformForTarget(target);
+  const targetAbsent =
+    Array.isArray(availability) &&
+    targetPlatform !== null &&
+    !availability.includes(targetPlatform);
   const readDescriptor = sourceDescriptor(
     surface,
     target,
     new Set(["accessor", "data"]),
+    { allowTargetAbsence: allowTargetAbsence && targetAbsent },
   );
   const readEligible =
     readDescriptor &&
@@ -1646,9 +1567,7 @@ function authoredNonCapabilityBuiltinInvocationDefinition({ surface, target }) {
   const callDescriptor = readEligible
     ? null
     : sourceDescriptor(surface, target, new Set(["callable"]));
-  const callTemplate = callDescriptor
-    ? callTemplateFor(callDescriptor)
-    : null;
+  const callTemplate = callDescriptor ? callTemplateFor(callDescriptor) : null;
   const descriptor = readEligible ? readDescriptor : callDescriptor;
   if (!descriptor || (!readEligible && !callTemplate)) return null;
   const moduleSpecifier = canonicalModuleSpecifier(descriptor.moduleSpecifiers);
@@ -1669,7 +1588,11 @@ function authoredNonCapabilityBuiltinInvocationDefinition({ surface, target }) {
   return {
     invocation,
     bodyEntryProof: readEligible ? null : callTemplate.bodyEntryProof,
-    expectedResult: readEligible ? "return" : "normal-return",
+    expectedResult: targetAbsent
+      ? "absent"
+      : readEligible
+        ? "return"
+        : "normal-return",
   };
 }
 
@@ -1723,6 +1646,7 @@ export function authoredNonCapabilityBuiltinProbe({
   const definition = authoredNonCapabilityBuiltinInvocationDefinition({
     surface,
     target,
+    allowTargetAbsence: true,
   });
   if (!definition) return null;
   return {

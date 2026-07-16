@@ -346,7 +346,7 @@ export function auditNativeGlobalMarkerAliasClosure({
       '.map(|byte| format!("{byte:02x}"))',
       `format!("${OBSERVER_PREFIX}{suffix}")`,
       "CString::new(name.as_str())",
-      "ibex_test_install_capsec_context_observer(raw, name_c.as_ptr())",
+      "ibex_test_install_capsec_context_observer(raw, name_c.as_ptr(), std::ptr::null())",
       "if installed != 1",
       "Ok(name)",
     ],

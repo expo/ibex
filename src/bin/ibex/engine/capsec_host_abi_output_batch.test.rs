@@ -1706,6 +1706,7 @@ fn execute_authenticated_stateful_host(
                     referrer.len(),
                     specifier.as_ptr(),
                     specifier.len(),
+                    1,
                 )
             } else {
                 crate::host::abi::ex_host_session_static_import_resolve_meta(
@@ -1713,6 +1714,7 @@ fn execute_authenticated_stateful_host(
                     referrer.len(),
                     specifier.as_ptr(),
                     specifier.len(),
+                    1,
                 )
             };
             raw_host_string(output)
@@ -2516,12 +2518,18 @@ fn execute_basic(function_name: &str) -> Result<Value, String> {
         }
         "ex_host_module_resolve" => raw_host_string(crate::host::abi::ex_host_module_resolve(
             0,
+            0,
             specifier.as_ptr(),
             std::ptr::null(),
         )),
-        "ex_host_module_resolve_meta" => raw_host_string(
-            crate::host::abi::ex_host_module_resolve_meta(0, specifier.as_ptr(), std::ptr::null()),
-        ),
+        "ex_host_module_resolve_meta" => {
+            raw_host_string(crate::host::abi::ex_host_module_resolve_meta(
+                0,
+                0,
+                specifier.as_ptr(),
+                std::ptr::null(),
+            ))
+        }
         "ex_host_permission_request" => returned_number(
             crate::host::abi::ex_host_permission_request(capability.as_ptr()),
         ),

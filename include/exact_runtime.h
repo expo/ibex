@@ -27,6 +27,22 @@ extern "C" {
 /// Opaque handle to an Exact Hermes runtime
 typedef struct ExactHermesRuntime ExactHermesRuntime;
 
+/// Generation-bearing native module-runner capability. The words are an
+/// opaque ABI payload; callers must not inspect or synthesize them. Every
+/// operation validates all three against the runtime registry before JSI.
+typedef struct ExactModuleRunnerHandle {
+    uint64_t opaque[3];
+} ExactModuleRunnerHandle;
+
+typedef enum ExactRuntimeDriveStatus {
+    EXACT_RUNTIME_DRIVE_OK = 0,
+    EXACT_RUNTIME_DRIVE_INVALID = -1,
+    EXACT_RUNTIME_DRIVE_STALE = -2,
+    EXACT_RUNTIME_DRIVE_OFF_OWNER = -3,
+    EXACT_RUNTIME_DRIVE_REENTRANT = -4,
+    EXACT_RUNTIME_DRIVE_ENGINE_ERROR = -5,
+} ExactRuntimeDriveStatus;
+
 /// Exact embedder execution contexts. App and agent runtimes receive separate
 /// operation endowment sets through `ex_hermes_set_exact_host_call_async`.
 /// UI worklets are created through `ex_worklet_create` and deliberately cannot
@@ -109,6 +125,295 @@ uint64_t ex_hermes_current_runtime_nonce(void);
 uint64_t ex_hermes_current_principal_id(void);
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);
+
+/// Generation-bearing destruction with a stable refusal status. The legacy
+/// void destroy symbol delegates here with the currently registered nonce.
+int32_t ex_hermes_try_destroy(ExactHermesRuntime* runtime,
+                              uint64_t runtime_nonce);
+
+// =============================================================================
+// Native module-runner ABI
+// =============================================================================
+
+/// Compile a verified UTF-8 module factory under a native-selected principal
+/// and compartment. This symbol is never installed on the JavaScript global.
+/// The caller must pass the live runtime nonce and an artifact semantic digest
+/// already admitted by the Rust ModuleArtifact verifier. `source_goal` is 0
+/// for ESM Module factories and 1 for CommonJS body factories.
+int32_t ex_hermes_module_compile_factory(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint32_t source_goal,
+    uint32_t principal_id,
+    uint64_t graph_generation,
+    const uint8_t* compartment_identity,
+    size_t compartment_identity_len,
+    const uint8_t* semantic_digest,
+    size_t semantic_digest_len,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    const uint8_t* factory_source,
+    size_t factory_source_len,
+    const uint8_t* source_label,
+    size_t source_label_len,
+    ExactModuleRunnerHandle* out_factory,
+    char** out_error);
+
+/// Load one verified source or HBC carrier and select the authenticated
+/// original-module factory identified by `entry_id`. `carrier_encoding` is 0
+/// for UTF-8 source and 1 for Hermes bytecode.
+int32_t ex_hermes_module_load_carrier_factory(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint32_t source_goal,
+    uint32_t principal_id,
+    uint64_t graph_generation,
+    const uint8_t* compartment_identity,
+    size_t compartment_identity_len,
+    const uint8_t* semantic_digest,
+    size_t semantic_digest_len,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    const uint8_t* carrier_digest,
+    size_t carrier_digest_len,
+    const uint8_t* carrier_bytes,
+    size_t carrier_bytes_len,
+    uint32_t carrier_encoding,
+    const uint8_t* entry_id,
+    size_t entry_id_len,
+    const uint8_t* source_label,
+    size_t source_label_len,
+    ExactModuleRunnerHandle* out_factory,
+    char** out_error);
+
+/// Create one CommonJS cache record. The initial `exports` object is published
+/// natively before body execution so linked CommonJS cycles observe it.
+int32_t ex_hermes_commonjs_create_record(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle factory,
+    ExactModuleRunnerHandle context,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    const uint8_t* filename,
+    size_t filename_len,
+    const uint8_t* dirname,
+    size_t dirname_len,
+    ExactModuleRunnerHandle* out_record);
+
+/// Add one detector-authenticated CommonJS named-export snapshot key.
+int32_t ex_hermes_commonjs_record_declare_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len);
+
+/// Bind a CommonJS `require(specifier)` lookup to another authenticated
+/// CommonJS record. Package JavaScript cannot select an unlinked target.
+int32_t ex_hermes_commonjs_record_link_require(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
+/// Bind a CommonJS `require(specifier)` lookup to an authenticated ESM record.
+/// The target must have completed synchronous evaluation when require runs.
+int32_t ex_hermes_commonjs_record_link_require_esm(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
+/// Bind one authenticated CommonJS `import(specifier)` spelling to an ESM
+/// record. The body receives a promise-returning `dynamicImport` factory
+/// argument; missing, denied, and stale spellings reject asynchronously.
+int32_t ex_hermes_commonjs_record_link_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
+/// Evaluate a CommonJS record synchronously. Re-entry returns the early
+/// published partial exports; a throw evicts the record and invalidates handle.
+int32_t ex_hermes_commonjs_record_evaluate(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    int32_t* out_evicted,
+    char** out_error);
+
+/// Create the ESM adapter before linking. Its cells remain uninitialized until
+/// successful CommonJS evaluation freezes `default`, `module.exports`, and
+/// detector-authenticated named snapshots; failure becomes sticky on adapter.
+int32_t ex_hermes_commonjs_record_create_esm_adapter(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    ExactModuleRunnerHandle* out_adapter,
+    char** out_error);
+
+/// Retain every record in one authenticated graph generation through the
+/// embedder event-loop drive. Released Rust handles become deferred cleanup.
+int32_t ex_hermes_module_pin_generation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation);
+
+/// End a generation lease and synchronously release all deferred records.
+int32_t ex_hermes_module_unpin_generation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation);
+
+/// Release one factory/record/context capability. Stale, wrong-runtime, and
+/// already-released handles fail closed without dereferencing their payload.
+int32_t ex_hermes_module_release_handle(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle handle);
+
+/// Mint an immutable graph-context token. Principal vectors must be strictly
+/// increasing and duplicate-free; the token remains runtime/generation scoped.
+int32_t ex_hermes_graph_context_create(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation,
+    const uint8_t* requesting_source_id,
+    size_t requesting_source_id_len,
+    uint32_t effect_owner,
+    uint32_t schedule_owner,
+    const uint32_t* constrained_principals,
+    size_t constrained_principals_len,
+    ExactModuleRunnerHandle* out_context);
+
+/// Retain one immutable context token for an asynchronous carrier.
+int32_t ex_hermes_graph_context_retain(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle context);
+
+/// Create an opaque native ModuleRecord handle from an authenticated factory
+/// and graph context without exposing either JSI object to JavaScript.
+int32_t ex_hermes_module_create_record(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle factory,
+    ExactModuleRunnerHandle context,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    ExactModuleRunnerHandle* out_record);
+
+/// Declare one own export cell before record instantiation. Names are unique
+/// UTF-8 byte strings; declaration order is canonicalized by the native map.
+int32_t ex_hermes_module_record_declare_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len);
+
+/// Turn a declared export cell into a live view of an authenticated target
+/// cell or namespace. Used for indirect, namespace, and resolved star exports.
+int32_t ex_hermes_module_record_link_export(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* export_name,
+    size_t export_name_len,
+    ExactModuleRunnerHandle target_record,
+    const uint8_t* target_export,
+    size_t target_export_len);
+
+/// Bind one factory `context.importValue(specifier, imported)` lookup to an
+/// authenticated target record/cell. `target_export == "*"` selects the
+/// target's stable namespace object.
+int32_t ex_hermes_module_record_link_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    const uint8_t* imported_name,
+    size_t imported_name_len,
+    ExactModuleRunnerHandle target_record,
+    const uint8_t* target_export,
+    size_t target_export_len);
+
+/// Link a static evaluation dependency independently of imported binding
+/// reads. Side-effect-only and re-export edges participate here too.
+int32_t ex_hermes_module_record_link_dependency(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    ExactModuleRunnerHandle target_record);
+
+/// Link one already-authorized dynamic-import spelling to its exact target
+/// record. Literal edges and finite computed candidates share this table;
+/// absent or denied spellings reject without probing source state.
+int32_t ex_hermes_module_record_link_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
+/// Materialize the stable namespace, export callback, import context, and
+/// factory result. This does not run declare or execute.
+int32_t ex_hermes_module_record_instantiate(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* meta_url,
+    size_t meta_url_len,
+    const uint8_t* virtual_path,
+    size_t virtual_path_len,
+    int32_t is_main,
+    char** out_error);
+
+/// Run the factory's declaration phase exactly once.
+int32_t ex_hermes_module_record_run_declare(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    char** out_error);
+
+/// Run the factory's execute phase exactly once. `out_async` is set when the
+/// phase returned a thenable; synchronous graph callers must refuse it.
+int32_t ex_hermes_module_record_run_execute(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    int32_t* out_async,
+    char** out_error);
+
+/// Observe one record's terminal evaluation state without blocking or
+/// creating a new promise. `out_state` is 0 while suspended, 1 after
+/// fulfillment, and 2 after rejection. A rejected record also returns the
+/// record's sticky diagnostic through `out_error`.
+int32_t ex_hermes_module_record_poll_evaluation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    int32_t* out_state,
+    char** out_error);
+
+/// Diagnostic serialization of the stable namespace. The namespace itself
+/// never crosses the ABI; TDZ reads fail through the same checked getters used
+/// by imports.
+int32_t ex_hermes_module_record_namespace_json(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    char** out_json,
+    char** out_error);
 
 // =============================================================================
 // Evaluation
@@ -1017,6 +1322,32 @@ char* ex_host_prepare_armed_embedder_artifacts(
     size_t snapshot_template_len,
     const uint8_t* expected_identity,
     size_t expected_identity_len);
+
+/// Authenticate a generic Ibex artifact pair, derive Exact app/agent/UI
+/// endowments from one strict operation manifest, materialize that manifest as
+/// the fifth protected artifact, and return a fresh paired artifact envelope.
+/// This target-local operation must run after installation so filesystem
+/// object identities describe the engine and roots that will actually execute.
+/// It does not advertise a target; `ex_host_install_armed` retains that gate.
+char* ex_host_prepare_exact_armed_embedder_artifacts(
+    const uint8_t* snapshot_template,
+    size_t snapshot_template_len,
+    const uint8_t* expected_identity,
+    size_t expected_identity_len,
+    const uint8_t* operation_manifest,
+    size_t operation_manifest_len);
+
+/// Build a complete production Exact artifact pair directly against the
+/// installed target's engine, project root, checked CapSec identities, and
+/// strict Exact operation manifest. `project_root_utf8` is not NUL terminated.
+/// This removes any requirement to package filesystem identities produced on
+/// another machine or at another install path. It does not advertise a target;
+/// `ex_host_install_armed` retains that report-derived gate.
+char* ex_host_build_exact_armed_embedder_artifacts(
+    const uint8_t* project_root_utf8,
+    size_t project_root_utf8_len,
+    const uint8_t* operation_manifest,
+    size_t operation_manifest_len);
 
 /// Release a heap-owned string returned by the host ABI.
 void ex_host_free_string(char* value);

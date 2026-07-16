@@ -463,6 +463,7 @@ function executorBatch(value = fixture()) {
           : rawByProof[row.proof.kind],
       ),
     })),
+    parameterizedResults: [],
     unexercisable: [],
   };
 }
@@ -530,9 +531,9 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       ["nested\\name"],
       ["ok", 1],
     ]) {
-      expect(() => normalizeExecutorObservation(readdirKey, raw(value))).toThrow(
-        /cannot prove item shape|not basenames|non-string/,
-      );
+      expect(() =>
+        normalizeExecutorObservation(readdirKey, raw(value)),
+      ).toThrow(/cannot prove item shape|not basenames|non-string/);
     }
   });
 
@@ -565,9 +566,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
     );
     expect(freeze).toHaveLength(4);
-    expect(
-      freeze.map((row) => [row.key.alias, row.key.mode]),
-    ).toEqual(
+    expect(freeze.map((row) => [row.key.alias, row.key.mode])).toEqual(
       expect.arrayContaining(
         ["__exactDeepFreeze", "__exactNativeFreeze"].flatMap((alias) =>
           ["primitive-sentinel", "object-sentinel"].map((mode) => [
@@ -635,6 +634,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
           errorCode: null,
         },
       })),
+      parameterizedResults: [],
       unexercisable: [],
     };
     expect(
@@ -688,9 +688,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       invocation.sourceDescriptor,
     );
     wrongPatchRoute.probe.sourceDescriptorDigest =
-      outputShapeSourceDescriptorDigest(
-        wrongPatchRoute.probe.sourceDescriptor,
-      );
+      outputShapeSourceDescriptorDigest(wrongPatchRoute.probe.sourceDescriptor);
     expect(() =>
       buildOutputShapeSweepPlan({
         catalog,
@@ -763,7 +761,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6362);
+    expect(completeCatalog.rows).toHaveLength(6409);
     expect(executionPartition.genericCatalog.rows).toHaveLength(5919);
     expect(executionPartition.genericProbes).toHaveLength(5919);
     expect(
@@ -773,7 +771,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
     expect(executionPartition.hostAbi.rows).toHaveLength(289);
-    expect(executionPartition.hostAbi.residuals).toHaveLength(95);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(142);
 
     const androidRows = [
       ...executionPartition.hostAbi.targetAbsenceBindings,
@@ -869,12 +867,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 289, 95]);
+    ]).not.toEqual([59, 289, 142]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 289, 95]);
+    ]).toEqual([59, 289, 142]);
   }, 60_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {
@@ -1745,6 +1743,73 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     expect(JSON.stringify(probes)).not.toContain("normalizedValue");
   });
 
+  test("admits an authored constructor exercise in a package-call context", () => {
+    const outputKey = {
+      surfaceId: "surface.native.op.global.asyncfunction.12527a5",
+      output: "[[return]]",
+      alias: "global:AsyncFunction",
+      mode: "all",
+      sourceKind: "native-op",
+      returnVariant: "default",
+      contextId: "javascript.package-call-loaded",
+    };
+    const sourceRef = "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction";
+    const catalog = v2Catalog([
+      {
+        key: outputKey,
+        discovery: {
+          kind: "source-inventory-surface",
+          observedKeys: ["native-op:global:AsyncFunction"],
+          sourceRefs: [sourceRef],
+        },
+      },
+    ]);
+    const probes = buildOutputShapeSweepProbes({
+      catalog,
+      coverage: {
+        edges: [
+          {
+            id: outputKey.surfaceId,
+            classification: "closed",
+            surface: { kind: "native-op", name: "global:AsyncFunction" },
+          },
+        ],
+      },
+      surfaces: [
+        {
+          kind: "native-op",
+          name: "global:AsyncFunction",
+          observedKey: "native-op:global:AsyncFunction",
+          sourceRefs: [sourceRef],
+          metadata: {
+            surfaceType: "global-api",
+            valueShape: "callable",
+            globalName: "AsyncFunction",
+            memberName: null,
+            memberKinds: ["hermes-intrinsic-reachability"],
+          },
+        },
+      ],
+    });
+    expect(probes[0].probe).toMatchObject({
+      kind: "loaded-engine-descriptor",
+      sourceDescriptor: {
+        exercise: { kind: "construct", arguments: ["return 1"] },
+      },
+    });
+    const value = fixture();
+    expect(() =>
+      buildOutputShapeSweepPlan({
+        catalog,
+        probes,
+        sourceRevision: "a".repeat(40),
+        sourceTreeDigest: digest("D"),
+        target: value.bindings.target,
+        engine: value.bindings.engine,
+      }),
+    ).not.toThrow();
+  });
+
   test("keeps expected values out of the plan and promotes only after the join", () => {
     const value = fixture();
     expect(JSON.stringify(value.plan)).not.toContain("normalizedValue");
@@ -2279,6 +2344,7 @@ describe("output-shape-sweep-v3 evidence contract", () => {
           raw,
         },
       ],
+      parameterizedResults: [],
       unexercisable: [],
     };
     const artifact = buildOutputShapeSweepArtifactFromExecutorBatch({

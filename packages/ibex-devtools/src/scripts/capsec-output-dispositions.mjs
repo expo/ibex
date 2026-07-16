@@ -193,8 +193,7 @@ function validateCanonicalStableIdSet(value, label) {
   if (
     !Array.isArray(value) ||
     value.some(
-      (item) =>
-        typeof item !== "string" || !/^[a-z][a-z0-9.-]*$/u.test(item),
+      (item) => typeof item !== "string" || !/^[a-z][a-z0-9.-]*$/u.test(item),
     ) ||
     canonicalJson(value) !==
       canonicalJson([...new Set(value)].sort(compareText))
@@ -2459,12 +2458,14 @@ export function validateOutputShapeCatalogAccounts({
   surfaceAccounts,
   rows,
   parameterizedOutputBindings = [],
+  parameterizedOutputEvidence = [],
   promotionStatus = "unpromotable",
 }) {
   if (
     !Array.isArray(surfaceAccounts) ||
     !Array.isArray(rows) ||
-    !Array.isArray(parameterizedOutputBindings)
+    !Array.isArray(parameterizedOutputBindings) ||
+    !Array.isArray(parameterizedOutputEvidence)
   ) {
     throw new Error("output catalog accounts and rows must be arrays");
   }
@@ -2660,13 +2661,36 @@ export function validateOutputShapeCatalogAccounts({
       `verified output catalog has ${counts.unresolved} unresolved surface accounts`,
     );
   }
-  if (
-    promotionStatus === "verified" &&
-    parameterizedOutputBindings.length > 0
-  ) {
-    throw new Error(
-      "verified output catalog requires live exact-name evidence for every parameterized output binding",
+  if (promotionStatus === "verified") {
+    const evidenceById = new Map();
+    for (const [index, evidence] of parameterizedOutputEvidence.entries()) {
+      if (
+        evidence?.environmentOutputSweepObservationSchema !==
+          "ibex/capsec-environment-output-sweep-observation/1" ||
+        typeof evidence.surfaceId !== "string" ||
+        !/^sha256-[A-Za-z0-9_-]{43}$/u.test(
+          evidence.sweepBindingDigest ?? "",
+        ) ||
+        !/^sha256-[A-Za-z0-9_-]{43}$/u.test(evidence.observationDigest ?? "") ||
+        evidenceById.has(evidence.surfaceId)
+      ) {
+        throw new Error(
+          `parameterized output evidence ${index}: malformed or duplicated live observation`,
+        );
+      }
+      evidenceById.set(evidence.surfaceId, evidence);
+    }
+    const missing = [...parameterizedById.keys()].filter(
+      (surfaceId) => !evidenceById.has(surfaceId),
     );
+    const unknown = [...evidenceById.keys()].filter(
+      (surfaceId) => !parameterizedById.has(surfaceId),
+    );
+    if (missing.length || unknown.length) {
+      throw new Error(
+        `verified output catalog requires set-equal live exact-name evidence; missing=[${missing.join(", ")}] unknown=[${unknown.join(", ")}]`,
+      );
+    }
   }
   if (!new Set(["unpromotable", "verified"]).has(promotionStatus)) {
     throw new Error(
@@ -3037,6 +3061,8 @@ export function buildOutputShapeCatalog({
     surfaceAccounts,
     rows,
     parameterizedOutputBindings,
+    parameterizedOutputEvidence:
+      liveEvidence.sweepArtifact?.parameterizedObservations ?? [],
     promotionStatus: liveEvidence.status,
   });
   const contexts = outputExecutionContextsForRows(rows);
@@ -3189,6 +3215,8 @@ function validateOutputShapeCatalogDocument(catalog, evidence) {
     rows: catalog.rows,
     parameterizedOutputBindings:
       catalog[ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD],
+    parameterizedOutputEvidence:
+      evidence.sweepArtifact?.parameterizedObservations ?? [],
     promotionStatus: evidence.status,
   });
   const expectedCounts = {

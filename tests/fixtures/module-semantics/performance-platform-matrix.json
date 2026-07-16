@@ -1,0 +1,33 @@
+{
+  "schema": "ibex/module-loader-performance-platform-matrix/1",
+  "authority": "LLP 0001",
+  "targets": [
+    {
+      "id": "macos-arm64",
+      "runner": "macos-14",
+      "nativeRunnerAdvertised": true,
+      "runtimeEvidence": "tests/fixtures/module-semantics/performance-macos-arm64.json",
+      "collectionWorkflow": ".github/workflows/module-loader-baselines.yml",
+      "status": "provisional",
+      "note": "Checked runtime samples exist, but the current report is explicitly host-contended and unusable for an accepted budget."
+    },
+    {
+      "id": "linux-x64",
+      "runner": "ubuntu-latest",
+      "nativeRunnerAdvertised": true,
+      "runtimeEvidence": null,
+      "collectionWorkflow": ".github/workflows/module-loader-baselines.yml",
+      "status": "pending-ci",
+      "note": "The repository publishes a patched Linux Hermes bundle; the workflow collects the native row without fallback or zero-case success."
+    },
+    {
+      "id": "windows-x64",
+      "runner": "windows-2025",
+      "nativeRunnerAdvertised": false,
+      "runtimeEvidence": null,
+      "collectionWorkflow": ".github/workflows/module-loader-baselines.yml",
+      "status": "compatibility-only",
+      "note": "The published Windows Hermes package lacks the patched native evaluator and compartment binder, so CI records an explicit unavailability artifact and keeps the bounded compatibility loader active."
+    }
+  ]
+}

@@ -255,6 +255,7 @@ const REVIEWED_BINARY_RUST_PATHS = Object.freeze([
   "src/bin/ibex/engine/capsec_closed_control_output_batch.test.rs",
   "src/bin/ibex/engine/capsec_conformance_batch.rs",
   "src/bin/ibex/engine/capsec_cwd_facade_batch.test.rs",
+  "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs",
   "src/bin/ibex/engine/capsec_global_callable_batch.test.rs",
   "src/bin/ibex/engine/capsec_host_abi_output_batch.test.rs",
   "src/bin/ibex/engine/capsec_inherited_intrinsic_alias_batch.test.rs",

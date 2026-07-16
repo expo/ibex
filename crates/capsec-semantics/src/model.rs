@@ -277,9 +277,9 @@ impl PackageLocator {
             };
             name_valid
                 && !locator.is_empty()
-                && !locator
-                    .chars()
-                    .any(|character| character == '@' || character.is_whitespace())
+                && !locator.chars().any(|character| {
+                    character == '@' || character.is_whitespace() || character.is_control()
+                })
         });
         valid
             .then_some(Self(value.clone()))
@@ -1599,6 +1599,13 @@ pub fn principal_set_is_canonical(principals: &[Principal]) -> bool {
 #[cfg(test)]
 mod principal_set_tests {
     use super::*;
+
+    #[test]
+    fn package_locator_rejects_control_characters() {
+        assert!(PackageLocator::new("pkg@1.0.0\0shadow").is_err());
+        assert!(PackageLocator::new("pkg@1.0.0\nshadow").is_err());
+        assert!(PackageLocator::new("pkg@1.0.0").is_ok());
+    }
 
     #[test]
     fn canonical_principal_set_uses_jcs_and_deduplicates() {

@@ -39,7 +39,10 @@ import {
   assertRecipeCatalogComplete,
   buildConformanceRecipeCatalog,
 } from "./capsec-conformance-recipes.mjs";
-import { assertPublicSurfaceExecutionComplete } from "./capsec-public-surface-evidence.mjs";
+import {
+  assertPublicSurfaceExecutionComplete,
+  validatePublicFixtureRuntimeObservation,
+} from "./capsec-public-surface-evidence.mjs";
 import {
   buildOutputDispositionDataset,
   buildOutputShapeCatalog,
@@ -662,7 +665,8 @@ function validateSchemaDocument(ajv, schemaId, value, label) {
 
 function expectedDigest(digestVectors, id) {
   const matches = digestVectors.vectors.filter((vector) => vector.id === id);
-  if (matches.length !== 1) throw new Error(`missing exact ${id} digest vector`);
+  if (matches.length !== 1)
+    throw new Error(`missing exact ${id} digest vector`);
   return matches[0].expectedDigest;
 }
 
@@ -745,13 +749,17 @@ function verifyReportSourceRevision(attestation, allowedReportPaths) {
       { cwd: repoRoot, stdio: "ignore" },
     );
   } catch {
-    throw new Error("attested conformance source is not an ancestor of this checkout");
+    throw new Error(
+      "attested conformance source is not an ancestor of this checkout",
+    );
   }
   const sourceTreeDigest = rawContentDigest(
     git("rev-parse", `${attestation.sourceRevision}^{tree}`),
   );
   if (sourceTreeDigest !== attestation.sourceTreeDigest) {
-    throw new Error("attested source revision does not have the reported tree digest");
+    throw new Error(
+      "attested source revision does not have the reported tree digest",
+    );
   }
   const allowed = new Set([
     "capsec/conformance/target-attestations.json",
@@ -821,11 +829,7 @@ export function loadTargetPromotions({
     path.join(capsecRoot, "examples", "digest-vectors.canonical.json"),
   );
   const registryBundle = readJsonStrict(
-    path.join(
-      capsecRoot,
-      "examples",
-      "registry-digest-bundle.canonical.json",
-    ),
+    path.join(capsecRoot, "examples", "registry-digest-bundle.canonical.json"),
   );
   const vocabularyDigest = registryBundle.members.find(
     (member) => member.logicalName === "vocab-digest",
@@ -842,12 +846,14 @@ export function loadTargetPromotions({
   const seenPublicExecutions = new Set();
   const seenOutputDispositionEvidence = new Set();
   const promotions = [];
-  const allowedReportPaths = attestations.attestations.flatMap((attestation) => [
-    `capsec/conformance/reports/${attestation.reportRawContentDigest}.json`,
-    `capsec/conformance/recipe-catalogs/${attestation.recipeCatalogRawContentDigest}.json`,
-    `capsec/conformance/public-surface-executions/${attestation.publicSurfaceExecutionRawContentDigest}.json`,
-    `capsec/conformance/output-disposition-evidence/${attestation.outputDispositionEvidenceRawContentDigest}.json`,
-  ]);
+  const allowedReportPaths = attestations.attestations.flatMap(
+    (attestation) => [
+      `capsec/conformance/reports/${attestation.reportRawContentDigest}.json`,
+      `capsec/conformance/recipe-catalogs/${attestation.recipeCatalogRawContentDigest}.json`,
+      `capsec/conformance/public-surface-executions/${attestation.publicSurfaceExecutionRawContentDigest}.json`,
+      `capsec/conformance/output-disposition-evidence/${attestation.outputDispositionEvidenceRawContentDigest}.json`,
+    ],
+  );
   for (const attestation of attestations.attestations) {
     const targetKey = canonicalJson(attestation.target);
     if (!candidateTargets.has(targetKey)) {
@@ -857,7 +863,9 @@ export function loadTargetPromotions({
       throw new Error("target attestations contain a duplicate exact target");
     }
     if (seenReports.has(attestation.reportRawContentDigest)) {
-      throw new Error("target attestations reuse one report for multiple targets");
+      throw new Error(
+        "target attestations reuse one report for multiple targets",
+      );
     }
     if (seenRecipeCatalogs.has(attestation.recipeCatalogRawContentDigest)) {
       throw new Error(
@@ -903,13 +911,6 @@ export function loadTargetPromotions({
         `invalid attested conformance report: ${ajv.errorsText(validateReport?.errors)}`,
       );
     }
-    validateConformanceReportSemantics(report, {
-      coverage,
-      implementation,
-      target: attestation.target,
-      digestContract: rules.digestContract,
-    });
-    assertReportMayAdvertise(report);
     const outputDispositionEvidence = readImmutablePromotionArtifact(
       "output-disposition-evidence",
       attestation.outputDispositionEvidenceRawContentDigest,
@@ -996,10 +997,8 @@ export function loadTargetPromotions({
       canonicalJson(report.bindings.target) !== targetKey ||
       report.bindings.vocabularyDigest !== vocabularyDigest ||
       report.bindings.registryDigest !== registryDigest ||
-      report.bindings.recipeCatalogDigest !==
-        attestation.recipeCatalogDigest ||
-      recipeCatalog.recipeCatalogDigest !==
-        attestation.recipeCatalogDigest ||
+      report.bindings.recipeCatalogDigest !== attestation.recipeCatalogDigest ||
+      recipeCatalog.recipeCatalogDigest !== attestation.recipeCatalogDigest ||
       report.bindings.publicSurfaceExecutionDigest !==
         attestation.publicSurfaceExecutionDigest ||
       publicSurfaceExecutions.publicSurfaceExecutionDigest !==
@@ -1011,6 +1010,15 @@ export function loadTargetPromotions({
         "target attestation differs from the report or current semantic identities",
       );
     }
+    validateConformanceReportSemantics(report, {
+      coverage,
+      implementation,
+      target: attestation.target,
+      digestContract: rules.digestContract,
+      recipeCatalog,
+      validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
+    });
+    assertReportMayAdvertise(report);
     promotions.push({ attestation, report, outputDispositionEvidence });
   }
   promotions.sort((left, right) =>
@@ -1056,7 +1064,8 @@ function buildTargetAdvertisements(promotions, targetCellsText) {
       engine: structuredClone(report.bindings.engine),
       vocabularyDigest: report.bindings.vocabularyDigest,
       registryDigest: report.bindings.registryDigest,
-      implementationManifestDigest: report.bindings.implementationManifestDigest,
+      implementationManifestDigest:
+        report.bindings.implementationManifestDigest,
       fixtureCatalogDigest: report.bindings.fixtureCatalogDigest,
       recipeCatalogDigest: report.bindings.recipeCatalogDigest,
       recipeCatalogRawContentDigest: attestation.recipeCatalogRawContentDigest,
@@ -1361,10 +1370,7 @@ export async function renderCapsecRegistry() {
     promotions,
   );
   const targetCellsText = prettyJson(targetCells);
-  targetAdvertisements = buildTargetAdvertisements(
-    promotions,
-    targetCellsText,
-  );
+  targetAdvertisements = buildTargetAdvertisements(promotions, targetCellsText);
   rendered.set(generatedRegistryPaths.targetCells, targetCellsText);
   rendered.set(
     generatedRegistryPaths.targetAdvertisements,

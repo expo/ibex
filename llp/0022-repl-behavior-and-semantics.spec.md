@@ -5,6 +5,9 @@
 **Systems:** CLI Runtime, REPL, Runtime, Module Loader, Security
 **Author:** Charlie Cheever / Codex / Claude
 **Date:** 2026-07-11
+**Revised:** 2026-07-15 (ENG-25066 switched file-module execution to the
+authenticated runner while preserving this document's script/prompt goals and
+session semantics.)
 **Revised:** 2026-07-15 (implementation sync: Unix completion now runs from an
 authority-free static snapshot on a capacity-one producer while raw input stays
 live; interrupt prose cites LLP 0025's generated typed-promise machine directly;
@@ -520,11 +523,14 @@ Language and evaluation obey LLP 0024 in full. The REPL-visible consequences:
   uses it fails with the stable unsupported error (LLP 0024 §3) — v1 has no
   asynchronous module graph, and this document will not imply one.
 - **`$_`** holds the last successfully displayed value; it begins `undefined`;
-  an error does not replace it — and neither does a *failed display*. The shipping
-  REPL assigns `globalThis.$_` **before** it renders, so a value whose display
-  throws already replaces `$_` today; that is a live contradiction of this rule,
-  and AC 6 gates it. Any user mutation of `$_` permanently disables
-  auto-update, with one notice. (Node spells this `_`. Ibex spells it `$_` and
+  an error does not replace it — and neither does a *failed display*. The evaluator
+  commits the update only after the broker's display acknowledgement. User
+  mutation or takeover disables auto-update according to LLP 0024 §7.8's fate
+  table, with one notice; an uninitialized lexical takeover that rolls back also
+  rolls back its disable, while committed mutations and declarations retain it.
+  Detection is deliberately bounded: restoration of the runtime's exact saved
+  accessor descriptor is indistinguishable without the native generation counter
+  LLP 0024 records. (Node spells this `_`. Ibex spells it `$_` and
   accepts the divergence under compatibility priority 5, because `_` is too
   valuable an identifier to reserve at a prompt where lodash is one import away.)
 - The `repl:<n>` ordinal advances once per **submitted evaluation** (LLP 0024
@@ -739,9 +745,11 @@ file reads are unreachable from session commands. The read is subject to every
 ceiling, guard, protected object, and denial stratum above, and is never a bypass:
 `.load /etc/passwd` gets the outside-mount error; `.load` of a policy-denied file
 gets the denial, with evidence. The credential and the typed read route are
-obligations on LLP 0024 §1 and LLP 0021 (`OBL-SUBMIT-CREDENTIAL`, `OBL-TYPED-READ`);
-neither carries them today, and LLP 0024 still uses the retired "decision evidence"
-terminology, which `OBL-SUBMIT-CREDENTIAL` records as outstanding.
+obligations shared with LLP 0024 §1 and LLP 0021
+(`OBL-SUBMIT-CREDENTIAL`, `OBL-TYPED-READ`). LLP 0024 uses the same linear
+`SubmissionCredential` vocabulary and the implementation consumes it through the
+typed pre-read route; neither sibling treats post-decision evidence as an input
+credential.
 
 **Raw native bridges are sealed or converted.** A guarantee stated over
 `process`, `fs`, and the module facade is worthless if the same capability sits
@@ -1042,7 +1050,7 @@ inside a compound row.
 | `OBL-BOUNDS` | Pinned renderer grammar and numeric bounds, without which transcript byte-fixtures cannot be pinned | `session/session-constants.v1.json` (LLP 0025 §12); the completion and async-storm-window values remain explicitly unbound there | AC 4, AC 13 |
 | `OBL-INTERRUPT-CLASS` | An obligation LLP 0025 places on **this** document: cite its generated typed-promise and escape-credit properties directly, without recreating a work-epoch alias or making target turnover part of the bound | this document (§10) | AC 15 |
 | `OBL-ESCAPE` | Escape from an uninterruptible synchronous loop (supervisor/worker) | LLP 0025 §7 | AC 15 |
-| `OBL-STARTUP-DIAG` | One owner for whether a startup diagnostic may name a host path. Three documents hold three positions today: §4 exempts pre-evaluation CLI diagnostics; LLP 0023 §1.2 mandates a **symbolic** package locator and attributes that rule to LLP 0025; LLP 0025 §9 disclaims having imposed it | LLP 0023 ↔ LLP 0025 ↔ this document | AC 5 |
+| `OBL-STARTUP-DIAG` | The aligned startup-diagnostic rule: JavaScript-visible surfaces never expose host paths, while a pre-JavaScript arming refusal may name the authenticated offending package root so the operator can repair the layout. LLP 0023 owns the concrete outside-project-mount diagnostic; LLP 0025 imposes no contrary symbolic-only rule | LLP 0023 ↔ this document | AC 5 |
 | `OBL-PLAN` | A companion Plan sequencing the ABI, engine patches, supervisor, schemas, and harness, and naming a minimal conformant v1 | this corpus | — |
 | `OBL-LEDGER-CHECK` | The obligation data file, owner-side attestations, and the `./ref-check` join that would let this table claim anything at all; **open as ENG-25052**, so this prose is not itself the control | LLP 0000 (process tooling) | — |
 

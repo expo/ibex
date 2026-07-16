@@ -37164,6 +37164,88 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_create_record"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:record"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:adapter",
+        "out:error"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_declare_export"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error",
+        "out:evicted"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_dynamic_import"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.require.esm.06f0u7s",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require_esm"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.create.04wgtwz",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -37622,11 +37704,223 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_create"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:context"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.graph.context.retain.1norhoj",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_retain"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_has_pending_tasks"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error",
+        "out:factory"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:record"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error",
+        "out:factory"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.pin.generation.1uroxl2",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_pin_generation"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_declare_export"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.instantiate.043epyu",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_instantiate"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dependency"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dynamic_import"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_export"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_import"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error",
+        "out:json"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error",
+        "out:state"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_declare"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:error"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_execute"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:async",
+        "out:error"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_release_handle"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.module.unpin.generation.0bvxkc5",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_unpin_generation"
       ],
       "outputKinds": [
         "[[return]]"
@@ -37977,6 +38271,17 @@
       ]
     },
     {
+      "surfaceId": "surface.host.abi.ex.hermes.try.destroy.0zf7qwp",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_try_destroy"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
       "surfaceId": "surface.host.abi.ex.hermes.value.kind.1p2efiz",
       "status": "output-bearing",
       "reasonCode": "source-derived-host-abi-output",
@@ -38154,6 +38459,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/host/abi.rs#ex_host_authorize_typed_udp_datagram_stack"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.build.exact.armed.embedder.artifacts.0ec6i9m",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_build_exact_armed_embedder_artifacts"
       ],
       "outputKinds": [
         "[[return]]"
@@ -39182,6 +39498,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/host/abi.rs#ex_host_prepare_armed_embedder_artifacts"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.host.prepare.exact.armed.embedder.artifacts.176c653",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_prepare_exact_armed_embedder_artifacts"
       ],
       "outputKinds": [
         "[[return]]"
@@ -40428,6 +40755,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.entry.module.static.import.1kce2vv",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#moduleStaticImport"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.entry.require.resolve.0i97kvw",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -40879,10 +41215,8 @@
         "src/module_loader/mod.rs#load_source:external:call:Some:count-1",
         "src/module_loader/mod.rs#load_source:external:call:let:count-1",
         "src/module_loader/mod.rs#load_source:external:method:as_ref:count-1",
-        "src/module_loader/mod.rs#load_source:external:method:display:count-1",
         "src/module_loader/mod.rs#load_source:external:method:is_some:count-1",
         "src/module_loader/mod.rs#load_source:external:method:ok_or_else:count-1",
-        "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
         "src/module_loader/mod.rs#load_source_bytes:external:call:Ok:count-1",
         "src/module_loader/mod.rs#load_source_bytes:external:call:Some:count-1",
         "src/module_loader/mod.rs#load_source_bytes:external:method:as_ref:count-1",
@@ -41375,10 +41709,8 @@
         "src/module_loader/mod.rs#load_source:external:call:Some:count-1",
         "src/module_loader/mod.rs#load_source:external:call:let:count-1",
         "src/module_loader/mod.rs#load_source:external:method:as_ref:count-1",
-        "src/module_loader/mod.rs#load_source:external:method:display:count-1",
         "src/module_loader/mod.rs#load_source:external:method:is_some:count-1",
         "src/module_loader/mod.rs#load_source:external:method:ok_or_else:count-1",
-        "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
         "src/module_loader/mod.rs#manifest_input:external:call:Ok:count-4",
         "src/module_loader/mod.rs#manifest_input:external:call:Some:count-2",
         "src/module_loader/mod.rs#manifest_input:external:method:as_ref:count-1",
@@ -41415,7 +41747,10 @@
         "src/module_loader/mod.rs#module_kind_from_path:external:method:extension:count-1",
         "src/module_loader/mod.rs#module_kind_from_path:external:method:map:count-1",
         "src/module_loader/mod.rs#module_kind_from_path:external:method:to_ascii_lowercase:count-1",
-        "src/module_loader/mod.rs#module_resolve_options:external:method:into:count-23",
+        "src/module_loader/mod.rs#module_resolve_options:external:method:collect:count-1",
+        "src/module_loader/mod.rs#module_resolve_options:external:method:into:count-19",
+        "src/module_loader/mod.rs#module_resolve_options:external:method:map:count-1",
+        "src/module_loader/mod.rs#module_resolve_options:external:method:names:count-1",
         "src/module_loader/mod.rs#module_resolve_options:external:qualified:ResolveOptions::default:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:call:Some:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:method:and_then:count-3",
@@ -41461,7 +41796,6 @@
         "src/module_loader/mod.rs#normalize_import_target:external:method:extension:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:is_absolute:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:is_none:count-1",
-        "src/module_loader/mod.rs#normalize_import_target:external:method:iter:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:join:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
         "src/module_loader/mod.rs#normalize_in_boundary:external:call:Err:count-2",
@@ -41518,12 +41852,15 @@
         "src/module_loader/mod.rs#parse_manifest:external:qualified:ResolverManifestInput::Present:count-1",
         "src/module_loader/mod.rs#parse_manifest:external:qualified:serde_json::from_slice:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:call:Some:count-6",
+        "src/module_loader/mod.rs#pick_package_import_path:external:method:chain:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:method:contains:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:method:get:count-1",
+        "src/module_loader/mod.rs#pick_package_import_path:external:method:names:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:method:replacen:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:method:to_string:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:qualified:Value::Object:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:qualified:Value::String:count-1",
+        "src/module_loader/mod.rs#pick_package_import_path:external:qualified:std::iter::once:count-1",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Some:count-1",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:for:count-1",
@@ -41596,6 +41933,8 @@
         "src/module_loader/mod.rs#read_transpile_cache:external:method:map_err:count-1",
         "src/module_loader/mod.rs#read_transpile_cache:external:qualified:String::from_utf8:count-1",
         "src/module_loader/mod.rs#read_transpile_cache:external:qualified:std::fs::read:count-2",
+        "src/module_loader/mod.rs#resolve:external:qualified:ConditionSet::for_kind:count-1",
+        "src/module_loader/mod.rs#resolve:external:qualified:ImportAttributes::default:count-1",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Err:count-2",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Ok:count-3",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Some:count-3",
@@ -41613,11 +41952,13 @@
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:push:count-2",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:to_path_buf:count-2",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:qualified:io::Error::new:count-3",
-        "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-3",
+        "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Ok:count-2",
+        "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-5",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:method:get:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:method:to_string:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:crate::vfs::SourceId::builtin:count-1",
+        "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:identity::SourceId::builtin:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Ok:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Some:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:and_then:count-1",
@@ -41628,39 +41969,43 @@
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:ok_or_else:count-3",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:parent:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:with_context:count-1",
+        "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
-        "src/module_loader/mod.rs#resolve_meta:external:call:Err:count-4",
-        "src/module_loader/mod.rs#resolve_meta:external:call:Ok:count-2",
-        "src/module_loader/mod.rs#resolve_meta:external:call:Some:count-3",
-        "src/module_loader/mod.rs#resolve_meta:external:method:is_empty:count-1",
-        "src/module_loader/mod.rs#resolve_meta:external:method:starts_with:count-3",
-        "src/module_loader/mod.rs#resolve_meta:external:method:trim:count-1",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Err:count-3",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Ok:count-1",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Some:count-2",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:is_empty:count-1",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:starts_with:count-2",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:trim:count-1",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Err:count-3",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Ok:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Some:count-4",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:and_then:count-2",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:any:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:context:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:get:count-3",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_empty:count-2",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_null:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_some_and:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:join:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:map:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:ok_or_else:count-2",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:split:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:starts_with:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:strip_prefix:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:to_owned:count-3",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:trim:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+        "src/module_loader/mod.rs#resolve_meta:external:qualified:ConditionSet::for_kind:count-1",
+        "src/module_loader/mod.rs#resolve_meta:external:qualified:ImportAttributes::default:count-1",
+        "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
+        "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ImportAttributes::default:count-1",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Err:count-4",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Some:count-2",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:is_empty:count-2",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:starts_with:count-2",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:trim:count-1",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ConditionSet::for_kind:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ImportAttributes::default:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Err:count-4",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Some:count-4",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:and_then:count-2",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:any:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:get:count-3",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_empty:count-3",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_null:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_some_and:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:join:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:map:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:ok_or_else:count-2",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:split:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:starts_with:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:strip_prefix:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:to_owned:count-3",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:trim:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:call:Err:count-5",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:call:Some:count-3",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:method:is_empty:count-2",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:method:starts_with:count-3",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:method:trim:count-1",
         "src/module_loader/mod.rs#resolve_package_import:external:call:Some:count-3",
         "src/module_loader/mod.rs#resolve_package_import:external:call:let:count-1",
         "src/module_loader/mod.rs#resolve_package_import:external:method:as_object:count-1",
@@ -41705,21 +42050,22 @@
         "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Err:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Ok:count-2",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-15",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-17",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:let:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-2",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-3",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_deref:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_str:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:directory:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:exists:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-2",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-3",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:flatten:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:full_path:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_absolute:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_none:count-5",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:join:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-1",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:module_type:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:name:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:normalize_in_boundary:count-1",
@@ -41729,7 +42075,7 @@
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:starts_with:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:then:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_path_buf:count-2",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-2",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-3",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string_lossy:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:unzip:count-1",
@@ -41935,6 +42281,9 @@
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:std::process::id:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:u64::from_le_bytes:count-1",
+        "src/module_loader/mod.rs#validate_import_attributes:external:call:Err:count-2",
+        "src/module_loader/mod.rs#validate_import_attributes:external:call:Ok:count-1",
+        "src/module_loader/mod.rs#validate_import_attributes:external:method:asserts_json:count-2",
         "src/module_loader/mod.rs#verify_transpile_override_identity:external:call:Ok:count-1",
         "src/module_loader/mod.rs#verify_transpile_override_identity:external:call:let:count-1",
         "src/module_loader/mod.rs#verify_transpile_override_identity:external:method:display:count-1",
@@ -42722,6 +43071,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.javascript.modulestaticimport.02xy8he",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#moduleStaticImport"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.javascript.originalmoduleregistryforrecord.0slt8xx",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -43001,6 +43359,24 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.rust.load.runner.source.0me5nub",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#load_runner_source"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.rust.load.runner.source.bytes.1avskw7",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#load_runner_source_bytes"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.rust.load.source.1lpnc7u",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -43163,6 +43539,15 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.rust.resolve.meta.authenticated.typed.0ysuk51",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.0p98ab7",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
@@ -43172,11 +43557,38 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.typed.1llmv94",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/module_loader/mod.rs#resolve_meta_from_bound_package"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_from_bound_package_typed"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_typed"
       ],
       "outputKinds": []
     },
@@ -43375,6 +43787,15 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/module_loader/mod.rs#transpile_module"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.rust.validate.import.attributes.0qchd64",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#validate_import_attributes"
       ],
       "outputKinds": []
     },
@@ -44268,6 +44689,42 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#__exactEnsureWebCrypto:node:crypto"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.module.runner.cache.access.0xf8bln",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize_then_access"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.module.runner.edge.authorization.0qnrmj5",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.module.runner.prepared.carrier.access.1iok9a9",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize_then_access"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.module.runner.trusted.source.acquisition.0bstk81",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize_then_access"
       ],
       "outputKinds": []
     },
@@ -46435,11 +46892,38 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.loader.route.resolution.rust.resolve.meta.authenticated.typed.0aw2nnq",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.10lvxcq",
       "status": "structural-only",
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.type.15s6chl",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.route.resolution.rust.resolve.meta.typed.11cq4bq",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_typed"
       ],
       "outputKinds": []
     },
@@ -46872,6 +47356,15 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/module_loader/mod.rs#unique_tmp_path"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.route.resolution.rust.validate.import.attributes.10zvr6j",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/module_loader/mod.rs#validate_import_attributes"
       ],
       "outputKinds": []
     },
@@ -47340,6 +47833,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#__compartments",
         "src/engine/hermes_runtime.cc#__compartments",
         "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__compartments"
       ],
@@ -47358,6 +47852,15 @@
         "public-property-read",
         "structured-output"
       ]
+    },
+    {
+      "surfaceId": "surface.native.op.esmodule.1520cqi",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#__esModule"
+      ],
+      "outputKinds": []
     },
     {
       "surfaceId": "surface.native.op.ex.p.1qv50n0",
@@ -80206,6 +80709,7 @@
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/engine/hermes.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/runtime.rs#Command::default_env:dynamic:write",
@@ -81036,6 +81540,24 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.startup.env.ibex.capsec.fixture.evidence.binding.09iafhp",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING:read"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.env.ibex.capsec.fixture.evidence.output.16bqkc9",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT:read"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2",
       "status": "structural-only",
       "reasonCode": "startup-structural-route",
@@ -81051,6 +81573,7 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
         "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
         "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
       ],
@@ -81107,6 +81630,15 @@
       "reasonCode": "startup-structural-route",
       "sourceRefs": [
         "src/host/http_server.rs#env::var:IBEX_HTTP_MAX_REQUEST_BODY_BYTES:read"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.startup.env.ibex.legacy.module.loader.0jlar90",
+      "status": "structural-only",
+      "reasonCode": "startup-structural-route",
+      "sourceRefs": [
+        "src/bin/ibex/runtime.rs#env::var:IBEX_LEGACY_MODULE_LOADER:read"
       ],
       "outputKinds": []
     },
@@ -82841,15 +83373,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-3yTAxhBaEqa8jy6zXp8lbh5JPOHasmex6NulYM0VWuA",
+  "catalogKeyDigest": "sha256-Vd2srTKmEAUKF_7JcCTTIux-Ks67v_pJUlpEEvK5mAM",
   "counts": {
-    "coverageSurfaces": 7272,
-    "outputBearingSurfaces": 5740,
-    "structuralOnlySurfaces": 1529,
-    "unresolvedSurfaces": 3,
-    "catalogRows": 6362,
+    "coverageSurfaces": 7321,
+    "outputBearingSurfaces": 5768,
+    "structuralOnlySurfaces": 1549,
+    "unresolvedSurfaces": 4,
+    "catalogRows": 6409,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 5955,
+    "sourceInventoryRows": 6002,
     "structuredRows": 407
   },
   "rows": [
@@ -145001,6 +145533,258 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_create_record",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_create_record"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_create_record"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u",
+        "output": "out:record",
+        "alias": "ex_hermes_commonjs_create_record",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_create_record"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_create_record"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_create_esm_adapter",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
+        "output": "out:adapter",
+        "alias": "ex_hermes_commonjs_record_create_esm_adapter",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
+        "output": "out:error",
+        "alias": "ex_hermes_commonjs_record_create_esm_adapter",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_declare_export",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_declare_export"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_declare_export"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_evaluate",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_evaluate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
+        "output": "out:error",
+        "alias": "ex_hermes_commonjs_record_evaluate",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_evaluate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
+        "output": "out:evicted",
+        "alias": "ex_hermes_commonjs_record_evaluate",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_evaluate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_link_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_link_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_dynamic_import"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_link_require",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_link_require"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.link.require.esm.06f0u7s",
+        "output": "[[return]]",
+        "alias": "ex_hermes_commonjs_record_link_require_esm",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_link_require_esm"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require_esm"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.create.04wgtwz",
         "output": "[[return]]",
         "alias": "ex_hermes_create",
@@ -147422,6 +148206,69 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6",
+        "output": "[[return]]",
+        "alias": "ex_hermes_graph_context_create",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_graph_context_create"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_create"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6",
+        "output": "out:context",
+        "alias": "ex_hermes_graph_context_create",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_graph_context_create"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_create"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.graph.context.retain.1norhoj",
+        "output": "[[return]]",
+        "alias": "ex_hermes_graph_context_retain",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_graph_context_retain"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_retain"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
         "output": "[[return]]",
         "alias": "ex_hermes_has_pending_tasks",
@@ -147437,6 +148284,615 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_has_pending_tasks"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_compile_factory",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_compile_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
+        "output": "out:error",
+        "alias": "ex_hermes_module_compile_factory",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_compile_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
+        "output": "out:factory",
+        "alias": "ex_hermes_module_compile_factory",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_compile_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_create_record",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_create_record"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
+        "output": "out:record",
+        "alias": "ex_hermes_module_create_record",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_create_record"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_load_carrier_factory",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_load_carrier_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm",
+        "output": "out:error",
+        "alias": "ex_hermes_module_load_carrier_factory",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_load_carrier_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm",
+        "output": "out:factory",
+        "alias": "ex_hermes_module_load_carrier_factory",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_load_carrier_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.pin.generation.1uroxl2",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_pin_generation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_pin_generation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_pin_generation"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_declare_export",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_declare_export"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_declare_export"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.instantiate.043epyu",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_instantiate",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_instantiate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_instantiate"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.instantiate.043epyu",
+        "output": "out:error",
+        "alias": "ex_hermes_module_record_instantiate",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_instantiate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_instantiate"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_link_dependency",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_link_dependency"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dependency"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_link_dynamic_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_link_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dynamic_import"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_link_export",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_link_export"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_export"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_link_import",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_link_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_import"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_namespace_json",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_namespace_json"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
+        "output": "out:error",
+        "alias": "ex_hermes_module_record_namespace_json",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_namespace_json"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
+        "output": "out:json",
+        "alias": "ex_hermes_module_record_namespace_json",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_namespace_json"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_poll_evaluation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_poll_evaluation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua",
+        "output": "out:error",
+        "alias": "ex_hermes_module_record_poll_evaluation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_poll_evaluation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua",
+        "output": "out:state",
+        "alias": "ex_hermes_module_record_poll_evaluation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_poll_evaluation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_run_declare",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_run_declare"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_declare"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a",
+        "output": "out:error",
+        "alias": "ex_hermes_module_record_run_declare",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_run_declare"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_declare"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_record_run_execute",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_run_execute"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_execute"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
+        "output": "out:async",
+        "alias": "ex_hermes_module_record_run_execute",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_run_execute"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_execute"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
+        "output": "out:error",
+        "alias": "ex_hermes_module_record_run_execute",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_run_execute"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_execute"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_release_handle",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_release_handle"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_release_handle"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.unpin.generation.0bvxkc5",
+        "output": "[[return]]",
+        "alias": "ex_hermes_module_unpin_generation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_unpin_generation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_unpin_generation"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -148913,6 +150369,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.try.destroy.0zf7qwp",
+        "output": "[[return]]",
+        "alias": "ex_hermes_try_destroy",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_try_destroy"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_try_destroy"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.value.kind.1p2efiz",
         "output": "[[return]]",
         "alias": "ex_hermes_value_kind",
@@ -149390,6 +150867,27 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_authorize_typed_udp_datagram_stack"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.build.exact.armed.embedder.artifacts.0ec6i9m",
+        "output": "[[return]]",
+        "alias": "ex_host_build_exact_armed_embedder_artifacts",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_build_exact_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_armed_embedder_artifacts"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -151337,6 +152835,27 @@
         ],
         "sourceRefs": [
           "src/host/abi.rs#ex_host_prepare_armed_embedder_artifacts"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.prepare.exact.armed.embedder.artifacts.176c653",
+        "output": "[[return]]",
+        "alias": "ex_host_prepare_exact_armed_embedder_artifacts",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_host_prepare_exact_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_prepare_exact_armed_embedder_artifacts"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -154216,6 +155735,7 @@
           "native-op:__compartments"
         ],
         "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#__compartments",
           "src/engine/hermes_runtime.cc#__compartments",
           "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__compartments"
         ]

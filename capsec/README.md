@@ -79,13 +79,16 @@ bun run generate:capsec-conformance
 ```
 
 The report is written under `target/` and is intentionally incomplete unless
-an independently produced `--fixture-evidence` artifact supplies one unique,
-passing, artifact-digested result for every exact fixture obligation. Each
+independently produced fixture evidence supplies one unique, passing,
+artifact-digested result for every exact fixture obligation. The runner's
+repo-local pilot produces seven such Exact embedder records; `--fixture-evidence`
+may supply the same strictly validated artifact shape explicitly. Each
 execution must carry the binding digest for the report's source revision,
 source tree, engine binary, target, vocabulary, registry, implementation
-manifest, and fixture catalog. `--require-conformant` makes any missing or
-failed result fatal. Inventory rows and a green sample suite never synthesize
-execution results.
+manifest, fixture catalog, recipe catalog, and public execution artifact, plus
+the exact fixture plan and fresh runtime observation. `--require-conformant`
+makes any missing or failed result fatal. Inventory rows and a green sample
+suite never synthesize execution results.
 
 On the declared candidate target, run the prerequisite matrix and produce a
 bound report from a clean committed tree with:

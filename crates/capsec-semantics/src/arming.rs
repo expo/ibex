@@ -265,6 +265,7 @@ pub struct ArmedSnapshot {
     project_root_discovery: ArmedProjectRootDiscovery,
     root_bindings: Arc<[ArmedRootBinding]>,
     path_canonicalizers: PathAliasCanonicalizers,
+    module_edges: Arc<[SnapshotImportEdge]>,
     protected_artifacts: Arc<[ExpectedProtectedArtifact]>,
     bootstrap_compatibility_modes: Arc<[String]>,
     armed_snapshot_digest: Digest,
@@ -409,12 +410,16 @@ impl ArmedSnapshot {
         }
         let path_canonicalizers =
             bind_path_canonicalizers(path_canonicalizer_rows, &root_bindings)?;
+        let graph: SnapshotPackageGraph =
+            serde_json::from_value(value_at(&document, &["packageGraph"])?.clone())
+                .map_err(|error| invalid(format!("invalid package graph: {error}")))?;
         Ok(Self {
             document: Arc::new(document),
             entry,
             project_root_discovery,
             root_bindings: root_bindings.into(),
             path_canonicalizers,
+            module_edges: graph.import_edges.into(),
             protected_artifacts: expected.protected_artifacts.clone().into(),
             bootstrap_compatibility_modes: bootstrap_compatibility_modes.into(),
             armed_snapshot_digest: claimed,
@@ -453,6 +458,39 @@ impl ArmedSnapshot {
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| invalid("engine.target must be a string"))
+    }
+
+    /// Exact digest-bound module edge lookup. Callers provide the authored
+    /// request plus resolution semantics; a bare package allowlist projection
+    /// is never sufficient for source acquisition.
+    /// @ref LLP 0023#12-package-bindings-are-derived-from-the-graph-and-contained-in-the-project
+    pub fn authenticates_module_edge(
+        &self,
+        importer: &Principal,
+        request_specifier: &str,
+        imported: &Principal,
+        resolution_kind: &str,
+        conditions: &[String],
+        attributes: &BTreeMap<String, String>,
+    ) -> bool {
+        self.module_edges.iter().any(|edge| {
+            edge.importer == *importer
+                && edge.imported == *imported
+                && edge
+                    .request_specifier
+                    .as_ref()
+                    .is_some_and(|request| request.as_str() == request_specifier)
+                && edge
+                    .resolution_kind
+                    .is_some_and(|kind| kind.as_str() == resolution_kind)
+                && edge.conditions.as_ref().is_some_and(|edge_conditions| {
+                    edge_conditions
+                        .iter()
+                        .map(|condition| condition.as_str().to_owned())
+                        .eq(conditions.iter().cloned())
+                })
+                && edge.attributes.as_ref() == Some(attributes)
+        })
     }
 
     pub fn engine_features(&self) -> Result<Vec<String>> {
@@ -869,16 +907,57 @@ struct SnapshotPackageGraph {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SnapshotGraphNode {
     principal: Principal,
+    #[serde(default)]
+    resolving_specifier: Option<NonEmptyString>,
+    #[serde(default)]
+    root_object: Option<ObjectIdentity>,
+    #[serde(default)]
+    virtual_aliases: Option<Vec<LogicalPath>>,
+    #[serde(default)]
+    platform_disposition: Option<SnapshotPlatformDisposition>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SnapshotImportEdge {
     importer: Principal,
     imported: Principal,
+    #[serde(default)]
+    request_specifier: Option<NonEmptyString>,
+    #[serde(default)]
+    resolution_kind: Option<SnapshotResolutionKind>,
+    #[serde(default)]
+    conditions: Option<Vec<NonEmptyString>>,
+    #[serde(default)]
+    attributes: Option<BTreeMap<String, String>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum SnapshotPlatformDisposition {
+    Required,
+    OptionalPresent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum SnapshotResolutionKind {
+    EsmStatic,
+    DynamicImport,
+    CommonJsRequire,
+}
+
+impl SnapshotResolutionKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::EsmStatic => "esm-static",
+            Self::DynamicImport => "dynamic-import",
+            Self::CommonJsRequire => "common-js-require",
+        }
+    }
 }
 
 fn validate_snapshot_invariants(
@@ -924,12 +1003,49 @@ fn validate_snapshot_invariants(
     let graph: SnapshotPackageGraph =
         serde_json::from_value(value_at(document, &["packageGraph"])?.clone())
             .map_err(|error| invalid(format!("invalid package graph: {error}")))?;
+    let production_graph = document.get("workflow").and_then(Value::as_str) == Some("production");
     let mut graph_nodes = BTreeSet::new();
     let mut nodes_by_locator = BTreeMap::new();
+    let mut graph_locations = BTreeMap::new();
     for node in graph.nodes {
         let Principal::Package { locator, .. } = &node.principal else {
             return refused("package graph contains a non-package node");
         };
+        if production_graph {
+            let resolving_specifier = node.resolving_specifier.as_ref().ok_or_else(|| {
+                Error::ArmRefused("production package graph node has no resolving specifier".into())
+            })?;
+            let root_object = node.root_object.as_ref().ok_or_else(|| {
+                Error::ArmRefused(
+                    "production package graph node has no canonical root object".into(),
+                )
+            })?;
+            let aliases = node.virtual_aliases.as_ref().ok_or_else(|| {
+                Error::ArmRefused("production package graph node has no virtual alias set".into())
+            })?;
+            if aliases.is_empty()
+                || aliases.iter().any(|alias| {
+                    !alias.is_canonical()
+                        || !matches!(alias.root, LogicalRoot::Project | LogicalRoot::Package)
+                })
+                || aliases.windows(2).any(|pair| pair[0] >= pair[1])
+            {
+                return refused(
+                    "production package graph virtual aliases must be sorted unique canonical project/package paths",
+                );
+            }
+            if node.platform_disposition.is_none() {
+                return refused("production package graph node has no platform disposition");
+            }
+            graph_locations.insert(
+                node.principal.clone(),
+                (
+                    resolving_specifier.as_str().to_owned(),
+                    root_object.clone(),
+                    aliases.clone(),
+                ),
+            );
+        }
         if !graph_nodes.insert(node.principal.clone())
             || nodes_by_locator
                 .insert(locator.as_str().to_owned(), node.principal)
@@ -948,13 +1064,65 @@ fn validate_snapshot_invariants(
     }
 
     let mut graph_edges = BTreeSet::new();
+    let mut graph_edge_records = BTreeSet::new();
     for edge in graph.import_edges {
-        if !authorities.contains_key(&edge.importer)
-            || !graph_nodes.contains(&edge.imported)
-            || !graph_edges.insert((edge.importer, edge.imported))
-        {
-            return refused("package graph contains a duplicate or unbound import edge");
+        if production_graph {
+            let request = edge.request_specifier.as_ref().ok_or_else(|| {
+                Error::ArmRefused("production import edge has no request specifier".into())
+            })?;
+            let kind = edge.resolution_kind.ok_or_else(|| {
+                Error::ArmRefused("production import edge has no resolution kind".into())
+            })?;
+            let conditions = edge.conditions.as_ref().ok_or_else(|| {
+                Error::ArmRefused("production import edge has no condition set".into())
+            })?;
+            let attributes = edge.attributes.as_ref().ok_or_else(|| {
+                Error::ArmRefused("production import edge has no import attributes".into())
+            })?;
+            let condition_names = conditions
+                .iter()
+                .map(NonEmptyString::as_str)
+                .collect::<Vec<_>>();
+            if condition_names.windows(2).any(|pair| pair[0] >= pair[1])
+                || condition_names.contains(&"default")
+                || !condition_names.contains(&"node")
+            {
+                return refused(
+                    "production import edge conditions must be sorted unique, include node, and exclude default",
+                );
+            }
+            let branch_is_valid = match kind {
+                SnapshotResolutionKind::CommonJsRequire => {
+                    condition_names.contains(&"require") && !condition_names.contains(&"import")
+                }
+                SnapshotResolutionKind::EsmStatic | SnapshotResolutionKind::DynamicImport => {
+                    condition_names.contains(&"import") && !condition_names.contains(&"require")
+                }
+            };
+            if !branch_is_valid {
+                return refused("production import edge conditions disagree with resolution kind");
+            }
+            if attributes
+                .iter()
+                .any(|(key, value)| key != "type" || value != "json")
+            {
+                return refused("production import edge has unsupported import attributes");
+            }
+            if !edge.imported.is_package() || request.as_str().trim() != request.as_str() {
+                return refused("production import edge request or target is invalid");
+            }
+            let record = crate::canonical::to_jcs_bytes(
+                &serde_json::to_value(&edge)
+                    .map_err(|error| invalid(format!("invalid import edge: {error}")))?,
+            )?;
+            if !graph_edge_records.insert(record) {
+                return refused("package graph contains a duplicate typed import edge");
+            }
         }
+        if !authorities.contains_key(&edge.importer) || !graph_nodes.contains(&edge.imported) {
+            return refused("package graph contains an unbound import edge");
+        }
+        graph_edges.insert((edge.importer, edge.imported));
     }
     let mut declared_edges = BTreeSet::new();
     for row in &principal_rows {
@@ -974,7 +1142,7 @@ fn validate_snapshot_invariants(
     let bindings: Vec<ArmedRootBinding> =
         serde_json::from_value(value_at(document, &["rootBindings"])?.clone())
             .map_err(|error| invalid(format!("invalid armed root bindings: {error}")))?;
-    validate_root_bindings(&bindings, &graph_nodes)?;
+    validate_root_bindings(&bindings, &graph_nodes, &graph_locations, production_graph)?;
     validate_project_root_discovery(project_root_discovery, &bindings)?;
     Ok(())
 }
@@ -1060,6 +1228,8 @@ fn validate_project_root_discovery(
 fn validate_root_bindings(
     bindings: &[ArmedRootBinding],
     graph_nodes: &BTreeSet<Principal>,
+    graph_locations: &BTreeMap<Principal, (String, ObjectIdentity, Vec<LogicalPath>)>,
+    production_graph: bool,
 ) -> Result<()> {
     if bindings.is_empty() {
         return refused("armed snapshot has no root bindings");
@@ -1068,9 +1238,11 @@ fn validate_root_bindings(
     let mut logical_keys = BTreeSet::new();
     let mut objects = BTreeSet::new();
     let mut package_binding_counts = BTreeMap::<Principal, usize>::new();
+    let mut package_host_paths = BTreeMap::<Principal, Vec<PathComponent>>::new();
     let mut project_bindings = 0usize;
     let mut project_components = None;
     let mut private_home_components = None;
+    let mut project_host_path = None;
     for binding in bindings {
         if binding.host_path.root != LogicalRoot::Absolute
             || binding.host_path.host_bound != Some(true)
@@ -1103,6 +1275,27 @@ fn validate_root_bindings(
                     return refused("package root binding owner is outside the package graph");
                 }
                 *package_binding_counts.entry(owner.clone()).or_default() += 1;
+                package_host_paths.insert(owner.clone(), binding.host_path.components.clone());
+                if production_graph {
+                    let (_, root_object, aliases) =
+                        graph_locations.get(owner).ok_or_else(|| {
+                            Error::ArmRefused(
+                                "package binding owner has no authenticated graph location".into(),
+                            )
+                        })?;
+                    if &binding.object != root_object {
+                        return refused(
+                            "package binding object differs from its digest-bound graph location",
+                        );
+                    }
+                    if let Some(logical_path) = binding.logical_path.as_ref() {
+                        if !aliases.contains(logical_path) {
+                            return refused(
+                                "package binding logical path is absent from its graph alias set",
+                            );
+                        }
+                    }
+                }
             }
             LogicalRoot::Absolute => {
                 if binding.owner.is_some()
@@ -1119,6 +1312,7 @@ fn validate_root_bindings(
                 }
                 project_bindings += 1;
                 project_components = Some(&binding.host_path.components);
+                project_host_path = Some(binding.host_path.components.clone());
             }
             LogicalRoot::Home => {
                 if binding.owner.is_some() || binding.logical_path.is_some() {
@@ -1152,6 +1346,34 @@ fn validate_root_bindings(
         || package_binding_counts.len() != graph_nodes.len()
     {
         return refused("every package graph node must have exactly one package-root binding");
+    }
+    if production_graph {
+        let project = project_host_path
+            .as_deref()
+            .ok_or_else(|| Error::ArmRefused("production graph has no project binding".into()))?;
+        for (principal, package) in package_host_paths {
+            let relative = package.strip_prefix(project).ok_or_else(|| {
+                Error::ArmRefused(
+                    "production package graph root is outside the project binding".into(),
+                )
+            })?;
+            if relative.is_empty() {
+                return refused("production package graph root equals the project binding");
+            }
+            let alias = LogicalPath {
+                root: LogicalRoot::Project,
+                components: relative.to_vec(),
+                host_bound: None,
+            };
+            let (_, _, aliases) = graph_locations.get(&principal).ok_or_else(|| {
+                Error::ArmRefused("production package binding has no graph location".into())
+            })?;
+            if aliases.as_slice() != [alias] {
+                return refused(
+                    "production package graph aliases must exactly name the project-relative root",
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -1727,6 +1949,56 @@ mod tests {
         .unwrap();
         value["workflow"] = Value::String("production".into());
         value["effectiveMode"] = Value::String("enforce".into());
+        let package_principal = value["packageGraph"]["nodes"][0]["principal"].clone();
+        let root_principal = value["rootIdentity"].clone();
+        let root_object = value["rootBindings"][0]["object"].clone();
+        value["packageGraph"]["nodes"][0] = serde_json::json!({
+            "principal": package_principal,
+            "resolvingSpecifier": "image-lib",
+            "rootObject": root_object,
+            "virtualAliases": [{
+                "root": "project",
+                "components": [
+                    {"encoding": "utf8", "value": "node_modules"},
+                    {"encoding": "utf8", "value": "image-lib"}
+                ]
+            }],
+            "platformDisposition": "required"
+        });
+        value["packageGraph"]["importEdges"] = serde_json::json!([
+            {
+                "importer": root_principal,
+                "imported": package_principal,
+                "requestSpecifier": "image-lib",
+                "resolutionKind": "common-js-require",
+                "conditions": ["node", "require"],
+                "attributes": {}
+            },
+            {
+                "importer": root_principal,
+                "imported": package_principal,
+                "requestSpecifier": "image-lib",
+                "resolutionKind": "dynamic-import",
+                "conditions": ["import", "node"],
+                "attributes": {}
+            },
+            {
+                "importer": root_principal,
+                "imported": package_principal,
+                "requestSpecifier": "image-lib",
+                "resolutionKind": "esm-static",
+                "conditions": ["import", "node"],
+                "attributes": {}
+            }
+        ]);
+        value["packageGraph"]["digest"] = Value::String(
+            crate::digest::compute_domain_digest(
+                "ibex:capsec:package-graph:1",
+                &value["packageGraph"],
+                &["digest".to_owned()],
+            )
+            .unwrap(),
+        );
         let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
         value["armedSnapshotDigest"] = Value::String(digest);
         let digest_at =
@@ -2003,6 +2275,44 @@ mod tests {
     }
 
     #[test]
+    fn typed_module_edges_bind_request_kind_conditions_and_principals() {
+        let (bytes, expected) = fixture();
+        let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
+        let root: Principal =
+            serde_json::from_value(armed.document()["rootIdentity"].clone()).unwrap();
+        let package: Principal = serde_json::from_value(
+            armed.document()["packageGraph"]["nodes"][0]["principal"].clone(),
+        )
+        .unwrap();
+        let attributes = BTreeMap::new();
+
+        assert!(armed.authenticates_module_edge(
+            &root,
+            "image-lib",
+            &package,
+            "esm-static",
+            &["import".into(), "node".into()],
+            &attributes,
+        ));
+        assert!(!armed.authenticates_module_edge(
+            &root,
+            "image-lib/private",
+            &package,
+            "esm-static",
+            &["import".into(), "node".into()],
+            &attributes,
+        ));
+        assert!(!armed.authenticates_module_edge(
+            &root,
+            "image-lib",
+            &package,
+            "common-js-require",
+            &["import".into(), "node".into()],
+            &attributes,
+        ));
+    }
+
+    #[test]
     fn compartment_endowment_projection_keeps_delimiters_inside_the_locator() {
         let (bytes, mut expected) = fixture();
         let mut value: Value = serde_json::from_slice(&bytes).unwrap();
@@ -2013,8 +2323,9 @@ mod tests {
         value["principals"][1]["endowments"] = serde_json::json!(["process"]);
         value["packageGraph"]["nodes"][0]["principal"]["locator"] =
             Value::String(locator.to_owned());
-        value["packageGraph"]["importEdges"][0]["imported"]["locator"] =
-            Value::String(locator.to_owned());
+        for edge in value["packageGraph"]["importEdges"].as_array_mut().unwrap() {
+            edge["imported"]["locator"] = Value::String(locator.to_owned());
+        }
         value["rootBindings"][0]["owner"]["locator"] = Value::String(locator.to_owned());
 
         let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
@@ -2362,18 +2673,33 @@ mod tests {
         value["principals"].as_array_mut().unwrap().push(second);
         value["principals"][0]["imports"]["packages"] =
             serde_json::json!(["image-lib@2.4.1", "other-lib@1.0.0"]);
+        let mut second_node = value["packageGraph"]["nodes"][0].clone();
+        second_node["principal"] = second_principal.clone();
+        second_node["resolvingSpecifier"] = Value::String("other-lib".into());
+        second_node["rootObject"]["file"] = Value::String("file-201".into());
+        second_node["virtualAliases"][0]["components"][1]["value"] =
+            Value::String("other-lib".into());
         value["packageGraph"]["nodes"]
             .as_array_mut()
             .unwrap()
-            .push(serde_json::json!({"principal": second_principal.clone()}));
+            .push(second_node);
         let root_identity = value["rootIdentity"].clone();
+        let second_edges = value["packageGraph"]["importEdges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| {
+                let mut edge = edge.clone();
+                edge["importer"] = root_identity.clone();
+                edge["imported"] = second_principal.clone();
+                edge["requestSpecifier"] = Value::String("other-lib".into());
+                edge
+            })
+            .collect::<Vec<_>>();
         value["packageGraph"]["importEdges"]
             .as_array_mut()
             .unwrap()
-            .push(serde_json::json!({
-                "importer": root_identity,
-                "imported": second_principal.clone(),
-            }));
+            .extend(second_edges);
         let mut second_binding = value["rootBindings"][0].clone();
         second_binding["owner"] = second_principal;
         second_binding["hostPath"]["components"]

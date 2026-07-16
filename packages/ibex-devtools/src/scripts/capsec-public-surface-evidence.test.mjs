@@ -364,6 +364,84 @@ function noncapBuiltinCallObservation(recipe) {
   };
 }
 
+function completeNoncapBuiltinAbsenceCatalog() {
+  const catalog = completeNoncapBuiltinCallCatalog();
+  const recipe = catalog.recipes[0];
+  const surfaceObservedKey = "builtin:export:node_constants:EDQUOT";
+  const sourceDescriptor = {
+    kind: "builtin-export",
+    sourceKey: "node_constants",
+    exportName: "EDQUOT",
+    exportIdioms: ["object-binding", "object-source", "table-copy"],
+    moduleSpecifiers: ["constants", "node:constants"],
+    sourceRef: "src/builtins/constants.js#exports:EDQUOT",
+    valueShape: "data",
+    platformAvailability: ["android", "linux"],
+    access: { kind: "export-property", path: ["EDQUOT"] },
+  };
+  recipe.fixtureId = "fixture.noncap-builtin.target-absent";
+  recipe.terminalObservedKey = surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [surfaceObservedKey];
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: surfaceObservedKey,
+      proofPaths: [surfaceObservedKey],
+    },
+  ];
+  recipe.publicSurfaceProbe.surfaceObservedKey = surfaceObservedKey;
+  recipe.publicSurfaceProbe.invocation = {
+    invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+    kind: "builtin-export-read",
+    moduleSpecifier: "node:constants",
+    exportName: "EDQUOT",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    arguments: [],
+    setup: { kind: "none" },
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    requiredAuthority: [],
+    expectedResult: "absent",
+    expectedTypedDecisionCount: 0,
+    expectedTypedStages: [],
+    allowedCoverageEdgeIds: [],
+    expectedActionIds: [],
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function noncapBuiltinAbsenceObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      moduleSpecifier: invocation.moduleSpecifier,
+      exportName: invocation.exportName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      completion: {
+        kind: invocation.completion.kind,
+        timeoutMilliseconds: invocation.completion.timeoutMilliseconds,
+        status: "quiescent",
+      },
+      result: {
+        kind: "missing",
+        moduleSpecifier: invocation.moduleSpecifier,
+        exportName: invocation.exportName,
+        segment: invocation.exportName,
+        available: ["EACCES", "ENOENT"],
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
 function completeAbsenceCatalog() {
   const sourceDescriptor = {
     kind: "target-absent-host-abi",
@@ -665,8 +743,7 @@ function completeClosedLoaderCatalog() {
   recipe.fixtureId = "fixture.loader.native-addon.closed";
   recipe.terminalObservedKey = "loader:native-addon-module";
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives[0].terminalObservedKey = recipe.terminalObservedKey;
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "loader",
@@ -710,8 +787,7 @@ function completeClosedExactCatalog() {
   recipe.edgeIds = ["edge.exact-closed"];
   recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives[0].terminalObservedKey = recipe.terminalObservedKey;
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "native-op",
@@ -760,8 +836,7 @@ function completeStartupCatalog() {
   });
   recipe.expectedObservation.branchId = "edge.startup.main";
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives[0].terminalObservedKey = recipe.terminalObservedKey;
   recipe.route.alternatives[0].proofPaths = [recipe.terminalObservedKey];
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
@@ -1166,9 +1241,7 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
       },
       expectedResult: "return",
       expectedTypedDecisionCount: denial ? 1 : 2,
-      expectedTypedStages: denial
-        ? ["requested"]
-        : ["requested", "commit"],
+      expectedTypedStages: denial ? ["requested"] : ["requested", "commit"],
       expectedTypedOutcomes: denial ? ["deny"] : ["allow", "allow"],
       expectedTypedReasons: denial
         ? ["principal-denial"]
@@ -1332,7 +1405,9 @@ function globalReadCatalog() {
           exportName: "Exact.version",
           globalName: "Exact",
           memberKinds: ["object-property"],
-          sourceRefs: ["packages/ibex-runtime-js/src/bootstrap.ts#Exact.version"],
+          sourceRefs: [
+            "packages/ibex-runtime-js/src/bootstrap.ts#Exact.version",
+          ],
           valueShape: "data",
           access: {
             kind: "source-proven-property-path",
@@ -1383,7 +1458,13 @@ function globalReadObservation(recipe) {
       surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
       globalName: invocation.globalName,
       sourceDescriptorDigest: invocation.sourceDescriptorDigest,
-      result: { kind: "return", valueType: "string", ownerDepths: [0, 0] },
+      result: {
+        kind: "return",
+        globalName: invocation.globalName,
+        valueType: "string",
+        ownerDepths: [0, 0],
+        cleanup: "none",
+      },
       executionProof: { kind: "global-property-read", bodyEntered: true },
     },
     legacyObservationCount: 0,
@@ -1472,8 +1553,7 @@ function privateCwdFacadeObservation(recipe) {
 
 function callbackRuntimeObservation(recipe) {
   const invocation = recipe.publicSurfaceProbe.invocation;
-  const auxiliaryEdgeId =
-    invocation.sourceDescriptor.auxiliaryDecisionEdgeId;
+  const auxiliaryEdgeId = invocation.sourceDescriptor.auxiliaryDecisionEdgeId;
   const packagePrincipal = {
     kind: "package",
     name: "image-lib",
@@ -1698,8 +1778,7 @@ describe("CapSec public-surface promotion evidence", () => {
       [
         "caller-selected completion timeout",
         (_value, authoredRecipe) => {
-          authoredRecipe.publicSurfaceProbe.invocation.completion.timeoutMilliseconds =
-            5_000;
+          authoredRecipe.publicSurfaceProbe.invocation.completion.timeoutMilliseconds = 5_000;
         },
         /escaped its observation session/,
       ],
@@ -1766,6 +1845,48 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/unsupported runtime invocation schema/);
+  });
+
+  test("accepts source-bound builtin target absence only after a public read", () => {
+    const catalog = completeNoncapBuiltinAbsenceCatalog();
+    const recipe = catalog.recipes[0];
+    const observed = noncapBuiltinAbsenceObservation(recipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const fabricated = structuredClone(observed);
+    fabricated.invocation.result.available.push("EDQUOT");
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: fabricated,
+        coverage,
+      }),
+    ).toThrow(/did not prove source-bound target absence/);
+
+    const availableHere = structuredClone(recipe);
+    availableHere.publicSurfaceProbe.invocation.sourceDescriptor.platformAvailability =
+      ["darwin", "linux"];
+    availableHere.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        availableHere.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    const availableObservation = noncapBuiltinAbsenceObservation(availableHere);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: availableHere,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: availableObservation,
+        coverage,
+      }),
+    ).toThrow(/did not prove source-bound target absence/);
   });
 
   test("accepts exact-target ABI absence only after a runtime symbol lookup", () => {
@@ -2006,6 +2127,43 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).not.toThrow();
+    const inheritedRecipe = structuredClone(recipe);
+    inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptor.memberKinds =
+      ["inherited", "static"];
+    inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        inheritedRecipe.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    const inheritedObservation = globalReadObservation(inheritedRecipe);
+    inheritedObservation.invocation.result.ownerDepths = [0, 1];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inheritedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: inheritedObservation,
+        coverage,
+      }),
+    ).not.toThrow();
+    inheritedObservation.invocation.result.valueType = "function";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inheritedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: inheritedObservation,
+        coverage,
+      }),
+    ).toThrow(/exact property owner chain/);
+    inheritedObservation.invocation.result.valueType = "string";
+    inheritedObservation.invocation.result.ownerDepths = [0, 0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inheritedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: inheritedObservation,
+        coverage,
+      }),
+    ).toThrow(/exact property owner chain/);
+
     observation.invocation.executionProof.kind = "native-return";
     expect(() =>
       buildPublicFixtureEvidence({
@@ -2058,6 +2216,94 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/private native facade provenance drift/);
+  });
+
+  test("accepts native async evidence only after authored quiescence", () => {
+    const recipe = completeCatalog().recipes[0];
+    recipe.terminalObservedKey = "native-op:__exactPublic";
+    recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.invocationSchema = "ibex/capsec-native-global-invocation/1";
+    invocation.kind = "native-global-function";
+    invocation.globalName = "__exactPublic";
+    invocation.sourceDescriptor = {
+      kind: "native-global-function",
+      globalName: "__exactPublic",
+      arity: 0,
+      sourceRef: "src/engine/hermes_runtime.cc#jsi-global:__exactPublic",
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.arguments = [];
+    invocation.requiredFloor = [];
+    invocation.setup = [];
+    invocation.expectedCleanup = "none";
+    invocation.completion = {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    };
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = runtimeObservation(recipe);
+    delete observation.invocation.moduleSpecifier;
+    delete observation.invocation.exportName;
+    observation.invocation.kind = invocation.kind;
+    observation.invocation.globalName = invocation.globalName;
+    observation.invocation.result.globalName = invocation.globalName;
+    observation.invocation.result.cleanup = "none";
+    observation.invocation.executionProof = {
+      kind: "native-return",
+      bodyEntered: true,
+    };
+    observation.invocation.completion = {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+      status: "quiescent",
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const wrongCleanup = structuredClone(observation);
+    wrongCleanup.invocation.result.cleanup = "closed-unrelated-resource";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongCleanup,
+        coverage,
+      }),
+    ).toThrow(/did not prove its authored cleanup/);
+
+    const pending = structuredClone(observation);
+    pending.invocation.completion.status = "pending";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: pending,
+        coverage,
+      }),
+    ).toThrow(/native work escaped its observation session/);
+
+    const missing = structuredClone(observation);
+    delete missing.invocation.completion;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missing,
+        coverage,
+      }),
+    ).toThrow(/unknown or missing fields/);
   });
 
   test("accepts a source-bound zero-effect host ABI branch with cleanup", () => {

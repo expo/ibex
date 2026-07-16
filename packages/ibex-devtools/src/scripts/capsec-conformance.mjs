@@ -182,7 +182,14 @@ export function fixtureExecutionPlans(catalog) {
 
 function validateExecutionEvidence(
   execution,
-  { plan, engineBinaryDigest },
+  {
+    plan,
+    recipe,
+    coverage,
+    engineBinaryDigest,
+    executionBinding,
+    validateRuntimeObservation,
+  },
 ) {
   const evidence = execution.evidence;
   if (
@@ -191,7 +198,16 @@ function validateExecutionEvidence(
     !Array.isArray(evidence.command) || evidence.command.length === 0 ||
     !evidence.command.every((part) => typeof part === "string" && part.length > 0) ||
     !Number.isSafeInteger(evidence.exitCode) ||
-    typeof evidence.resultMarker !== "string"
+    typeof evidence.resultMarker !== "string" ||
+    canonicalJson(evidence.fixturePlan) !== canonicalJson(plan) ||
+    canonicalJson(evidence.executionBinding) !==
+      canonicalJson(executionBinding) ||
+    evidence.runtimeObservation?.observationSchema !==
+      "ibex/capsec-runtime-public-observation/1" ||
+    !evidence.runtimeObservation.invocation ||
+    typeof evidence.runtimeObservation.invocation !== "object" ||
+    evidence.runtimeObservation.legacyObservationCount !== 0 ||
+    !Array.isArray(evidence.runtimeObservation.typedDecisions)
   ) {
     throw new Error(`${execution.fixtureId}: malformed fixture-specific evidence`);
   }
@@ -222,6 +238,16 @@ function validateExecutionEvidence(
   }
   if (execution.artifactDigest !== digest(evidence)) {
     throw new Error(`${execution.fixtureId}: artifact digest does not match fixture evidence`);
+  }
+  const runtimeTerminal = validateRuntimeObservation(
+    evidence.runtimeObservation,
+    recipe,
+    coverage,
+  );
+  if (runtimeTerminal !== plan.terminalObservedKey) {
+    throw new Error(
+      `${execution.fixtureId}: runtime observation did not execute the fixture terminal`,
+    );
   }
 }
 
@@ -334,8 +360,40 @@ export function buildConformanceReport({
   executions,
   bindings,
   digestContract,
+  recipeCatalog,
+  // Injected to avoid the conformance -> public evidence -> recipes ->
+  // conformance ESM cycle while still making mechanism-aware validation
+  // mandatory for every report-producing caller.
+  validateRuntimeObservation,
 }) {
   validateLoadedEngineBinding(bindings.engine, target);
+  const recipeCatalogPayload = recipeCatalog
+    ? (({ recipeCatalogDigest: _digest, ...payload }) => payload)(recipeCatalog)
+    : null;
+  if (
+    recipeCatalog?.recipeCatalogSchema !==
+      "ibex/capsec-executable-recipes/1" ||
+    recipeCatalog.profile !== "ibex/capsec/1" ||
+    recipeCatalog.recipeCatalogDigest !== bindings.recipeCatalogDigest ||
+    recipeCatalog.recipeCatalogDigest !== digest(recipeCatalogPayload) ||
+    canonicalJson(recipeCatalog.target) !== canonicalJson(target) ||
+    !Array.isArray(recipeCatalog.recipes) ||
+    typeof validateRuntimeObservation !== "function"
+  ) {
+    throw new Error(
+      "conformance generation requires the exact digest-bound recipe catalog and runtime-observation validator",
+    );
+  }
+  const recipes = new Map();
+  for (const recipe of recipeCatalog.recipes) {
+    if (
+      typeof recipe?.fixtureId !== "string" ||
+      recipes.has(recipe.fixtureId)
+    ) {
+      throw new Error("conformance recipe catalog has a malformed or duplicate fixture");
+    }
+    recipes.set(recipe.fixtureId, recipe);
+  }
   const catalog = fixtureCatalogForTarget({ coverage, implementation, target });
   const expected = new Set(catalog.flatMap((cell) => cell.requiredFixtures));
   const plans = fixturePlans(catalog);
@@ -350,6 +408,18 @@ export function buildConformanceReport({
     target,
     fixtureCatalogDigest,
   });
+  const requiredExecutionBinding = {
+    sourceRevision: bindings.sourceRevision,
+    sourceTreeDigest: bindings.sourceTreeDigest,
+    target,
+    engine: bindings.engine,
+    vocabularyDigest: bindings.vocabularyDigest,
+    registryDigest: bindings.registryDigest,
+    implementationManifestDigest,
+    fixtureCatalogDigest,
+    recipeCatalogDigest: bindings.recipeCatalogDigest,
+    publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
+  };
   const results = new Map();
   for (const execution of executions) {
     if (!expected.has(execution.fixtureId)) {
@@ -359,6 +429,15 @@ export function buildConformanceReport({
     }
     if (results.has(execution.fixtureId)) {
       throw new Error(`duplicate execution for fixture ${execution.fixtureId}`);
+    }
+    const recipe = recipes.get(execution.fixtureId);
+    if (
+      recipe?.status !== "fully-executable" ||
+      recipe.planDigest !== digest(plans.get(execution.fixtureId))
+    ) {
+      throw new Error(
+        `${execution.fixtureId}: execution has no exact fully executable recipe`,
+      );
     }
     if (
       !execution.executor ||
@@ -370,7 +449,11 @@ export function buildConformanceReport({
     }
     validateExecutionEvidence(execution, {
       plan: plans.get(execution.fixtureId),
+      recipe,
+      coverage,
       engineBinaryDigest: bindings.engine.binaryDigest,
+      executionBinding: requiredExecutionBinding,
+      validateRuntimeObservation,
     });
     if (execution.bindingDigest !== requiredBindingDigest) {
       throw new Error(
@@ -501,7 +584,14 @@ export function assertReportMayAdvertise(report) {
 
 export function validateConformanceReportSemantics(
   report,
-  { coverage, implementation, target, digestContract },
+  {
+    coverage,
+    implementation,
+    target,
+    digestContract,
+    recipeCatalog,
+    validateRuntimeObservation,
+  },
 ) {
   if (canonicalJson(report.bindings?.target) !== canonicalJson(target)) {
     throw new Error(
@@ -531,6 +621,8 @@ export function validateConformanceReportSemantics(
           }),
     },
     digestContract,
+    recipeCatalog,
+    validateRuntimeObservation,
   });
   if (canonicalJson(report) !== canonicalJson(expected)) {
     throw new Error("conformance report disagrees with derived evidence");

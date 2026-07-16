@@ -1552,11 +1552,7 @@ impl AuthenticatedSweep {
         }
     }
 
-    fn drain_publications(
-        &mut self,
-        engine: &HermesEngine,
-        context: &str,
-    ) -> anyhow::Result<()> {
+    fn drain_publications(&mut self, engine: &HermesEngine, context: &str) -> anyhow::Result<()> {
         self.publications.drain(engine, context)
     }
 
@@ -1575,6 +1571,512 @@ impl AuthenticatedSweep {
         self.publications.drain(engine, context)?;
         self.publications.require_no_due_schedules(context)
     }
+}
+
+fn parameterized_environment_bindings(plan: &Value) -> (Vec<Value>, Vec<Value>) {
+    let entries = plan["parameterizedEnvironment"]
+        .as_array()
+        .expect("v3 output-shape plan must bind parameterized environment evidence");
+    let mut bindings = Vec::with_capacity(entries.len());
+    let mut floor = Vec::new();
+    let mut surfaces = BTreeSet::new();
+    for entry in entries {
+        let binding = &entry["sweepBinding"];
+        assert_eq!(
+            binding["environmentOutputSweepBindingSchema"],
+            "ibex/capsec-environment-output-sweep-binding/1"
+        );
+        let surface_id = binding["surfaceId"]
+            .as_str()
+            .expect("parameterized environment binding has no surface ID");
+        assert!(
+            surfaces.insert(surface_id.to_owned()),
+            "duplicate parameterized environment surface {surface_id}"
+        );
+        assert_eq!(
+            binding["terminalSurfaces"]["scalarRead"]["name"],
+            "__exactGetEnv"
+        );
+        assert_eq!(
+            binding["terminalSurfaces"]["enumerationRead"]["name"],
+            "__exactGetAllEnv"
+        );
+        assert_eq!(
+            binding["terminalSurfaces"]["write"]["name"],
+            "__exactSetEnv"
+        );
+        let accounts = binding["accounts"]
+            .as_array()
+            .expect("parameterized environment binding accounts");
+        assert!(
+            !accounts.is_empty(),
+            "parameterized environment account set is empty"
+        );
+        let mut names = BTreeSet::new();
+        for account in accounts {
+            assert_eq!(
+                account["environmentOutputSweepAccountSchema"],
+                "ibex/capsec-environment-output-sweep-account/1"
+            );
+            let name = account["environmentName"]
+                .as_str()
+                .expect("parameterized environment account has no exact name");
+            assert!(
+                names.insert(name.to_owned()),
+                "duplicate exact environment name {name}"
+            );
+            assert_eq!(account["readSelector"]["cap"], "env:read");
+            assert_eq!(account["writeSetupSelector"]["cap"], "env:write");
+            for selector in [&account["readSelector"], &account["writeSetupSelector"]] {
+                assert_eq!(selector["resource"]["kind"], "environment-name");
+                assert_eq!(selector["resource"]["target"], "principal-overlay");
+                assert_eq!(selector["resource"]["name"], name);
+                floor.push(selector.clone());
+            }
+        }
+        assert!(
+            names.into_iter().eq(accounts.iter().map(|account| {
+                account["environmentName"]
+                    .as_str()
+                    .expect("exact environment name")
+                    .to_owned()
+            })),
+            "parameterized environment names are not canonically ordered"
+        );
+        bindings.push(binding.clone());
+    }
+    (bindings, floor)
+}
+
+fn child_host_environment_canaries(
+    bindings: &[Value],
+) -> std::collections::BTreeMap<String, std::ffi::OsString> {
+    let names = bindings
+        .iter()
+        .flat_map(|binding| {
+            binding["accounts"]
+                .as_array()
+                .expect("parameterized environment binding accounts")
+        })
+        .map(|account| {
+            account["environmentName"]
+                .as_str()
+                .expect("parameterized environment account name")
+                .to_owned()
+        })
+        .collect::<BTreeSet<_>>();
+    names
+        .into_iter()
+        .map(|name| {
+            let value = std::env::var_os(&name).unwrap_or_else(|| {
+                panic!(
+                    "owned output-shape executor child was not seeded with host-environment canary {name}"
+                )
+            });
+            (name, value)
+        })
+        .collect()
+}
+
+fn environment_typed_values(
+    observer_id: &str,
+    typed: Vec<ibex_runtime::host::ObservedTypedDecision>,
+) -> Vec<Value> {
+    typed
+        .into_iter()
+        .map(|decision| {
+            assert_eq!(decision.terminal_branch_id, observer_id);
+            serde_json::to_value(decision)
+                .expect("serialize complete parameterized environment decision")
+        })
+        .collect()
+}
+
+fn expected_environment_floor_source_ids(
+    accounts: &[Value],
+) -> std::collections::BTreeMap<(String, String), String> {
+    let mut selectors = accounts
+        .iter()
+        .flat_map(|account| {
+            [
+                account["readSelector"].clone(),
+                account["writeSetupSelector"].clone(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    selectors.sort_by(|left, right| {
+        let left = capsec_semantics::canonical::to_jcs_bytes(left).unwrap();
+        let right = capsec_semantics::canonical::to_jcs_bytes(right).unwrap();
+        left.cmp(&right)
+    });
+    selectors
+        .into_iter()
+        .enumerate()
+        .map(|(index, selector)| {
+            (
+                (
+                    selector["cap"].as_str().unwrap().to_owned(),
+                    selector["resource"]["name"].as_str().unwrap().to_owned(),
+                ),
+                format!("principal.000000.floor.{index:06}"),
+            )
+        })
+        .collect()
+}
+
+fn validate_environment_phase_decisions(binding: &Value, phase: &str, decisions: &[Value]) {
+    let accounts = binding["accounts"]
+        .as_array()
+        .expect("environment binding accounts");
+    let names = accounts
+        .iter()
+        .map(|account| account["environmentName"].as_str().unwrap().to_owned())
+        .collect::<BTreeSet<_>>();
+    let (capability, operation, surface_id) = match phase {
+        "write-setup" => (
+            "env:write",
+            "environment-write:",
+            binding["terminalSurfaces"]["write"]["surfaceId"]
+                .as_str()
+                .unwrap(),
+        ),
+        "enumeration" => (
+            "env:read",
+            "environment-enumerate:",
+            binding["terminalSurfaces"]["enumerationRead"]["surfaceId"]
+                .as_str()
+                .unwrap(),
+        ),
+        "scalar-before" | "scalar-after" => (
+            "env:read",
+            "environment-read:",
+            binding["terminalSurfaces"]["scalarRead"]["surfaceId"]
+                .as_str()
+                .unwrap(),
+        ),
+        other => panic!("unsupported parameterized environment phase {other}"),
+    };
+    let scalar_surface = binding["terminalSurfaces"]["scalarRead"]["surfaceId"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        decisions.len(),
+        accounts.len() * if phase == "enumeration" { 8 } else { 2 },
+        "{phase} decision cardinality did not match the exact executor calls"
+    );
+    let expected_floor_source_ids = expected_environment_floor_source_ids(accounts);
+    let mut primary_stages = std::collections::BTreeMap::<String, Vec<String>>::new();
+    let mut scalar_stages = std::collections::BTreeMap::<String, Vec<String>>::new();
+    let mut authenticated_semantic_states = BTreeSet::new();
+    for name in &names {
+        primary_stages.insert(name.clone(), Vec::new());
+        scalar_stages.insert(name.clone(), Vec::new());
+    }
+    for decision in decisions {
+        assert_eq!(decision["evidence"]["outcome"], "allow");
+        let effects = decision["decisionSet"]["effects"]
+            .as_array()
+            .expect("environment decision effects");
+        let gates = decision["gates"]
+            .as_array()
+            .expect("environment decision gates");
+        assert_eq!(effects.len(), 1);
+        assert_eq!(gates.len(), 1);
+        assert_eq!(gates[0]["targetCell"], "complete");
+        assert_eq!(gates[0]["definitionAndEdgePredicatesSatisfied"], true);
+        let requested = &effects[0]["resource"]["requested"];
+        let name = requested["name"]
+            .as_str()
+            .expect("environment decision exact name");
+        assert!(
+            names.contains(name),
+            "environment decision escaped exact account set"
+        );
+        assert_eq!(requested["kind"], "environment-name");
+        assert_eq!(requested["target"], "principal-overlay");
+        assert_eq!(effects[0]["resource"]["valueOrigin"], "principal-overlay");
+        let actor = &decision["decisionSet"]["context"]["actor"];
+        assert_eq!(
+            *actor,
+            json!({"kind": "root", "identity": "project-root"}),
+            "environment decision did not use the fixture root"
+        );
+        assert_eq!(
+            decision["decisionSet"]["context"]["constrainedPrincipals"],
+            json!([actor.clone()]),
+            "environment decision was not exact-root constrained"
+        );
+        assert_eq!(effects[0]["effectOwner"], *actor);
+        assert_eq!(decision["evidence"]["actor"], *actor);
+        assert_eq!(decision["evidence"]["effectOwners"], json!([actor.clone()]));
+        assert_eq!(
+            decision["evidence"]["constrainedPrincipals"],
+            json!([actor.clone()])
+        );
+        assert_eq!(
+            decision["evidence"]["operationId"],
+            decision["decisionSet"]["operationId"]
+        );
+        assert_eq!(
+            decision["evidence"]["stage"],
+            decision["decisionSet"]["context"]["stage"]
+        );
+        assert_eq!(
+            decision["evidence"]["identity"]["profile"],
+            "ibex/capsec/1"
+        );
+        assert_eq!(
+            decision["evidence"]["identity"]["semanticCore"],
+            "capsec/semantics/1"
+        );
+        assert_eq!(
+            decision["evidence"]["generations"],
+            json!({"negative": 0, "dynamic": 0, "handle": 0}),
+            "environment fixture must remain on its initial generations"
+        );
+        authenticated_semantic_states.insert(
+            serde_json::to_string(&json!({
+                "identity": decision["evidence"]["identity"].clone(),
+                "generations": decision["evidence"]["generations"].clone(),
+            }))
+            .unwrap(),
+        );
+        let operation_id = decision["decisionSet"]["operationId"]
+            .as_str()
+            .expect("environment decision operation ID");
+        let resource = serde_json::to_string(&json!({
+            "kind": "environment-name",
+            "target": "principal-overlay",
+            "name": name,
+        }))
+        .unwrap();
+        let is_primary = effects[0]["cap"] == capability
+            && operation_id == format!("{operation}0:{resource}")
+            && gates[0]["coverageEdgeId"] == surface_id;
+        let is_enumeration_scalar = phase == "enumeration"
+            && effects[0]["cap"] == "env:read"
+            && operation_id == format!("environment-read:0:{resource}")
+            && gates[0]["coverageEdgeId"] == scalar_surface;
+        assert!(
+            is_primary || is_enumeration_scalar,
+            "environment phase traversed an unauthored terminal route: {decision}"
+        );
+        let stage = decision["decisionSet"]["context"]["stage"]
+            .as_str()
+            .expect("environment decision stage");
+        assert!(matches!(stage, "requested" | "commit"));
+        let expected_source_id = expected_floor_source_ids
+            .get(&(effects[0]["cap"].as_str().unwrap().to_owned(), name.to_owned()))
+            .expect("exact environment floor source ID");
+        let evidence_entries = decision["evidence"]["evidence"]
+            .as_array()
+            .expect("environment evidence entries");
+        assert_eq!(
+            evidence_entries.len(),
+            1,
+            "environment decision must retain exactly one floor provenance entry"
+        );
+        assert_eq!(evidence_entries[0]["effectIndex"], 0);
+        assert_eq!(evidence_entries[0]["principal"], *actor);
+        assert_eq!(evidence_entries[0]["stratum"], "static-floor");
+        assert_eq!(evidence_entries[0]["reason"], "static-floor");
+        assert_eq!(evidence_entries[0]["sourceId"], expected_source_id.as_str());
+        if is_primary {
+            primary_stages.get_mut(name).unwrap().push(stage.to_owned());
+        } else {
+            scalar_stages.get_mut(name).unwrap().push(stage.to_owned());
+        }
+    }
+    for (name, stages) in primary_stages {
+        assert_eq!(
+            stages,
+            ["requested", "commit"],
+            "{phase} did not traverse one requested/commit pair for {name}"
+        );
+        let expected_scalar_stages: &[&str] = if phase == "enumeration" {
+            &[
+                "requested",
+                "commit",
+                "requested",
+                "commit",
+                "requested",
+                "commit",
+            ]
+        } else {
+            &[]
+        };
+        assert_eq!(
+            scalar_stages.remove(&name).unwrap(),
+            expected_scalar_stages,
+            "{phase} did not traverse its exact scalar-read calls for {name}"
+        );
+    }
+    assert_eq!(
+        authenticated_semantic_states.len(),
+        1,
+        "environment phase mixed authenticated semantic state"
+    );
+}
+
+async fn observed_environment_phase(
+    engine: &HermesEngine,
+    sweep: &mut AuthenticatedSweep,
+    binding: &Value,
+    phase: &str,
+    script: &str,
+) -> Value {
+    let observer_id = format!(
+        "output-shape-environment:{}:{phase}",
+        binding["sweepBindingDigest"].as_str().unwrap()
+    );
+    assert!(
+        ibex_runtime::host::abi::begin_installed_conformance_observation(&observer_id),
+        "begin exact environment observation {observer_id}"
+    );
+    let encoded = sweep
+        .eval_string(engine, script)
+        .await
+        .unwrap_or_else(|error| panic!("execute {phase} environment probe: {error:#}"))
+        .unwrap_or_else(|| panic!("{phase} environment probe returned no value"));
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(
+        legacy.is_empty(),
+        "{phase} environment probe consulted legacy policy"
+    );
+    let typed = environment_typed_values(&observer_id, typed);
+    validate_environment_phase_decisions(binding, phase, &typed);
+    json!({
+        "phase": phase,
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": typed,
+        "value": serde_json::from_str::<Value>(&encoded)
+            .unwrap_or_else(|error| panic!("decode {phase} environment result: {error}")),
+    })
+}
+
+async fn parameterized_environment_results(
+    engine: &HermesEngine,
+    sweep: &mut AuthenticatedSweep,
+    bindings: &[Value],
+    host_environment_canaries: &std::collections::BTreeMap<String, std::ffi::OsString>,
+    loaded_engine_binary_digest: &str,
+) -> Vec<Value> {
+    let mut results = Vec::with_capacity(bindings.len());
+    for binding in bindings {
+        let accounts = binding["accounts"].as_array().unwrap();
+        let names = accounts
+            .iter()
+            .map(|account| account["environmentName"].clone())
+            .collect::<Vec<_>>();
+        let values = accounts
+            .iter()
+            .enumerate()
+            .map(|(index, account)| {
+                json!({
+                    "name": account["environmentName"].clone(),
+                    "value": format!("ibex-capsec-output-value-{index}"),
+                })
+            })
+            .collect::<Vec<_>>();
+        let names_json = serde_json::to_string(&names).unwrap();
+        let values_json = serde_json::to_string(&values).unwrap();
+        let scalar_script = |names: &str| {
+            format!(
+                r#"(function(names){{return JSON.stringify(names.map(function(name){{var value=process.env[name];return {{valueShape:typeof value,value:typeof value==='undefined'?null:value}};}}));}})({names})"#
+            )
+        };
+        let before = observed_environment_phase(
+            engine,
+            sweep,
+            binding,
+            "scalar-before",
+            &scalar_script(&names_json),
+        )
+        .await;
+        let scalar_before_hidden = before["value"]
+            .as_array()
+            .expect("scalar-before environment result")
+            .iter()
+            .all(|value| value["valueShape"] == "undefined" && value["value"].is_null());
+        assert!(
+            scalar_before_hidden,
+            "armed scalar-before reads exposed a seeded child host-environment canary"
+        );
+        let write_script = format!(
+            r#"(function(entries){{return JSON.stringify(entries.map(function(entry){{var value=(process.env[entry.name]=entry.value);return {{valueShape:typeof value,value:value}};}}));}})({values_json})"#
+        );
+        let write =
+            observed_environment_phase(engine, sweep, binding, "write-setup", &write_script).await;
+        let after = observed_environment_phase(
+            engine,
+            sweep,
+            binding,
+            "scalar-after",
+            &scalar_script(&names_json),
+        )
+        .await;
+        let enumeration_script = r#"(function(){var names=Object.keys(process.env).sort();var accounts=names.map(function(name){var value=process.env[name];return {valueShape:typeof value,value:typeof value==='undefined'?null:value};});return JSON.stringify({names:names,accounts:accounts,facadeAliases:{exact:Exact.env===process.env,bun:Bun.env===process.env},sealedRawBridges:{scalar:typeof globalThis.__exactGetEnv,enumeration:typeof globalThis.__exactGetAllEnv,write:typeof globalThis.__exactSetEnv}});})()"#;
+        let enumeration =
+            observed_environment_phase(engine, sweep, binding, "enumeration", enumeration_script)
+                .await;
+        for (name, expected) in host_environment_canaries {
+            assert!(
+                std::env::var_os(name).as_ref() == Some(expected),
+                "armed environment overlay mutated child host environment name {name}"
+            );
+        }
+        assert_eq!(before["value"].as_array().unwrap().len(), accounts.len());
+        assert_eq!(write["value"].as_array().unwrap().len(), accounts.len());
+        assert_eq!(after["value"].as_array().unwrap().len(), accounts.len());
+        assert_eq!(enumeration["value"]["names"], Value::Array(names.clone()));
+        let facade_aliases = enumeration["value"]["facadeAliases"].clone();
+        let sealed_raw_bridges = enumeration["value"]["sealedRawBridges"].clone();
+        let account_results = accounts
+            .iter()
+            .enumerate()
+            .map(|(index, account)| {
+                let expected_value = &values[index]["value"];
+                assert_eq!(write["value"][index]["value"], *expected_value);
+                assert_eq!(after["value"][index]["value"], *expected_value);
+                assert_eq!(
+                    enumeration["value"]["accounts"][index]["value"],
+                    *expected_value
+                );
+                json!({
+                    "accountId": account["accountId"].clone(),
+                    "environmentName": account["environmentName"].clone(),
+                    "scalarBefore": before["value"][index].clone(),
+                    "scalarAfter": after["value"][index].clone(),
+                    "enumerated": enumeration["value"]["accounts"][index].clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let phases = [before, write, after, enumeration]
+            .into_iter()
+            .map(|mut phase| {
+                phase.as_object_mut().unwrap().remove("value");
+                phase
+            })
+            .collect::<Vec<_>>();
+        results.push(json!({
+            "environmentOutputExecutorResultSchema": "ibex/capsec-environment-output-executor-result/1",
+            "executor": EXECUTOR,
+            "loadedEngineBinaryDigest": loaded_engine_binary_digest,
+            "surfaceId": binding["surfaceId"].clone(),
+            "sweepBindingDigest": binding["sweepBindingDigest"].clone(),
+            "accounts": account_results,
+            "enumerationNames": names,
+            "facadeAliases": facade_aliases,
+            "sealedRawBridges": sealed_raw_bridges,
+            "hostEnvironmentCanary": {
+                "fixedNamesSeeded": true,
+                "scalarBeforeHidden": scalar_before_hidden,
+                "unchangedAfterOverlayWrites": true,
+            },
+            "phases": phases,
+        }));
+    }
+    results
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1637,8 +2139,7 @@ async fn decode_authenticated_record(
     publications
         .drain(engine, "output-shape file source after evaluation")
         .expect("drain output-shape file publications after evaluation");
-    let evaluation = evaluation
-        .expect("evaluate authenticated output-shape fixture");
+    let evaluation = evaluation.expect("evaluate authenticated output-shape fixture");
     let AuthenticatedEvaluation::Value { display, receipt } = evaluation else {
         panic!("authenticated output-shape fixture returned no value: {evaluation:?}");
     };
@@ -1653,8 +2154,7 @@ async fn decode_authenticated_record(
     publications
         .drain(engine, "output-shape file source value release")
         .expect("drain output-shape file publications after value release");
-    release
-        .expect("release authenticated output-shape fixture value");
+    release.expect("release authenticated output-shape fixture value");
     record
 }
 
@@ -1694,8 +2194,7 @@ async fn authenticated_file_record(
     publications
         .drain(engine, "output-shape file source event-loop drive")
         .expect("drain output-shape file publications after event-loop drive");
-    completion
-        .expect("drain output-shape file program");
+    completion.expect("drain output-shape file program");
     vfs.close();
     record
 }
@@ -1769,13 +2268,9 @@ async fn authenticated_inline_record(
         )
         .await;
     publications
-        .drain(
-            engine,
-            &format!("output-shape {mode} source value release"),
-        )
+        .drain(engine, &format!("output-shape {mode} source value release"))
         .expect("drain authenticated output-shape inline value publications");
-    release
-        .expect("release authenticated output-shape inline record");
+    release.expect("release authenticated output-shape inline record");
     record
 }
 
@@ -1785,10 +2280,9 @@ async fn authenticated_script_import_meta_refusal(
     mode: &str,
     publications: &mut AuthenticatedPublicationTracker,
 ) -> Value {
-    let error =
-        evaluate_authenticated_inline(engine, host, mode, b"import.meta.url", publications)
-            .await
-            .expect_err("authenticated session script unexpectedly admitted import.meta");
+    let error = evaluate_authenticated_inline(engine, host, mode, b"import.meta.url", publications)
+        .await
+        .expect_err("authenticated session script unexpectedly admitted import.meta");
     let reason = format!("{error:#}");
     assert_eq!(
         reason,
@@ -2520,6 +3014,7 @@ async fn capsec_output_shape_sweep_batch() {
         .as_array()
         .expect("output-shape sweep plan rows")
         .clone();
+    let (environment_bindings, environment_floor) = parameterized_environment_bindings(&plan);
 
     let descriptor_rows = rows
         .iter()
@@ -2573,6 +3068,7 @@ async fn capsec_output_shape_sweep_batch() {
     );
 
     let _lock = hermes_engine_test_lock().lock().await;
+    let host_environment_canaries = child_host_environment_canaries(&environment_bindings);
     let project = tempfile::tempdir().expect("create output-shape fixture project");
     let project_root =
         std::fs::canonicalize(project.path()).expect("canonicalize output-shape fixture project");
@@ -2878,7 +3374,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         true,
         true,
         true,
-        Vec::new(),
+        environment_floor,
         None,
         |snapshot| {
             snapshot["bootstrapCompatibilityModes"] = json!(["bun"]);
@@ -2903,6 +3399,19 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before output-shape sweep");
     let mut authenticated_sweep = AuthenticatedSweep::new(&host);
+
+    // @ref LLP 0023#6-path-bearing-observables — parameterized process.env
+    // output is proven against the finite exact-name selectors authenticated
+    // in this same armed snapshot, including both scalar and enumeration
+    // terminal routes. No host environment name or value is admitted.
+    let parameterized_results = parameterized_environment_results(
+        &engine,
+        &mut authenticated_sweep,
+        &environment_bindings,
+        &host_environment_canaries,
+        &identity_before.binary_digest,
+    )
+    .await;
 
     let (descriptor_results, descriptor_unexercisable) =
         loaded_descriptor_results(&engine, &mut authenticated_sweep, &descriptor_rows).await;
@@ -3304,6 +3813,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
             .expect("serialize loaded engine identity"),
         "compiledRegistrarIds": compiled_ids,
         "results": results,
+        "parameterizedResults": parameterized_results,
         "unexercisable": unexercisable,
     });
     let mut output = std::fs::OpenOptions::new()

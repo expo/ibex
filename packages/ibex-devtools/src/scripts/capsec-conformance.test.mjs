@@ -58,7 +58,8 @@ const bindings = {
   sourceRevision: "0".repeat(40),
   sourceTreeDigest: `sha256-${"A".repeat(43)}`,
   engine: {
-    engineArtifactPath: "/repo/ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
+    engineArtifactPath:
+      "/repo/ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
     kind: "hermes",
     binaryDigest: `sha256-${"B".repeat(43)}`,
     object: { platform: "apple", volume: "dev:test", file: "ino:test" },
@@ -91,6 +92,33 @@ const fixturePlan = fixtureExecutionPlan(
   fixtureCatalogForTarget({ coverage, implementation, target }),
   "edge.one.main.closed",
 );
+const recipeCatalog = {
+  recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+  profile: "ibex/capsec/1",
+  target,
+  recipes: [
+    {
+      fixtureId: fixturePlan.fixtureId,
+      status: "fully-executable",
+      planDigest: sha(fixturePlan),
+      terminalObservedKey: fixturePlan.terminalObservedKey,
+    },
+  ],
+};
+recipeCatalog.recipeCatalogDigest = sha(recipeCatalog);
+bindings.recipeCatalogDigest = recipeCatalog.recipeCatalogDigest;
+const passExecutionBinding = {
+  sourceRevision: bindings.sourceRevision,
+  sourceTreeDigest: bindings.sourceTreeDigest,
+  target,
+  engine: bindings.engine,
+  vocabularyDigest: bindings.vocabularyDigest,
+  registryDigest: bindings.registryDigest,
+  implementationManifestDigest: sha(implementation),
+  fixtureCatalogDigest,
+  recipeCatalogDigest: bindings.recipeCatalogDigest,
+  publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
+};
 const passEvidence = {
   evidenceSchema: "ibex/capsec-fixture-evidence/2",
   fixtureId: "edge.one.main.closed",
@@ -99,10 +127,18 @@ const passEvidence = {
   resultMarker: "ibex-capsec-fixture:edge.one.main.closed:passed",
   planDigest: sha(fixturePlan),
   engineBinaryDigest: bindings.engine.binaryDigest,
+  fixturePlan,
+  executionBinding: passExecutionBinding,
   observation: {
     kind: "enforcement-branch",
     branchId: "edge.one.main",
     result: "passed",
+  },
+  runtimeObservation: {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: { fixtureId: "edge.one.main.closed" },
+    legacyObservationCount: 0,
+    typedDecisions: [],
   },
 };
 const pass = {
@@ -120,6 +156,15 @@ const pass = {
   }),
   evidence: passEvidence,
 };
+const validateRuntimeObservation = (observation, recipe) => {
+  if (observation?.invocation?.fixtureId !== recipe.fixtureId) {
+    throw new Error("test runtime observation did not execute its recipe");
+  }
+  return recipe.terminalObservedKey;
+};
+const reportValidation = { recipeCatalog, validateRuntimeObservation };
+const buildTestReport = (options) =>
+  buildConformanceReport({ ...reportValidation, ...options });
 
 describe("capsec target conformance", () => {
   test("strict schema requires exact output evidence only for a conformant report", () => {
@@ -134,15 +179,26 @@ describe("capsec target conformance", () => {
       },
       vocabularyDigest: sha("vocabulary"),
       registryDigest: sha("registry"),
-      recipeCatalogDigest: sha("recipe-catalog"),
+      recipeCatalogDigest: bindings.recipeCatalogDigest,
       publicSurfaceExecutionDigest: sha("public-surface-execution"),
       outputDispositionEvidenceRawContentDigest: sha(
         "output-disposition-evidence",
       ),
     };
+    const schemaExecutionBinding = {
+      ...passExecutionBinding,
+      sourceRevision: schemaBindings.sourceRevision,
+      sourceTreeDigest: schemaBindings.sourceTreeDigest,
+      engine: schemaBindings.engine,
+      vocabularyDigest: schemaBindings.vocabularyDigest,
+      registryDigest: schemaBindings.registryDigest,
+      recipeCatalogDigest: schemaBindings.recipeCatalogDigest,
+      publicSurfaceExecutionDigest: schemaBindings.publicSurfaceExecutionDigest,
+    };
     const schemaEvidence = {
       ...pass.evidence,
       engineBinaryDigest: schemaBindings.engine.binaryDigest,
+      executionBinding: schemaExecutionBinding,
     };
     const schemaPass = {
       ...pass,
@@ -159,7 +215,7 @@ describe("capsec target conformance", () => {
     };
     const incompleteBindings = structuredClone(schemaBindings);
     delete incompleteBindings.outputDispositionEvidenceRawContentDigest;
-    const incomplete = buildConformanceReport({
+    const incomplete = buildTestReport({
       coverage,
       implementation,
       target,
@@ -169,7 +225,7 @@ describe("capsec target conformance", () => {
     });
     expect(validate(incomplete)).toBe(true);
 
-    const conformant = buildConformanceReport({
+    const conformant = buildTestReport({
       coverage,
       implementation,
       target,
@@ -304,7 +360,7 @@ describe("capsec target conformance", () => {
   test("inventory obligations without executions remain incomplete", () => {
     const incompleteBindings = structuredClone(bindings);
     delete incompleteBindings.outputDispositionEvidenceRawContentDigest;
-    const report = buildConformanceReport({
+    const report = buildTestReport({
       coverage,
       implementation,
       target,
@@ -327,8 +383,35 @@ describe("capsec target conformance", () => {
     );
   });
 
+  test("report construction requires recipe-aware runtime validation", () => {
+    expect(() =>
+      buildConformanceReport({
+        coverage,
+        implementation,
+        target,
+        executions: [],
+        bindings,
+        digestContract,
+        recipeCatalog,
+      }),
+    ).toThrow(/runtime-observation validator/);
+    const tamperedCatalog = structuredClone(recipeCatalog);
+    tamperedCatalog.recipes[0].status = "unresolved";
+    expect(() =>
+      buildTestReport({
+        coverage,
+        implementation,
+        target,
+        executions: [],
+        bindings,
+        digestContract,
+        recipeCatalog: tamperedCatalog,
+      }),
+    ).toThrow(/digest-bound recipe catalog/);
+  });
+
   test("a unique bound passing execution completes its exact cell", () => {
-    const report = buildConformanceReport({
+    const report = buildTestReport({
       coverage,
       implementation,
       target,
@@ -360,6 +443,7 @@ describe("capsec target conformance", () => {
         implementation,
         target,
         digestContract,
+        ...reportValidation,
       }),
     ).not.toThrow();
 
@@ -371,18 +455,19 @@ describe("capsec target conformance", () => {
         implementation,
         target,
         digestContract,
+        ...reportValidation,
       }),
     ).toThrow(/derived evidence/);
 
     const swappedOutputEvidence = structuredClone(report);
-    swappedOutputEvidence.bindings.outputDispositionEvidenceRawContentDigest =
-      `sha256-${"I".repeat(43)}`;
+    swappedOutputEvidence.bindings.outputDispositionEvidenceRawContentDigest = `sha256-${"I".repeat(43)}`;
     expect(() =>
       validateConformanceReportSemantics(swappedOutputEvidence, {
         coverage,
         implementation,
         target,
         digestContract,
+        ...reportValidation,
       }),
     ).toThrow(/execution binding/);
 
@@ -400,7 +485,7 @@ describe("capsec target conformance", () => {
       }),
     };
     expect(() =>
-      buildConformanceReport({
+      buildTestReport({
         coverage,
         implementation,
         target,
@@ -408,12 +493,137 @@ describe("capsec target conformance", () => {
         bindings: noEvidenceBindings,
         digestContract,
       }),
-    ).toThrow(/conformant report requires verified output-disposition evidence/);
+    ).toThrow(
+      /conformant report requires verified output-disposition evidence/,
+    );
+  });
+
+  test("credits seven fixture records while the residual target remains incomplete", () => {
+    const fixtureIds = Array.from(
+      { length: 8 },
+      (_, index) => `edge.pilot.main.fixture-${index + 1}`,
+    );
+    const pilotCoverage = {
+      edges: [
+        {
+          id: "edge.pilot",
+          classification: "closed",
+          surface: { kind: "native-op", name: "pilot" },
+        },
+      ],
+    };
+    const pilotImplementation = {
+      surfaces: [
+        {
+          edgeId: "edge.pilot",
+          observedKey: "native-op:pilot",
+          branchId: "edge.pilot.main",
+          enforcementBranchId: "edge.pilot.main",
+          enforcementRoute: { terminalObservedKey: "native-op:pilot" },
+          targetVariant: "all",
+          targetApplicability: { kind: "all" },
+          fixtureObligations: fixtureIds,
+        },
+      ],
+    };
+    const pilotCatalog = fixtureCatalogForTarget({
+      coverage: pilotCoverage,
+      implementation: pilotImplementation,
+      target,
+    });
+    const pilotFixtureCatalogDigest = sha(pilotCatalog);
+    const pilotImplementationDigest = sha(pilotImplementation);
+    const pilotRecipeCatalog = {
+      recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+      profile: "ibex/capsec/1",
+      target,
+      recipes: fixtureIds.slice(0, 7).map((fixtureId) => {
+        const plan = fixtureExecutionPlan(pilotCatalog, fixtureId);
+        return {
+          fixtureId,
+          status: "fully-executable",
+          planDigest: sha(plan),
+          terminalObservedKey: plan.terminalObservedKey,
+        };
+      }),
+    };
+    pilotRecipeCatalog.recipeCatalogDigest = sha(pilotRecipeCatalog);
+    const pilotBindings = {
+      ...bindings,
+      recipeCatalogDigest: pilotRecipeCatalog.recipeCatalogDigest,
+    };
+    const pilotExecutionBinding = {
+      sourceRevision: pilotBindings.sourceRevision,
+      sourceTreeDigest: pilotBindings.sourceTreeDigest,
+      target,
+      engine: pilotBindings.engine,
+      vocabularyDigest: pilotBindings.vocabularyDigest,
+      registryDigest: pilotBindings.registryDigest,
+      implementationManifestDigest: pilotImplementationDigest,
+      fixtureCatalogDigest: pilotFixtureCatalogDigest,
+      recipeCatalogDigest: pilotBindings.recipeCatalogDigest,
+      publicSurfaceExecutionDigest: pilotBindings.publicSurfaceExecutionDigest,
+    };
+    const pilotBindingDigest = executionBindingDigest({
+      bindings: {
+        ...pilotBindings,
+        implementationManifestDigest: pilotImplementationDigest,
+      },
+      target,
+      fixtureCatalogDigest: pilotFixtureCatalogDigest,
+    });
+    const pilotExecutions = fixtureIds.slice(0, 7).map((fixtureId) => {
+      const plan = fixtureExecutionPlan(pilotCatalog, fixtureId);
+      const evidence = {
+        evidenceSchema: "ibex/capsec-fixture-evidence/2",
+        fixtureId,
+        command: ["cargo", "test", "fixture-pilot"],
+        exitCode: 0,
+        resultMarker: `ibex-capsec-fixture:${fixtureId}:passed`,
+        planDigest: sha(plan),
+        engineBinaryDigest: bindings.engine.binaryDigest,
+        fixturePlan: plan,
+        executionBinding: pilotExecutionBinding,
+        observation: { ...plan.expectedObservation, result: "passed" },
+        runtimeObservation: {
+          observationSchema: "ibex/capsec-runtime-public-observation/1",
+          invocation: { fixtureId },
+          legacyObservationCount: 0,
+          typedDecisions: [],
+        },
+      };
+      return {
+        fixtureId,
+        outcome: "passed",
+        executor: "fixture-pilot",
+        artifactDigest: sha(evidence),
+        bindingDigest: pilotBindingDigest,
+        evidence,
+      };
+    });
+    const report = buildTestReport({
+      coverage: pilotCoverage,
+      implementation: pilotImplementation,
+      target,
+      executions: pilotExecutions,
+      bindings: pilotBindings,
+      digestContract,
+      recipeCatalog: pilotRecipeCatalog,
+    });
+    expect(report.status).toBe("incomplete");
+    expect(report.summary).toMatchObject({
+      requiredFixtures: 8,
+      passedFixtures: 7,
+      missingFixtures: 1,
+      failedFixtures: 0,
+    });
+    expect(report.executions).toHaveLength(7);
+    expect(() => assertReportMayAdvertise(report)).toThrow(/incomplete/);
   });
 
   test("rejects unknown, duplicate, and unbound execution claims", () => {
     expect(() =>
-      buildConformanceReport({
+      buildTestReport({
         coverage,
         implementation,
         target,
@@ -426,7 +636,7 @@ describe("capsec target conformance", () => {
       }),
     ).toThrow(/exact loaded Hermes object/);
     expect(() =>
-      buildConformanceReport({
+      buildTestReport({
         coverage,
         implementation,
         target,
@@ -436,7 +646,7 @@ describe("capsec target conformance", () => {
       }),
     ).toThrow(/unknown fixture/);
     expect(() =>
-      buildConformanceReport({
+      buildTestReport({
         coverage,
         implementation,
         target,
@@ -446,7 +656,7 @@ describe("capsec target conformance", () => {
       }),
     ).toThrow(/duplicate execution/);
     expect(() =>
-      buildConformanceReport({
+      buildTestReport({
         coverage,
         implementation,
         target,
@@ -456,7 +666,7 @@ describe("capsec target conformance", () => {
       }),
     ).toThrow(/artifact digest/);
     expect(() =>
-      buildConformanceReport({
+      buildTestReport({
         coverage,
         implementation,
         target,
@@ -466,53 +676,94 @@ describe("capsec target conformance", () => {
       }),
     ).toThrow(/binding/);
     expect(() =>
-      buildConformanceReport({
+      buildTestReport({
         coverage,
         implementation,
         target,
-        executions: [{
-          ...pass,
-          artifactDigest: sha({ ...pass.evidence, planDigest: `sha256-${"Z".repeat(43)}` }),
-          evidence: { ...pass.evidence, planDigest: `sha256-${"Z".repeat(43)}` },
-        }],
+        executions: [
+          {
+            ...pass,
+            artifactDigest: sha({
+              ...pass.evidence,
+              planDigest: `sha256-${"Z".repeat(43)}`,
+            }),
+            evidence: {
+              ...pass.evidence,
+              planDigest: `sha256-${"Z".repeat(43)}`,
+            },
+          },
+        ],
         bindings,
         digestContract,
       }),
     ).toThrow(/exact fixture plan/);
     expect(() =>
-      buildConformanceReport({
+      buildTestReport({
         coverage,
         implementation,
         target,
-        executions: [{
-          ...pass,
-          artifactDigest: sha({
-            ...pass.evidence,
-            observation: { ...pass.evidence.observation, branchId: "wrong.branch" },
-          }),
-          evidence: {
-            ...pass.evidence,
-            observation: { ...pass.evidence.observation, branchId: "wrong.branch" },
+        executions: [
+          {
+            ...pass,
+            artifactDigest: sha({
+              ...pass.evidence,
+              observation: {
+                ...pass.evidence.observation,
+                branchId: "wrong.branch",
+              },
+            }),
+            evidence: {
+              ...pass.evidence,
+              observation: {
+                ...pass.evidence.observation,
+                branchId: "wrong.branch",
+              },
+            },
           },
-        }],
+        ],
         bindings,
         digestContract,
       }),
     ).toThrow(/observed branch\/result/);
+    const wrongRuntimeEvidence = {
+      ...pass.evidence,
+      runtimeObservation: {
+        ...pass.evidence.runtimeObservation,
+        invocation: { fixtureId: "another.fixture" },
+      },
+    };
     expect(() =>
-      buildConformanceReport({
+      buildTestReport({
         coverage,
         implementation,
         target,
-        executions: [{
-          ...pass,
-          artifactDigest: sha({ command: ["bun", "test"] }),
-          evidence: {
-            ...pass.evidence,
-            command: ["bun", "test"],
-            resultMarker: "generic suite passed",
+        executions: [
+          {
+            ...pass,
+            artifactDigest: sha(wrongRuntimeEvidence),
+            evidence: wrongRuntimeEvidence,
           },
-        }],
+        ],
+        bindings,
+        digestContract,
+      }),
+    ).toThrow(/did not execute its recipe/);
+    expect(() =>
+      buildTestReport({
+        coverage,
+        implementation,
+        target,
+        executions: [
+          {
+            ...pass,
+            artifactDigest: sha({ command: ["bun", "test"] }),
+            evidence: {
+              ...pass.evidence,
+              command: ["bun", "test"],
+              resultMarker: "generic suite passed",
+            },
+          },
+        ],
         bindings,
         digestContract,
       }),

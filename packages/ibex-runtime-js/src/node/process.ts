@@ -242,9 +242,6 @@ const CANONICAL_ALLOWED_NODE_ENVIRONMENT_FLAGS = [
   '--verify-base-objects',
 ] as const;
 
-const _nativeSetAdd = Set.prototype.add;
-const _nativeSetClear = Set.prototype.clear;
-const _nativeSetDelete = Set.prototype.delete;
 const _nativeSetHas = Set.prototype.has;
 let _immutableAllowedNodeEnvironmentFlags: Set<string> | null = null;
 let _dateToStringPatched = false;
@@ -291,55 +288,27 @@ function normalizeAllowedNodeEnvironmentFlag(flag: unknown): string | null {
 
 function createAllowedNodeEnvironmentFlags(): Set<string> {
   if (!_immutableAllowedNodeEnvironmentFlags) {
-    const allowedFlags = new Set<string>(CANONICAL_ALLOWED_NODE_ENVIRONMENT_FLAGS);
-    if (!(Set.prototype as any).__exactImmutableAllowedFlagsPatched) {
-      Object.defineProperty(Set.prototype, 'add', {
-        value(this: Set<unknown>, value: unknown) {
-          if (this === _immutableAllowedNodeEnvironmentFlags) {
-            return this;
-          }
-          return _nativeSetAdd.call(this, value);
-        },
-        writable: true,
-        configurable: true,
-      });
-      Object.defineProperty(Set.prototype, 'delete', {
-        value(this: Set<unknown>, value: unknown) {
-          if (this === _immutableAllowedNodeEnvironmentFlags) {
-            return false;
-          }
-          return _nativeSetDelete.call(this, value);
-        },
-        writable: true,
-        configurable: true,
-      });
-      Object.defineProperty(Set.prototype, 'clear', {
-        value(this: Set<unknown>) {
-          if (this === _immutableAllowedNodeEnvironmentFlags) {
-            return undefined;
-          }
-          return _nativeSetClear.call(this);
-        },
-        writable: true,
-        configurable: true,
-      });
-      Object.defineProperty(Set.prototype, '__exactImmutableAllowedFlagsPatched', {
-        value: true,
-        writable: false,
-        configurable: true,
-      });
-    }
-
-    Object.defineProperty(allowedFlags, 'has', {
-      value(this: Set<string>, value: unknown): boolean {
-        const normalized = normalizeAllowedNodeEnvironmentFlag(value);
-        if (normalized === null) {
-          return false;
+    const backing = new Set<string>(CANONICAL_ALLOWED_NODE_ENVIRONMENT_FLAGS);
+    let allowedFlags: Set<string>;
+    // Lockdown intentionally freezes shared intrinsics before the runtime
+    // bundle is evaluated. Keep this compatibility object immutable without
+    // patching Set.prototype after that boundary.
+    // @ref LLP 0013#mechanism-1-lockdown — runtime bootstrap must work with frozen shared intrinsics
+    allowedFlags = new Proxy(backing, {
+      get(target, property) {
+        if (property === 'add') return () => allowedFlags;
+        if (property === 'delete') return () => false;
+        if (property === 'clear') return () => undefined;
+        if (property === 'has') {
+          return (value: unknown): boolean => {
+            const normalized = normalizeAllowedNodeEnvironmentFlag(value);
+            return normalized !== null && _nativeSetHas.call(target, normalized);
+          };
         }
-        return _nativeSetHas.call(this, normalized);
+        if (property === 'constructor') return Set;
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
       },
-      writable: false,
-      configurable: false,
     });
 
     _immutableAllowedNodeEnvironmentFlags = Object.freeze(allowedFlags);

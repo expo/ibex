@@ -128,9 +128,12 @@ struct NativePublicInvocation {
     expected_deny_message_fragment: Option<String>,
     arguments: Vec<NativeProbeArgument>,
     #[serde(default)]
+    completion: Option<NativeProbeCompletion>,
+    #[serde(default)]
     required_floor: Vec<serde_json::Value>,
     setup: Vec<NativeProbeSetup>,
     expected_result: String,
+    expected_cleanup: Option<String>,
     expected_typed_stages: Vec<String>,
     expected_typed_decision_count: usize,
     allowed_coverage_edge_ids: Vec<String>,
@@ -156,6 +159,13 @@ struct NativePrivateTerminal {
     install_id: String,
     private_consumer: String,
     live_expectation: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NativeProbeCompletion {
+    kind: String,
+    timeout_milliseconds: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -864,8 +874,7 @@ impl AuthenticatedNativeEngine {
                     "authenticated native-public submission {ordinal} failed: {error:#}"
                 )
             });
-        let publications =
-            self.drain_publications("after authenticated native-public evaluation");
+        let publications = self.drain_publications("after authenticated native-public evaluation");
         let evaluation = match (evaluation, publications) {
             (Err(evaluation_error), Err(publication_error)) => anyhow::bail!(
                 "authenticated native-public submission {ordinal} failed ({evaluation_error:#}) and its publication stream failed ({publication_error:#})"
@@ -903,12 +912,12 @@ impl AuthenticatedNativeEngine {
                     _ => Ok(Some(display.text)),
                 }
             }
-            AuthenticatedEvaluation::Throw(thrown) => anyhow::bail!(
-                "authenticated native-public submission {ordinal} threw: {thrown:?}"
-            ),
-            AuthenticatedEvaluation::Cancelled => anyhow::bail!(
-                "authenticated native-public submission {ordinal} was cancelled"
-            ),
+            AuthenticatedEvaluation::Throw(thrown) => {
+                anyhow::bail!("authenticated native-public submission {ordinal} threw: {thrown:?}")
+            }
+            AuthenticatedEvaluation::Cancelled => {
+                anyhow::bail!("authenticated native-public submission {ordinal} was cancelled")
+            }
             AuthenticatedEvaluation::Lifecycle(code) => anyhow::bail!(
                 "authenticated native-public submission {ordinal} exited with lifecycle code {code}"
             ),
@@ -1228,12 +1237,64 @@ fn native_invocation_script(
         "sqliteDatabaseHandle": setup_state.sqlite_database_handle,
         "sqliteStatementHandle": setup_state.sqlite_statement_handle,
     });
-    format!(
-        "JSON.stringify((function(){{var n={};{}if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,thisValue,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+    let script = format!(
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(&invocation.global_name).expect("serialize native global"),
-        callable_binding,
         serde_json::to_string(arguments).expect("serialize native arguments"),
         serde_json::to_string(&cleanup_state).expect("serialize native cleanup state")
+    );
+    let callable_marker = "var f=globalThis[n];";
+    assert_eq!(
+        script.matches(callable_marker).count(),
+        1,
+        "native public callable binding marker drift"
+    );
+    let script = script.replacen(callable_marker, &callable_binding, 1);
+    let receiver_marker = "Reflect.apply(f,globalThis,args)";
+    assert_eq!(
+        script.matches(receiver_marker).count(),
+        1,
+        "native public receiver marker drift"
+    );
+    let script = script.replacen(receiver_marker, "Reflect.apply(f,thisValue,args)", 1);
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // source-bound retained-state recipes must release the exact object they
+    // produced before the runtime observation is accepted.
+    let cleanup_marker = "else if(n===\"setTimeout\"";
+    assert_eq!(
+        script.matches(cleanup_marker).count(),
+        1,
+        "native public cleanup marker drift"
+    );
+    script.replacen(
+        cleanup_marker,
+        "else if(n===\"__exactZlibCreate\"&&typeof value===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(value);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactZlibClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-zlib-stream\";}else if((n===\"__exactZlibCheckOwner\"||n===\"__exactZlibParams\"||n===\"__exactZlibWrite\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(args[0]);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactTlsOwnerToken\"&&args[0]===\"new\"&&typeof value===\"number\"){globalThis.__exactTlsOwnerToken(\"close\",value);cleanup=\"closed-tls-owner-token\";}else if(n===\"__exactTlsEngineNew\"&&typeof value===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(value);cleanup=\"closed-tls-engine\";}else if(n===\"__exactTlsEngineClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-tls-engine\";}else if((n===\"__exactTlsEnginePeerCerts\"||n===\"__exactTlsEngineReadPlain\"||n===\"__exactTlsEngineReadTls\"||n===\"__exactTlsEngineShutdown\"||n===\"__exactTlsEngineStatus\"||n===\"__exactTlsEngineTransportEof\"||n===\"__exactTlsEngineWritePlain\"||n===\"__exactTlsEngineWriteTls\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(args[0]);cleanup=\"closed-tls-engine\";}else if(n===\"setTimeout\"",
+        1,
+    )
+}
+
+const NATIVE_ASYNC_RESULT_SLOT: &str = "__ibexCapsecNativeAsyncResult";
+
+fn native_async_invocation_script(
+    invocation: &NativePublicInvocation,
+    arguments: &[serde_json::Value],
+) -> String {
+    let completion = invocation
+        .completion
+        .as_ref()
+        .expect("async native invocation requires a completion contract");
+    assert_eq!(completion.kind, "event-loop-quiescence");
+    assert_eq!(completion.timeout_milliseconds, 1_000);
+    assert!(invocation.setup.is_empty());
+    assert!(invocation
+        .arguments
+        .iter()
+        .all(|argument| matches!(argument, NativeProbeArgument::JsonLiteral { .. })));
+    format!(
+        "(function(){{var slot={};var n={};delete globalThis[slot];function record(value){{globalThis[slot]=JSON.stringify(value);}}function returned(value){{return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:\"none\"}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
+        serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
+        serde_json::to_string(arguments).expect("serialize async native arguments"),
     )
 }
 
@@ -1312,7 +1373,6 @@ fn validate_global_read_descriptor(
     }
     for forbidden in [
         "dynamic-table",
-        "inherited",
         "inherited-shape",
         "instance-property",
         "namespace-alias",
@@ -1322,6 +1382,14 @@ fn validate_global_read_descriptor(
         "prototype-method",
     ] {
         assert!(!descriptor.member_kinds.iter().any(|kind| kind == forbidden));
+    }
+    if descriptor
+        .member_kinds
+        .iter()
+        .any(|kind| kind == "inherited")
+    {
+        assert_eq!(descriptor.value_shape, "data");
+        assert!(descriptor.member_kinds.iter().any(|kind| kind == "static"));
     }
     let expected_observed_key = if descriptor.export_name.starts_with('_') {
         format!("native-op:{}", descriptor.export_name)
@@ -1445,7 +1513,53 @@ fn validate_native_runtime_observation(
             }
         }
     }
-    assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // an async dispatcher may observe its source-selected worker edge, but no
+    // unrelated edge may be admitted by the authored recipe.
+    let auxiliary_worker_terminal = if invocation.global_name == "__exactFsPathAsync" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if value.as_str() == Some("readdir") =>
+            {
+                Some("native-op:__exactReaddir")
+            }
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if value.as_str() == Some("realpath") =>
+            {
+                Some("native-op:__exactRealpath")
+            }
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if matches!(value.as_str(), Some("mkdir" | "mkdtemp")) =>
+            {
+                Some("native-op:__exactMkdir")
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let mut expected_allowed_coverage_edge_ids = recipe.edge_ids.clone();
+    if let Some(worker_terminal) = auxiliary_worker_terminal {
+        let worker_edges = coverage_terminals
+            .iter()
+            .filter_map(|(edge_id, terminal)| {
+                (terminal == worker_terminal).then_some(edge_id.clone())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            worker_edges.len(),
+            1,
+            "{}: async worker terminal must select one coverage edge",
+            recipe.fixture_id
+        );
+        expected_allowed_coverage_edge_ids.extend(worker_edges);
+    }
+    expected_allowed_coverage_edge_ids.sort();
+    expected_allowed_coverage_edge_ids.dedup();
+    assert_eq!(
+        invocation.allowed_coverage_edge_ids,
+        expected_allowed_coverage_edge_ids
+    );
     assert!(
         invocation
             .expected_action_ids
@@ -1473,6 +1587,43 @@ fn validate_native_runtime_observation(
                 "{}: public native invocation did not return: {invocation_result}",
                 recipe.fixture_id
             );
+            if invocation.kind == "global-property-read" {
+                let descriptor: GlobalReadSourceDescriptor =
+                    serde_json::from_value(invocation.source_descriptor.clone())
+                        .expect("global read source descriptor must be typed");
+                let result = invocation_result
+                    .as_object()
+                    .expect("global property read result must be an object");
+                assert_eq!(result.len(), 5);
+                for key in ["kind", "globalName", "valueType", "ownerDepths", "cleanup"] {
+                    assert!(result.contains_key(key), "global read result lacks {key}");
+                }
+                assert!(invocation_result["valueType"].is_string());
+                assert_eq!(invocation_result["cleanup"], "none");
+                let owner_depths = invocation_result["ownerDepths"]
+                    .as_array()
+                    .expect("global read result has no owner depths");
+                assert_eq!(owner_depths.len(), descriptor.access.path.len());
+                assert!(owner_depths.iter().all(|depth| depth.as_u64().is_some()));
+                let inherited = descriptor
+                    .member_kinds
+                    .iter()
+                    .any(|kind| kind == "inherited");
+                if inherited {
+                    assert!(owner_depths
+                        .last()
+                        .and_then(serde_json::Value::as_u64)
+                        .is_some_and(|depth| depth > 0));
+                }
+            }
+            if let Some(expected_cleanup) = &invocation.expected_cleanup {
+                assert_eq!(
+                    invocation_result["cleanup"],
+                    expected_cleanup.as_str(),
+                    "{}: native public invocation did not prove its authored cleanup",
+                    recipe.fixture_id
+                );
+            }
             serde_json::json!({
                 "kind": if invocation.kind == "global-property-read" {
                     "global-property-read"
@@ -1501,7 +1652,13 @@ fn validate_native_runtime_observation(
             assert!(
                 invocation_result["errorMessage"]
                     .as_str()
-                    .is_some_and(|message| message.contains(expected_fragment)),
+                    .is_some_and(|message| {
+                        if expected_fragment == "Permission denied" {
+                            message.to_ascii_lowercase().contains("permission denied")
+                        } else {
+                            message.contains(expected_fragment)
+                        }
+                    }),
                 "{}: denied public native invocation threw the wrong error: {invocation_result}",
                 recipe.fixture_id
             );
@@ -1675,6 +1832,14 @@ fn validate_native_runtime_observation(
             recipe.fixture_id
         );
         probe.surface_observed_key.clone()
+    } else if let Some(worker_terminal) = auxiliary_worker_terminal {
+        assert_eq!(
+            observed_terminals,
+            BTreeSet::from([worker_terminal.to_owned()]),
+            "{}: async invocation did not remain on its source-selected worker",
+            recipe.fixture_id
+        );
+        probe.surface_observed_key.clone()
     } else {
         assert_eq!(observed_terminals.len(), 1);
         observed_terminals.into_iter().next().unwrap()
@@ -1740,24 +1905,145 @@ async fn execute_native_public_recipe(
         .map(|listener| listener.local_addr().unwrap().port());
     let setup_state = run_native_setup(engine, invocation, listener_port).await;
     let arguments = materialize_native_arguments(invocation, listener_port, &setup_state);
+    let fs_path_async_fixture = if invocation.global_name == "__exactFsPathAsync" {
+        match (invocation.arguments.first(), invocation.arguments.get(1)) {
+            (
+                Some(NativeProbeArgument::JsonLiteral { value: operation }),
+                Some(NativeProbeArgument::JsonLiteral { value: path }),
+            ) if matches!(operation.as_str(), Some("mkdir" | "mkdtemp")) => Some((
+                operation.as_str().unwrap().to_owned(),
+                path.as_str()
+                    .expect("filesystem fixture path must be a string")
+                    .to_owned(),
+            )),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some((operation, path)) = &fs_path_async_fixture {
+        assert!(
+            path.starts_with("target/ibex-capsec-fspathasync-"),
+            "filesystem fixture cleanup path escaped its owned target prefix"
+        );
+        if operation == "mkdir" {
+            let _ = std::fs::remove_dir(path);
+        } else {
+            std::fs::create_dir_all(path).expect("create owned mkdtemp fixture parent");
+        }
+    }
+    let fs_path_async_file_fixture = if invocation.global_name == "__exactFsPathAsync" {
+        match (invocation.arguments.first(), invocation.arguments.get(1)) {
+            (
+                Some(NativeProbeArgument::JsonLiteral { value: operation }),
+                Some(NativeProbeArgument::JsonLiteral { value: path }),
+            ) if matches!(operation.as_str(), Some("truncate" | "chmod" | "utime")) => Some((
+                operation.as_str().unwrap().to_owned(),
+                path.as_str()
+                    .expect("filesystem file fixture path must be a string")
+                    .to_owned(),
+            )),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some((operation, path)) = &fs_path_async_file_fixture {
+        assert_eq!(path, &format!("target/ibex-capsec-fspathasync-{operation}"));
+        std::fs::write(path, b"ibex-capsec-retained-file")
+            .expect("create owned retained-file fixture");
+    }
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
         "public native observer has no installed host"
     );
-    let result = engine
-        .eval_immediate(&native_invocation_script(
-            invocation,
-            &arguments,
-            &setup_state,
-        ))
-        .await;
+    let result = if let Some(completion) = &invocation.completion {
+        assert_eq!(completion.kind, "event-loop-quiescence");
+        let scheduled = tokio::time::timeout(
+            std::time::Duration::from_millis(completion.timeout_milliseconds),
+            engine.eval_immediate(&native_async_invocation_script(invocation, &arguments)),
+        )
+        .await
+        .expect("native public async invocation exceeded its completion bound")
+        .expect("schedule native public async invocation in Hermes");
+        assert!(
+            matches!(scheduled.as_deref(), Some("scheduled" | "completed")),
+            "native public async invocation returned an invalid scheduling marker: {scheduled:?}"
+        );
+        engine.eval_immediate(NATIVE_ASYNC_RESULT_SLOT).await
+    } else {
+        engine
+            .eval_immediate(&native_invocation_script(
+                invocation,
+                &arguments,
+                &setup_state,
+            ))
+            .await
+    };
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     let encoded = result
         .expect("execute native public invocation in Hermes")
         .expect("native public invocation returned no result");
-    let invocation_result: serde_json::Value =
+    let mut invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
+    if let Some((operation, path)) = &fs_path_async_fixture {
+        if invocation_result["kind"] == "return" {
+            let created = if operation == "mkdir" {
+                path.as_str()
+            } else {
+                invocation_result["resultString"]
+                    .as_str()
+                    .expect("mkdtemp public result must identify its created directory")
+            };
+            assert!(
+                created.starts_with(path),
+                "created filesystem fixture escaped its owned cleanup prefix"
+            );
+            std::fs::remove_dir(created)
+                .expect("remove directory created by async filesystem fixture");
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-created-directory".into());
+        }
+        if operation == "mkdtemp" {
+            std::fs::remove_dir(path).expect("remove owned mkdtemp fixture parent");
+        }
+    }
+    if let Some((operation, path)) = &fs_path_async_file_fixture {
+        if invocation_result["kind"] == "return" {
+            let metadata = std::fs::metadata(path).expect("read retained-file fixture metadata");
+            if operation == "truncate" {
+                assert_eq!(
+                    metadata.len(),
+                    2,
+                    "retained truncate fixture has the wrong final length"
+                );
+            }
+            #[cfg(unix)]
+            if operation == "chmod" {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    metadata.permissions().mode() & 0o777,
+                    0o600,
+                    "retained chmod fixture has the wrong final mode"
+                );
+            }
+            if operation == "utime" {
+                assert_eq!(
+                    metadata
+                        .modified()
+                        .expect("read retained utime fixture timestamp")
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("retained utime fixture timestamp predates epoch")
+                        .as_secs(),
+                    2,
+                    "retained utime fixture has the wrong final timestamp"
+                );
+            }
+            invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
+        }
+        std::fs::remove_file(path).expect("remove owned retained-file fixture");
+    }
     let typed_decisions = observed_typed_values(&session_id, typed);
     let validation = validate_native_runtime_observation(
         recipe,
@@ -1767,7 +2053,7 @@ async fn execute_native_public_recipe(
         &typed_decisions,
         coverage_terminals,
     );
-    let runtime_observation = serde_json::json!({
+    let mut runtime_observation = serde_json::json!({
         "observationSchema": "ibex/capsec-runtime-public-observation/1",
         "invocation": {
             "invocationSchema": "ibex/capsec-native-global-invocation/1",
@@ -1781,6 +2067,13 @@ async fn execute_native_public_recipe(
         "legacyObservationCount": legacy.len(),
         "typedDecisions": typed_decisions,
     });
+    if let Some(completion) = &invocation.completion {
+        runtime_observation["invocation"]["completion"] = serde_json::json!({
+            "kind": completion.kind,
+            "status": "quiescent",
+            "timeoutMilliseconds": completion.timeout_milliseconds,
+        });
+    }
     let mut observation = recipe.expected_observation.clone();
     observation
         .as_object_mut()

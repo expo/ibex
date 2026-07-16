@@ -1049,10 +1049,13 @@ const watchdog = setTimeout(function () {
   try { child.kill(); } catch (_) {}
   console.log('RESULT|observed=timeout');
   process.exit(1);
-}, 15000);
+}, 30000);
 "#;
 
-    let run = run_app_in(&dir, app, Duration::from_secs(25));
+    // A nested audited runtime has a bounded but comparatively expensive cold
+    // start. Keep the assertion exact while leaving enough margin for a
+    // serialized all-target debug suite on a loaded development host.
+    let run = run_app_in(&dir, app, Duration::from_secs(45));
     let line = result_line(&run);
     assert_eq!(
         field(line, "observed="),

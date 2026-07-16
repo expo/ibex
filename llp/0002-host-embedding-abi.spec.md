@@ -5,8 +5,9 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-15 (structured throw metadata now carries a closed, trap-free native Error class derived from the JSError's internal direct-prototype identity); 2026-07-15 (the independent C11 consumer now executes the adversarial structured-value and cancellation ABI cases at runtime in the conformance profile); 2026-07-14 (named aggregate/member output schemas and direction-exact nested callback contracts close ABI output membership); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment); 2026-07-14 (source-derived ABI output signatures, roles, selectors, buffer pairs, ownership, Java/JNI declaration reconciliation, and opaque input-handle accounting); 2026-07-14 (Hermes-safe Error metadata and poll-checkpoint Promise rejection publication complete asynchronous-failure ABI v1, including schedule-time job provenance and top-level-await de-duplication); 2026-07-14 (owner-thread structured asynchronous-failure publication ABI v1 with rooted values, authenticated schedule-time attribution, and explicit bounded loss); 2026-07-14 (structured-evaluation result ABI v2 adds owned, length-bearing source-position records while keeping unimplemented safe-throw/source-position capability bits off); 2026-07-14 (source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (bounded any-thread work-unit publication ABI, including timer due/undue scheduling identities); 2026-07-13 (structured-session import plan v2 carries the authenticated entry SourceId used by the private module cache); 2026-07-13 (normative structured-evaluation result ABI v1, migration rules, and the lowered-session extension's versioned static-import plan); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
-**Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
+**Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-15 (structured throw metadata now carries a closed, trap-free native Error class derived from the JSError's internal direct-prototype identity); 2026-07-15 (the independent C11 consumer now executes the adversarial structured-value and cancellation ABI cases at runtime in the conformance profile); 2026-07-14 (named aggregate/member output schemas and direction-exact nested callback contracts close ABI output membership); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment); 2026-07-14 (source-derived ABI output signatures, roles, selectors, buffer pairs, ownership, Java/JNI declaration reconciliation, and opaque input-handle accounting); 2026-07-14 (Hermes-safe Error metadata and poll-checkpoint Promise rejection publication complete asynchronous-failure ABI v1, including schedule-time job provenance and top-level-await de-duplication); 2026-07-14 (owner-thread structured asynchronous-failure publication ABI v1 with rooted values, authenticated schedule-time attribution, and explicit bounded loss); 2026-07-14 (structured-evaluation result ABI v2 adds owned, length-bearing source-position records while keeping unimplemented safe-throw/source-position capability bits off); 2026-07-14 (source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (bounded any-thread work-unit publication ABI, including timer due/undue scheduling identities); 2026-07-13 (structured-session import plan v2 carries the authenticated entry SourceId used by the private module cache); 2026-07-13 (normative structured-evaluation result ABI v1, migration rules, and the lowered-session extension's versioned static-import plan); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
 ## Summary
 
@@ -345,6 +346,81 @@ versioned and fail-closed but is not added to LLP 0000's narrow five-function
 consumer contract; promoting it to that semver-major list would require an LLP
 0000 amendment.
 
+### Runtime-driving thread contract
+
+Every entry point that drives one Hermes runtime — including creation,
+`ex_hermes_eval`, event-loop polling and callback delivery, module-runner
+ingresses, and destruction — is owner-thread-only and serialized per runtime.
+An off-owner or concurrent drive refuses with a stable error before touching
+JSI, graph state, or event-loop state. Same-thread nesting into a *different*
+runtime remains permitted and restores the outer runtime's attribution context
+on unwind; recursive or overlapping drive of the same runtime is not.
+
+This is the normative contract adopted with LLP 0026. ENG-25060 applies one
+registry-backed refusal guard to eval, poll, module-runner operations, and
+generation-bearing destruction. It checks liveness and nonce without first
+dereferencing the caller's pointer, then owner thread and same-runtime active
+drive. Same-thread nested different-runtime entry remains valid because active
+drive state is per registry generation. The remaining public JSI-mutating
+setter inventory must either use this gate or retain an equivalent explicit
+owner check; the generated ABI inventory prevents an unreviewed new route.
+
+### Native module-runner ABI
+
+The provisional `ex_hermes_module_*` and `ex_hermes_graph_context_*` family is
+native-only: no symbol is installed on the JavaScript global. Its fixed
+`ExactModuleRunnerHandle` payload is an opaque `(runtime nonce, graph
+generation, registry id)` capability. Every use checks all three before JSI;
+release, wrong-runtime use, destroy/recreate, and address reuse therefore fail
+without dereferencing stale payload state.
+
+Rust's safe compiler entry accepts only `VerifiedModuleArtifactV1`, then passes
+the admitted semantic digest and factory bytes to the C ABI. Principal,
+compartment, generation, and `GraphEvaluationContext` come from native graph
+state rather than artifact JavaScript. The engine captures the real Function
+constructor and Domain binder before lockdown, never republishes them, and
+compiles package bytes through a trampoline whose authenticated Domain is bound
+before invocation. Hermes consequently propagates both principal and
+compartment to the package factory before compiling it. Opaque factory,
+context, and ModuleRecord handles own all JSI values and are destroyed on the
+runtime owner thread.
+
+ModuleRecord setup is deliberately split into native-only operations:
+declare the record's canonical export-cell set, link indirect, resolved-star,
+and namespace exports as live views of authenticated target record/cell
+handles, bind authenticated imports to those handles, instantiate the factory,
+then run `declare` and `execute`. Instantiation creates one stable
+null-prototype, non-extensible
+namespace whose enumerable getters read checked cells. Uninitialized reads
+throw the TDZ error; export updates mutate the same cells, so later importer
+and re-export reads observe live values. Package factories cannot write through
+an indirect export. Import lookup keys and all link targets are installed by
+the native graph owner rather than accepted from package JavaScript.
+
+CommonJS uses a distinct native record kind and a source-goal-stamped factory
+handle. Record creation publishes the initial `module.exports` object before
+body execution; `require` can reach only native-installed CommonJS record
+links, and re-entry reads the target's current `module.exports`, including an
+early replacement. Success retains the final value. A throw deletes the native
+record, releases its context reference, and makes its opaque handle stale so a
+later request must create a fresh record. After success, one native operation
+creates an ESM adapter ModuleRecord whose `default` and `module.exports` cells
+hold the final value and whose detector-approved named cells are snapshots.
+
+The CapSec registry classifies graph/context construction and link setup as
+authority-control-plane operations, release as authority release, factory
+compile/instantiate/declare/execute, CommonJS evaluation, and CommonJS adapter
+creation as closed `vm:evaluate`, and diagnostic namespace serialization as
+closed `runtime:inspect`. The runner can acquire evaluator or inspection
+authority only through the exact graph authorization profile registered by
+ENG-25062; an absent or mismatched profile refuses rather than falling back to
+a generic host bridge.
+
+This family is a provisional extension, not an addition to LLP 0000's five-
+function semver-major minimum. `ex_hermes_try_destroy(runtime, nonce)` is the
+generation-bearing, status-returning lifecycle companion; the legacy void
+destroy symbol delegates to it and reports owner/reentrancy refusal.
+
 ### Restricted-worklet SharedValue access
 
 The optional UI-worklet embedding surface no longer exports or retains a raw
@@ -630,10 +706,12 @@ plus the metadata-only `ex_host_module_resolve_meta` that backs `require.resolve
 without reading/transpiling the body, ENG-23007,
 `src/host/abi.rs:730-779` — see [LLP 0004](./0004-module-loading-and-builtins.explainer.md)).
 Structured static imports use the C-only
-`ex_host_session_static_import_resolve(logical_referrer, specifier)` seam. It
+`ex_host_session_static_import_resolve(logical_referrer, specifier,
+resolution_kind)` seam. It
 strictly parses the canonical logical referrer, derives its host directory only
-through an authenticated root binding, and returns the same full source record
-used by the captured loader. No caller-controlled host pathname or public
+through an authenticated root binding, validates the closed typed resolution
+kind, and returns the same full source record used by the captured loader. No
+caller-controlled host pathname or public
 `require` function participates in this route `[observed]` (`src/host/abi.rs`;
 `src/host/mod.rs`).
 Strings returned to C are malloc'd via `CString::into_raw` and freed by

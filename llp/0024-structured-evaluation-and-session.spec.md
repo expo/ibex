@@ -5,6 +5,12 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-15 (ENG-25066 made the separate authenticated file-module
+runner the default without changing structured script/session evaluation);
+2026-07-15 (ENG-25065 defined runner-backed session cache identity per execution
+generation while preserving legacy retry behavior); 2026-07-15 (ENG-25063
+reconciled dependency-level TLA through the separate authenticated LLP 0026
+runner while preserving the legacy session loader's entry-only refusal.)
 **Revised:** 2026-07-15 (armed grammar selection now closes the resolver's
 probe fixed point, full substituted-symlink path, and post-resolution package
 target races; resolve-only integrity hashing remains a witness and never becomes
@@ -496,15 +502,21 @@ narrowing, and it is pinned by a fixture.
 | `.load <file>` | script + extensions | entry | no | yes | yes | `globalThis` |
 | Program-mode stdin | module | entry | yes | yes | yes | `undefined` |
 | One-shot `-e` / `-p` | script + extensions | entry | no | yes | yes | `globalThis` |
-| Imported file | module | dependency | yes | **no (v1)** | yes | `undefined` |
+| Imported file on the legacy session loader | module | dependency | yes | **no (legacy v1)** | yes | `undefined` |
+| Imported file on the LLP 0026 runner | module | dependency | yes | **yes** | yes | `undefined` |
 
-**Top-level `await` is an entry-only extension in v1.** The engine has no native
+**Top-level `await` is an entry-only extension on the legacy session path.** The engine has no native
 ESM and no native TLA, and the module loader lowers every module into a
 *synchronous* CommonJS `require()` chain — so a dependency that suspends has
 nowhere to suspend to. Honest dependency-level TLA needs an asynchronous
 linker/evaluator with dependency ordering, live bindings, async cycles, failure
-propagation and caching, and defined CJS interoperation. None of that exists,
-and this document will not pretend otherwise.
+propagation and caching, and defined CJS interoperation. None of that exists on
+the legacy loader, and this document will not pretend otherwise. The
+authenticated LLP 0026 runner is the separate implementation: it owns
+dependency-first SCC scheduling, one handled internal evaluation promise per
+record, fresh public `import()` promises, and sticky terminal failure.
+Consumers become dependency-TLA-capable only when they migrate to that runner;
+this document's legacy refusal does not silently widen them.
 
 Therefore: top-level `await` is available in **prompt input, `.load` content,
 program-mode stdin, and one-shot `-e`/`-p`** — the sources whose role is *entry*
@@ -543,9 +555,9 @@ target is refused at call time, with **the same named error**, before the select
 dependency is evaluated or enters the module cache; effects the entry already
 performed stand, and no preflight can honestly claim otherwise.
 
-An asynchronous module graph is a separate design (open question 4); v1 states
-the limit rather than shipping a plausible-looking lowering that is wrong under
-cycles.
+An asynchronous module graph is a separate design, now specified by accepted
+LLP 0026. The legacy path continues to state and enforce its limit rather than
+shipping a plausible-looking lowering that is wrong under cycles.
 
 **A note on how this document has been repaired, because the pattern is the point.** Three
 times now a guarantee here proved unsupportable by the mechanism beneath it — a rollback
@@ -1722,6 +1734,15 @@ use of it:
   also what makes a retry after fixing the file work at the prompt. Its **completed
   dependencies remain** cached. An earlier draft said the failing entry "of course stands";
   that was false against the loader and wrong in principle.
+- A session that adopts LLP 0026's module runner scopes this rule to an
+  **execution graph generation**. Within one generation, ESM success and failure
+  are sticky and one equal `SourceId` has one incarnation. Retrying after an
+  accepted root-source edit atomically advances the coherent graph generation;
+  it never deletes and recreates a record in place. Live cells, namespaces,
+  promises, CommonJS exports, and errors never cross generations. The current
+  legacy session loader keeps delete-on-failure until it adopts that runner
+  transaction, so this amendment does not silently change shipped prompt
+  behavior.
 - **`.load` creates no cache entry** and re-evaluates on repeat.
 
 ### 8. Safe inspection
@@ -2362,10 +2383,12 @@ say which is testing nothing.
    safety.
 3. Should the empty-completion discriminator come from a Hermes completion-record patch
    or from source instrumentation (§6)? It is slice 2 of the §8 patch program.
-4. Is dependency-level top-level `await` worth an asynchronous module linker — with
-   dependency ordering, live bindings, async cycles, failure caching, and CJS interop —
-   or is entry-only TLA the durable answer for a synchronous-`require` runtime?
-   Deviation (b) (copied-at-import values) rides on the same answer.
+4. **Resolved by accepted LLP 0026:** dependency-level top-level `await` uses
+   the authenticated asynchronous module runner, with dependency ordering,
+   live cells, SCC scheduling, sticky failure, and defined CJS interop.
+   Entry-only TLA remains the durable answer only for this document's legacy
+   synchronous session loader until that consumer migrates; the runner's live
+   cells also retire deviation (b)'s copied-at-import behavior on that path.
 5. **Resolved: an independent dual parse implements Script-plus-`import`-plus-TLA.**
    The frontend obtains extension nodes from a Module parse, masks only complete
    static-import byte ranges with same-width spaces, then parses the remaining bytes
@@ -2394,10 +2417,11 @@ say which is testing nothing.
    *dependency visibility* — retiring deviation (d) and most of §7.1's syntax-directed
    table — at the cost of a larger patch. It should be costed against the three slices
    of the §8 patch program, since it is the same VM surface.
-10. **Resolved by LLP 0023 §2.3:** `SourceLabel` is the load-order-independent
-    canonical physical-target spelling for symlink aliases, while each hard-link
-    entry keeps its own spelling. Source maps, stack frames, referrers, and
-    `import.meta.url` use that same per-instance label.
+10. **Resolved by LLP 0023 §2.3:** `SourceLabel` is the load-order-independent,
+    volume-canonical virtual spelling of the retained object's canonical physical
+    location: symlink aliases use the target spelling, while each distinct hard-link
+    entry keeps its own entry spelling. Source maps, stack frames, referrers, and
+    `import.meta.url` use that same per-instance label; import order never selects it.
 11. *(Resolved by the unit-generic lifecycle seam.)* A root-attributed
     `process.exit(n)` from a timer when no evaluation is in flight is published as the
     idempotent `LifecycleExitRequest`, authenticated into an

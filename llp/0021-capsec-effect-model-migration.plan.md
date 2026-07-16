@@ -5,9 +5,14 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-16 (ENG-24933 binds asynchronous `chmod` and `utime` to retained files, repeats authorization on the worker, and closes twelve exact public scenarios with owned cleanup)
+**Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the Exact-bound artifact preparer while preserving empty advertisements)
+**Revised:** 2026-07-15 (ENG-25062 registered the module-runner factory, record, CJS-to-ESM edge, generation-lease, and compatibility-marker surfaces as closed non-capability control-plane operations)
+**Revised:** 2026-07-15 (ENG-25066 made the authenticated graph decision set and process-stable principal projection the ordinary-ESM execution path)
+**Revised:** 2026-07-15 (LLP 0026 adoption defines the module-initialization task boundary and trusted-loader source-acquisition classification)
 **Revised:** 2026-07-16 (ENG-24578 residualizes 2,976 rationale-only
 callback/control-plane rows because a generic invariant run cannot prove an
-arbitrary carrier's selected branch; it retains six exact embedder-mechanism
+arbitrary carrier's selected branch; it retains eight exact embedder-mechanism
 executions and requires every authenticated work-unit publication to be
 consumed before teardown.)
 **Revised:** 2026-07-15 (ENG-24578 residualizes raw resolver-output rows:
@@ -27,7 +32,7 @@ empty base plus per-principal overlays, and replaces ambient compatibility
 switches with fixed, digest-bound bootstrap modes; the Bun facade remains absent
 unless the authenticated snapshot opts in.)
 **Revised:** 2026-07-14 (ENG-24578 constrains diagnostic child IPC to a private one-shot POSIX socket handoff while armed IPC remains closed and unadvertised); 2026-07-14 (ENG-24933 introduces the dedicated binary Exact app/agent ingress while preserving the unadvertised Apple target and records the remaining artifact/conformance gate); 2026-07-12 (ENG-24263: the complete exact-engine prerequisite matrix and artifact evidence now run in CI, which requires the incomplete candidate to remain unadvertised rather than treating expected refusal as conformance); 2026-07-12 (ENG-24278 bounds POSIX TCP/UDP repeat work with socket-identity, exact-peer/destination, principal-set, and mutable-generation leases); 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-12 (ENG-24462/ENG-24465 bind filesystem occurrences separately to every constrained principal and protect every authenticated package subtree lexically against writes; ENG-24464 makes production run nonces construction-fresh; ENG-24466 explicitly closes diagnostic file execution in the advertised registry pending authenticated ingress); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
-**Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
+**Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); LLP 0026 (module-runner authority amendments); LLP 0027 (module artifacts and interop); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
 
@@ -249,6 +254,41 @@ workflow. Permissive behavior exists only inside isolated tests. The
 mode of ordinary `ibex run`. Embedders must select an explicit supported profile
 and successfully arm it; the legacy host constructor must not silently create a
 production runtime that claims package security while running permissively.
+
+### Module initialization and trusted source acquisition
+
+LLP 0026 adds one explicit boundary to full deputy intersection. A module
+factory's once-per-execution-generation initialization is an autonomous,
+record-owned task: it executes in the defining principal's authenticated
+compartment, and the constrained-principal set begins at that initialization
+task boundary. Importer frames physically above a synchronous `require()` do
+not join initialization-time decisions. This preserves deterministic module
+state across cold/warm, synchronous/asynchronous, and competing-importer
+orders. It does not widen the module's own grants. Calls through exports after
+initialization continue to intersect the complete live caller and scheduler
+chain exactly as before.
+
+Module source acquisition is classified as a narrow trusted-loader operation,
+not as `fs:list`/`fs:read` authority borrowed from the importer. It may occur
+only after the exact authenticated import edge authorizes and is bound to that
+edge's `SourceId`, source binding, locator, integrity, requesting record, and
+graph generation. It is non-delegable and conveys no general filesystem
+authority. The generated coverage registry rows for module-source acquisition
+must use this classification before the ModuleRunner security integration can
+claim conformance; denial, no-probe, cache-hit, prepared-carrier, and
+wrong-principal fixtures are mandatory.
+
+ENG-25062 implements that boundary as a typed `GraphDecisionSet` over the
+exact requesting and target `SourceId`, resolution kind, conditions,
+attributes, actor, effect owner, schedule-time identity, canonical constrained
+set, stage, atomicity group, graph generation, and coverage edge. Successful
+authorization returns an opaque receipt bound to the armed snapshot digest and
+all four authority generations. Source, cache, and prepared-carrier access is
+possible only through a closure entered after the receipt is revalidated for
+the exact target and generation. Module factories remain reachability-only at
+the graph boundary; host effects they perform still enter ordinary typed
+semantic-core `DecisionSet`s at their native effect gates. Generated target
+cells remain unsupported until executed conformance evidence promotes them.
 
 ## WP0 semantic contract
 
@@ -544,14 +584,16 @@ dedicated `exact.invokeHostAsync` ABI removes the generic string bridge from
 app and agent traffic, with separate canonical numeric endowment sets and no
 UI-worklet installation, but the same target-advertisement rule still governs
 production construction. Before Exact may consume an armed artifact through
-the public embedding ABI, the normal Ibex package flow must publish a paired
-snapshot/expected identity bound to the loaded engine, this registry, the
-exact package graph, and the Exact operation-endowment manifest. Its target row
+the public embedding ABI, the normal Ibex package flow must supply the generic
+snapshot/expected-identity inputs plus Exact's single-source operation manifest;
+the target-local producer then publishes a final pair bound to the loaded
+engine, this registry, the exact package graph, and the protected manifest.
+Its target row
 must be promoted only from the checked conformance report. Missing artifacts,
 wrong targets, identity or registry mismatches, fixed/stale nonces, replayed
 input, and unadvertised rows all remain startup refusals.
 
-Implementation status (2026-07-15): the dedicated binary app/agent ingress and
+Implementation status (2026-07-16): the dedicated binary app/agent ingress and
 single-use completion path exist and are usable by an armed runtime without
 making `__hostCall` reachable. Its setter publishes an immutable method on the
 stable pre-captured `exact` object and atomically completes the one-shot package
@@ -562,13 +604,41 @@ UI-worklet ID sets. The setter validates that three-way binding before any JSI
 or callback-state mutation. The public artifact-preparation ABI authenticates
 an already-built pair against the checked registry, loaded engine, package
 graph/root objects, and protected artifacts, then replaces its construction
-nonce and digest; it cannot advertise a target. The package-side producer and
-normal Exact artifact publication, Apple/Windows conformance reports, and
-target advertisements remain incomplete. The refreshed catalog has 23,658
+nonce and digest; it cannot advertise a target. A second target-local preparer
+now strictly validates Exact's raw operation manifest, derives the complete
+three-context projection without a caller allowlist, materializes those bytes
+as the fifth protected artifact, and re-authenticates the fresh pair. Exact's
+Apple and Windows consumers use this seam. The normal target-local producer now
+builds the complete pair directly from the installed app root, loaded engine,
+checked registry, canonical empty package policy/graph, and strict Exact
+manifest; it therefore does not package stale filesystem identities. Exact's
+bundled-root producer is complete, while package-bearing policy input remains a
+separate future contract. Apple/Windows conformance reports and target
+advertisements remain incomplete. The refreshed residualized catalog has 23,658
 required fixtures, 1,663 fully executable recipes, 11,530 adapter-executable
-recipes, and 21,995 unresolved fixtures, so the existing Apple matrix remains unsupported;
+recipes, and 21,995 unresolved fixtures. Generic callback/control-plane carriers
+remain residual unless the selected branch is authenticated; eight exact embedder
+mechanisms execute through their dedicated artifact-bound routes. The latest
+source-bound tranche adds five cached system-information
+authorization scenarios and twelve asynchronous path-operation scenarios for
+the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime` scenarios,
+plus five zlib stream lifecycle recipes, eleven TLS lifecycle recipes, and a
+principal-owned network stamp recipe. The resource recipes create, exercise,
+and release their runtime/principal-owned native state in one bounded
+invocation. Fourteen Linux/Android-only
+`node:constants` exports now carry source-bound Apple absence evidence from the
+real public module path rather than remaining generic availability residuals.
+Async evidence remains open through a bounded event-loop quiescence drain and
+binds both the dispatch edge and the worker edge actually observed at runtime.
+The existing Apple matrix therefore remains unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
+
+The source-bound native-read harness admits inherited members only for 57
+static data constants whose descriptors prove the exact property path. Runtime
+evidence records the owner depth for every path segment and requires a positive
+final depth; own-property substitution, inherited callables/accessors, instance
+members, and dynamic tables remain rejected.
 
 ### WP0 artifacts and gate
 
@@ -1209,7 +1279,7 @@ static source reference do not prove that an arbitrary carrier entered its body
 or used the checked mechanism. The 2,976 carrier-specific invariant recipes
 therefore remain residual pending exact carrier execution or an independently
 proved carrier-to-mechanism relation with its own non-terminal evidence contract.
-Only six Exact embedder rows currently have source-bound exact-mechanism public
+Only eight Exact embedder rows currently have source-bound exact-mechanism public
 executions; those carry runtime-derived lifecycle results and zero legacy
 observations. No diagnostic run may manufacture a `terminalObservedKey` or close
 an enforcement-branch fixture for a carrier it did not execute.
@@ -1300,6 +1370,21 @@ and exact execution binding. Missing, generic, duplicated, stale, or synthetic
 records keep the report incomplete. Promotion remains closed until real
 executable evidence exists for every required fixture and the full matrix is
 green.
+
+Implementation status (2026-07-16): the report-crediting fixture pilot reruns
+exactly eight source-bound Exact embedder mechanisms independently of the public
+catalog/adapter batches. The set covers the single-use host-call route,
+endowment and exact-set authorization, unendowed-operation closure, and both
+artifact-bound preparation/materialization ABIs; generic callback/control-plane
+rows are not credited by analogy. Every
+`ibex/capsec-fixture-evidence/2` record carries the committed revision/tree,
+exact target and mapped engine identity, full fixture plan, recipe/public
+digests, producer command and exit status, and the fresh runtime observation.
+The runner validates the artifact through its `--fixture-evidence` path and
+credits exactly eight passes; all other obligations remain missing or residual, so
+the report remains `incomplete` and the target remains unadvertised. Missing,
+duplicate, stale, mismatched-plan/engine, or mechanism-invalid pilot evidence
+fails closed rather than reverting to zero credited rows.
 
 Builtin public-surface evidence follows the same rule at value granularity.
 The source scanner records whether an export is data, a readable accessor, a

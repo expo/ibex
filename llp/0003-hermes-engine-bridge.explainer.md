@@ -5,8 +5,8 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
-**Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline)
+**Revised:** 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline); LLP 0026 (module runner)
 
 ## Summary
 
@@ -47,6 +47,58 @@ entry and restore the prior selection on unwind `[observed]`
 (`src/engine/hermes_runtime_internal.h`; `src/engine/hermes_runtime.cc`). This
 keeps capability checks attached to the executing runtime without weakening LLP
 0013's fail-closed no-user-principal rule.
+
+LLP 0026 makes the runtime's owner-thread fact a contract for every operation
+that drives Hermes: eval, poll/callback delivery, module-runner ingress, and
+destroy are serialized and owner-thread-only. Off-owner or overlapping entry
+must refuse before JSI or module-graph mutation. Same-thread nesting may select
+a different runtime as described above, but may not re-enter the same runtime.
+ENG-25060 implements this through `ExactRuntimeDriveGuard`: the process registry
+stores owner thread and active-drive state beside pointer+nonce, so validation
+happens before pointer dereference. Eval, poll, native module operations, and
+generation-bearing destruction share the guard. The existing eval-internal
+promise pump calls a private poll helper instead of recursively entering the
+public poll ABI, preserving the non-reentrancy rule without changing its legacy
+behavior.
+
+The native module runner lives in `hermes_module_runner.cc`. It captures the
+untamed Function constructor and Domain binder before bootstrap seals them,
+keeps both references native-only, and returns generation-bearing registry
+capabilities for compiled factories, immutable graph contexts, and native
+ModuleRecords. The Rust wrapper admits only verified artifacts. For package
+source, a principal-stamped trampoline is bound to the authenticated package
+compartment before it invokes the captured constructor; Hermes' existing
+eval/Function propagation then stamps both values onto the actual factory's
+Domain at compile time. Handle registries are members of the runtime object, so
+their JSI references are released on the owner thread before Hermes itself.
+
+The first synchronous-record layer also keeps binding identity in Hermes. A
+record declares cells before instantiation; the engine materializes one stable
+namespace with checked getters, supplies a record-scoped `$export` callback,
+and supplies `context.importValue` backed only by native-installed record
+links. Indirect, resolved-star, and namespace exports are aliases to those same
+native cells or namespace objects, not copied snapshots, and `$export` cannot
+overwrite an alias. Declare and execute are separate one-shot phases. A thrown phase moves
+the record to sticky `errored` state and later native calls return the retained
+error text rather than partially rerunning factory state. The Rust graph plan
+resolves explicit, namespace, and star exports by authenticated `SourceId`,
+excludes ambiguous stars, reuses records through cycles, rejects resolver/
+artifact graph disagreement, and refuses top-level-await closures before a
+synchronous drive. Its native graph driver resolves each factory import to the
+ultimate authenticated cell, creates the complete reachable record set before
+linking, instantiates and declares the whole closure before body execution, and
+then executes dependency-first in deterministic depth-first order. A retained
+success or failure makes repeated graph evaluation idempotent rather than
+partially re-running records.
+
+CommonJS records keep their mutable `module` object, current exports value, and
+detector-approved names in the same runtime-owned registry. The native
+`require` callback follows only prelinked record IDs. It recursively evaluates
+new targets, returns partial current exports for a cycle, retains replacement
+identity, and erases every throwing record on the propagation path. A completed
+record can mint one ESM adapter with frozen named snapshots plus `default` and
+`module.exports`; the adapter is an ordinary evaluated native ModuleRecord, so
+ESM consumers reuse the existing namespace/cell machinery.
 
 The engine uses Hermes through **JSI** (`<jsi/jsi.h>`) `[observed]`
 (`src/engine/hermes_runtime.cc:14-15`). Native functions are registered with
@@ -126,6 +178,19 @@ handler marks a per-signal pending counter and writes to a self-pipe; a
 detached watcher thread turns that into a `pushRuntimeCallback` that drains
 pending signals into the JS `process` emitter `[observed]`
 (`src/engine/hermes_runtime_crypto.cc`, `src/engine/bootstrap/stream-enhance.js`).
+
+Native fetch completion maintains continuous referenced-work visibility during
+that handoff: it moves the resolve/reject closures out of the request entry but
+keeps the entry registered until `pushRuntimeCallback` has published the
+completion in the runtime queue. `ex_hermes_has_pending_tasks()` therefore sees
+either the in-flight fetch or its queued completion, never a transient empty
+state between them. Both entry-release branches re-pin the exact runtime
+generation around `fetchMutex` access, while the native-worker pin remains held
+through the final release and wake; teardown therefore cannot delete the handle
+between callback publication and cleanup. The worker notifies again after
+releasing the fetch entry, so a runtime that drained the newly queued callback
+during the overlap cannot park on a keepalive that disappeared immediately afterward `[observed]`
+(`src/engine/hermes_runtime_fetch.cc`; `src/engine/hermes_runtime.cc`).
 
 Cross-thread callback identity is the pair `(ExactHermesRuntime*,
 runtime_nonce)`, never the address alone. Destruction changes the registry row

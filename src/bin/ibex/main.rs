@@ -1698,7 +1698,7 @@ async fn run_file(
                 &diagnostics,
                 &mut deferred_diagnostics,
                 "",
-                "For help, see: https://nodejs.org/en/docs/guides/debugging-getting-started",
+                "For help, see: https://nodejs.org/en/guides/debugging-getting-started",
             );
             emit_file_program_diagnostic(
                 &diagnostics,
@@ -2441,7 +2441,7 @@ async fn configure_session_inspector(cli: &Cli, runtime: &runtime::Runtime) -> R
     let port = cli.inspect_port.unwrap_or(9229);
     runtime.start_inspector(host, port).await?;
     eprintln!("Debugger listening on ws://{}:{}", host, port);
-    eprintln!("For help, see: https://nodejs.org/en/docs/guides/debugging-getting-started");
+    eprintln!("For help, see: https://nodejs.org/en/guides/debugging-getting-started");
     eprintln!("DevTools URL: {}", devtools_url(host, port));
     if cli.inspect_open {
         open_devtools_for_port(port);

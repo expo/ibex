@@ -22,7 +22,7 @@ fn registry_identity_is_pointer_plus_nonce_with_an_explicit_closing_phase() {
     assert!(runtime.contains("enum class RuntimeLifecycleState"));
     assert!(runtime.contains("Running") && runtime.contains("Closing"));
     assert!(runtime.contains("it->second.nonce == target.nonce"));
-    assert!(runtime.contains("beginRuntimeTeardown(target)"));
+    assert!(runtime.contains("beginRuntimeTeardown(runtime, runtime_nonce, &target)"));
     assert!(runtime.contains("finishRuntimeTeardown(target)"));
 }
 
@@ -107,6 +107,53 @@ fn delayed_fetch_and_host_call_completions_resolve_target_before_deref() {
     );
     assert!(runtime.contains("auto target = takeHostCallTarget(runtime, call_id);"));
     assert!(runtime.contains("forgetHostCallTargets(target);"));
+}
+
+#[test]
+fn fetch_completion_publishes_callback_before_releasing_pending_keepalive() {
+    let fetch = source("src/engine/hermes_runtime_fetch.cc");
+    let handoff = fetch
+        .split("auto target = takeFetchTarget(req_id);")
+        .nth(1)
+        .and_then(|tail| tail.split("auto cancelFn =").next())
+        .expect("native fetch completion handoff");
+    let enqueue = handoff
+        .find("pushRuntimeCallback(")
+        .expect("fetch completion callback enqueue");
+    let erase = handoff
+        .rfind("wrapper->fetchCallbacks.erase(req_id);")
+        .expect("pending fetch cleanup after callback publication");
+    let release_notify = handoff
+        .rfind("ex_hermes_notify_callback();")
+        .expect("wake after pending fetch cleanup");
+    let worker_pin = handoff
+        .find("exactPinRuntimeNativeWorker(target)")
+        .expect("fetch producer teardown pin");
+    let worker_unpin = handoff
+        .rfind("exactUnpinRuntimeNativeWorker(target);")
+        .expect("fetch producer teardown unpin");
+    let extraction = handoff
+        .split("bool alive = withRuntimePinned")
+        .nth(1)
+        .and_then(|tail| tail.split("if (!alive)").next())
+        .expect("pending fetch callback extraction");
+
+    assert!(
+        worker_pin < enqueue
+            && enqueue < erase
+            && erase < release_notify
+            && release_notify < worker_unpin,
+        "fetch completion must stay teardown-pinned while it publishes, releases its keepalive, and wakes the runtime"
+    );
+    assert_eq!(
+        handoff.matches("withRuntimePinned(target, [&]() {").count(),
+        3,
+        "extraction and both pending-fetch cleanup branches must be registry-pinned"
+    );
+    assert!(
+        !extraction.contains("fetchCallbacks.erase"),
+        "extracting the completion must not erase its pending-fetch keepalive"
+    );
 }
 
 #[test]

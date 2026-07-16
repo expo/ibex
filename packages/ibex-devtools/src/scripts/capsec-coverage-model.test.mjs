@@ -800,6 +800,29 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(edgeActions(metadata)).toEqual(["fs:list"]);
   });
 
+  test("module runner separates edge authorization from trusted access", () => {
+    const gate = classifyObservedSurface(
+      surface("loader", "module-runner-edge-authorization"),
+      context,
+    );
+    expect(gate.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+    for (const name of [
+      "module-runner-cache-access",
+      "module-runner-prepared-carrier-access",
+      "module-runner-trusted-source-acquisition",
+    ]) {
+      expect(
+        classifyObservedSurface(surface("loader", name), context).edge,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "trusted-loader-source-acquisition",
+      });
+    }
+  });
+
   test("escape matching does not treat identifier substrings as escape surfaces", () => {
     const diffieHellmanNames = reviewedBuiltinExportNames()
       .filter((name) =>
@@ -3929,10 +3952,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         classification: "closed",
         cap: "ipc:channel",
       });
-      expect(
-        ipcBootstrap.implementationRows[0].implementationOwner,
-        name,
-      ).toBe("WP7");
+      expect(ipcBootstrap.implementationRows[0].implementationOwner, name).toBe(
+        "WP7",
+      );
     }
 
     for (const environmentName of [
@@ -3966,11 +3988,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       languages: ["rust"],
     };
     const fixedChildEnvironment = classifyObservedSurface(
-      surface(
-        "startup",
-        "env:XDG_CONFIG_HOME",
-        fixedChildEnvironmentMetadata,
-      ),
+      surface("startup", "env:XDG_CONFIG_HOME", fixedChildEnvironmentMetadata),
       context,
     );
     expect(fixedChildEnvironment.edge).toMatchObject({
@@ -4806,6 +4824,30 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ).toMatchObject({
       classification: "non-capability",
       rationaleId: "authority-control-plane",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_compile_factory"),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "module-reachability-only",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_load_carrier_factory"),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "module-reachability-only",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_release_handle"),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-release",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_module_record_namespace_json"),
+    ).toMatchObject({
+      classification: "closed",
+      cap: "runtime:inspect",
     });
     expect(
       edgeByObservedKey.get(

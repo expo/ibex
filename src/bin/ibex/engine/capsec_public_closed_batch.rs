@@ -859,6 +859,28 @@ async fn execute_closed_exact_unendowed_operation(
     })
 }
 
+pub(super) async fn execute_exact_fixture_runtime_observation(
+    recipe_value: &serde_json::Value,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let recipe: Recipe = serde_json::from_value(recipe_value.clone())
+        .expect("closed Exact fixture recipe must match the executable recipe schema");
+    let probe = closed_surface_probe(&recipe)
+        .expect("closed Exact fixture recipe has no closed-surface probe");
+    assert!(matches!(
+        probe.invocation.operation,
+        ClosedOperation::ExactUnendowedOperation { .. }
+    ));
+    let execution = execute_closed_exact_unendowed_operation(
+        &recipe,
+        &probe,
+        &coverage_terminals(),
+        engine_binary_digest,
+    )
+    .await;
+    execution["evidence"]["runtimeObservation"].clone()
+}
+
 fn clap_command_at_path<'a>(root: &'a clap::Command, path: &str) -> &'a clap::Command {
     let mut components = path.split(' ');
     assert_eq!(components.next(), Some(root.get_name()));

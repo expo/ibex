@@ -824,7 +824,7 @@ describe("source-bound builtin public probes", () => {
     ).toBe("builtin-export-not-publicly-importable");
   });
 
-  test("keeps source-proven target-absent constants explicitly residual", () => {
+  test("proves source-bound target-absent constants through the public module", () => {
     const surfaceObservedKey = "builtin:export:node_constants:EDQUOT";
     const liveByObservedKey = new Map([
       [
@@ -864,7 +864,19 @@ describe("source-bound builtin public probes", () => {
         liveByObservedKey,
         target: "aarch64-apple-darwin",
       }),
-    ).toBeNull();
+    ).toMatchObject({
+      surfaceObservedKey,
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-read",
+        expectedResult: "absent",
+        expectedTypedDecisionCount: 0,
+        sourceDescriptor: {
+          exportName: "EDQUOT",
+          platformAvailability: ["android", "linux"],
+        },
+      },
+    });
     expect(
       nonCapabilityBuiltinProbeResidualReason({
         route,

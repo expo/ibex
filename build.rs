@@ -785,6 +785,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_session_conformance.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_module_runner.cc");
     // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
     // native registry IDs are committed generated input to the C++ archive.
     println!("cargo:rerun-if-changed=src/engine/capsec_registry_generated.h");
@@ -897,6 +898,19 @@ fn main() {
     } else {
         None
     };
+    let hermes_frame_attribution_binary = match target_os.as_str() {
+        "macos" => hermes_macos_binary.clone(),
+        "linux" => [
+            hermes_lib_dir.join("libhermesvm.so"),
+            hermes_lib_dir.join("libhermesvm.a"),
+        ]
+        .into_iter()
+        .find(|path| path.is_file()),
+        _ => None,
+    };
+    if let Some(path) = hermes_frame_attribution_binary.as_ref() {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
     let allow_fallback = matches!(
         std::env::var("EXACT_ALLOW_FALLBACK")
             .ok()
@@ -1397,6 +1411,7 @@ fn main() {
     build
         .cpp(true)
         .file("src/engine/hermes_runtime.cc")
+        .file("src/engine/hermes_module_runner.cc")
         .file("src/engine/hermes_bootstrap.cc")
         .file("src/engine/hermes_runtime_utils.cc")
         .file("src/engine/hermes_runtime_sqlite.cc")
@@ -1636,16 +1651,15 @@ fn main() {
     }
 
     // @ref LLP 0013#mechanism-3 — frame-derived capability attribution is only
-    // available when the linked Hermes framework carries the bridge exports from
-    // the carried patch stack (patches/hermes/0003). Probe the framework binary
-    // for the exported symbol; when absent (iOS/Android/Windows engines, or a
-    // macOS checkout whose framework predates the patch rebuild) the engine falls
-    // back to the legacy thread-local module id and still links.
+    // available when the linked Hermes library carries the bridge exports from
+    // the carried patch stack (patches/hermes/0003). Probe the exact macOS or
+    // Linux link artifact for the exported symbol; when absent (iOS/Android/
+    // Windows engines, or a stale desktop bundle) the engine falls back to the
+    // legacy thread-local module id and still links.
     let enable_frame_attribution = target_os != "windows"
-        && hermes_macos_binary
+        && hermes_frame_attribution_binary
             .as_deref()
-            .map(macos_hermes_has_frame_attribution)
-            .unwrap_or(false);
+            .is_some_and(|path| hermes_has_frame_attribution(&target_os, path));
     if enable_frame_attribution {
         build.define("EXACT_HAVE_FRAME_ATTRIBUTION", None);
         println!("cargo:rustc-cfg=exact_frame_attribution");
@@ -3086,21 +3100,30 @@ fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
     String::from_utf8_lossy(&output.stdout).contains("AsyncDebuggerAPI")
 }
 
-// @ref LLP 0013#mechanism-3 — detect whether the linked Hermes framework
-// exports the capability-attribution bridge from patches/hermes/0003. Mirrors
-// macos_hermes_has_debugger_symbols so an unpatched engine degrades to the
-// thread-local module id instead of failing to link.
-fn macos_hermes_has_frame_attribution(binary_path: &Path) -> bool {
-    let output = std::process::Command::new("nm")
-        .args(["-gU", binary_path.to_string_lossy().as_ref()])
-        .output()
-        .or_else(|_| {
-            std::process::Command::new("xcrun")
-                .arg("nm")
-                .arg("-gU")
-                .arg(binary_path)
-                .output()
-        });
+// @ref LLP 0013#mechanism-3 — detect whether the exact linked desktop Hermes
+// artifact exports the capability-attribution bridge from patches/hermes/0003.
+// An unpatched engine degrades to the thread-local module id instead of failing
+// to link. Linux shared objects need the dynamic symbol table; macOS frameworks
+// use the same global/undefined filter as the debugger-symbol probe above.
+fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
+    let mut command = std::process::Command::new("nm");
+    match target_os {
+        "macos" => {
+            command.arg("-gU");
+        }
+        "linux" if binary_path.extension().is_some_and(|value| value == "so") => {
+            command.arg("-D");
+        }
+        _ => {}
+    }
+    let output = command.arg(binary_path).output().or_else(|_| {
+        let mut command = std::process::Command::new("xcrun");
+        command.arg("nm");
+        if target_os == "macos" {
+            command.arg("-gU");
+        }
+        command.arg(binary_path).output()
+    });
 
     let Ok(output) = output else {
         return false;

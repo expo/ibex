@@ -92,6 +92,7 @@ constexpr uint32_t kFsSurfaceReadlink = 15;
 constexpr uint32_t kFsSurfaceTruncate = 16;
 constexpr uint32_t kFsSurfaceStatfs = 17;
 constexpr uint32_t kFsSurfaceSqliteOpen = 18;
+constexpr uint32_t kFsSurfacePathAsync = 25;
 constexpr size_t kMaxArmedSymlinkHops = 32;
 
 struct IoVecMetadata {
@@ -3696,6 +3697,49 @@ static FsAsyncResult fsStatfsArmedWork(
   return fsStatfsFdWork(*target, virtualPath);
 }
 
+static FsAsyncResult fsChmodArmedWork(
+    uint64_t principal,
+    const std::string& backingPath,
+    const std::string& virtualPath,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& target,
+    double mode) {
+  if (mode < 0 || mode > 07777 ||
+      mode != static_cast<double>(static_cast<uint32_t>(mode))) {
+    return fsAsyncError(EINVAL, "chmod", virtualPath);
+  }
+  if (ex_host_authorize_typed_fs_open(
+          principal, backingPath.c_str(), 2, kFsSurfacePathAsync, *parent, *target,
+          0, 1, nullptr) != 1) {
+    return fsAsyncAuthorizationError("chmod", virtualPath);
+  }
+  if (::fchmod(*target, static_cast<mode_t>(mode)) != 0) {
+    return fsAsyncError(errno, "chmod", virtualPath);
+  }
+  return fsAsyncOk();
+}
+
+static FsAsyncResult fsUtimeArmedWork(
+    uint64_t principal,
+    const std::string& backingPath,
+    const std::string& virtualPath,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& target,
+    double atime,
+    double mtime) {
+  if (ex_host_authorize_typed_fs_open(
+          principal, backingPath.c_str(), 2, kFsSurfacePathAsync, *parent, *target,
+          0, 1, nullptr) != 1) {
+    return fsAsyncAuthorizationError("utime", virtualPath);
+  }
+  struct timeval times[2] = {
+      fsTimevalFromDouble(atime), fsTimevalFromDouble(mtime)};
+  if (::futimes(*target, times) != 0) {
+    return fsAsyncError(errno, "utime", virtualPath);
+  }
+  return fsAsyncOk();
+}
+
 static FsAsyncResult fsPathOpWork(
     const std::string& op,
     const std::string& a,
@@ -4356,15 +4400,18 @@ static FsAsyncResult fsTruncateArmedWork(
     uint64_t principal,
     const std::string& backingPath,
     const std::string& virtualPath,
-    off_t length,
+    double length,
     const std::shared_ptr<int>& parent,
     const std::shared_ptr<int>& target) {
+  if (length < 0 || length > static_cast<double>(INT64_MAX)) {
+    return fsAsyncError(EINVAL, "truncate", virtualPath);
+  }
   if (ex_host_authorize_typed_fs_open(
           principal, backingPath.c_str(), 2, kFsSurfaceTruncate,
           *parent, *target, 0, 1, nullptr) != 1) {
     return fsAsyncAuthorizationError("truncate", virtualPath);
   }
-  if (::ftruncate(*target, length) != 0) {
+  if (::ftruncate(*target, static_cast<off_t>(length)) != 0) {
     return fsAsyncError(errno, "truncate", virtualPath);
   }
   return fsAsyncOk();
@@ -6995,8 +7042,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         auto op = args[0].toString(runtime).utf8(runtime);
         double x = (count > 3 && args[3].isNumber()) ? args[3].asNumber() : 0;
         const bool closedMutation =
-            op == "rmdir" || op == "unlink" || op == "chmod" ||
-            op == "chown" || op == "utime" || op == "lchown" ||
+            op == "rmdir" || op == "unlink" || op == "chown" ||
+            op == "lchown" ||
             op == "lchmod" || op == "lutime" || op == "rename" ||
             op == "copyfile" || op == "copyfile_excl" || op == "symlink" ||
             op == "link" || op == "mkdtemp" || (op == "mkdir" && x != 0);
@@ -7126,12 +7173,45 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               [principal,
                backingPath = descriptors.authorizationBackingPath,
                virtualPath = resolvedA.virtualPath,
-               length = static_cast<off_t>(x),
+               length = x,
                parent = std::move(descriptors.parent),
                target = std::move(descriptors.target)]() {
                 return fsTruncateArmedWork(
                     principal, backingPath, virtualPath, length, parent,
                     target);
+              });
+        }
+        if (armed && op == "chmod") {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Metadata mutation follows commit and worker-side repeat authorization of the retained object.
+          auto descriptors = openArmedWriteTarget(
+              runtime, resolvedA.backing, resolvedA.virtualPath,
+              kFsSurfacePathAsync, O_RDONLY, 0, true, false, "");
+          return startFsAsync(
+              handle, runtime,
+              [principal,
+               backingPath = descriptors.authorizationBackingPath,
+               virtualPath = resolvedA.virtualPath, mode = x,
+               parent = std::move(descriptors.parent),
+               target = std::move(descriptors.target)]() {
+                return fsChmodArmedWork(
+                    principal, backingPath, virtualPath, parent, target, mode);
+              });
+        }
+        if (armed && op == "utime") {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Timestamp mutation follows commit and worker-side repeat authorization of the retained object.
+          auto descriptors = openArmedWriteTarget(
+              runtime, resolvedA.backing, resolvedA.virtualPath,
+              kFsSurfacePathAsync, O_RDONLY, 0, true, false, "");
+          return startFsAsync(
+              handle, runtime,
+              [principal,
+               backingPath = descriptors.authorizationBackingPath,
+               virtualPath = resolvedA.virtualPath, atime = x, mtime = y,
+               parent = std::move(descriptors.parent),
+               target = std::move(descriptors.target)]() {
+                return fsUtimeArmedWork(
+                    principal, backingPath, virtualPath, parent, target,
+                    atime, mtime);
               });
         }
         if (armed && op == "mkdtemp") {

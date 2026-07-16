@@ -18,6 +18,14 @@ crate-type = ["staticlib", "rlib"]
 name = "ibex"
 path = "src/bin/ibex/main.rs"
 
+[[example]]
+name = "module_runner_spike"
+required-features = ["module-runner-spike"]
+
+[[example]]
+name = "module_runner_test262_spike"
+required-features = ["module-runner-spike"]
+
 [dependencies]
 capsec-semantics = { path = "crates/capsec-semantics" }
 # Error handling
@@ -49,6 +57,7 @@ oxc_allocator = "=0.121.0"
 oxc_codegen = "=0.121.0"
 oxc_parser = "=0.121.0"
 oxc_semantic = "=0.121.0"
+oxc_sourcemap = "=6.1.1"
 oxc_span = "=0.121.0"
 oxc_transformer = "=0.121.0"
 
@@ -60,6 +69,9 @@ base64 = "0.22"
 hmac = "0.12"
 sha2 = "0.10"
 fs2 = "0.4"
+# Pure-Rust host for the pinned cjs-module-lexer 2.1.0 WASM detector. Disable
+# WAT parsing because the checked-in authority is already compiled WASM.
+wasmi = { version = "0.46.0", default-features = false, features = ["std"] }
 
 # HTTP server host bridge
 hyper = { version = "1.1", features = ["server", "http1", "http2"] }
@@ -107,8 +119,16 @@ swc_ecma_transforms_module = "49.0.0"
 swc_ecma_transforms_react = "49.0.0"
 
 [features]
-default = []
+# LLP 0026 native module graphs are the ordinary source evaluator. The
+# bounded 0.1 compatibility window retains the old bundler only for module
+# shapes the authenticated v1 graph explicitly classifies as unsupported.
+default = ["module-runner"]
 app-host = []
+# Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer
+# but never selects it as the runtime evaluator or enables artifact caching.
+module-runner-spike = []
+# LLP 0026 authenticated graph producer, linker, and Hermes evaluator.
+module-runner = []
 # Compiles the hyper-based localhost HTTP server backing `exact:http` and the
 # agent endpoints (the `ex_host_http_*` C symbols). App hosts and the full
 # `ibex` CLI profile enable this; without it build.rs compiles no-op stubs

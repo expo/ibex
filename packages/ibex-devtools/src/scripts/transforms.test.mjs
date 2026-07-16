@@ -87,6 +87,14 @@ describe('createRolldownConfig', () => {
   it('preserves symlink dependency ids for package classification', () => {
     expect(createRolldownConfig({ input: 'app.js' }).resolve.symlinks).toBe(false);
   });
+
+  it('uses the standalone classic JSX runtime', () => {
+    expect(createRolldownConfig({ input: 'app.tsx' }).transform.jsx).toEqual({
+      runtime: 'classic',
+      pragma: 'React.createElement',
+      pragmaFrag: 'React.Fragment',
+    });
+  });
 });
 
 describe('fixForOfScoping', () => {

@@ -31,6 +31,8 @@ use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+#[cfg(feature = "module-runner")]
+use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -410,8 +412,20 @@ extern "C" {
         armed_snapshot_digest: *const std::os::raw::c_char,
     ) -> *mut HermesRuntimeOpaque;
     fn ex_hermes_finish_bootstrap(runtime: *mut HermesRuntimeOpaque) -> u32;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "module-runner"))]
     fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
+    #[cfg(feature = "module-runner")]
+    fn ex_hermes_module_pin_generation(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        graph_generation: u64,
+    ) -> i32;
+    #[cfg(feature = "module-runner")]
+    fn ex_hermes_module_unpin_generation(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        graph_generation: u64,
+    ) -> i32;
     fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     fn ex_hermes_set_host_call(
         runtime: *mut HermesRuntimeOpaque,
@@ -551,6 +565,7 @@ extern "C" {
     fn ibex_test_install_capsec_context_observer(
         runtime: *mut HermesRuntimeOpaque,
         global_name: *const std::os::raw::c_char,
+        compartment_identity: *const std::os::raw::c_char,
     ) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_set_armed_startup_failure_stage(stage: *const std::os::raw::c_char);
@@ -1824,6 +1839,139 @@ impl HermesEngine {
         }
     }
 
+    #[cfg(feature = "module-runner")]
+    async fn run_native_module_graph(
+        &self,
+        graph: &crate::module_loader::runner_pipeline::SourceModuleGraphV1,
+    ) -> Result<Option<String>> {
+        use ibex_runtime::engine::module_runner::{
+            AsyncGraphPoll, NativeAsynchronousGraph, NativeModuleRuntime, NativeSynchronousGraph,
+        };
+        use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
+
+        self.maybe_enable_debugger().await?;
+        self.ensure_thread()?;
+        let runtime = self.ensure_runtime().await?;
+        let generation = 1;
+        let nonce = runtime.with_runtime(|raw| unsafe { ex_hermes_runtime_nonce(raw) })?;
+        let pin_status = runtime.with_runtime(|raw| unsafe {
+            ex_hermes_module_pin_generation(raw, nonce, generation)
+        })?;
+        if pin_status != 0 {
+            anyhow::bail!("native module graph generation pin refused ({pin_status})");
+        }
+        let evaluation = runtime
+            .with_runtime(|raw| -> Result<Option<String>> {
+                let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+                let raw = NonNull::new(raw.cast())
+                    .ok_or_else(|| anyhow!("Hermes module runtime pointer is null"))?;
+                let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
+                let plan = graph.plan()?;
+                let (configs, authority_contexts) = graph.native_execution_inputs(generation)?;
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let prepared_entries = graph.prepared_entries()?;
+                let has_top_level_await = plan.evaluation_order(graph.entry())?.iter().try_fold(
+                    false,
+                    |found, source_id| {
+                        Ok::<_, anyhow::Error>(found || plan.has_top_level_await(source_id)?)
+                    },
+                )?;
+
+                if !has_top_level_await {
+                    let mut linked = match prepared_entries.as_ref() {
+                        Some(entries) => NativeSynchronousGraph::link_authorized_prepared(
+                            &native_runtime,
+                            &plan,
+                            graph.entry(),
+                            configs,
+                            &authorizer,
+                            &authority_contexts,
+                            entries,
+                        )?,
+                        None => NativeSynchronousGraph::link_authorized(
+                            &native_runtime,
+                            &plan,
+                            graph.entry(),
+                            configs,
+                            &authorizer,
+                            &authority_contexts,
+                        )?,
+                    };
+                    linked.evaluate()?;
+                    return Ok(None);
+                }
+
+                let mut linked = match prepared_entries.as_ref() {
+                    Some(entries) => NativeAsynchronousGraph::link_authorized_prepared(
+                        &native_runtime,
+                        &plan,
+                        graph.entry(),
+                        configs,
+                        &authorizer,
+                        &authority_contexts,
+                        entries,
+                    )?,
+                    None => NativeAsynchronousGraph::link_authorized(
+                        &native_runtime,
+                        &plan,
+                        graph.entry(),
+                        configs,
+                        &authorizer,
+                        &authority_contexts,
+                    )?,
+                };
+                loop {
+                    match linked.poll()? {
+                        AsyncGraphPoll::Evaluated => return Ok(None),
+                        AsyncGraphPoll::Suspended => {
+                            let now = unsafe { ex_hermes_now_ms() };
+                            let executed = unsafe { ex_hermes_poll(raw.as_ptr().cast(), now) };
+                            if executed < 0 {
+                                anyhow::bail!(
+                                    "Hermes task execution failed while evaluating module graph"
+                                );
+                            }
+                            if executed == 0 {
+                                let next = unsafe { ex_hermes_next_timer(raw.as_ptr().cast()) };
+                                if next < 0 {
+                                    anyhow::bail!(
+                                    "top-level-await module graph suspended without a runnable task"
+                                );
+                                }
+                                let delay = (next as u64).saturating_sub(now).min(50);
+                                if delay > 0 {
+                                    std::thread::sleep(std::time::Duration::from_millis(delay));
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            .and_then(|result| result);
+        let result = match evaluation {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = runtime.with_runtime(|raw| unsafe {
+                    ex_hermes_module_unpin_generation(raw, nonce, generation)
+                });
+                return Err(error);
+            }
+        };
+        // File execution owns the same post-evaluation event-loop drive as
+        // `run_file`: timers and host callbacks scheduled by a synchronous
+        // module graph must not be dropped merely because graph evaluation
+        // itself did not suspend on top-level await.
+        let drive_result = self.drive_event_loop().await;
+        let unpin_status = runtime.with_runtime(|raw| unsafe {
+            ex_hermes_module_unpin_generation(raw, nonce, generation)
+        })?;
+        if unpin_status != 0 {
+            anyhow::bail!("native module graph generation unpin refused ({unpin_status})");
+        }
+        drive_result?;
+        Ok(result)
+    }
+
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     async fn install_capsec_context_test_observer(&self) -> Result<String> {
         self.ensure_thread()?;
@@ -1838,7 +1986,7 @@ impl HermesEngine {
         let name_c = CString::new(name.as_str()).expect("hex observer name has no interior NUL");
         let runtime = self.ensure_runtime().await?;
         let installed = runtime.with_runtime(|raw| unsafe {
-            ibex_test_install_capsec_context_observer(raw, name_c.as_ptr())
+            ibex_test_install_capsec_context_observer(raw, name_c.as_ptr(), std::ptr::null())
         })?;
         if installed != 1 {
             anyhow::bail!("armed Hermes refused the ephemeral CapSec context observer");
@@ -3006,6 +3154,14 @@ impl Engine for HermesEngine {
         let result = self.eval_bytes(bytes, source_url, true).await?;
         self.drive_event_loop().await?;
         Ok(result)
+    }
+
+    #[cfg(feature = "module-runner")]
+    async fn run_authenticated_module_graph(
+        &self,
+        graph: &crate::module_loader::runner_pipeline::SourceModuleGraphV1,
+    ) -> Result<Option<String>> {
+        self.run_native_module_graph(graph).await
     }
 
     async fn run_file_immediate(&self, path: &str) -> Result<Option<String>> {
@@ -4622,6 +4778,11 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
+    mod capsec_exact_fixture_evidence_batch {
+        include!("capsec_exact_fixture_evidence_batch.rs");
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
     mod capsec_public_target_absence_batch {
         include!("capsec_public_target_absence_batch.rs");
     }
@@ -5543,6 +5704,102 @@ cp \"$input\" \"$out\"\n";
             .unwrap()
             .dedup();
         mutate(&mut value);
+
+        // Production snapshots require the package graph's location and
+        // typed-edge provenance. The checked-in canonical snapshot is a
+        // contract fixture, so materialize those production-only fields after
+        // the caller has replaced any principals or bindings.
+        let project_components = value["rootBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|binding| binding["logicalRoot"] == "project")
+            .expect("production test snapshot must bind the project root")["hostPath"]
+            ["components"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for binding in value["rootBindings"].as_array_mut().unwrap() {
+            let Some(owner) = binding.get("owner") else {
+                continue;
+            };
+            let components = binding["hostPath"]["components"]
+                .as_array()
+                .expect("test package binding must have path components");
+            if components.starts_with(&project_components) {
+                continue;
+            }
+            let package_name = owner["name"]
+                .as_str()
+                .expect("test package binding owner must have a name");
+            let mut relocated = project_components.clone();
+            relocated.extend([
+                serde_json::json!({"encoding": "utf8", "value": "node_modules"}),
+                serde_json::json!({"encoding": "utf8", "value": package_name}),
+            ]);
+            binding["hostPath"]["components"] = serde_json::Value::Array(relocated);
+        }
+        let root_bindings = value["rootBindings"].as_array().unwrap().clone();
+        for node in value["packageGraph"]["nodes"].as_array_mut().unwrap() {
+            let principal = node["principal"].clone();
+            let binding = root_bindings
+                .iter()
+                .find(|binding| binding.get("owner") == Some(&principal))
+                .expect("package graph node must have a test root binding");
+            let package_name = principal["name"]
+                .as_str()
+                .expect("test package principal must have a name");
+            node["resolvingSpecifier"] = serde_json::json!(package_name);
+            node["rootObject"] = binding["object"].clone();
+            let package_components = binding["hostPath"]["components"]
+                .as_array()
+                .expect("test package binding must have path components");
+            let virtual_components = package_components
+                .strip_prefix(project_components.as_slice())
+                .expect("normalized package binding must be below the project root");
+            node["virtualAliases"] = serde_json::json!([{
+                "root": "project",
+                "components": virtual_components
+            }]);
+            node["platformDisposition"] = serde_json::json!("required");
+        }
+        let authored_edges = value["packageGraph"]["importEdges"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut typed_edges = Vec::new();
+        for edge in authored_edges {
+            if edge.get("requestSpecifier").is_some() {
+                typed_edges.push(edge);
+                continue;
+            }
+            let request = edge["imported"]["name"]
+                .as_str()
+                .expect("test imported principal must have a name");
+            for (kind, conditions) in [
+                ("common-js-require", vec!["node", "require"]),
+                ("dynamic-import", vec!["import", "node"]),
+                ("esm-static", vec!["import", "node"]),
+            ] {
+                typed_edges.push(serde_json::json!({
+                    "importer": edge["importer"],
+                    "imported": edge["imported"],
+                    "requestSpecifier": request,
+                    "resolutionKind": kind,
+                    "conditions": conditions,
+                    "attributes": {},
+                }));
+            }
+        }
+        value["packageGraph"]["importEdges"] = serde_json::Value::Array(typed_edges);
+        value["packageGraph"]["digest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                "ibex:capsec:package-graph:1",
+                &value["packageGraph"],
+                &["digest".to_owned()],
+            )
+            .unwrap(),
+        );
         let fixture_bindings: Vec<capsec_semantics::arming::ArmedRootBinding> =
             serde_json::from_value(value["rootBindings"].clone()).unwrap();
         value["pathCanonicalizers"] = serde_json::to_value(

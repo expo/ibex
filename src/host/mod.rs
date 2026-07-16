@@ -3962,6 +3962,44 @@ impl Host {
             .register_module_package(module_id, package, locator);
     }
 
+    /// Install the runtime-local numeric projection selected by the native
+    /// graph owner. The semantic principal must already be an exact member of
+    /// the immutable armed snapshot; choosing an id cannot mint authority.
+    #[cfg(any(test, feature = "module-runner"))]
+    pub(crate) fn module_runner_principal_id(
+        &self,
+        principal: &capsec_semantics::model::Principal,
+    ) -> anyhow::Result<u32> {
+        if !self.typed_imports.contains_key(principal) {
+            anyhow::bail!("native principal projection is absent from the armed snapshot");
+        }
+        if principal.is_root() {
+            return Ok(0);
+        }
+        let mut mappings = self
+            .typed_module_principals
+            .write()
+            .map_err(|_| anyhow::anyhow!("native principal projection registry is poisoned"))?;
+        if let Some(existing_id) = mappings
+            .iter()
+            .find_map(|(id, existing)| (existing == principal).then_some(id))
+        {
+            return existing_id
+                .parse::<u32>()
+                .map_err(|_| anyhow::anyhow!("registered module principal id is not a u32"));
+        }
+        let principal_id = mappings
+            .keys()
+            .filter_map(|id| id.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("native principal projection overflow"))?;
+        let key = principal_id.to_string();
+        mappings.insert(key, principal.clone());
+        Ok(principal_id)
+    }
+
     /// Import-graph gate: may the module identified by `module_id` load
     /// `specifier` (a builtin like `node:fs` or a dependency package name)?
     ///
@@ -4112,8 +4150,14 @@ impl Host {
         specifier: &str,
         referrer: Option<&std::path::Path>,
     ) -> anyhow::Result<ResolvedModule> {
-        let meta =
-            self.resolve_module_meta_for_principal_inner(specifier, referrer, None, false)?;
+        let meta = self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            None,
+            false,
+            crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            &crate::module_loader::identity::ImportAttributes::default(),
+        )?;
         self.load_authenticated_module_source(meta)
     }
 
@@ -4252,6 +4296,7 @@ impl Host {
         &self,
         specifier: &str,
         logical_referrer: &capsec_semantics::model::LogicalPath,
+        resolution_kind: crate::module_loader::identity::ResolutionKind,
     ) -> anyhow::Result<ResolvedModule> {
         let snapshot = self
             .armed_snapshot
@@ -4269,8 +4314,12 @@ impl Host {
             logical_referrer,
         )?;
         let synthetic_referrer = directory.join(".ibex-session-static-import.mjs");
-        let module =
-            self.resolve_module_for_principal(specifier, Some(&synthetic_referrer), Some("0"))?;
+        let module = self.resolve_module_for_principal_typed(
+            specifier,
+            Some(&synthetic_referrer),
+            Some("0"),
+            resolution_kind,
+        )?;
         let authenticated_esm = module.kind == crate::module_loader::ModuleKind::Esm
             || module.path.as_deref().is_some_and(|path| {
                 path.extension()
@@ -4299,6 +4348,7 @@ impl Host {
         &self,
         specifier: &str,
         logical_referrer: &capsec_semantics::model::LogicalPath,
+        resolution_kind: crate::module_loader::identity::ResolutionKind,
     ) -> anyhow::Result<ResolvedModule> {
         let snapshot = self
             .armed_snapshot
@@ -4316,7 +4366,12 @@ impl Host {
             logical_referrer,
         )?;
         let synthetic_referrer = directory.join(".ibex-session-static-import.mjs");
-        self.resolve_module_meta_for_principal(specifier, Some(&synthetic_referrer), Some("0"))
+        self.resolve_module_meta_for_principal_typed(
+            specifier,
+            Some(&synthetic_referrer),
+            Some("0"),
+            resolution_kind,
+        )
     }
 
     pub fn resolve_module_for_principal(
@@ -4330,6 +4385,26 @@ impl Host {
             referrer,
             requester_module_id,
             false,
+            crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            &crate::module_loader::identity::ImportAttributes::default(),
+        )?;
+        self.load_authenticated_module_source(meta)
+    }
+
+    pub fn resolve_module_for_principal_typed(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+        requester_module_id: Option<&str>,
+        kind: crate::module_loader::identity::ResolutionKind,
+    ) -> anyhow::Result<ResolvedModule> {
+        let meta = self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            requester_module_id,
+            false,
+            kind,
+            &crate::module_loader::identity::ImportAttributes::default(),
         )?;
         self.load_authenticated_module_source(meta)
     }
@@ -4363,6 +4438,22 @@ impl Host {
         &self,
         meta: ResolvedModule,
     ) -> anyhow::Result<ResolvedModule> {
+        self.load_authenticated_module_source_mode(meta, false)
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    pub(crate) fn load_authenticated_module_source_for_runner(
+        &self,
+        meta: ResolvedModule,
+    ) -> anyhow::Result<ResolvedModule> {
+        self.load_authenticated_module_source_mode(meta, true)
+    }
+
+    fn load_authenticated_module_source_mode(
+        &self,
+        meta: ResolvedModule,
+        preserve_module_source: bool,
+    ) -> anyhow::Result<ResolvedModule> {
         let loaded = if let Some(snapshot) = self.armed_snapshot.as_deref() {
             if let Some(expected_integrity) = meta.package_integrity.as_deref() {
                 let path = meta
@@ -4386,7 +4477,11 @@ impl Host {
                 .with_context(|| {
                     format!("failed to reauthenticate package source {}", path.display())
                 })?;
-                self.module_loader.load_source_bytes(meta, bytes)?
+                if preserve_module_source {
+                    self.module_loader.load_runner_source_bytes(meta, bytes)?
+                } else {
+                    self.module_loader.load_source_bytes(meta, bytes)?
+                }
             } else if let Some(path) = meta.path.as_deref() {
                 let components = host_path_components(path)?;
                 let root_principal = self
@@ -4420,20 +4515,34 @@ impl Host {
                         "first-party module source aliases an authenticated package object"
                     );
                 }
-                self.module_loader.load_source_bytes(meta, source.bytes)?
+                if preserve_module_source {
+                    self.module_loader
+                        .load_runner_source_bytes(meta, source.bytes)?
+                } else {
+                    self.module_loader.load_source_bytes(meta, source.bytes)?
+                }
+            } else {
+                if preserve_module_source {
+                    self.module_loader.load_runner_source(meta)?
+                } else {
+                    self.module_loader.load_source(meta)?
+                }
+            }
+        } else {
+            if preserve_module_source {
+                self.module_loader.load_runner_source(meta)?
             } else {
                 self.module_loader.load_source(meta)?
             }
-        } else {
-            self.module_loader.load_source(meta)?
         };
         self.attach_authenticated_module_identity(loaded)
     }
 
-    /// Stamp an armed file record with the same VFS `SourceId`, label, and
-    /// virtual path used by direct file ingress. The module loader receives the
+    /// Stamp an armed file record with both identities derived from the same
+    /// retained VFS binding: the compatibility cache `SourceId` and the
+    /// portable module-artifact `SourceId`. The module loader receives the
     /// native host path only as resolver-local state; cache keys and project
-    /// observables use these authenticated virtual values.
+    /// observables use authenticated virtual values.
     /// @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
     fn attach_authenticated_module_identity(
         &self,
@@ -4476,6 +4585,13 @@ impl Host {
                 &self.resolver_session_handle,
             )
             .context("authenticated module has no logical resolver path")?;
+        let artifact_source_id = crate::module_loader::identity::SourceId::file(
+            source_id
+                .defining_principal()
+                .cloned()
+                .context("authenticated module SourceId has no defining principal")?,
+            resolver_path.logical_path().components.clone(),
+        )?;
         let resolver_package_root = module
             .package_root
             .as_deref()
@@ -4490,7 +4606,15 @@ impl Host {
                 .context("authenticated package root has no logical resolver identity")
             })
             .transpose()?;
+        if module
+            .artifact_source_id
+            .as_ref()
+            .is_some_and(|current| current != &artifact_source_id)
+        {
+            anyhow::bail!("module artifact SourceId differs from its authenticated VFS binding");
+        }
         module.virtual_path = Some(namespace.virtual_path().to_owned());
+        module.artifact_source_id = Some(artifact_source_id);
         module.source_id = Some(source_id);
         module.source_label = Some(source_label);
         module.resolver_path = Some(resolver_path);
@@ -4568,6 +4692,8 @@ impl Host {
             referrer,
             requester_module_id,
             true,
+            crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            &crate::module_loader::identity::ImportAttributes::default(),
         )?;
         self.attach_authenticated_module_identity(meta)
     }
@@ -4705,6 +4831,9 @@ impl Host {
         specifier: &str,
         referrer: Option<&std::path::Path>,
         requester_module_id: &str,
+        resolution_kind: crate::module_loader::identity::ResolutionKind,
+        resolution_conditions: &crate::module_loader::identity::ConditionSet,
+        import_attributes: &crate::module_loader::identity::ImportAttributes,
     ) -> anyhow::Result<ResolvedModule> {
         const MAX_MANIFEST_CAPTURE_PASSES: usize = 64;
 
@@ -4728,12 +4857,23 @@ impl Host {
             let attempt = match plan {
                 ArmedModuleResolution::BoundPackage { name, root } => self
                     .module_loader
-                    .resolve_meta_from_authenticated_bound_package(specifier, name, root, &inputs),
+                    .resolve_meta_from_authenticated_bound_package_typed(
+                        specifier,
+                        name,
+                        root,
+                        resolution_kind,
+                        resolution_conditions,
+                        import_attributes,
+                        &inputs,
+                    ),
                 ArmedModuleResolution::Generic { requested_path, .. } => {
-                    self.module_loader.resolve_meta_authenticated(
+                    self.module_loader.resolve_meta_authenticated_typed(
                         specifier,
                         referrer,
                         requested_path.as_deref(),
+                        resolution_kind,
+                        resolution_conditions,
+                        import_attributes,
                         &inputs,
                     )
                 }
@@ -4752,17 +4892,59 @@ impl Host {
         anyhow::bail!("authenticated resolver manifest capture did not converge")
     }
 
+    pub fn resolve_module_meta_for_principal_typed(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+        requester_module_id: Option<&str>,
+        kind: crate::module_loader::identity::ResolutionKind,
+    ) -> anyhow::Result<ResolvedModule> {
+        let meta = self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            requester_module_id,
+            true,
+            kind,
+            &crate::module_loader::identity::ImportAttributes::default(),
+        )?;
+        self.attach_authenticated_module_identity(meta)
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    pub(crate) fn resolve_module_meta_for_principal_typed_with_attributes(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+        requester_module_id: Option<&str>,
+        kind: crate::module_loader::identity::ResolutionKind,
+        attributes: &crate::module_loader::identity::ImportAttributes,
+    ) -> anyhow::Result<ResolvedModule> {
+        let meta = self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            requester_module_id,
+            true,
+            kind,
+            attributes,
+        )?;
+        self.attach_authenticated_module_identity(meta)
+    }
+
     fn resolve_module_meta_for_principal_inner(
         &self,
         specifier: &str,
         referrer: Option<&std::path::Path>,
         requester_module_id: Option<&str>,
         authorize_path_disclosure: bool,
+        resolution_kind: crate::module_loader::identity::ResolutionKind,
+        import_attributes: &crate::module_loader::identity::ImportAttributes,
     ) -> anyhow::Result<ResolvedModule> {
         if self.unarmed_closed {
             anyhow::bail!("unarmed host cannot resolve executable modules");
         }
         let specifier = crate::module_loader::strip_file_module_decorations(specifier.trim());
+        let resolution_conditions =
+            crate::module_loader::identity::ConditionSet::for_kind(resolution_kind);
         let armed_resolution = if let Some(snapshot) = self.armed_snapshot.as_deref() {
             let root_principal = self
                 .typed_imports
@@ -4794,6 +4976,9 @@ impl Host {
                 specifier,
                 referrer,
                 self.module_loader.is_builtin_specifier(specifier),
+                resolution_kind,
+                &resolution_conditions,
+                import_attributes,
             )?;
             let requester_key = requester_module_id
                 .map(str::to_owned)
@@ -4834,7 +5019,15 @@ impl Host {
                         "armed module resolution has no authenticated requester identity"
                     )
                 })?;
-                self.resolve_armed_module_meta_bounded(plan, specifier, referrer, requester_key)?
+                self.resolve_armed_module_meta_bounded(
+                    plan,
+                    specifier,
+                    referrer,
+                    requester_key,
+                    resolution_kind,
+                    &resolution_conditions,
+                    import_attributes,
+                )?
             }
             Some((
                 _,
@@ -4846,7 +5039,13 @@ impl Host {
                     ..
                 },
             ))
-            | None => self.module_loader.resolve_meta(specifier, referrer)?,
+            | None => self.module_loader.resolve_meta_typed(
+                specifier,
+                referrer,
+                resolution_kind,
+                &resolution_conditions,
+                import_attributes,
+            )?,
             Some(_) => anyhow::bail!("authenticated resolver boundary is absent"),
         };
         if let Some(path) = meta.path.as_ref() {
@@ -4939,6 +5138,16 @@ impl Host {
                         meta.package_version = None;
                     }
                 }
+                let source_components = components
+                    .strip_prefix(binding.host_path.components.as_slice())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("resolved module is outside its authenticated root binding")
+                    })?
+                    .to_vec();
+                meta.artifact_source_id = Some(crate::module_loader::identity::SourceId::file(
+                    target_principal.clone(),
+                    source_components,
+                )?);
                 if authorize_path_disclosure {
                     let requester_key = requester_key.as_deref().ok_or_else(|| {
                         anyhow::anyhow!(
@@ -5313,6 +5522,9 @@ fn preflight_armed_module_resolution(
     specifier: &str,
     referrer: Option<&std::path::Path>,
     builtin: bool,
+    resolution_kind: crate::module_loader::identity::ResolutionKind,
+    conditions: &crate::module_loader::identity::ConditionSet,
+    attributes: &crate::module_loader::identity::ImportAttributes,
 ) -> anyhow::Result<ArmedModuleResolution> {
     let requester_policy = imports
         .get(requester)
@@ -5362,6 +5574,17 @@ fn preflight_armed_module_resolution(
             anyhow::bail!("Import denied by authenticated package graph");
         }
         let principal = candidates[0];
+        let condition_names = conditions.names().map(str::to_owned).collect::<Vec<_>>();
+        if !snapshot.authenticates_module_edge(
+            requester,
+            specifier,
+            principal,
+            resolution_kind.wire_name(),
+            &condition_names,
+            attributes.entries(),
+        ) {
+            anyhow::bail!("Import denied by authenticated package graph");
+        }
         let bindings = snapshot
             .root_bindings()?
             .iter()
@@ -5407,7 +5630,17 @@ fn preflight_armed_module_resolution(
                 .any(|allowed| allowed == locator.as_str()),
             _ => false,
         };
-        if !allowed {
+        let condition_names = conditions.names().map(str::to_owned).collect::<Vec<_>>();
+        if !allowed
+            || !snapshot.authenticates_module_edge(
+                requester,
+                specifier,
+                &target_principal,
+                resolution_kind.wire_name(),
+                &condition_names,
+                attributes.entries(),
+            )
+        {
             anyhow::bail!("Import denied by authenticated package graph");
         }
     }
@@ -6002,7 +6235,9 @@ fn validate_snapshot_protected_artifacts(
     Ok(())
 }
 
-fn object_identity_for_host_path(
+/// Pin a host path without following a final symlink/reparse point and derive
+/// its stable platform object identity from the opened handle.
+pub fn object_identity_for_host_path(
     path: &std::path::Path,
 ) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
     let mut options = std::fs::OpenOptions::new();
@@ -6047,7 +6282,10 @@ fn object_identity_for_metadata(
     })
 }
 
-fn object_identity_for_open_file(
+/// Derive a stable platform object identity from an already-open file handle.
+/// This is the cross-platform alternative to Rust's unstable Windows
+/// `MetadataExt::file_index` and `volume_serial_number` accessors.
+pub fn object_identity_for_open_file(
     file: &std::fs::File,
 ) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
     #[cfg(unix)]
@@ -6701,6 +6939,11 @@ fn package_name_from_specifier(specifier: &str) -> &str {
     }
 }
 
+#[cfg(all(test, feature = "capsec-conformance-observer"))]
+pub(crate) fn module_runner_attribution_test_host() -> Host {
+    tests::example_armed_host()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7006,7 +7249,7 @@ mod tests {
         })
     }
 
-    fn example_armed_host() -> Host {
+    pub(super) fn example_armed_host() -> Host {
         example_armed_host_with(|_| {})
     }
 
@@ -7511,7 +7754,11 @@ mod tests {
         let host = example_vfs_armed_host();
         let referrer = session_static_import_referrer(&["images"]);
         let resolved = host
-            .resolve_session_static_import("./session-static-dependency.mjs", &referrer)
+            .resolve_session_static_import(
+                "./session-static-dependency.mjs",
+                &referrer,
+                crate::module_loader::identity::ResolutionKind::EsmStatic,
+            )
             .unwrap();
         assert_eq!(
             resolved.path.as_deref(),
@@ -7556,7 +7803,11 @@ mod tests {
         vfs.close();
 
         let error = host
-            .resolve_session_static_import("./session-static-tla.mjs", &referrer)
+            .resolve_session_static_import(
+                "./session-static-tla.mjs",
+                &referrer,
+                crate::module_loader::identity::ResolutionKind::EsmStatic,
+            )
             .unwrap_err()
             .to_string();
         assert!(error.contains("IBEX_DEPENDENCY_TOP_LEVEL_AWAIT"), "{error}");
@@ -7571,7 +7822,11 @@ mod tests {
         let host = example_vfs_armed_host();
         let referrer = session_static_import_referrer(&["images"]);
         let resolved = host
-            .resolve_session_static_import_meta("./session-resolve-only.mjs", &referrer)
+            .resolve_session_static_import_meta(
+                "./session-resolve-only.mjs",
+                &referrer,
+                crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            )
             .unwrap();
         assert_eq!(
             resolved.path.as_deref(),
@@ -7584,7 +7839,11 @@ mod tests {
         );
 
         let body_error = host
-            .resolve_session_static_import("./session-resolve-only.mjs", &referrer)
+            .resolve_session_static_import(
+                "./session-resolve-only.mjs",
+                &referrer,
+                crate::module_loader::identity::ResolutionKind::EsmStatic,
+            )
             .unwrap_err()
             .to_string();
         assert!(body_error.contains("not valid UTF-8"), "{body_error}");
@@ -7595,6 +7854,7 @@ mod tests {
             .resolve_session_static_import_meta(
                 "./session-resolve-only.mjs",
                 &noncanonical_referrer,
+                crate::module_loader::identity::ResolutionKind::CommonJsRequire,
             )
             .unwrap_err()
             .to_string();
@@ -7653,14 +7913,22 @@ mod tests {
         let referrer = session_static_import_referrer(&["images"]);
 
         let graph_error = host
-            .resolve_session_static_import("session-static-denied", &referrer)
+            .resolve_session_static_import(
+                "session-static-denied",
+                &referrer,
+                crate::module_loader::identity::ResolutionKind::EsmStatic,
+            )
             .unwrap_err()
             .to_string();
         assert_eq!(graph_error, "Import denied by authenticated package graph");
         assert!(!graph_error.contains("UTF-8"));
 
         let escape_error = host
-            .resolve_session_static_import("../../ibex-session-static-outside.mjs", &referrer)
+            .resolve_session_static_import(
+                "../../ibex-session-static-outside.mjs",
+                &referrer,
+                crate::module_loader::identity::ResolutionKind::EsmStatic,
+            )
             .unwrap_err()
             .to_string();
         assert!(
@@ -7677,6 +7945,7 @@ mod tests {
             .resolve_session_static_import(
                 "image-lib",
                 &session_static_import_referrer(&["images"]),
+                crate::module_loader::identity::ResolutionKind::EsmStatic,
             )
             .unwrap();
         assert_eq!(resolved.package_name.as_deref(), Some("image-lib"));
@@ -7693,6 +7962,18 @@ mod tests {
             .source
             .as_deref()
             .is_some_and(|source| source.contains("authenticatedPackage")));
+        let artifact_source_id = resolved
+            .artifact_source_id
+            .as_ref()
+            .expect("package resolution must carry a portable artifact SourceId");
+        match artifact_source_id {
+            crate::module_loader::identity::SourceId::File { principal, path } => {
+                assert!(principal.is_package());
+                assert_eq!(path.len(), 1);
+                assert_eq!(path[0].bytes(), b"index.js");
+            }
+            other => panic!("package resolution produced non-file SourceId {other:?}"),
+        }
         let package_record = resolved.resolver_package_root.as_ref().unwrap();
         assert_eq!(
             package_record.schema(),
@@ -8867,7 +9148,6 @@ mod tests {
         });
         value["rootBindings"][0]["object"] =
             serde_json::to_value(object_identity_for_host_path(&package_root).unwrap()).unwrap();
-        mutator(&mut value);
         let project_path = serde_json::json!({
             "root": "absolute",
             "components": host_path_components(project_root).unwrap(),
@@ -8876,11 +9156,19 @@ mod tests {
         value["rootBindings"][1]["hostPath"] = project_path.clone();
         value["rootBindings"][1]["object"] =
             serde_json::to_value(object_identity_for_host_path(project_root).unwrap()).unwrap();
+        mutator(&mut value);
+
+        let root_bindings = value["rootBindings"].as_array().unwrap().clone();
+        let project_binding = root_bindings
+            .iter()
+            .find(|binding| binding["logicalRoot"] == "project")
+            .unwrap();
+        let project_path = project_binding["hostPath"].clone();
         value["projectRootDiscovery"] = serde_json::json!({
-            "origin": project_path,
-            "selectedRoot": value["rootBindings"][1]["hostPath"].clone(),
+            "origin": project_path.clone(),
+            "selectedRoot": project_path.clone(),
             "markerKind": "explicit-project",
-            "markerPath": value["rootBindings"][1]["hostPath"].clone(),
+            "markerPath": project_path,
             "markerSetVersion": capsec_semantics::arming::PROJECT_ROOT_MARKER_SET_VERSION,
         });
         let fixture_bindings: Vec<capsec_semantics::arming::ArmedRootBinding> =
@@ -8894,6 +9182,67 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        let project_components = root_bindings
+            .iter()
+            .find(|binding| binding["logicalRoot"] == "project")
+            .unwrap()["hostPath"]["components"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for node in value["packageGraph"]["nodes"].as_array_mut().unwrap() {
+            let principal = node["principal"].clone();
+            let binding = root_bindings
+                .iter()
+                .find(|binding| binding.get("owner") == Some(&principal))
+                .unwrap();
+            let package_components = binding["hostPath"]["components"].as_array().unwrap();
+            let (logical_root, relative) = package_components
+                .strip_prefix(project_components.as_slice())
+                .map(|relative| ("project", relative.to_vec()))
+                .unwrap_or_else(|| ("package", Vec::new()));
+            node["resolvingSpecifier"] = principal["name"].clone();
+            node["rootObject"] = binding["object"].clone();
+            node["virtualAliases"] = serde_json::json!([{
+                "root": logical_root,
+                "components": relative,
+            }]);
+            node["platformDisposition"] = serde_json::json!("required");
+        }
+        let authored_edges = value["packageGraph"]["importEdges"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut typed_edges = Vec::new();
+        for edge in authored_edges {
+            if edge.get("requestSpecifier").is_some() {
+                typed_edges.push(edge);
+                continue;
+            }
+            let request = edge["imported"]["name"].as_str().unwrap();
+            for (kind, conditions) in [
+                ("common-js-require", vec!["node", "require"]),
+                ("dynamic-import", vec!["import", "node"]),
+                ("esm-static", vec!["import", "node"]),
+            ] {
+                typed_edges.push(serde_json::json!({
+                    "importer": edge["importer"],
+                    "imported": edge["imported"],
+                    "requestSpecifier": request,
+                    "resolutionKind": kind,
+                    "conditions": conditions,
+                    "attributes": {},
+                }));
+            }
+        }
+        value["packageGraph"]["importEdges"] = serde_json::Value::Array(typed_edges);
+        value["packageGraph"]["digest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                "ibex:capsec:package-graph:1",
+                &value["packageGraph"],
+                &["digest".to_owned()],
+            )
+            .unwrap(),
+        );
         let digest = capsec_semantics::digest::compute_checked_contract_digest(
             capsec_semantics::digest::DigestKind::ArmedSnapshot,
             &value,
@@ -9307,6 +9656,673 @@ mod tests {
             ("::ffff:8.8.8.8", PeerClass::Reserved),
         ] {
             assert_eq!(classify(address), expected, "{address}");
+        }
+    }
+
+    #[test]
+    fn native_module_principal_projection_reuses_authenticated_process_ids() {
+        let host = example_armed_host();
+        let root = host.typed_principal_for_module("0").unwrap();
+        assert_eq!(host.module_runner_principal_id(&root).unwrap(), 0);
+        let alien_root = capsec_semantics::model::Principal::Root {
+            identity: capsec_semantics::model::NonEmptyString::new("different-project").unwrap(),
+        };
+        assert!(host.module_runner_principal_id(&alien_root).is_err());
+        let package = host
+            .typed_imports
+            .keys()
+            .find(|principal| principal.is_package())
+            .cloned()
+            .unwrap();
+        let first = host.module_runner_principal_id(&package).unwrap();
+        let repeated = host.module_runner_principal_id(&package).unwrap();
+        assert_ne!(first, 0);
+        assert_eq!(first, repeated);
+        assert_eq!(
+            host.typed_principal_for_module(&first.to_string()),
+            Some(package)
+        );
+    }
+
+    // @ref LLP 0026#security-invariants — authenticated source and prepared records must execute in their defining package compartment
+    #[cfg(all(feature = "capsec-conformance-observer", not(target_os = "windows")))]
+    #[test]
+    fn authenticated_package_principal_executes_in_distinct_source_and_prepared_compartments() {
+        use std::ffi::{c_void, CString};
+        use std::ptr::NonNull;
+
+        use crate::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
+        use crate::module_loader::artifact::digest_bytes;
+        use crate::module_loader::runner_pipeline::{
+            build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
+            publish_prepared_source_graph_v1, SourceModuleGraphBuildV1, SourceModuleGraphV1,
+        };
+        use crate::module_loader::security::ModuleGraphAuthorizer;
+
+        unsafe extern "C" {
+            fn ex_hermes_create_armed(
+                armed_snapshot_digest: *const std::os::raw::c_char,
+            ) -> *mut c_void;
+            fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
+            fn ex_hermes_destroy(runtime: *mut c_void);
+        }
+
+        const PACKAGE_LOCATOR: &str = "image-lib@2.4.1";
+        const MARKER: &str = "__ibexModuleRunnerPackageCompartmentProbe_eng24578";
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let fixture = tempfile::Builder::new()
+            .prefix("package-compartment-module-graph-")
+            .tempdir_in(test_project_root())
+            .unwrap();
+        let package_root = fixture.path().join("node_modules/image-lib");
+        std::fs::create_dir_all(&package_root).unwrap();
+        std::fs::write(
+            package_root.join("package.json"),
+            br#"{"name":"image-lib","version":"2.4.1","type":"module","main":"index.mjs"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package_root.join("index.mjs"),
+            format!(
+                "const marker = {marker:?};\nglobalThis[marker] = 'package-local';\nexport const packageObservation = {{ ownsMarker: Object.prototype.hasOwnProperty.call(globalThis, marker), marker: globalThis[marker] }};\n",
+                marker = MARKER,
+            ),
+        )
+        .unwrap();
+        let entry = fixture.path().join("entry.mjs");
+        std::fs::write(
+            &entry,
+            format!(
+                "import {{ packageObservation }} from 'image-lib';\nconst marker = {marker:?};\nconst packageOwnsMarker = packageObservation.ownsMarker;\nconst packageMarker = packageObservation.marker;\nexport const result = {{ packageOwnsMarker: packageOwnsMarker, packageMarker: packageMarker, rootOwnsMarker: Object.prototype.hasOwnProperty.call(globalThis, marker) }};\n",
+                marker = MARKER,
+            ),
+        )
+        .unwrap();
+
+        let package_integrity =
+            crate::module_loader::package_tree_integrity(&package_root).unwrap();
+        let snapshot = example_armed_snapshot_with(|value| {
+            replace_example_package_integrity(
+                value,
+                "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+                &package_integrity,
+            );
+            value["rootBindings"][0]["hostPath"]["components"] =
+                serde_json::to_value(host_path_components(&package_root).unwrap()).unwrap();
+            value["rootBindings"][0]["object"] =
+                serde_json::to_value(object_identity_for_host_path(&package_root).unwrap())
+                    .unwrap();
+            let absolute_binding = value["rootBindings"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|binding| binding["logicalRoot"] == "absolute")
+                .unwrap();
+            absolute_binding["object"] = serde_json::to_value(
+                object_identity_for_host_path(std::path::Path::new("/usr/bin/git")).unwrap(),
+            )
+            .unwrap();
+        });
+        let armed_digest = CString::new(snapshot.digest().as_str()).unwrap();
+        let host = unsafe {
+            Host::new_armed_for_test_with_package_sources(
+                HostConfig::default(),
+                std::sync::Arc::new(snapshot),
+            )
+            .unwrap()
+        };
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+
+        let producer = digest_bytes("package-compartment-module-graph", b"producer").unwrap();
+        let source_graph =
+            match build_authenticated_source_graph_v1(&entry, producer, "hermes-test").unwrap() {
+                SourceModuleGraphBuildV1::Native(graph) => graph,
+                SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                    panic!(
+                        "package-compartment fixture unexpectedly required the legacy loader: {}",
+                        requirement.reason
+                    )
+                }
+            };
+        assert_eq!(source_graph.records().count(), 2);
+        let deployment = digest_bytes("package-compartment-module-graph", b"deployment").unwrap();
+        let artifact_dir = fixture.path().join("bundle-artifact");
+        std::fs::create_dir(&artifact_dir).unwrap();
+        let cache =
+            publish_prepared_source_graph_v1(&source_graph, &artifact_dir, deployment.clone())
+                .unwrap();
+        let prepared_graph =
+            load_prepared_source_graph_v1(&cache, &source_graph, &deployment).unwrap();
+
+        let execute = |graph: &SourceModuleGraphV1, expect_prepared: bool| {
+            let plan = graph.plan().unwrap();
+            let (configs, contexts) = graph.native_execution_inputs(1).unwrap();
+            let package_configs = configs
+                .iter()
+                .filter_map(|(source_id, config)| match source_id.defining_principal() {
+                    Some(capsec_semantics::model::Principal::Package { locator, .. }) => {
+                        Some((locator.as_str(), config))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(package_configs.len(), 1);
+            assert_eq!(package_configs[0].0, PACKAGE_LOCATOR);
+            assert_eq!(
+                package_configs[0].1.compartment_identity.as_deref(),
+                Some(PACKAGE_LOCATOR)
+            );
+            let entries = graph.prepared_entries().unwrap();
+            assert_eq!(entries.is_some(), expect_prepared);
+            let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+
+            unsafe {
+                assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+                let raw = ex_hermes_create_armed(armed_digest.as_ptr());
+                assert!(!raw.is_null());
+                let nonce = ex_hermes_runtime_nonce(raw);
+                let runtime =
+                    NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+                let mut native = match entries.as_ref() {
+                    Some(entries) => NativeSynchronousGraph::link_authorized_prepared(
+                        &runtime,
+                        &plan,
+                        graph.entry(),
+                        configs,
+                        &authorizer,
+                        &contexts,
+                        entries,
+                    ),
+                    None => NativeSynchronousGraph::link_authorized(
+                        &runtime,
+                        &plan,
+                        graph.entry(),
+                        configs,
+                        &authorizer,
+                        &contexts,
+                    ),
+                }
+                .unwrap();
+                native.evaluate().unwrap();
+                let namespace: serde_json::Value =
+                    serde_json::from_str(&native.namespace_json(graph.entry()).unwrap()).unwrap();
+                drop(native);
+                drop(runtime);
+                ex_hermes_destroy(raw);
+                namespace
+            }
+        };
+
+        let expected = serde_json::json!({
+            "result": {
+                "packageOwnsMarker": true,
+                "packageMarker": "package-local",
+                "rootOwnsMarker": false,
+            }
+        });
+        let source_result = execute(&source_graph, false);
+        let prepared_result = execute(&prepared_graph, true);
+        assert_eq!(source_result, expected);
+        assert_eq!(prepared_result, expected);
+        assert_eq!(source_result, prepared_result);
+    }
+
+    #[test]
+    fn authenticated_source_graph_round_trips_through_prepared_cache() {
+        use std::ffi::c_void;
+        use std::ptr::NonNull;
+
+        use crate::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
+        use crate::module_loader::artifact::digest_bytes;
+        use crate::module_loader::runner_pipeline::{
+            build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
+            publish_prepared_source_graph_v1, SourceModuleGraphBuildV1,
+        };
+        use crate::module_loader::security::ModuleGraphAuthorizer;
+
+        unsafe extern "C" {
+            fn ex_hermes_create_diagnostic() -> *mut c_void;
+            fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
+            fn ex_hermes_destroy(runtime: *mut c_void);
+        }
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let fixture = tempfile::Builder::new()
+            .prefix("prepared-source-graph-")
+            .tempdir_in(test_project_root())
+            .unwrap();
+        let entry = fixture.path().join("entry.mjs");
+        let dependency = fixture.path().join("dependency.cjs");
+        let data = fixture.path().join("data.json");
+        std::fs::write(
+            &entry,
+            "import { value } from './dependency.cjs'; import data from './data.json' with { type: 'json' }; import path from 'node:path'; export const result = value + data.bump + (path.basename('/tmp/check.txt') === 'check.txt' ? 0 : 100);\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &dependency,
+            "exports.value = 39 + require('./data.json').bump;\n",
+        )
+        .unwrap();
+        std::fs::write(&data, "{\"bump\":2}\n").unwrap();
+        crate::host::abi::install_host(example_armed_host_with(|value| {
+            value["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
+        }));
+        let producer = digest_bytes("prepared-source-graph-test", b"producer").unwrap();
+        let graph =
+            match build_authenticated_source_graph_v1(&entry, producer.clone(), "hermes-test")
+                .unwrap()
+            {
+                SourceModuleGraphBuildV1::Native(graph) => graph,
+                SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                    panic!(
+                        "fixture unexpectedly required legacy loader: {}",
+                        requirement.reason
+                    )
+                }
+            };
+        assert_eq!(graph.records().count(), 4);
+        let deployment = digest_bytes("prepared-source-graph-test", b"deployment").unwrap();
+        let artifact_dir = fixture.path().join("bundle-artifact");
+        std::fs::create_dir(&artifact_dir).unwrap();
+        let cache =
+            publish_prepared_source_graph_v1(&graph, &artifact_dir, deployment.clone()).unwrap();
+        let loaded = load_prepared_source_graph_v1(&cache, &graph, &deployment).unwrap();
+        assert_eq!(loaded.records().count(), 4);
+        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 4);
+        let plan = loaded.plan().unwrap();
+        let (configs, contexts) = loaded.native_execution_inputs(1).unwrap();
+        let private_root = fixture.path().to_string_lossy();
+        for (source_id, config) in &configs {
+            assert!(
+                !config.source_label.contains(private_root.as_ref()),
+                "native source label leaked the backing fixture path"
+            );
+            if matches!(
+                source_id,
+                crate::module_loader::identity::SourceId::Builtin { .. }
+            ) {
+                assert!(config.virtual_path.is_none());
+            } else {
+                assert!(config.source_label.starts_with("file:///project/"));
+                assert!(config
+                    .virtual_path
+                    .as_deref()
+                    .is_some_and(|path| path.starts_with("/project/")));
+            }
+        }
+        let serialized_index = std::fs::read_to_string(cache.join("index.json")).unwrap();
+        assert!(
+            !serialized_index.contains(private_root.as_ref()),
+            "prepared index serialized a backing host path"
+        );
+        let entries = loaded.prepared_entries().unwrap().unwrap();
+        let authorizer = ModuleGraphAuthorizer::new(loaded.snapshot());
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let mut native = NativeSynchronousGraph::link_authorized_prepared(
+                &runtime,
+                &plan,
+                loaded.entry(),
+                configs,
+                &authorizer,
+                &contexts,
+                &entries,
+            )
+            .unwrap();
+            native.evaluate().unwrap();
+            assert_eq!(
+                native.namespace_json(loaded.entry()).unwrap(),
+                r#"{"result":43}"#
+            );
+            drop(native);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+
+        // Recompute every public digest touched by a forged carrier. The
+        // writable cache remains inadmissible because its exact publication
+        // must equal the independently authenticated source graph.
+        let carrier_path = cache.join("carrier-0.js");
+        let mut carrier_bytes = std::fs::read(&carrier_path).unwrap();
+        carrier_bytes.extend_from_slice(b";/* forged but self-consistent */");
+        std::fs::write(&carrier_path, &carrier_bytes).unwrap();
+        let forged_digest = crate::module_loader::artifact::digest_bytes(
+            crate::module_loader::carrier::PREPARED_CARRIER_BYTES_DOMAIN_V1,
+            &carrier_bytes,
+        )
+        .unwrap();
+        let manifest_path = cache.join("carrier-0.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["carrierDigest"] = serde_json::json!(forged_digest.as_str());
+        std::fs::write(
+            &manifest_path,
+            capsec_semantics::canonical::to_jcs_bytes(&manifest).unwrap(),
+        )
+        .unwrap();
+        let index_path = cache.join("index.json");
+        let mut index: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&index_path).unwrap()).unwrap();
+        for record in index["records"].as_array_mut().unwrap() {
+            if record["carrierIndex"] == 0 {
+                record["artifact"]["payload"]["carrierDigest"] =
+                    serde_json::json!(forged_digest.as_str());
+            }
+        }
+        std::fs::write(
+            &index_path,
+            capsec_semantics::canonical::to_jcs_bytes(&index).unwrap(),
+        )
+        .unwrap();
+        let refusal = match load_prepared_source_graph_v1(&cache, &graph, &deployment) {
+            Ok(_) => panic!("self-consistent forged cache was admitted"),
+            Err(error) => error.to_string(),
+        };
+        assert!(
+            refusal.contains("does not match the authenticated source graph"),
+            "self-consistent forged cache was not refused at the trust boundary: {refusal}"
+        );
+    }
+
+    /// Hosted, fail-loud timing evidence for the authenticated source and
+    /// prepared native paths. This is ignored in the ordinary unit suite and
+    /// writes only when the baseline workflow supplies an explicit output.
+    // @ref LLP 0026#performance-and-platform-gates — compare native source and prepared execution on every desktop target
+    #[test]
+    #[ignore = "hosted module-runner performance evidence"]
+    fn module_runner_performance_baseline() {
+        use std::ffi::c_void;
+        use std::ptr::NonNull;
+        use std::time::Instant;
+
+        use crate::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
+        use crate::module_loader::artifact::digest_bytes;
+        use crate::module_loader::runner_pipeline::{
+            build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
+            publish_prepared_source_graph_v1, SourceModuleGraphBuildV1,
+        };
+        use crate::module_loader::security::ModuleGraphAuthorizer;
+
+        unsafe extern "C" {
+            fn ex_hermes_create_diagnostic() -> *mut c_void;
+            fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
+            fn ex_hermes_destroy(runtime: *mut c_void);
+        }
+
+        let output = std::env::var_os("IBEX_MODULE_RUNNER_PERF_OUTPUT")
+            .map(std::path::PathBuf::from)
+            .expect("IBEX_MODULE_RUNNER_PERF_OUTPUT is required");
+        let samples = std::env::var("IBEX_MODULE_RUNNER_PERF_SAMPLES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value >= 3)
+            .unwrap_or(5);
+        let summarize = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            let mean = values.iter().sum::<f64>() / values.len() as f64;
+            serde_json::json!({
+                "samples": values.len(),
+                "minMs": sorted[0],
+                "medianMs": sorted[sorted.len() / 2],
+                "meanMs": mean,
+                "maxMs": sorted[sorted.len() - 1],
+            })
+        };
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let fixture = tempfile::Builder::new()
+            .prefix("module-runner-performance-")
+            .tempdir_in(test_project_root())
+            .unwrap();
+        let entry = fixture.path().join("entry.mjs");
+        const DEPENDENCY_MODULES: usize = 40;
+        for index in (0..DEPENDENCY_MODULES).rev() {
+            let next = if index + 1 < DEPENDENCY_MODULES {
+                format!("import {{ value as next }} from './m{}.mjs';\n", index + 1)
+            } else {
+                "const next = 0;\n".to_string()
+            };
+            std::fs::write(
+                fixture.path().join(format!("m{index}.mjs")),
+                format!("{next}export const value = next + 1;\n"),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            &entry,
+            "import { value } from './m0.mjs'; export const result = value;\n",
+        )
+        .unwrap();
+
+        crate::host::abi::install_host(example_armed_host());
+        let producer = digest_bytes("module-runner-performance", b"producer").unwrap();
+        let initial = match build_authenticated_source_graph_v1(
+            &entry,
+            producer.clone(),
+            "hermes-performance",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "performance graph required legacy loader: {}",
+                    requirement.reason
+                )
+            }
+        };
+        assert_eq!(initial.records().count(), DEPENDENCY_MODULES + 1);
+        let deployment = digest_bytes("module-runner-performance", b"prepared-deployment").unwrap();
+        let artifact_dir = fixture.path().join("prepared-artifact");
+        std::fs::create_dir(&artifact_dir).unwrap();
+        let prepared_cache =
+            publish_prepared_source_graph_v1(&initial, &artifact_dir, deployment.clone()).unwrap();
+
+        let collect_source_samples = |generation_offset: usize| {
+            let mut collected = Vec::with_capacity(samples);
+            for sample in 0..samples {
+                let started = Instant::now();
+                let graph = match build_authenticated_source_graph_v1(
+                    &entry,
+                    producer.clone(),
+                    "hermes-performance",
+                )
+                .unwrap()
+                {
+                    SourceModuleGraphBuildV1::Native(graph) => graph,
+                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                        panic!(
+                            "source sample required legacy loader: {}",
+                            requirement.reason
+                        )
+                    }
+                };
+                let generation = generation_offset + sample + 1;
+                let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
+                collected.push((
+                    graph,
+                    started.elapsed().as_secs_f64() * 1000.0,
+                    configs,
+                    contexts,
+                ));
+            }
+            collected
+        };
+        let collect_prepared_samples = |generation_offset: usize| {
+            let mut collected = Vec::with_capacity(samples);
+            for sample in 0..samples {
+                let started = Instant::now();
+                let graph =
+                    load_prepared_source_graph_v1(&prepared_cache, &initial, &deployment).unwrap();
+                let generation = generation_offset + sample + 1;
+                let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
+                collected.push((
+                    graph,
+                    started.elapsed().as_secs_f64() * 1000.0,
+                    configs,
+                    contexts,
+                ));
+            }
+            collected
+        };
+        let source_cold_samples = collect_source_samples(0);
+        let source_warm_samples = collect_source_samples(samples);
+        let prepared_cold_samples = collect_prepared_samples(samples * 2);
+        let prepared_warm_samples = collect_prepared_samples(samples * 3);
+        crate::host::abi::install_host(crate::host::Host::strict());
+
+        unsafe {
+            let mut runtime_startup_ms = Vec::with_capacity(samples * 2 + 1);
+            let mut source_cold_ms = Vec::with_capacity(samples);
+            let mut prepared_cold_ms = Vec::with_capacity(samples);
+
+            for (graph, acquisition_ms, configs, contexts) in source_cold_samples {
+                let started = Instant::now();
+                let raw = ex_hermes_create_diagnostic();
+                assert!(!raw.is_null());
+                runtime_startup_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+                let nonce = ex_hermes_runtime_nonce(raw);
+                let runtime =
+                    NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+                let plan = graph.plan().unwrap();
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let mut native = NativeSynchronousGraph::link_authorized(
+                    &runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &contexts,
+                )
+                .unwrap();
+                native.evaluate().unwrap();
+                assert_eq!(
+                    native.namespace_json(graph.entry()).unwrap(),
+                    r#"{"result":40}"#
+                );
+                drop(native);
+                source_cold_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+                drop(runtime);
+                ex_hermes_destroy(raw);
+            }
+
+            for (graph, acquisition_ms, configs, contexts) in prepared_cold_samples {
+                let started = Instant::now();
+                let raw = ex_hermes_create_diagnostic();
+                assert!(!raw.is_null());
+                runtime_startup_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+                let nonce = ex_hermes_runtime_nonce(raw);
+                let runtime =
+                    NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+                let plan = graph.plan().unwrap();
+                let entries = graph.prepared_entries().unwrap().unwrap();
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let mut native = NativeSynchronousGraph::link_authorized_prepared(
+                    &runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &contexts,
+                    &entries,
+                )
+                .unwrap();
+                native.evaluate().unwrap();
+                assert_eq!(
+                    native.namespace_json(graph.entry()).unwrap(),
+                    r#"{"result":40}"#
+                );
+                drop(native);
+                prepared_cold_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+                drop(runtime);
+                ex_hermes_destroy(raw);
+            }
+
+            let runtime_started = Instant::now();
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            runtime_startup_ms.push(runtime_started.elapsed().as_secs_f64() * 1000.0);
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let mut source_warm_ms = Vec::with_capacity(samples);
+            let mut prepared_warm_ms = Vec::with_capacity(samples);
+
+            for (graph, acquisition_ms, configs, contexts) in source_warm_samples {
+                let started = Instant::now();
+                let plan = graph.plan().unwrap();
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let mut native = NativeSynchronousGraph::link_authorized(
+                    &runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &contexts,
+                )
+                .unwrap();
+                native.evaluate().unwrap();
+                assert_eq!(
+                    native.namespace_json(graph.entry()).unwrap(),
+                    r#"{"result":40}"#
+                );
+                drop(native);
+                source_warm_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+            }
+
+            for (graph, acquisition_ms, configs, contexts) in prepared_warm_samples {
+                let started = Instant::now();
+                let plan = graph.plan().unwrap();
+                let entries = graph.prepared_entries().unwrap().unwrap();
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let mut native = NativeSynchronousGraph::link_authorized_prepared(
+                    &runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &contexts,
+                    &entries,
+                )
+                .unwrap();
+                native.evaluate().unwrap();
+                assert_eq!(
+                    native.namespace_json(graph.entry()).unwrap(),
+                    r#"{"result":40}"#
+                );
+                drop(native);
+                prepared_warm_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+            }
+
+            drop(runtime);
+            ex_hermes_destroy(raw);
+            let report = serde_json::json!({
+                "schema": "ibex/module-runner-performance-baseline/1",
+                "platform": { "os": std::env::consts::OS, "arch": std::env::consts::ARCH },
+                "dependencyModules": DEPENDENCY_MODULES,
+                "runtimeStartup": summarize(&runtime_startup_ms),
+                "profiles": {
+                    "authenticatedSource": {
+                        "cold": summarize(&source_cold_ms),
+                        "warm": summarize(&source_warm_ms),
+                    },
+                    "authenticatedPrepared": {
+                        "cold": summarize(&prepared_cold_ms),
+                        "warm": summarize(&prepared_warm_ms),
+                    },
+                },
+            });
+            std::fs::write(
+                output,
+                format!("{}\n", serde_json::to_string_pretty(&report).unwrap()),
+            )
+            .unwrap();
         }
     }
 
@@ -10296,9 +11312,14 @@ mod tests {
             &host.typed_imports,
             &root,
             &root,
-            "image-lib/subpath.js",
+            "image-lib",
             None,
             false,
+            crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            &crate::module_loader::identity::ConditionSet::for_kind(
+                crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            ),
+            &crate::module_loader::identity::ImportAttributes::default(),
         )
         .unwrap();
         assert!(matches!(exact, ArmedModuleResolution::BoundPackage { .. }));
@@ -10329,9 +11350,14 @@ mod tests {
             &ambiguous,
             &root,
             &root,
-            "image-lib/subpath.js",
+            "image-lib",
             None,
             false,
+            crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            &crate::module_loader::identity::ConditionSet::for_kind(
+                crate::module_loader::identity::ResolutionKind::CommonJsRequire,
+            ),
+            &crate::module_loader::identity::ImportAttributes::default(),
         )
         .unwrap_err();
         assert!(error
@@ -10432,6 +11458,18 @@ mod tests {
             assert_eq!(resolved.path.as_deref(), Some(target.as_path()));
             assert!(resolved.source.is_none());
             assert_eq!(std::fs::read(&target).unwrap(), [0xff, 0xfe, 0xfd]);
+            let source_id = resolved
+                .artifact_source_id
+                .as_ref()
+                .expect("armed file resolution must carry a SourceId");
+            let root_principal = host
+                .typed_principal_for_module("0")
+                .expect("armed host must expose its root principal");
+            assert_eq!(source_id.defining_principal(), Some(&root_principal));
+            assert!(
+                !source_id.encode().unwrap().contains(root.to_str().unwrap()),
+                "portable SourceId must not embed the host project path"
+            );
         }
         let observed = host.take_typed_conformance_observations();
         assert_eq!(

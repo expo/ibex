@@ -1,0 +1,15 @@
+{
+  "schema": "ibex/module-artifact-rejection-fixtures/1",
+  "cases": [
+    { "id": "non-canonical-json", "mutation": "prefix-whitespace", "expected": "non-canonical" },
+    { "id": "duplicate-field", "mutation": "duplicate-schema", "expected": "strict-json" },
+    { "id": "unknown-field", "mutation": "add-unknown-field", "expected": "invalid-shape" },
+    { "id": "tla-substitution", "mutation": "toggle-tla-without-redigest", "expected": "semantic-digest" },
+    { "id": "factory-substitution", "mutation": "replace-inline-factory", "expected": "factory-digest" },
+    { "id": "source-map-substitution", "mutation": "replace-primary-source-id", "expected": "source-map" },
+    { "id": "cross-carrier-substitution", "mutation": "replace-carrier-entry-digest", "expected": "carrier-entry" },
+    { "id": "stale-producer", "mutation": "replace-producer-binary-digest", "expected": "producer" },
+    { "id": "stale-transform", "mutation": "replace-transform-version", "expected": "transform-fingerprint" },
+    { "id": "source-principal-substitution", "mutation": "replace-source-id", "expected": "authenticated-resolution" }
+  ]
+}

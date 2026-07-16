@@ -347,3 +347,139 @@ fn import_meta_url_is_wellformed_file_url() {
     );
     assert_fixture_path_is_private(&stdout, &stderr, &dir, &["meta.mjs"]);
 }
+
+/// A semicolonless multiline export ends by ASI before the next top-level
+/// export, even when a documentation comment separates the declarations.
+/// micromark-util-html-tag-name uses this exact source shape.
+#[test]
+fn semicolonless_multiline_exports_do_not_swallow_the_next_export() {
+    let dir = unique_dir("semicolonless-exports");
+    write_text(
+        &dir.join("names.mjs"),
+        r#"export const htmlBlockNames = [
+  'address',
+  'article'
+]
+
+/** Raw HTML tag names. */
+export const htmlRawNames = ['pre', 'script']
+"#,
+    );
+    write_text(
+        &dir.join("entry.js"),
+        "var names = require('./names.mjs');\n\
+         console.log('RESULT|' + names.htmlBlockNames.join(',') + '|' + names.htmlRawNames.join(','));\n",
+    );
+
+    let (stdout, stderr, ok) = run_compat(&dir, "entry.js");
+    assert!(ok, "run failed\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
+    assert!(
+        stdout.contains("RESULT|address,article|pre,script"),
+        "semicolonless multiline exports were not both exposed\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr
+    );
+}
+
+/// Guard the complementary ASI case: a newline after a balanced array does
+/// not end the declaration when the next line continues its initializer.
+#[test]
+fn semicolonless_multiline_export_keeps_chained_initializer() {
+    let dir = unique_dir("chained-export");
+    write_text(
+        &dir.join("values.mjs"),
+        r#"export const values = [
+  'a',
+  'b'
+]
+.map(function (value) { return value.toUpperCase() })
+
+export const count = values.length
+"#,
+    );
+    write_text(
+        &dir.join("entry.js"),
+        "var result = require('./values.mjs');\n\
+         console.log('RESULT|' + result.values.join(',') + '|' + result.count);\n",
+    );
+
+    let (stdout, stderr, ok) = run_compat(&dir, "entry.js");
+    assert!(ok, "run failed\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
+    assert!(
+        stdout.contains("RESULT|A,B|2"),
+        "chained initializer was detached from its export\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr
+    );
+}
+
+/// Unified/remark packages also format multiline static imports without
+/// semicolons. The statement joiner must stop at the closing `from` clause
+/// instead of consuming the next import (or the rest of the module).
+#[test]
+fn semicolonless_multiline_imports_stop_at_complete_from_clause() {
+    let dir = unique_dir("semicolonless-imports");
+    write_text(
+        &dir.join("dep.mjs"),
+        "export const first = 'one';\nexport const second = 'two';\n",
+    );
+    write_text(
+        &dir.join("consumer.mjs"),
+        r#"import {
+  // Example syntax: } from './missing.mjs'
+  first,
+  second
+} from './dep.mjs'
+
+export const joined = first + '-' + second
+"#,
+    );
+    write_text(
+        &dir.join("entry.js"),
+        "var result = require('./consumer.mjs');\n\
+         console.log('RESULT|' + result.joined);\n",
+    );
+
+    let (stdout, stderr, ok) = run_compat(&dir, "entry.js");
+    assert!(ok, "run failed\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
+    assert!(
+        stdout.contains("RESULT|one-two"),
+        "semicolonless multiline import did not bind both names\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr
+    );
+}
+
+/// ESM function declarations are hoisted even when exported. Packages in the
+/// unified ecosystem attach helper properties before the declaration appears.
+#[test]
+fn named_exported_function_preserves_declaration_hoisting() {
+    let dir = unique_dir("export-function-hoisting");
+    write_text(
+        &dir.join("handler.mjs"),
+        r#"handler.peek = peek
+
+export function handler() {
+  return 'handled'
+}
+
+function peek() {
+  return 'peeked'
+}
+"#,
+    );
+    write_text(
+        &dir.join("entry.js"),
+        "var result = require('./handler.mjs');\n\
+         console.log('RESULT|' + result.handler() + '|' + result.handler.peek());\n",
+    );
+
+    let (stdout, stderr, ok) = run_compat(&dir, "entry.js");
+    assert!(ok, "run failed\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
+    assert!(
+        stdout.contains("RESULT|handled|peeked"),
+        "named exported function lost declaration hoisting\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr
+    );
+}

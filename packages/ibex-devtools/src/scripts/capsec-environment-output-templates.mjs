@@ -17,6 +17,8 @@
  * process-environment enumeration remains a diagnostic-only, post-gate helper.
  */
 
+import crypto from "node:crypto";
+
 export const ENVIRONMENT_OUTPUT_SOURCE_AUDIT_SCHEMA =
   "ibex/capsec-environment-output-source-audit/1";
 export const ENVIRONMENT_OUTPUT_CONTRACT_SCHEMA =
@@ -25,6 +27,26 @@ export const ENVIRONMENT_OUTPUT_ACCOUNT_SCHEMA =
   "ibex/capsec-environment-output-account/1";
 export const ENVIRONMENT_PARAMETERIZED_CATALOG_BINDING_SCHEMA =
   "ibex/capsec-environment-parameterized-catalog-binding/1";
+export const ENVIRONMENT_OUTPUT_SWEEP_BINDING_SCHEMA =
+  "ibex/capsec-environment-output-sweep-binding/1";
+export const ENVIRONMENT_OUTPUT_SWEEP_ACCOUNT_SCHEMA =
+  "ibex/capsec-environment-output-sweep-account/1";
+export const ENVIRONMENT_OUTPUT_SWEEP_OBSERVATION_SCHEMA =
+  "ibex/capsec-environment-output-sweep-observation/1";
+export const ENVIRONMENT_OUTPUT_SWEEP_EXECUTOR_RESULT_SCHEMA =
+  "ibex/capsec-environment-output-executor-result/1";
+export const ENVIRONMENT_OUTPUT_SWEEP_PROBE_KIND =
+  "loaded-engine-parameterized-environment";
+
+/**
+ * The exact finite policy used only by the loaded-engine output executor.
+ * These are real selectors in the authenticated sweep snapshot, not sample
+ * names standing in for an open-ended environment table.
+ */
+export const ENVIRONMENT_OUTPUT_SWEEP_NAMES = Object.freeze([
+  "IBEX_CAPSEC_OUTPUT_ALPHA",
+  "IBEX_CAPSEC_OUTPUT_OMEGA",
+]);
 
 export const CANONICAL_ENVIRONMENT_DYNAMIC_FAMILY =
   "global:process.env.[[dynamic-table:principal-environment-overlay-properties]]";
@@ -48,6 +70,17 @@ const OUTPUT_KEY_FIELDS = Object.freeze([
   "sourceKind",
   "returnVariant",
   "contextId",
+]);
+const ENVIRONMENT_SWEEP_BINDING_DIGEST_DOMAIN =
+  "ibex:capsec:environment-output-sweep-binding:1";
+const ENVIRONMENT_SWEEP_VALUE_DIGEST_DOMAIN =
+  "ibex:capsec:environment-output-sweep-value:1";
+const CAPSEC_DIGEST_PATTERN = /^sha256-[A-Za-z0-9_-]{43}$/u;
+const ENVIRONMENT_SWEEP_PHASES = Object.freeze([
+  "scalar-before",
+  "write-setup",
+  "scalar-after",
+  "enumeration",
 ]);
 
 const COMPATIBILITY_READER_SOURCE_PATHS = Object.freeze([
@@ -112,6 +145,14 @@ function canonicalJson(value) {
     .sort(compareText)
     .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
     .join(",")}}`;
+}
+
+function taggedDigest(domain, value) {
+  const hash = crypto.createHash("sha256");
+  hash.update(domain, "utf8");
+  hash.update(Buffer.from([0]));
+  hash.update(canonicalJson(value), "utf8");
+  return `sha256-${hash.digest("base64url")}`;
 }
 
 function deepFreeze(value) {
@@ -211,7 +252,9 @@ export function auditCanonicalEnvironmentOutputSources({
   requireCondition(
     compatibilityReaderSources !== null &&
       typeof compatibilityReaderSources === "object" &&
-      canonicalJson(Object.keys(compatibilityReaderSources).sort(compareText)) ===
+      canonicalJson(
+        Object.keys(compatibilityReaderSources).sort(compareText),
+      ) ===
         canonicalJson([...COMPATIBILITY_READER_SOURCE_PATHS].sort(compareText)),
     "bootstrap compatibility readers must provide the complete fixed source set",
   );
@@ -317,14 +360,18 @@ export function auditCanonicalEnvironmentOutputSources({
 
   for (const [sourcePath, source] of Object.entries(compatibilityReaders)) {
     requireCondition(
-      (source.match(/function readRuntimeEnv\(key: string\): string \| undefined/gu) ?? [])
-        .length === 1,
+      (
+        source.match(
+          /function readRuntimeEnv\(key: string\): string \| undefined/gu,
+        ) ?? []
+      ).length === 1,
       `${sourcePath}: expected exactly one compatibility environment reader`,
     );
     const reader = source.slice(source.indexOf("function readRuntimeEnv("));
-    const fixedGuard = /const bootstrapValue = readBootstrapCompatibilityControl\(key\);\s*if \(\s*bootstrapValue !== undefined \|\|\s*isBootstrapCompatibilityControlFixed\(key\)\s*\) return bootstrapValue;/u.exec(
-      reader,
-    );
+    const fixedGuard =
+      /const bootstrapValue = readBootstrapCompatibilityControl\(key\);\s*if \(\s*bootstrapValue !== undefined \|\|\s*isBootstrapCompatibilityControlFixed\(key\)\s*\) return bootstrapValue;/u.exec(
+        reader,
+      );
     requireCondition(
       fixedGuard !== null,
       `${sourcePath}: compatibility reader must make fixed false authoritative`,
@@ -337,8 +384,7 @@ export function auditCanonicalEnvironmentOutputSources({
     requireCondition(
       fixedGuard !== null &&
         fallbackOffsets.length > 0 &&
-        Math.min(...fallbackOffsets) >
-          fixedGuard.index + fixedGuard[0].length,
+        Math.min(...fallbackOffsets) > fixedGuard.index + fixedGuard[0].length,
       `${sourcePath}: mutable environment fallback must follow the fixed compatibility decision`,
     );
   }
@@ -521,7 +567,7 @@ export function auditCanonicalEnvironmentOutputSources({
 
   const eagerProcessEnvironment = sourceRegion(
     processSetup,
-    "auto hasShared = rt.global().getProperty(rt, \"__exactHasSharedRuntimeBundle\");",
+    'auto hasShared = rt.global().getProperty(rt, "__exactHasSharedRuntimeBundle");',
     'std::string exact_platform = "unknown";',
     "native eager process environment",
   );
@@ -1179,6 +1225,1085 @@ export function environmentParameterizedOutputCatalogBindings(contract) {
       ordinaryCatalogRows: "forbidden",
     },
   ]);
+}
+
+function exactObjectKeys(value, expected, label) {
+  requireCondition(
+    value && typeof value === "object" && !Array.isArray(value),
+    `${label}: expected object`,
+  );
+  requireCondition(
+    canonicalJson(Object.keys(value).sort(compareText)) ===
+      canonicalJson([...expected].sort(compareText)),
+    `${label}: unexpected fields`,
+  );
+}
+
+function requireNonEmptyString(value, label) {
+  requireCondition(
+    typeof value === "string" && value.length > 0,
+    `${label}: expected non-empty string`,
+  );
+  return value;
+}
+
+function projectObservedPrincipal(principal, label) {
+  requireCondition(
+    principal && typeof principal === "object" && !Array.isArray(principal),
+    `${label}: expected principal`,
+  );
+  switch (principal.kind) {
+    case "package":
+      exactObjectKeys(
+        principal,
+        ["kind", "name", "integrity", "locator"],
+        label,
+      );
+      requireNonEmptyString(principal.name, `${label}.name`);
+      requireCondition(
+        CAPSEC_DIGEST_PATTERN.test(principal.integrity),
+        `${label}.integrity: expected CapSec digest`,
+      );
+      requireNonEmptyString(principal.locator, `${label}.locator`);
+      return {
+        kind: principal.kind,
+        name: principal.name,
+        integrity: principal.integrity,
+        locator: principal.locator,
+      };
+    case "root":
+    case "runtime":
+    case "module-loader":
+    case "quarantine":
+      exactObjectKeys(principal, ["kind", "identity"], label);
+      requireNonEmptyString(principal.identity, `${label}.identity`);
+      return { kind: principal.kind, identity: principal.identity };
+    default:
+      throw new Error(`${label}: unsupported principal kind`);
+  }
+}
+
+function projectObservedPrincipalArray(principals, label) {
+  requireCondition(Array.isArray(principals), `${label}: expected array`);
+  return principals.map((principal, index) =>
+    projectObservedPrincipal(principal, `${label}[${index}]`),
+  );
+}
+
+function projectObservedDecisionEvidenceEntry(entry, label) {
+  exactObjectKeys(
+    entry,
+    ["effectIndex", "principal", "stratum", "reason", "sourceId"],
+    label,
+  );
+  requireCondition(
+    Number.isSafeInteger(entry.effectIndex) && entry.effectIndex >= 0,
+    `${label}.effectIndex: expected safe unsigned integer`,
+  );
+  requireCondition(
+    entry.stratum === "static-floor" && entry.reason === "static-floor",
+    `${label}: environment sweep evidence must name the static floor exactly`,
+  );
+  requireNonEmptyString(entry.sourceId, `${label}.sourceId`);
+  return {
+    effectIndex: entry.effectIndex,
+    principal: projectObservedPrincipal(entry.principal, `${label}.principal`),
+    stratum: entry.stratum,
+    reason: entry.reason,
+    sourceId: entry.sourceId,
+  };
+}
+
+function projectObservedSemanticIdentity(identity, label) {
+  exactObjectKeys(
+    identity,
+    [
+      "profile",
+      "semanticCore",
+      "vocabDigest",
+      "registryDigest",
+      "policyDigest",
+      "armedSnapshotDigest",
+    ],
+    label,
+  );
+  requireCondition(
+    identity.profile === "ibex/capsec/1" &&
+      identity.semanticCore === "capsec/semantics/1",
+    `${label}: unsupported semantic contract identity`,
+  );
+  for (const field of [
+    "vocabDigest",
+    "registryDigest",
+    "policyDigest",
+    "armedSnapshotDigest",
+  ]) {
+    requireCondition(
+      CAPSEC_DIGEST_PATTERN.test(identity[field]),
+      `${label}.${field}: expected CapSec digest`,
+    );
+  }
+  return {
+    profile: identity.profile,
+    semanticCore: identity.semanticCore,
+    vocabDigest: identity.vocabDigest,
+    registryDigest: identity.registryDigest,
+    policyDigest: identity.policyDigest,
+    armedSnapshotDigest: identity.armedSnapshotDigest,
+  };
+}
+
+/**
+ * Validate and project the complete Rust `ObservedTypedDecision` serializer
+ * shape. Nothing executor-owned is retained merely because it happened to be
+ * nested under a recognized decision envelope.
+ */
+function projectObservedEnvironmentDecision(
+  decision,
+  expectedBranchId,
+  expectedFloorSourceIds,
+  label,
+) {
+  exactObjectKeys(
+    decision,
+    ["terminalBranchId", "decisionSet", "gates", "evidence"],
+    label,
+  );
+  requireCondition(
+    decision.terminalBranchId === expectedBranchId,
+    `${label}: typed decision escaped its exact executor branch`,
+  );
+
+  const set = decision.decisionSet;
+  exactObjectKeys(
+    set,
+    [
+      "decisionSetSchema",
+      "operationId",
+      "atomicityGroup",
+      "combination",
+      "context",
+      "effects",
+    ],
+    `${label}.decisionSet`,
+  );
+  requireCondition(
+    set.decisionSetSchema === "ibex/capsec-decision-set/1" &&
+      set.combination === "conjunction",
+    `${label}.decisionSet: unsupported decision-set contract`,
+  );
+  requireNonEmptyString(set.operationId, `${label}.decisionSet.operationId`);
+  requireNonEmptyString(
+    set.atomicityGroup,
+    `${label}.decisionSet.atomicityGroup`,
+  );
+
+  exactObjectKeys(
+    set.context,
+    ["stage", "actor", "constrainedPrincipals", "presentedHandleIds"],
+    `${label}.decisionSet.context`,
+  );
+  requireCondition(
+    ["requested", "commit"].includes(set.context.stage),
+    `${label}.decisionSet.context.stage: unsupported environment stage`,
+  );
+  const actor = projectObservedPrincipal(
+    set.context.actor,
+    `${label}.decisionSet.context.actor`,
+  );
+  const constrainedPrincipals = projectObservedPrincipalArray(
+    set.context.constrainedPrincipals,
+    `${label}.decisionSet.context.constrainedPrincipals`,
+  );
+  requireCondition(
+    canonicalJson(actor) ===
+      canonicalJson({ kind: "root", identity: "project-root" }) &&
+      canonicalJson(constrainedPrincipals) === canonicalJson([actor]),
+    `${label}.decisionSet.context: environment evidence is not constrained to the fixture root`,
+  );
+  requireCondition(
+    Array.isArray(set.context.presentedHandleIds) &&
+      set.context.presentedHandleIds.length === 0,
+    `${label}.decisionSet.context: environment sweep presented handles`,
+  );
+
+  requireCondition(
+    Array.isArray(set.effects) && set.effects.length === 1,
+    `${label}.decisionSet.effects: expected one environment effect`,
+  );
+  const effect = set.effects[0];
+  exactObjectKeys(
+    effect,
+    ["cap", "effectOwner", "resource"],
+    `${label}.decisionSet.effects[0]`,
+  );
+  requireCondition(
+    effect.cap === "env:read" || effect.cap === "env:write",
+    `${label}.decisionSet.effects[0].cap: unsupported capability`,
+  );
+  const effectOwner = projectObservedPrincipal(
+    effect.effectOwner,
+    `${label}.decisionSet.effects[0].effectOwner`,
+  );
+  requireCondition(
+    canonicalJson(effectOwner) === canonicalJson(actor),
+    `${label}.decisionSet.effects[0]: effect owner disagrees with actor`,
+  );
+  exactObjectKeys(
+    effect.resource,
+    ["kind", "requested", "valueOrigin"],
+    `${label}.decisionSet.effects[0].resource`,
+  );
+  exactObjectKeys(
+    effect.resource.requested,
+    ["kind", "target", "name"],
+    `${label}.decisionSet.effects[0].resource.requested`,
+  );
+  requireCondition(
+    effect.resource.kind === "environment-occurrence" &&
+      effect.resource.requested.kind === "environment-name" &&
+      effect.resource.requested.target === "principal-overlay" &&
+      effect.resource.valueOrigin === "principal-overlay",
+    `${label}.decisionSet.effects[0].resource: invalid environment occurrence`,
+  );
+  canonicalEnvironmentName(effect.resource.requested.name);
+
+  requireCondition(
+    Array.isArray(decision.gates) && decision.gates.length === 1,
+    `${label}.gates: expected one effect gate`,
+  );
+  const gate = decision.gates[0];
+  exactObjectKeys(
+    gate,
+    [
+      "coverageEdgeId",
+      "targetCell",
+      "definitionAndEdgePredicatesSatisfied",
+    ],
+    `${label}.gates[0]`,
+  );
+  requireNonEmptyString(gate.coverageEdgeId, `${label}.gates[0].coverageEdgeId`);
+  requireCondition(
+    gate.targetCell === "complete" &&
+      gate.definitionAndEdgePredicatesSatisfied === true &&
+      set.atomicityGroup === `${gate.coverageEdgeId}.decision`,
+    `${label}: gate and atomicity-group binding drift`,
+  );
+
+  const evidence = decision.evidence;
+  exactObjectKeys(
+    evidence,
+    [
+      "identity",
+      "generations",
+      "operationId",
+      "stage",
+      "actor",
+      "effectOwners",
+      "constrainedPrincipals",
+      "outcome",
+      "evidence",
+    ],
+    `${label}.evidence`,
+  );
+  const identity = projectObservedSemanticIdentity(
+    evidence.identity,
+    `${label}.evidence.identity`,
+  );
+  exactObjectKeys(
+    evidence.generations,
+    ["negative", "dynamic", "handle"],
+    `${label}.evidence.generations`,
+  );
+  for (const field of ["negative", "dynamic", "handle"]) {
+    requireCondition(
+      evidence.generations[field] === 0,
+      `${label}.evidence.generations.${field}: fixture generation must be zero`,
+    );
+  }
+  const evidenceActor = projectObservedPrincipal(
+    evidence.actor,
+    `${label}.evidence.actor`,
+  );
+  const evidenceOwners = projectObservedPrincipalArray(
+    evidence.effectOwners,
+    `${label}.evidence.effectOwners`,
+  );
+  const evidenceConstrained = projectObservedPrincipalArray(
+    evidence.constrainedPrincipals,
+    `${label}.evidence.constrainedPrincipals`,
+  );
+  requireCondition(
+    evidence.operationId === set.operationId &&
+      evidence.stage === set.context.stage &&
+      canonicalJson(evidenceActor) === canonicalJson(actor) &&
+      canonicalJson(evidenceOwners) === canonicalJson([effectOwner]) &&
+      canonicalJson(evidenceConstrained) ===
+        canonicalJson(constrainedPrincipals) &&
+      evidence.outcome === "allow" &&
+      Array.isArray(evidence.evidence),
+    `${label}.evidence: structured evidence lost its decision binding`,
+  );
+  const evidenceEntries = evidence.evidence.map((entry, index) =>
+    projectObservedDecisionEvidenceEntry(
+      entry,
+      `${label}.evidence.evidence[${index}]`,
+    ),
+  );
+  const expectedFloorSourceId = expectedFloorSourceIds.get(
+    canonicalJson(
+      environmentSweepSelector(
+        effect.cap,
+        effect.resource.requested.name,
+      ),
+    ),
+  );
+  requireCondition(
+    typeof expectedFloorSourceId === "string" &&
+      evidenceEntries.length === 1 &&
+      evidenceEntries[0].effectIndex === 0 &&
+      canonicalJson(evidenceEntries[0].principal) === canonicalJson(actor) &&
+      evidenceEntries[0].sourceId === expectedFloorSourceId,
+    `${label}.evidence: evidence escaped the exact authenticated environment floor`,
+  );
+
+  return {
+    terminalBranchId: decision.terminalBranchId,
+    decisionSet: {
+      decisionSetSchema: set.decisionSetSchema,
+      operationId: set.operationId,
+      atomicityGroup: set.atomicityGroup,
+      combination: set.combination,
+      context: {
+        stage: set.context.stage,
+        actor,
+        constrainedPrincipals,
+        presentedHandleIds: [],
+      },
+      effects: [
+        {
+          cap: effect.cap,
+          effectOwner,
+          resource: {
+            kind: effect.resource.kind,
+            requested: {
+              kind: effect.resource.requested.kind,
+              target: effect.resource.requested.target,
+              name: effect.resource.requested.name,
+            },
+            valueOrigin: effect.resource.valueOrigin,
+          },
+        },
+      ],
+    },
+    gates: [
+      {
+        coverageEdgeId: gate.coverageEdgeId,
+        targetCell: gate.targetCell,
+        definitionAndEdgePredicatesSatisfied:
+          gate.definitionAndEdgePredicatesSatisfied,
+      },
+    ],
+    evidence: {
+      identity,
+      generations: {
+        negative: evidence.generations.negative,
+        dynamic: evidence.generations.dynamic,
+        handle: evidence.generations.handle,
+      },
+      operationId: evidence.operationId,
+      stage: evidence.stage,
+      actor: evidenceActor,
+      effectOwners: evidenceOwners,
+      constrainedPrincipals: evidenceConstrained,
+      outcome: evidence.outcome,
+      evidence: evidenceEntries,
+    },
+  };
+}
+
+function environmentSweepSelector(capability, name) {
+  return {
+    cap: capability,
+    resource: {
+      kind: "environment-name",
+      target: "principal-overlay",
+      name,
+    },
+  };
+}
+
+function environmentSweepBindingDigest(binding) {
+  const projected = structuredClone(binding);
+  delete projected.sweepBindingDigest;
+  return taggedDigest(ENVIRONMENT_SWEEP_BINDING_DIGEST_DOMAIN, projected);
+}
+
+function environmentSweepFloorSourceIds(binding) {
+  const selectors = binding.accounts
+    .flatMap(({ readSelector, writeSetupSelector }) => [
+      structuredClone(readSelector),
+      structuredClone(writeSetupSelector),
+    ])
+    .sort((left, right) =>
+      compareText(canonicalJson(left), canonicalJson(right)),
+    );
+  return new Map(
+    selectors.map((selector, index) => [
+      canonicalJson(selector),
+      `principal.000000.floor.${String(index).padStart(6, "0")}`,
+    ]),
+  );
+}
+
+/**
+ * Expand a rowless catalog family into the finite exact-name authority that
+ * the loaded-engine sweep will actually authenticate. The account names are
+ * fixed executor policy, not inferred from process.env or the host.
+ */
+export function buildEnvironmentOutputSweepBindings(
+  parameterizedBindings,
+  names = ENVIRONMENT_OUTPUT_SWEEP_NAMES,
+) {
+  requireCondition(
+    Array.isArray(parameterizedBindings),
+    "environment sweep requires parameterized catalog bindings",
+  );
+  const canonicalNames = names.map(canonicalEnvironmentName);
+  requireCondition(
+    canonicalJson(canonicalNames) ===
+      canonicalJson([...new Set(canonicalNames)].sort(compareText)) &&
+      canonicalNames.length > 0,
+    "environment sweep names must be a non-empty canonical exact-name set",
+  );
+  const bindings = parameterizedBindings.map((catalogBinding, index) => {
+    requireCondition(
+      catalogBinding?.bindingSchema ===
+        ENVIRONMENT_PARAMETERIZED_CATALOG_BINDING_SCHEMA &&
+        catalogBinding.accountSetSource ===
+          "authenticated-policy-exact-name-selectors" &&
+        catalogBinding.ordinaryCatalogRows === "forbidden",
+      `environment sweep catalog binding ${index}: unsupported binding`,
+    );
+    const binding = {
+      environmentOutputSweepBindingSchema:
+        ENVIRONMENT_OUTPUT_SWEEP_BINDING_SCHEMA,
+      surfaceId: catalogBinding.surfaceId,
+      surfaceName: catalogBinding.surfaceName,
+      catalogBindingDigest: taggedDigest(
+        ENVIRONMENT_SWEEP_BINDING_DIGEST_DOMAIN,
+        catalogBinding,
+      ),
+      accounts: canonicalNames.map((environmentName) => ({
+        environmentOutputSweepAccountSchema:
+          ENVIRONMENT_OUTPUT_SWEEP_ACCOUNT_SCHEMA,
+        accountId: `principal-overlay-environment-read:${environmentName}`,
+        environmentName,
+        readSelector: environmentSweepSelector("env:read", environmentName),
+        writeSetupSelector: environmentSweepSelector(
+          "env:write",
+          environmentName,
+        ),
+      })),
+      terminalSurfaces: structuredClone(catalogBinding.terminalSurfaces),
+      phases: [...ENVIRONMENT_SWEEP_PHASES],
+    };
+    binding.sweepBindingDigest = environmentSweepBindingDigest(binding);
+    return binding;
+  });
+  return deepFreeze(bindings);
+}
+
+export function validateEnvironmentOutputSweepBindings(
+  bindings,
+  parameterizedBindings,
+) {
+  requireCondition(
+    Array.isArray(bindings),
+    "environment sweep bindings must be an array",
+  );
+  const expected = parameterizedBindings
+    ? buildEnvironmentOutputSweepBindings(parameterizedBindings)
+    : null;
+  const surfaceIds = new Set();
+  for (const [index, binding] of bindings.entries()) {
+    const label = `environment sweep binding ${index}`;
+    exactObjectKeys(
+      binding,
+      [
+        "environmentOutputSweepBindingSchema",
+        "surfaceId",
+        "surfaceName",
+        "catalogBindingDigest",
+        "accounts",
+        "terminalSurfaces",
+        "phases",
+        "sweepBindingDigest",
+      ],
+      label,
+    );
+    requireCondition(
+      binding.environmentOutputSweepBindingSchema ===
+        ENVIRONMENT_OUTPUT_SWEEP_BINDING_SCHEMA &&
+        typeof binding.surfaceId === "string" &&
+        !surfaceIds.has(binding.surfaceId) &&
+        typeof binding.surfaceName === "string" &&
+        /^sha256-[A-Za-z0-9_-]{43}$/u.test(binding.catalogBindingDigest) &&
+        binding.sweepBindingDigest === environmentSweepBindingDigest(binding) &&
+        canonicalJson(binding.phases) ===
+          canonicalJson(ENVIRONMENT_SWEEP_PHASES) &&
+        binding.terminalSurfaces?.scalarRead?.name === "__exactGetEnv" &&
+        binding.terminalSurfaces?.enumerationRead?.name ===
+          "__exactGetAllEnv" &&
+        binding.terminalSurfaces?.write?.name === "__exactSetEnv" &&
+        Array.isArray(binding.accounts) &&
+        binding.accounts.length > 0,
+      `${label}: malformed or drifted binding`,
+    );
+    surfaceIds.add(binding.surfaceId);
+    const names = [];
+    for (const [accountIndex, account] of binding.accounts.entries()) {
+      const accountLabel = `${label}.accounts[${accountIndex}]`;
+      exactObjectKeys(
+        account,
+        [
+          "environmentOutputSweepAccountSchema",
+          "accountId",
+          "environmentName",
+          "readSelector",
+          "writeSetupSelector",
+        ],
+        accountLabel,
+      );
+      const name = canonicalEnvironmentName(account.environmentName);
+      requireCondition(
+        account.environmentOutputSweepAccountSchema ===
+          ENVIRONMENT_OUTPUT_SWEEP_ACCOUNT_SCHEMA &&
+          account.accountId === `principal-overlay-environment-read:${name}` &&
+          canonicalJson(account.readSelector) ===
+            canonicalJson(environmentSweepSelector("env:read", name)) &&
+          canonicalJson(account.writeSetupSelector) ===
+            canonicalJson(environmentSweepSelector("env:write", name)),
+        `${accountLabel}: selector binding drift`,
+      );
+      names.push(name);
+    }
+    requireCondition(
+      canonicalJson(names) ===
+        canonicalJson([...new Set(names)].sort(compareText)),
+      `${label}: account names must be a canonical exact-name set`,
+    );
+  }
+  if (expected) {
+    requireCondition(
+      canonicalJson(bindings) === canonicalJson(expected),
+      "environment sweep bindings do not match the parameterized catalog",
+    );
+  }
+  return bindings;
+}
+
+/** Exact selectors that must be present in the sweep's authenticated floor. */
+export function environmentOutputSweepAuthoritySelectors(bindings) {
+  validateEnvironmentOutputSweepBindings(bindings);
+  return deepFreeze(
+    bindings.flatMap(({ accounts }) =>
+      accounts.flatMap(({ readSelector, writeSetupSelector }) => [
+        structuredClone(readSelector),
+        structuredClone(writeSetupSelector),
+      ]),
+    ),
+  );
+}
+
+function validateEnvironmentDecisionPhase(binding, phase, label) {
+  exactObjectKeys(
+    phase,
+    ["phase", "legacyObservationCount", "typedDecisions"],
+    label,
+  );
+  requireCondition(
+    ENVIRONMENT_SWEEP_PHASES.includes(phase.phase) &&
+      phase.legacyObservationCount === 0 &&
+      Array.isArray(phase.typedDecisions),
+    `${label}: malformed or legacy observation`,
+  );
+  const primary =
+    phase.phase === "write-setup"
+      ? {
+          cap: "env:write",
+          operation: "environment-write",
+          surfaceId: binding.terminalSurfaces.write.surfaceId,
+        }
+      : phase.phase === "enumeration"
+        ? {
+            cap: "env:read",
+            operation: "environment-enumerate",
+            surfaceId: binding.terminalSurfaces.enumerationRead.surfaceId,
+          }
+        : {
+            cap: "env:read",
+            operation: "environment-read",
+            surfaceId: binding.terminalSurfaces.scalarRead.surfaceId,
+          };
+  const primaryStagesByName = new Map(
+    binding.accounts.map(({ environmentName }) => [environmentName, []]),
+  );
+  const scalarStagesByName = new Map(
+    binding.accounts.map(({ environmentName }) => [environmentName, []]),
+  );
+  const expectedFloorSourceIds = environmentSweepFloorSourceIds(binding);
+  const expectedBranchId = `output-shape-environment:${binding.sweepBindingDigest}:${phase.phase}`;
+  const projectedDecisions = phase.typedDecisions.map((decision, index) =>
+    projectObservedEnvironmentDecision(
+      decision,
+      expectedBranchId,
+      expectedFloorSourceIds,
+      `${label}.typedDecisions[${index}]`,
+    ),
+  );
+  requireCondition(
+    projectedDecisions.length ===
+      binding.accounts.length * (phase.phase === "enumeration" ? 8 : 2),
+    `${label}: typed decision cardinality does not match the exact executor calls`,
+  );
+  const authenticatedStates = new Set(
+    projectedDecisions.map((decision) =>
+      canonicalJson({
+        identity: decision.evidence.identity,
+        generations: decision.evidence.generations,
+      }),
+    ),
+  );
+  requireCondition(
+    authenticatedStates.size === 1,
+    `${label}: typed decisions disagree on authenticated semantic state`,
+  );
+  for (const decision of projectedDecisions) {
+    const effects = decision?.decisionSet?.effects;
+    const gates = decision?.gates;
+    requireCondition(
+      decision?.evidence?.outcome === "allow" &&
+        Array.isArray(effects) &&
+        effects.length === 1 &&
+        Array.isArray(gates) &&
+        gates.length === 1 &&
+        gates[0]?.targetCell === "complete" &&
+        gates[0]?.definitionAndEdgePredicatesSatisfied === true,
+      `${label}: typed decision is not one complete authenticated allow`,
+    );
+    const effect = effects[0];
+    const requested = effect?.resource?.requested;
+    const operation = String(decision?.decisionSet?.operationId ?? "");
+    const expectedOperation = `${primary.operation}:0:${JSON.stringify({
+      kind: "environment-name",
+      target: "principal-overlay",
+      name: requested?.name,
+    })}`;
+    const isPrimary =
+      effect?.cap === primary.cap &&
+      operation === expectedOperation &&
+      gates[0]?.coverageEdgeId === primary.surfaceId;
+    const expectedScalarOperation = `environment-read:0:${JSON.stringify({
+      kind: "environment-name",
+      target: "principal-overlay",
+      name: requested?.name,
+    })}`;
+    const isEnumerationScalarRead =
+      phase.phase === "enumeration" &&
+      effect?.cap === "env:read" &&
+      operation === expectedScalarOperation &&
+      gates[0]?.coverageEdgeId ===
+        binding.terminalSurfaces.scalarRead.surfaceId;
+    requireCondition(
+      (isPrimary || isEnumerationScalarRead) &&
+        requested?.kind === "environment-name" &&
+        requested?.target === "principal-overlay" &&
+        effect.resource?.valueOrigin === "principal-overlay" &&
+        primaryStagesByName.has(requested.name) &&
+        ["requested", "commit"].includes(decision?.decisionSet?.context?.stage),
+      `${label}: typed decision escaped the finite exact-name route`,
+    );
+    if (isPrimary) {
+      primaryStagesByName
+        .get(requested.name)
+        .push(decision.decisionSet.context.stage);
+    } else {
+      scalarStagesByName
+        .get(requested.name)
+        .push(decision.decisionSet.context.stage);
+    }
+  }
+  for (const [name, stages] of primaryStagesByName) {
+    requireCondition(
+      canonicalJson(stages) === canonicalJson(["requested", "commit"]),
+      `${label}: ${name} lacks one requested/commit ${primary.operation} pair`,
+    );
+    const scalarStages = scalarStagesByName.get(name);
+    const expectedScalarStages =
+      phase.phase === "enumeration"
+        ? [
+            "requested",
+            "commit",
+            "requested",
+            "commit",
+            "requested",
+            "commit",
+          ]
+        : [];
+    requireCondition(
+      canonicalJson(scalarStages) === canonicalJson(expectedScalarStages),
+      `${label}: ${name} lacks the exact scalar reads caused by ${phase.phase}`,
+    );
+  }
+  return {
+    phase: phase.phase,
+    legacyObservationCount: phase.legacyObservationCount,
+    typedDecisions: projectedDecisions,
+  };
+}
+
+function validateEnvironmentExecutorIdentity(executorIdentity, label) {
+  exactObjectKeys(
+    executorIdentity,
+    ["executor", "loadedEngineBinaryDigest"],
+    label,
+  );
+  requireNonEmptyString(executorIdentity.executor, `${label}.executor`);
+  requireCondition(
+    CAPSEC_DIGEST_PATTERN.test(executorIdentity.loadedEngineBinaryDigest),
+    `${label}.loadedEngineBinaryDigest: expected loaded engine digest`,
+  );
+  return executorIdentity;
+}
+
+function validateEnvironmentExecutorResult(
+  binding,
+  result,
+  executorIdentity,
+  label,
+) {
+  exactObjectKeys(
+    result,
+    [
+      "environmentOutputExecutorResultSchema",
+      "executor",
+      "loadedEngineBinaryDigest",
+      "surfaceId",
+      "sweepBindingDigest",
+      "accounts",
+      "enumerationNames",
+      "facadeAliases",
+      "sealedRawBridges",
+      "hostEnvironmentCanary",
+      "phases",
+    ],
+    label,
+  );
+  requireCondition(
+    result.environmentOutputExecutorResultSchema ===
+      ENVIRONMENT_OUTPUT_SWEEP_EXECUTOR_RESULT_SCHEMA &&
+      result.executor === executorIdentity.executor &&
+      result.loadedEngineBinaryDigest ===
+        executorIdentity.loadedEngineBinaryDigest &&
+      result.surfaceId === binding.surfaceId &&
+      result.sweepBindingDigest === binding.sweepBindingDigest &&
+      canonicalJson(result.enumerationNames) ===
+        canonicalJson(
+          binding.accounts.map(({ environmentName }) => environmentName),
+        ) &&
+      canonicalJson(result.facadeAliases) ===
+        canonicalJson({ bun: true, exact: true }) &&
+      canonicalJson(result.sealedRawBridges) ===
+        canonicalJson({
+          enumeration: "undefined",
+          scalar: "undefined",
+          write: "undefined",
+        }) &&
+      Array.isArray(result.accounts) &&
+      result.accounts.length === binding.accounts.length &&
+      Array.isArray(result.phases) &&
+      result.phases.length === ENVIRONMENT_SWEEP_PHASES.length,
+    `${label}: stale, incomplete, or unsealed executor result`,
+  );
+  exactObjectKeys(
+    result.hostEnvironmentCanary,
+    ["fixedNamesSeeded", "scalarBeforeHidden", "unchangedAfterOverlayWrites"],
+    `${label}.hostEnvironmentCanary`,
+  );
+  requireCondition(
+    result.hostEnvironmentCanary.fixedNamesSeeded === true &&
+      result.hostEnvironmentCanary.scalarBeforeHidden === true &&
+      result.hostEnvironmentCanary.unchangedAfterOverlayWrites === true,
+    `${label}: host-environment positive control failed`,
+  );
+  for (const [index, expected] of binding.accounts.entries()) {
+    const account = result.accounts[index];
+    exactObjectKeys(
+      account,
+      [
+        "accountId",
+        "environmentName",
+        "scalarBefore",
+        "scalarAfter",
+        "enumerated",
+      ],
+      `${label}.accounts[${index}]`,
+    );
+    for (const field of ["scalarBefore", "scalarAfter", "enumerated"]) {
+      exactObjectKeys(
+        account[field],
+        ["valueShape", "value"],
+        `${label}.accounts[${index}].${field}`,
+      );
+    }
+    requireCondition(
+      account.accountId === expected.accountId &&
+        account.environmentName === expected.environmentName &&
+        account.scalarBefore.valueShape === "undefined" &&
+        account.scalarBefore.value === null &&
+        account.scalarAfter.valueShape === "string" &&
+        typeof account.scalarAfter.value === "string" &&
+        account.scalarAfter.value.length > 0 &&
+        account.enumerated.valueShape === "string" &&
+        account.enumerated.value === account.scalarAfter.value,
+      `${label}.accounts[${index}]: scalar/enumeration value mismatch`,
+    );
+  }
+  const projectedPhases = [];
+  for (const [index, phase] of result.phases.entries()) {
+    requireCondition(
+      phase?.phase === ENVIRONMENT_SWEEP_PHASES[index],
+      `${label}: phases are missing, duplicated, or reordered`,
+    );
+    projectedPhases.push(
+      validateEnvironmentDecisionPhase(
+        binding,
+        phase,
+        `${label}.phases[${index}]`,
+      ),
+    );
+  }
+  const authenticatedStates = new Set(
+    projectedPhases.flatMap((phase) =>
+      phase.typedDecisions.map((decision) =>
+        canonicalJson({
+          identity: decision.evidence.identity,
+          generations: decision.evidence.generations,
+        }),
+      ),
+    ),
+  );
+  requireCondition(
+    authenticatedStates.size === 1,
+    `${label}: phases disagree on authenticated semantic state`,
+  );
+  return projectedPhases;
+}
+
+function environmentObservationDigest(observation) {
+  const projected = structuredClone(observation);
+  delete projected.observationDigest;
+  return taggedDigest(ENVIRONMENT_SWEEP_VALUE_DIGEST_DOMAIN, projected);
+}
+
+/** Normalize live values without retaining their executor-owned raw strings. */
+export function buildEnvironmentOutputSweepObservations(
+  bindings,
+  results,
+  executorIdentity,
+) {
+  validateEnvironmentOutputSweepBindings(bindings);
+  validateEnvironmentExecutorIdentity(
+    executorIdentity,
+    "environment executor identity",
+  );
+  requireCondition(
+    Array.isArray(results) && results.length === bindings.length,
+    "environment executor results must be set-equal to sweep bindings",
+  );
+  let authenticatedSemanticState = null;
+  return deepFreeze(
+    bindings.map((binding, index) => {
+      const result = results[index];
+      const projectedPhases = validateEnvironmentExecutorResult(
+        binding,
+        result,
+        executorIdentity,
+        `environment executor result ${index}`,
+      );
+      const firstEvidence = projectedPhases[0].typedDecisions[0].evidence;
+      const resultSemanticState = canonicalJson({
+        identity: firstEvidence.identity,
+        generations: firstEvidence.generations,
+      });
+      requireCondition(
+        authenticatedSemanticState === null ||
+          authenticatedSemanticState === resultSemanticState,
+        `environment executor result ${index}: mixed authenticated semantic state`,
+      );
+      authenticatedSemanticState = resultSemanticState;
+      const observation = {
+        environmentOutputSweepObservationSchema:
+          ENVIRONMENT_OUTPUT_SWEEP_OBSERVATION_SCHEMA,
+        surfaceId: binding.surfaceId,
+        sweepBindingDigest: binding.sweepBindingDigest,
+        probeKind: ENVIRONMENT_OUTPUT_SWEEP_PROBE_KIND,
+        executor: result.executor,
+        loadedEngineBinaryDigest: result.loadedEngineBinaryDigest,
+        accounts: result.accounts.map((account) => ({
+          accountId: account.accountId,
+          environmentName: account.environmentName,
+          scalarBeforeShape: account.scalarBefore.valueShape,
+          scalarAfterShape: account.scalarAfter.valueShape,
+          enumerationShape: account.enumerated.valueShape,
+          valueDigest: taggedDigest(ENVIRONMENT_SWEEP_VALUE_DIGEST_DOMAIN, {
+            accountId: account.accountId,
+            value: account.scalarAfter.value,
+          }),
+        })),
+        enumerationNames: structuredClone(result.enumerationNames),
+        facadeAliases: structuredClone(result.facadeAliases),
+        sealedRawBridges: structuredClone(result.sealedRawBridges),
+        hostEnvironmentCanary: {
+          fixedNamesSeeded: result.hostEnvironmentCanary.fixedNamesSeeded,
+          scalarBeforeHidden: result.hostEnvironmentCanary.scalarBeforeHidden,
+          unchangedAfterOverlayWrites:
+            result.hostEnvironmentCanary.unchangedAfterOverlayWrites,
+        },
+        phases: projectedPhases,
+      };
+      observation.observationDigest = environmentObservationDigest(observation);
+      return observation;
+    }),
+  );
+}
+
+export function validateEnvironmentOutputSweepObservations(
+  bindings,
+  observations,
+  executorIdentity,
+) {
+  validateEnvironmentOutputSweepBindings(bindings);
+  validateEnvironmentExecutorIdentity(
+    executorIdentity,
+    "environment observation executor identity",
+  );
+  requireCondition(
+    Array.isArray(observations) && observations.length === bindings.length,
+    "environment observations must be set-equal to sweep bindings",
+  );
+  const authenticatedSemanticStates = new Set();
+  for (const [index, binding] of bindings.entries()) {
+    const observation = observations[index];
+    const label = `environment observation ${index}`;
+    exactObjectKeys(
+      observation,
+      [
+        "environmentOutputSweepObservationSchema",
+        "surfaceId",
+        "sweepBindingDigest",
+        "probeKind",
+        "executor",
+        "loadedEngineBinaryDigest",
+        "accounts",
+        "enumerationNames",
+        "facadeAliases",
+        "sealedRawBridges",
+        "hostEnvironmentCanary",
+        "phases",
+        "observationDigest",
+      ],
+      label,
+    );
+    requireCondition(
+      observation.environmentOutputSweepObservationSchema ===
+        ENVIRONMENT_OUTPUT_SWEEP_OBSERVATION_SCHEMA &&
+        observation.surfaceId === binding.surfaceId &&
+        observation.sweepBindingDigest === binding.sweepBindingDigest &&
+        observation.probeKind === ENVIRONMENT_OUTPUT_SWEEP_PROBE_KIND &&
+        observation.executor === executorIdentity.executor &&
+        observation.loadedEngineBinaryDigest ===
+          executorIdentity.loadedEngineBinaryDigest &&
+        observation.observationDigest ===
+          environmentObservationDigest(observation) &&
+        canonicalJson(observation.enumerationNames) ===
+          canonicalJson(
+            binding.accounts.map(({ environmentName }) => environmentName),
+          ) &&
+        canonicalJson(observation.facadeAliases) ===
+          canonicalJson({ bun: true, exact: true }) &&
+        canonicalJson(observation.sealedRawBridges) ===
+          canonicalJson({
+            enumeration: "undefined",
+            scalar: "undefined",
+            write: "undefined",
+          }) &&
+        Array.isArray(observation.accounts) &&
+        observation.accounts.length === binding.accounts.length &&
+        Array.isArray(observation.phases) &&
+        observation.phases.length === ENVIRONMENT_SWEEP_PHASES.length,
+      `${label}: malformed or drifted observation`,
+    );
+    exactObjectKeys(
+      observation.hostEnvironmentCanary,
+      ["fixedNamesSeeded", "scalarBeforeHidden", "unchangedAfterOverlayWrites"],
+      `${label}.hostEnvironmentCanary`,
+    );
+    requireCondition(
+      observation.hostEnvironmentCanary.fixedNamesSeeded === true &&
+        observation.hostEnvironmentCanary.scalarBeforeHidden === true &&
+        observation.hostEnvironmentCanary.unchangedAfterOverlayWrites === true,
+      `${label}: host-environment positive control is absent`,
+    );
+    for (const [accountIndex, expected] of binding.accounts.entries()) {
+      const account = observation.accounts[accountIndex];
+      exactObjectKeys(
+        account,
+        [
+          "accountId",
+          "environmentName",
+          "scalarBeforeShape",
+          "scalarAfterShape",
+          "enumerationShape",
+          "valueDigest",
+        ],
+        `${label}.accounts[${accountIndex}]`,
+      );
+      requireCondition(
+        account.accountId === expected.accountId &&
+          account.environmentName === expected.environmentName &&
+          account.scalarBeforeShape === "undefined" &&
+          account.scalarAfterShape === "string" &&
+          account.enumerationShape === "string" &&
+          /^sha256-[A-Za-z0-9_-]{43}$/u.test(account.valueDigest),
+        `${label}.accounts[${accountIndex}]: account proof drift`,
+      );
+    }
+    for (const [phaseIndex, phase] of observation.phases.entries()) {
+      requireCondition(
+        phase?.phase === ENVIRONMENT_SWEEP_PHASES[phaseIndex],
+        `${label}: phases are missing, duplicated, or reordered`,
+      );
+      const projectedPhase = validateEnvironmentDecisionPhase(
+        binding,
+        phase,
+        `${label}.phases[${phaseIndex}]`,
+      );
+      const firstEvidence = projectedPhase.typedDecisions[0].evidence;
+      authenticatedSemanticStates.add(
+        canonicalJson({
+          identity: firstEvidence.identity,
+          generations: firstEvidence.generations,
+        }),
+      );
+    }
+  }
+  requireCondition(
+    authenticatedSemanticStates.size <= 1,
+    "environment observations mix authenticated semantic states",
+  );
+  return observations;
 }
 
 function assertUniqueCatalogKeys(rows) {

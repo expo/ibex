@@ -1072,6 +1072,15 @@ export function createRolldownConfig({
     plugins: createSharedBundlerPlugins({ injectDirnameBindings, compartments }),
     transform: {
       target: hermesRolldownTarget,
+      // Ibex's source and artifact producers use the classic JSX ABI. Leaving
+      // Rolldown's default here selects the automatic runtime and injects an
+      // undeclared `react/jsx-runtime` dependency into otherwise standalone
+      // TSX applications.
+      jsx: {
+        runtime: 'classic',
+        pragma: 'React.createElement',
+        pragmaFrag: 'React.Fragment',
+      },
       ...(define ? { define } : {}),
     },
   };

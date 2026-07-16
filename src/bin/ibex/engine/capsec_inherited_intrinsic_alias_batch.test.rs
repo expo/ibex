@@ -18,6 +18,9 @@ const OBSERVATION_SCHEMA: &str = "ibex/capsec-inherited-intrinsic-alias-observat
 const PREFLIGHT_SCHEMA: &str = "ibex/capsec-inherited-intrinsic-alias-loaded-engine-preflight/1";
 const EVIDENCE_SCHEMA: &str = "ibex/capsec-inherited-intrinsic-alias-loaded-execution/1";
 const PLAN_DIGEST_DOMAIN: &str = "ibex.capsec.inherited-intrinsic-alias.execution-plan.v1";
+const OBSERVATION_SLOT: &str = "__exactCapsecInheritedIntrinsicAliasObservation";
+const OBSERVATION_CHUNK_UTF16_UNITS: usize = 1024;
+const MAX_OBSERVATION_UTF16_UNITS: usize = 16 * 1024 * 1024;
 const EXECUTOR_CONTRACT_SOURCE: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/src/bin/ibex/engine/capsec_inherited_intrinsic_alias_batch.test.rs"
@@ -186,6 +189,65 @@ fn load_plan(path: &str) -> ExecutionPlan {
     plan
 }
 
+async fn evaluate_chunked_observation(
+    evaluator: &mut AuthenticatedReplTestEvaluator,
+    engine: &HermesEngine,
+    probe_source: &str,
+) -> Value {
+    // Stage-1 string displays are intentionally capped at 16 KiB. Preserve
+    // that safety contract and retrieve this reviewed, content-addressed
+    // observation through a sequence of independently authenticated bounded
+    // slices instead of treating a truncated display as evidence.
+    // @ref LLP 0024#8-safe-inspection
+    let prepare = format!(
+        r#"(function() {{
+          var serialized = JSON.stringify({probe_source});
+          if (typeof serialized !== 'string') throw new Error('intrinsic alias probe did not serialize');
+          Object.defineProperty(globalThis, '{OBSERVATION_SLOT}', {{
+            value: serialized,
+            writable: false,
+            configurable: true,
+            enumerable: false
+          }});
+          return String(serialized.length);
+        }})()"#
+    );
+    let length = evaluator
+        .eval_string(engine, &prepare)
+        .await
+        .parse::<usize>()
+        .expect("intrinsic alias observation length must be an integer");
+    assert!(
+        length <= MAX_OBSERVATION_UTF16_UNITS,
+        "intrinsic alias observation exceeds the authenticated evidence bound"
+    );
+
+    let mut encoded = String::new();
+    let mut offset = 0;
+    while offset < length {
+        let end = length.min(offset + OBSERVATION_CHUNK_UTF16_UNITS);
+        let source = format!("globalThis.{OBSERVATION_SLOT}.slice({offset}, {end})");
+        encoded.push_str(&evaluator.eval_string(engine, &source).await);
+        offset = end;
+    }
+    let cleanup = evaluator
+        .eval_string(
+            engine,
+            &format!("String(delete globalThis.{OBSERVATION_SLOT})"),
+        )
+        .await;
+    assert_eq!(
+        cleanup, "true",
+        "intrinsic alias observation slot did not clear"
+    );
+    assert_eq!(
+        encoded.encode_utf16().count(),
+        length,
+        "intrinsic alias observation slices did not reconstruct exactly"
+    );
+    serde_json::from_str(&encoded).expect("loaded inherited intrinsic probe returned invalid JSON")
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_inherited_intrinsic_alias_loaded_engine_preflight() {
     let Ok(output_path) = std::env::var("IBEX_CAPSEC_INTRINSIC_ALIAS_PREFLIGHT_OUTPUT") else {
@@ -246,8 +308,7 @@ async fn capsec_inherited_intrinsic_alias_loaded_execution() {
         "plan structural features do not describe the loaded engine"
     );
 
-    let (host, snapshot_digest) =
-        build_armed_test_host_at(None, false, false, false, Vec::new());
+    let (host, snapshot_digest) = build_armed_test_host_at(None, false, false, false, Vec::new());
     assert_ne!(
         crate::host::abi::install_host(host.clone()),
         0,
@@ -264,10 +325,8 @@ async fn capsec_inherited_intrinsic_alias_loaded_execution() {
     // mapped engine only as an armed, authenticated session submission.
     // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
     let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
-    let script = format!("JSON.stringify({})", plan.probe.source);
-    let encoded = evaluator.eval_string(&engine, &script).await;
-    let observation: Value = serde_json::from_str(&encoded)
-        .expect("loaded inherited intrinsic probe returned invalid JSON");
+    let observation =
+        evaluate_chunked_observation(&mut evaluator, &engine, &plan.probe.source).await;
     assert_eq!(observation["schema"], OBSERVATION_SCHEMA);
     assert_eq!(observation["profileId"], plan.profile_id);
     assert_eq!(observation["targetVariant"], plan.target_variant);

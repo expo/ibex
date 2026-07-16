@@ -1355,6 +1355,101 @@ pub unsafe extern "C" fn ex_host_prepare_armed_embedder_artifacts(
         .unwrap_or(std::ptr::null_mut())
 }
 
+/// Bind one strict Exact operation manifest to an authenticated generic Ibex
+/// artifact pair, materialize it as the fifth protected artifact, and return a
+/// construction-fresh pair. The returned string is released with
+/// `ex_host_free_string`.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this call.
+/// Inputs are copied or consumed synchronously and are not retained.
+/// @ref LLP 0002#the-exact-embedder-ingress — operation endowments come only
+/// from the digest-bound manifest, never from a caller-selected allowlist.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_prepare_exact_armed_embedder_artifacts(
+    snapshot_template: *const u8,
+    snapshot_template_len: usize,
+    expected_identity: *const u8,
+    expected_identity_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+) -> *mut c_char {
+    let result = if snapshot_template.is_null()
+        || snapshot_template_len == 0
+        || expected_identity.is_null()
+        || expected_identity_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "snapshot template, expected identity, and Exact operation manifest are required"
+        ))
+    } else {
+        let snapshot =
+            unsafe { std::slice::from_raw_parts(snapshot_template, snapshot_template_len) };
+        let expected =
+            unsafe { std::slice::from_raw_parts(expected_identity, expected_identity_len) };
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        super::embedder_artifacts::prepare_exact_embedder_artifacts(snapshot, expected, manifest)
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
+/// Build a complete target-local Exact artifact pair from the installed
+/// project root and the checked operation manifest. The project-root bytes are
+/// UTF-8 and need not be NUL terminated. The returned string is released with
+/// `ex_host_free_string`.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this call.
+/// Inputs are copied or consumed synchronously and are not retained.
+/// @ref LLP 0002#the-exact-embedder-ingress — the native embedder supplies its
+/// installed root and checked manifest, never an operation allowlist.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts(
+    project_root_utf8: *const u8,
+    project_root_utf8_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+) -> *mut c_char {
+    let result = if project_root_utf8.is_null()
+        || project_root_utf8_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "Exact project root and operation manifest are required"
+        ))
+    } else {
+        let root_bytes =
+            unsafe { std::slice::from_raw_parts(project_root_utf8, project_root_utf8_len) };
+        let root = std::str::from_utf8(root_bytes)
+            .map(std::path::Path::new)
+            .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        root.and_then(|root| {
+            super::embedder_artifacts::build_exact_embedder_artifacts(root, manifest)
+        })
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     let active = ACTIVE_HOST_CONTEXT.with(Cell::get);
     if active != 0 {
@@ -1410,6 +1505,66 @@ pub fn authenticated_principal_for_host_context(
         });
     }
     host.typed_principal_for_module(&principal_id.to_string())
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+pub(crate) fn current_module_runner_snapshot(
+) -> anyhow::Result<std::sync::Arc<capsec_semantics::arming::ArmedSnapshot>> {
+    with_host(
+        |host| {
+            host.armed_snapshot()
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("module runner requires an armed snapshot"))
+        },
+        Err(anyhow::anyhow!("module runner host is not installed")),
+    )
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+pub(crate) fn resolve_module_for_runner(
+    specifier: &str,
+    referrer: Option<&std::path::Path>,
+    requester_module_id: Option<&str>,
+    kind: crate::module_loader::identity::ResolutionKind,
+    attributes: &crate::module_loader::identity::ImportAttributes,
+) -> anyhow::Result<crate::module_loader::ResolvedModule> {
+    with_host(
+        |host| {
+            let mut meta = host.resolve_module_meta_for_principal_typed_with_attributes(
+                specifier,
+                referrer,
+                requester_module_id,
+                kind,
+                attributes,
+            )?;
+            if meta
+                .path
+                .as_deref()
+                .and_then(std::path::Path::extension)
+                .and_then(|value| value.to_str())
+                .is_some_and(|extension| {
+                    matches!(
+                        extension.to_ascii_lowercase().as_str(),
+                        "mjs" | "mts" | "ts" | "tsx" | "jsx"
+                    )
+                })
+            {
+                meta.kind = crate::module_loader::ModuleKind::Esm;
+            }
+            host.load_authenticated_module_source_for_runner(meta)
+        },
+        Err(anyhow::anyhow!("module runner host is not installed")),
+    )
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+pub(crate) fn module_runner_principal_id(
+    principal: &capsec_semantics::model::Principal,
+) -> anyhow::Result<u32> {
+    with_host(
+        |host| host.module_runner_principal_id(principal),
+        Err(anyhow::anyhow!("module runner host is not installed")),
+    )
 }
 
 fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
@@ -3340,6 +3495,13 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
             "surface.native.op.exactsqlitevalues.03uveqn",
         ),
         24 => ("sqlite-exec", "surface.native.op.exactsqliteexec.0oogg80"),
+        // `fs-path-async` arrived independently after the closed CapSec ABI
+        // had assigned 13..=24. Keep the established codes stable and give
+        // the generic retained-path operation the next free discriminant.
+        25 => (
+            "fs-path-async",
+            "surface.native.op.exactfspathasync.10cb78b",
+        ),
         _ => return EX_HOST_VFS_RESULT_MALFORMED_INPUT,
     };
     let follow_mode = if matches!(surface, 10 | 11 | 15) {
@@ -5423,6 +5585,19 @@ fn module_meta_json(module: &crate::module_loader::ResolvedModule) -> serde_json
                 .map(|path| json!(path))
         })
         .unwrap_or(serde_json::Value::Null);
+    let artifact_source_id = module
+        .artifact_source_id
+        .as_ref()
+        .map(crate::module_loader::identity::SourceId::encode)
+        .transpose();
+    let artifact_source_id = match artifact_source_id {
+        Ok(value) => value,
+        Err(_) => {
+            return module_resolution_error_json(&anyhow::anyhow!(
+                "invalid authenticated artifact SourceId"
+            ));
+        }
+    };
     json!({
         "schema": "ibex/module-resolution/1",
         "id": public_id,
@@ -5452,6 +5627,12 @@ fn module_meta_json(module: &crate::module_loader::ResolvedModule) -> serde_json
         // code observes only the paired virtual path/label.
         // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
         "sourceId": module.source_id.as_ref().map(crate::vfs::SourceId::cache_key),
+        // The native artifact runner uses a portable SourceId which omits the
+        // compatibility cache identity's VFS-only logical-root tag. Both IDs
+        // are stamped from the same authenticated binding; keeping distinct
+        // fields prevents either consumer from reinterpreting the other wire
+        // format.
+        "artifactSourceId": artifact_source_id,
         "sourceLabel": module.source_label.as_ref().map(crate::vfs::SourceLabel::as_str),
         "virtualPath": module.virtual_path.as_deref(),
     })
@@ -5495,6 +5676,7 @@ fn module_resolve_cstring(payload: &serde_json::Value) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn ex_host_module_resolve(
     requester_module_id: u64,
+    resolution_kind: u32,
     specifier: *const c_char,
     referrer: *const c_char,
 ) -> *mut c_char {
@@ -5502,16 +5684,20 @@ pub extern "C" fn ex_host_module_resolve(
         return ptr::null_mut();
     };
 
+    let resolution_kind =
+        crate::module_loader::identity::ResolutionKind::from_abi_code(resolution_kind);
     let resolved = with_host(
         |host| {
+            let resolution_kind = resolution_kind?;
             let path = referrer
                 .as_deref()
                 .map(|encoded| host.module_referrer_path(encoded))
                 .transpose()?;
-            host.resolve_module_for_principal(
+            host.resolve_module_for_principal_typed(
                 &spec,
                 path.as_deref(),
                 Some(&requester_module_id.to_string()),
+                resolution_kind,
             )
         },
         Err(anyhow::anyhow!("Host not initialized")),
@@ -5541,6 +5727,7 @@ pub extern "C" fn ex_host_session_static_import_resolve(
     logical_referrer_length: usize,
     specifier: *const u8,
     specifier_length: usize,
+    resolution_kind: u32,
 ) -> *mut c_char {
     let payload = (|| -> anyhow::Result<serde_json::Value> {
         if logical_referrer.is_null()
@@ -5567,8 +5754,10 @@ pub extern "C" fn ex_host_session_static_import_resolve(
         if specifier.as_bytes().contains(&0) {
             anyhow::bail!("static-import specifier contains NUL");
         }
+        let resolution_kind =
+            crate::module_loader::identity::ResolutionKind::from_abi_code(resolution_kind)?;
         let module = with_host(
-            |host| host.resolve_session_static_import(specifier, &referrer),
+            |host| host.resolve_session_static_import(specifier, &referrer, resolution_kind),
             Err(anyhow::anyhow!("Host not initialized")),
         )?;
         let mut record = module_meta_json(&module);
@@ -5594,6 +5783,7 @@ pub extern "C" fn ex_host_session_static_import_resolve_meta(
     logical_referrer_length: usize,
     specifier: *const u8,
     specifier_length: usize,
+    resolution_kind: u32,
 ) -> *mut c_char {
     let payload = (|| -> anyhow::Result<serde_json::Value> {
         if logical_referrer.is_null()
@@ -5620,8 +5810,10 @@ pub extern "C" fn ex_host_session_static_import_resolve_meta(
         if specifier.as_bytes().contains(&0) {
             anyhow::bail!("session-root specifier contains NUL");
         }
+        let resolution_kind =
+            crate::module_loader::identity::ResolutionKind::from_abi_code(resolution_kind)?;
         let module = with_host(
-            |host| host.resolve_session_static_import_meta(specifier, &referrer),
+            |host| host.resolve_session_static_import_meta(specifier, &referrer, resolution_kind),
             Err(anyhow::anyhow!("Host not initialized")),
         )?;
         Ok(module_meta_json(&module))
@@ -5673,6 +5865,7 @@ pub extern "C" fn ex_host_resolve_manifest_builtin_internal(
 #[no_mangle]
 pub extern "C" fn ex_host_module_resolve_meta(
     requester_module_id: u64,
+    resolution_kind: u32,
     specifier: *const c_char,
     referrer: *const c_char,
 ) -> *mut c_char {
@@ -5680,16 +5873,20 @@ pub extern "C" fn ex_host_module_resolve_meta(
         return ptr::null_mut();
     };
 
+    let resolution_kind =
+        crate::module_loader::identity::ResolutionKind::from_abi_code(resolution_kind);
     let resolved = with_host(
         |host| {
+            let resolution_kind = resolution_kind?;
             let path = referrer
                 .as_deref()
                 .map(|encoded| host.module_referrer_path(encoded))
                 .transpose()?;
-            host.resolve_module_meta_for_principal(
+            host.resolve_module_meta_for_principal_typed(
                 &spec,
                 path.as_deref(),
                 Some(&requester_module_id.to_string()),
+                resolution_kind,
             )
         },
         Err(anyhow::anyhow!("Host not initialized")),
@@ -7970,6 +8167,7 @@ mod tests {
             }))
             .unwrap();
         let module = crate::module_loader::ResolvedModule {
+            artifact_source_id: None,
             id: "/private/host/project/node_modules/image-lib/index.js".into(),
             kind: crate::module_loader::ModuleKind::CommonJs,
             path: Some("/private/host/project/node_modules/image-lib/index.js".into()),
@@ -8015,6 +8213,7 @@ mod tests {
         )
         .unwrap();
         let module = crate::module_loader::ResolvedModule {
+            artifact_source_id: None,
             id: "/private/host/project/node_modules/image-lib/index.js".into(),
             kind: crate::module_loader::ModuleKind::CommonJs,
             path: Some("/private/host/project/node_modules/image-lib/index.js".into()),
@@ -9039,5 +9238,30 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("snapshot template and expected identity are required"));
+
+        let exact_envelope = take_json(unsafe {
+            ex_host_prepare_exact_armed_embedder_artifacts(
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+            )
+        });
+        assert_eq!(exact_envelope["ok"], false);
+        assert!(exact_envelope["error"]
+            .as_str()
+            .unwrap()
+            .contains("Exact operation manifest are required"));
+
+        let build_envelope = take_json(unsafe {
+            ex_host_build_exact_armed_embedder_artifacts(ptr::null(), 0, ptr::null(), 0)
+        });
+        assert_eq!(build_envelope["ok"], false);
+        assert!(build_envelope["error"]
+            .as_str()
+            .unwrap()
+            .contains("Exact project root and operation manifest are required"));
     }
 }

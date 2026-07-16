@@ -27,6 +27,7 @@ import {
   buildOutputShapeSweepPlan,
   buildVerifiedOutputDispositionEvidence,
 } from "./capsec-output-shape-sweep.mjs";
+import { ENVIRONMENT_OUTPUT_SWEEP_NAMES } from "./capsec-environment-output-templates.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -362,6 +363,16 @@ const plan = buildOutputShapeSweepPlan({
 });
 writeNewJson(planPath, plan);
 
+// Positive-control inputs exist only in the owned Rust executor child. Armed
+// process.env must hide them and overlay writes must leave them unchanged; the
+// raw random values are never placed in a plan, batch, artifact, or log.
+const childHostEnvironmentCanaries = Object.fromEntries(
+  ENVIRONMENT_OUTPUT_SWEEP_NAMES.map((name) => [
+    name,
+    crypto.randomBytes(32).toString("base64url"),
+  ]),
+);
+
 execFileSync(
   "cargo",
   [
@@ -379,6 +390,7 @@ execFileSync(
     cwd: repoRoot,
     env: {
       ...exactEngineEnvironment,
+      ...childHostEnvironmentCanaries,
       IBEX_CAPSEC_OUTPUT_SHAPE_PLAN: planPath,
       IBEX_CAPSEC_OUTPUT_SHAPE_BATCH_OUTPUT: batchPath,
     },

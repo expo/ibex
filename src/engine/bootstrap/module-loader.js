@@ -485,6 +485,7 @@
         "__filename",
         "__dirname",
         "__exactDynamicImport",
+        "__exactStaticImport",
         "__exactPrivateBuiltinBridges",
         source);
     } finally {
@@ -5180,6 +5181,30 @@
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       var trimmed = line.trim();
+      // A balanced semicolonless export ends by ASI before another top-level
+      // module declaration. Preserve expression continuations such as
+      // `].map(...)`, but do not let a pending multiline initializer swallow
+      // the next `import`/`export` (micromark-util-html-tag-name has this exact
+      // array + doc-comment + export shape).
+      // @ref LLP 0004#loading-and-on-the-fly-transpilation — the embedded
+      // fallback must lower ordinary on-disk ESM into the synchronous CJS path.
+      var startsTopLevelModuleStatement =
+        !delimiterScanInContent(moduleScanState) && /^\s*(?:import|export)\b/.test(trimmed);
+      if (
+        pendingDefaultExport &&
+        startsTopLevelModuleStatement &&
+        moduleScanState.balance <= pendingDefaultExport.baseline
+      ) {
+        pendingDefaultExport = null;
+      }
+      if (
+        pendingVarExport &&
+        startsTopLevelModuleStatement &&
+        moduleScanState.balance <= pendingVarExport.baseline
+      ) {
+        out.push("module.exports." + pendingVarExport.name + " = " + pendingVarExport.name + ";");
+        pendingVarExport = null;
+      }
       if (pendingDefaultExport) {
         // When the continuation line starts inside template text or a block
         // comment, leave it verbatim: the whole-source transformImportMeta
@@ -5256,7 +5281,14 @@
         } else {
           for (var j = i + 1; j < lines.length; j++) {
             statement = statement + "\n" + lines[j];
-            if (indexOfStatementSemicolon(statement) !== -1) {
+            // ESM does not require semicolons. Stop as soon as the accumulated
+            // lines form a complete static module declaration; otherwise a
+            // unified/remark-style multiline import consumes the following
+            // import (and often the rest of the file).
+            if (
+              looksLikeCompleteModuleStatement(stripModuleStatementComments(statement)) ||
+              indexOfStatementSemicolon(statement) !== -1
+            ) {
               i = j;
               break;
             }
@@ -5292,13 +5324,13 @@
         /^\s*(const|let|var)\s+([\s\S]+?)\s*=\s*await\s+globalThis\["import"\]\(([\s\S]+)\)\s*;?\s*$/
       );
       if (m) {
-        out.push(m[1] + " " + m[2] + " = require(" + m[3] + ");");
+        out.push(m[1] + " " + m[2] + " = __exactStaticImport(" + m[3] + ");");
         continue;
       }
 
       m = trimmed.match(/^\s*await\s+globalThis\["import"\]\(([\s\S]+)\)\s*;?\s*$/);
       if (m) {
-        out.push("require(" + m[1] + ");");
+        out.push("__exactStaticImport(" + m[1] + ");");
         continue;
       }
 
@@ -5312,13 +5344,13 @@
 
       m = trimmed.match(/^\s*import\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
-        out.push("require(" + quote(m[2]) + ");");
+        out.push("__exactStaticImport(" + quote(m[2]) + ");");
         continue;
       }
 
       m = trimmed.match(/^\s*import\s*\*\s*as\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
-        out.push("var " + m[1] + " = require(" + quote(m[3]) + ");");
+        out.push("var " + m[1] + " = __exactStaticImport(" + quote(m[3]) + ");");
         continue;
       }
 
@@ -5327,7 +5359,7 @@
       );
       if (m) {
         var namedImport = "__exmod" + (importCounter++);
-        out.push("var " + namedImport + " = require(" + quote(m[4]) + ");");
+        out.push("var " + namedImport + " = __exactStaticImport(" + quote(m[4]) + ");");
         out.push(
           "var " +
             m[1] +
@@ -5350,7 +5382,7 @@
       );
       if (m) {
         var nsImport = "__exmod" + (importCounter++);
-        out.push("var " + nsImport + " = require(" + quote(m[4]) + ");");
+        out.push("var " + nsImport + " = __exactStaticImport(" + quote(m[4]) + ");");
         out.push(
           "var " +
             m[1] +
@@ -5378,7 +5410,7 @@
         out.push(
           "var " +
             m[1] +
-            " = (function(__exm){ return __exm && __exm.__esModule ? __exm.default : __exm; })(require(" +
+            " = (function(__exm){ return __exm && __exm.__esModule ? __exm.default : __exm; })(__exactStaticImport(" +
             quote(m[3]) +
             "));"
         );
@@ -5388,7 +5420,7 @@
       m = trimmed.match(/^\s*import\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         var named = "__exmod" + (importCounter++);
-        out.push("var " + named + " = require(" + quote(m[3]) + ");");
+        out.push("var " + named + " = __exactStaticImport(" + quote(m[3]) + ");");
         emitNamedBindings(m[1], named);
         continue;
       }
@@ -5396,7 +5428,7 @@
       m = trimmed.match(/^\s*export\s*\*\s*from\s*(["'])([^'"]+)\1\s*;?\s*$/);
       if (m) {
         var exportFrom = "__exmod" + (importCounter++);
-        out.push("var " + exportFrom + " = require(" + quote(m[2]) + ");");
+        out.push("var " + exportFrom + " = __exactStaticImport(" + quote(m[2]) + ");");
         out.push("for (var __exk in " + exportFrom + ") {");
         out.push("  if (Object.prototype.hasOwnProperty.call(" + exportFrom + ", __exk)) {");
         out.push("    module.exports[__exk] = " + exportFrom + "[__exk];");
@@ -5413,7 +5445,7 @@
       m = trimmed.match(/^\s*export\s*\{([\s\S]*?)\}\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
         var exportFrom = "__exmod" + (importCounter++);
-        out.push("var " + exportFrom + " = require(" + quote(m[3]) + ");");
+        out.push("var " + exportFrom + " = __exactStaticImport(" + quote(m[3]) + ");");
         emitExportBindings(m[1], exportFrom, true, false);
         continue;
       }
@@ -5423,7 +5455,7 @@
       );
       if (m) {
         var nsExport = "__exmod" + (importCounter++);
-        out.push("var " + nsExport + " = require(" + quote(m[3]) + ");");
+        out.push("var " + nsExport + " = __exactStaticImport(" + quote(m[3]) + ");");
         out.push("module.exports." + m[1] + " = " + nsExport + ";");
         continue;
       }
@@ -5431,12 +5463,16 @@
       m = transformed.match(
         /^(\s*)export\s+default\s+async\s+function\s+([A-Za-z_$][\w$]*)([\s\S]*)$/
       );
+      // Keep named functions as declarations: ESM hoists them, and packages
+      // legitimately reference or decorate the binding before its export
+      // line. Assigning the already-hoisted name to module.exports preserves
+      // that behavior without adding an output line.
       if (m) {
         out.push(
           m[1] +
-            "const " +
+            "module.exports.default = " +
             m[2] +
-            " = module.exports.default = async function " +
+            "; async function " +
             m[2] +
             m[3]
         );
@@ -5449,9 +5485,9 @@
       if (m) {
         out.push(
           m[1] +
-            "const " +
+            "module.exports.default = " +
             m[2] +
-            " = module.exports.default = function " +
+            "; function " +
             m[2] +
             m[3]
         );
@@ -5509,11 +5545,11 @@
       if (m) {
         out.push(
           m[1] +
-            "const " +
+            "module.exports." +
             m[2] +
-            " = module.exports." +
+            " = " +
             m[2] +
-            " = async function " +
+            "; async function " +
             m[2] +
             m[3]
         );
@@ -5524,11 +5560,11 @@
       if (m) {
         out.push(
           m[1] +
-            "const " +
+            "module.exports." +
             m[2] +
-            " = module.exports." +
+            " = " +
             m[2] +
-            " = function " +
+            "; function " +
             m[2] +
             m[3]
         );
@@ -5588,6 +5624,16 @@
       }
 
       out.push(transformed);
+    }
+    // A final semicolonless variable export has no following statement to
+    // prove its ASI boundary. At EOF, balanced code is necessarily complete;
+    // leave unbalanced/unterminated input for Hermes to diagnose as syntax.
+    if (
+      pendingVarExport &&
+      moduleScanState.balance <= pendingVarExport.baseline &&
+      !delimiterScanInContent(moduleScanState)
+    ) {
+      out.push("module.exports." + pendingVarExport.name + " = " + pendingVarExport.name + ";");
     }
     return out.join("\n");
   }
@@ -5672,7 +5718,7 @@
   // referrers and absolute requests are cwd-independent.
   // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
   var __authenticatedResolutionMemo = Object.create(null);
-  function authenticatedResolutionContext(specifier, referrer, resolverMode) {
+  function authenticatedResolutionContext(specifier, referrer, resolverMode, resolutionKind) {
     if (!__armedResolverCapture || typeof specifier !== 'string' ||
         typeof referrer !== 'string') {
       return null;
@@ -5708,7 +5754,14 @@
       baseIdentity = 'authenticated-root';
     }
     return {
-      routeKey: __privJsonStringify([resolverMode, baseIdentity, specifier]),
+      routeKey: __privJsonStringify([
+        resolverMode,
+        resolutionKind === 1 || resolutionKind === 2 || resolutionKind === 3
+          ? resolutionKind
+          : 0,
+        baseIdentity,
+        specifier
+      ]),
       nativeReferrer: nativeReferrer
     };
   }
@@ -5727,7 +5780,6 @@
     __builtinCanonicalByAlias[id] = canonical;
     return canonical;
   }
-
   // The `node:module` builtin receives this factory through its private module
   // wrapper, then captures it in `Module.createRequire`. A caller supplies only
   // virtual syntax; native reconstructs and revalidates the backing referrer
@@ -5790,9 +5842,14 @@
     authenticatedRecord,
     structuredStaticGraph,
     structuredDirectEntry,
-    authenticatedCacheAuthorization
+    authenticatedCacheAuthorization,
+    resolutionKind
   ) {
     __exactPinProcessStreams();
+    var typedResolutionKind =
+      resolutionKind === 1 || resolutionKind === 2 || resolutionKind === 3
+        ? resolutionKind
+        : 0;
 
     // @ref LLP 0013#mechanism-3 — per-package chunk requires (`__ibexpkg__*`)
     // and the shared bundler runtime chunk (`rolldown-runtime.js`, emitted for
@@ -5882,7 +5939,10 @@
           parent,
           manifestBuiltinInternal,
           undefined,
-          structuredStaticGraph
+          structuredStaticGraph,
+          undefined,
+          undefined,
+          typedResolutionKind
         );
       }
       if (fsExports && fsExports.promises) {
@@ -5931,6 +5991,7 @@
     var __usesCacheAuthorization = authenticatedCacheAuthorization &&
       authenticatedRecord === undefined &&
       authenticatedCacheAuthorization.resolverMode === resolverMode &&
+      authenticatedCacheAuthorization.resolutionKind === typedResolutionKind &&
       authenticatedCacheAuthorization.specifier === resolvedSpecifier &&
       authenticatedCacheAuthorization.referrer === (referrer || '') &&
       typeof authenticatedCacheAuthorization.routeKey === 'string' &&
@@ -5941,7 +6002,12 @@
               routeKey: authenticatedCacheAuthorization.routeKey,
               nativeReferrer: authenticatedCacheAuthorization.nativeReferrer
             }
-          : authenticatedResolutionContext(resolvedSpecifier, referrer || '', resolverMode))
+          : authenticatedResolutionContext(
+              resolvedSpecifier,
+              referrer || '',
+              resolverMode,
+              typedResolutionKind
+            ))
       : null;
     var authenticatedRouteKey = authenticatedResolution === null
       ? null
@@ -5986,12 +6052,15 @@
       if (typeof resolver !== 'function') {
         throw new Error("Module resolver is unavailable");
       }
-      const json = resolver(
-        resolvedSpecifier,
-        authenticatedResolution === null
-          ? (referrer || "")
-          : authenticatedResolution.nativeReferrer
-      );
+      const json = manifestBuiltinInternal
+        ? resolver(resolvedSpecifier)
+        : resolver(
+            resolvedSpecifier,
+            authenticatedResolution === null
+              ? (referrer || "")
+              : authenticatedResolution.nativeReferrer,
+            typedResolutionKind
+          );
       if (!json) {
         throw new Error("Module not found: " + specifier);
       }
@@ -6336,7 +6405,9 @@
         manifestBuiltinEvaluationActive,
         undefined,
         structuredStaticGraph,
-        authenticatedDirectEntry ? structuredDirectEntry : undefined
+        authenticatedDirectEntry ? structuredDirectEntry : undefined,
+        undefined,
+        0
       );
       // Skip interop for ESM-shimmed modules — the shim's generated
       // import bindings already handle default/named/namespace access.
@@ -6392,6 +6463,20 @@
       rejectRuntimeLoaderOptions(arguments.length);
       return importImpl(specifier, options, resolutionReferrer, module);
     };
+    const moduleStaticImport = function(specifier) {
+      checkImportGate(specifier, module && module.__exactPackageId);
+      return load(
+        specifier,
+        resolutionReferrer,
+        module,
+        false,
+        undefined,
+        structuredStaticGraph,
+        authenticatedDirectEntry ? structuredDirectEntry : undefined,
+        undefined,
+        1
+      );
+    };
     const invokeModuleBody = function(moduleBody) {
       manifestBuiltinEvaluationActive = isManifestBuiltinRecord;
       try {
@@ -6404,6 +6489,7 @@
             filename,
             dir,
             moduleDynamicImport,
+            moduleStaticImport,
             privateBuiltinBridges
           );
         } else {
@@ -6414,6 +6500,7 @@
             filename,
             dir,
             moduleDynamicImport,
+            moduleStaticImport,
             privateBuiltinBridges
           );
         }
@@ -7012,7 +7099,17 @@
     if (!record || typeof record !== 'object' || __privArrayIsArray(record)) {
       throw new TypeError('Invalid authenticated static-import record');
     }
-    var namespace = load(specifier, '', null, false, record, true);
+    var namespace = load(
+      specifier,
+      '',
+      null,
+      false,
+      record,
+      true,
+      undefined,
+      undefined,
+      1
+    );
     var values = [];
     for (var bindingIndex = 0; bindingIndex < bindingKinds.length; bindingIndex++) {
       var kind = bindingKinds[bindingIndex];
@@ -7112,13 +7209,15 @@
     var resolution = authenticatedResolutionContext(
       specifier,
       referrer || "",
-      'module'
+      'module',
+      0
     );
     return __exactResolvedPath(
       specifier,
       resolveMeta(
         specifier,
-        resolution === null ? (referrer || "") : resolution.nativeReferrer
+        resolution === null ? (referrer || "") : resolution.nativeReferrer,
+        0
       )
     );
   }
@@ -7137,7 +7236,7 @@
     }
     return __exactResolvedPath(
       specifier,
-      __privSessionModuleResolveMeta(specifier, logicalReferrer || "")
+      __privSessionModuleResolveMeta(specifier, logicalReferrer || "", 0)
     );
   }
   globalThis.require.resolve = function(specifier) {
@@ -7379,7 +7478,8 @@
       var __importResolution = authenticatedResolutionContext(
         __normalizedImportSpecifier,
         referrer,
-        'module'
+        'module',
+        2
       );
       var __importRouteKey = __importResolution === null
         ? null
@@ -7395,6 +7495,7 @@
         );
         authenticatedCacheAuthorization = {
           resolverMode: 'module',
+          resolutionKind: 2,
           specifier: __normalizedImportSpecifier,
           referrer: referrer,
           routeKey: __importRouteKey,
@@ -7430,7 +7531,8 @@
             __normalizedImportSpecifier,
             __importResolution === null
               ? referrer
-              : __importResolution.nativeReferrer
+              : __importResolution.nativeReferrer,
+            2
           );
           if (__irj) {
             var __irec = JSON.parse(__irj);
@@ -7453,7 +7555,8 @@
         undefined,
         undefined,
         undefined,
-        authenticatedCacheAuthorization
+        authenticatedCacheAuthorization,
+        2
       );
       // Wrap CommonJS modules to look like ESM: { default: module, ...module }
       // This allows: const mod = await import('foo'); mod.default or mod.something

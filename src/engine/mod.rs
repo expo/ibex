@@ -10,6 +10,7 @@
 pub mod evaluation;
 pub mod hermes_structured;
 mod import_grants;
+pub mod module_runner;
 pub mod session_lowering;
 pub mod session_syntax;
 pub mod sourcemap;
@@ -389,6 +390,7 @@ pub fn take_callback_pending() -> bool {
 }
 
 #[cfg(test)]
+#[allow(clashing_extern_declarations)]
 mod tests {
     use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
@@ -697,6 +699,7 @@ mod tests {
         fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
         fn ex_hermes_create_diagnostic() -> *mut HermesRuntimeOpaque;
         fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
+        fn ex_hermes_try_destroy(runtime: *mut HermesRuntimeOpaque, runtime_nonce: u64) -> i32;
         fn ex_hermes_eval(
             runtime: *mut HermesRuntimeOpaque,
             data: *const u8,
@@ -739,6 +742,10 @@ mod tests {
         fn ex_hermes_now_ms() -> u64;
         fn ex_hermes_callback_backlog(runtime: *mut HermesRuntimeOpaque) -> u32;
         fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
+        fn ex_hermes_set_host_call(
+            runtime: *mut HermesRuntimeOpaque,
+            callback: extern "C" fn(*const c_char, *const c_char) -> *mut c_char,
+        );
         fn ex_hermes_schedule_watchdog_heartbeat(
             runtime: *mut HermesRuntimeOpaque,
             callback: extern "C" fn(*mut std::ffi::c_void),
@@ -1990,6 +1997,76 @@ mod tests {
         }
     }
 
+    #[test]
+    fn runtime_drive_gate_refuses_off_owner_and_preserves_the_generation() {
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let nonce = ex_hermes_runtime_nonce(runtime);
+            assert_ne!(nonce, 0);
+            let address = runtime as usize;
+            let (poll_status, destroy_status) = std::thread::spawn(move || {
+                let runtime = address as *mut HermesRuntimeOpaque;
+                (
+                    ex_hermes_poll(runtime, 0),
+                    ex_hermes_try_destroy(runtime, nonce),
+                )
+            })
+            .join()
+            .unwrap();
+            assert_eq!(poll_status, -3);
+            assert_eq!(destroy_status, -3);
+            assert_eq!(ex_hermes_runtime_nonce(runtime), nonce);
+            assert_eq!(ex_hermes_poll(runtime, ex_hermes_now_ms()), 0);
+            assert_eq!(ex_hermes_try_destroy(runtime, nonce), 0);
+        }
+    }
+
+    static REENTRANT_RUNTIME: std::sync::atomic::AtomicPtr<HermesRuntimeOpaque> =
+        std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+    static REENTRANT_STATUS: std::sync::atomic::AtomicI32 =
+        std::sync::atomic::AtomicI32::new(i32::MIN);
+
+    extern "C" fn poll_from_host_call(
+        _operation: *const c_char,
+        _arguments_json: *const c_char,
+    ) -> *mut c_char {
+        let runtime = REENTRANT_RUNTIME.load(std::sync::atomic::Ordering::Acquire);
+        let status = unsafe { ex_hermes_poll(runtime, 0) };
+        REENTRANT_STATUS.store(status, std::sync::atomic::Ordering::Release);
+        let payload = b"+null\0";
+        let result = unsafe { libc::malloc(payload.len()).cast::<u8>() };
+        assert!(!result.is_null());
+        unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), result, payload.len()) };
+        result.cast()
+    }
+
+    #[test]
+    fn runtime_drive_gate_refuses_same_runtime_reentry() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            REENTRANT_RUNTIME.store(runtime, std::sync::atomic::Ordering::Release);
+            REENTRANT_STATUS.store(i32::MIN, std::sync::atomic::Ordering::Release);
+            ex_hermes_set_host_call(runtime, poll_from_host_call);
+
+            let (status, value) = eval(runtime, "__hostCall('reenter', null); 'survived'");
+            assert_eq!(status, 0, "outer eval failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("survived"));
+            assert_eq!(
+                REENTRANT_STATUS.load(std::sync::atomic::Ordering::Acquire),
+                -4,
+                "the nested drive must be refused as reentrant"
+            );
+            assert_eq!(ex_hermes_poll(runtime, ex_hermes_now_ms()), 0);
+
+            REENTRANT_RUNTIME.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Release);
+            ex_hermes_destroy(runtime);
+        }
+    }
+
     /// AC18 is a consumer-language contract, so the assertions and public ABI
     /// calls live in exact_runtime_c_abi_check.c. Rust supplies only the
     /// foreign thread needed to prove owner-thread rejection.
@@ -2030,7 +2107,6 @@ mod tests {
         unsafe {
             let runtime = ex_hermes_create_diagnostic();
             assert!(!runtime.is_null());
-
             let mut empty = structured_eval(runtime, b"");
             if empty.outcome_tag == STRUCTURED_ENGINE_FAULT {
                 assert_eq!(empty.fault, FAULT_RAW_THROW_UNAVAILABLE);

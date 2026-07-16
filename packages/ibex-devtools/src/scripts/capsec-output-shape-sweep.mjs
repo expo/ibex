@@ -27,7 +27,13 @@ import {
   validateOutputShapeCatalogAccounts,
   validateOutputValueProofKind,
 } from "./capsec-output-dispositions.mjs";
-import { ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD } from "./capsec-environment-output-templates.mjs";
+import {
+  ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD,
+  buildEnvironmentOutputSweepBindings,
+  buildEnvironmentOutputSweepObservations,
+  validateEnvironmentOutputSweepBindings,
+  validateEnvironmentOutputSweepObservations,
+} from "./capsec-environment-output-templates.mjs";
 import { CALLBACK_OUTPUT_CONTRACT_SCHEMA } from "./capsec-surface-inventory.mjs";
 import { authoredNonCapabilityBuiltinOutputInvocation } from "./capsec-builtin-public-probe-templates.mjs";
 import {
@@ -61,8 +67,7 @@ import {
 } from "./capsec-native-freeze-output-templates.mjs";
 import { buildHostAbiOutputProbePartition } from "./capsec-host-abi-output-templates.mjs";
 
-export const OUTPUT_SHAPE_SWEEP_EXECUTOR =
-  OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR;
+export const OUTPUT_SHAPE_SWEEP_EXECUTOR = OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR;
 
 const PROFILE = "ibex/capsec/1";
 const CATALOG_SCHEMA = "ibex/capsec-output-shape-catalog/2";
@@ -208,8 +213,7 @@ function canonicalStableIdSet(value, label) {
   if (
     !Array.isArray(value) ||
     value.some(
-      (item) =>
-        typeof item !== "string" || !/^[a-z][a-z0-9.-]*$/u.test(item),
+      (item) => typeof item !== "string" || !/^[a-z][a-z0-9.-]*$/u.test(item),
     ) ||
     canonicalJson(value) !==
       canonicalJson([...new Set(value)].sort(compareText))
@@ -231,7 +235,10 @@ function exactTarget(target, label) {
 function exactEngine(engine, target, label) {
   exactKeys(engine, ENGINE_FIELDS, label);
   exactKeys(engine.object, ENGINE_OBJECT_FIELDS, `${label}.object`);
-  canonicalStableIdSet(engine.structuralFeatures, `${label}.structuralFeatures`);
+  canonicalStableIdSet(
+    engine.structuralFeatures,
+    `${label}.structuralFeatures`,
+  );
   const expectedObjectPlatform = target.triple.includes("-windows-")
     ? "windows"
     : target.triple.includes("-android")
@@ -618,9 +625,7 @@ function validateProbe(probe, key, label) {
             surfaceObservedKey: probe.sourceDescriptor.surfaceObservedKey,
           },
         );
-        if (
-          canonicalJson(probe.recordPath) !== canonicalJson(["[[return]]"])
-        ) {
+        if (canonicalJson(probe.recordPath) !== canonicalJson(["[[return]]"])) {
           throw new Error(`${label}: native freeze requires its return record`);
         }
       }
@@ -1934,8 +1939,7 @@ function validateCatalogProbeMechanism(catalogRow, probe, label) {
     new Set(["__exactDeepFreeze", "__exactNativeFreeze"]).has(
       catalogRow.key.alias,
     ) &&
-    probe.sourceDescriptor?.kind !==
-      NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND
+    probe.sourceDescriptor?.kind !== NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND
   ) {
     throw new Error(
       `${label}: native freeze identity requires its exact authored route`,
@@ -1954,7 +1958,7 @@ function validateCatalogProbeMechanism(catalogRow, probe, label) {
   if (
     probe.kind === "loaded-engine-descriptor" &&
     contextId === "javascript.package-call-loaded" &&
-    !new Set(["call", "fixture", "unexercisable"]).has(exercise)
+    !new Set(["call", "construct", "fixture", "unexercisable"]).has(exercise)
   ) {
     throw new Error(
       `${label}: package-call context requires an exercised live invocation`,
@@ -2530,9 +2534,7 @@ export function buildOutputShapeSweepProbes({
         row.discovery.kind === STRUCTURED_DISCOVERY_KIND &&
         row.key.sourceKind === "native-op" &&
         row.key.output === "[[return]]" &&
-        new Set(["__exactDeepFreeze", "__exactNativeFreeze"]).has(
-          row.key.alias,
-        )
+        new Set(["__exactDeepFreeze", "__exactNativeFreeze"]).has(row.key.alias)
           ? authoredNativeFreezeOutputInvocation({
               catalogRow: row,
               surface: sourceSurface,
@@ -2714,9 +2716,7 @@ function projectGenericOutputShapeCatalog(catalog, coverage) {
     }
   }
 
-  const rows = catalog.rows.filter(
-    (row) => row.key.sourceKind !== "host-abi",
-  );
+  const rows = catalog.rows.filter((row) => row.key.sourceKind !== "host-abi");
   const surfaceAccounts = catalog.surfaceAccounts.filter((account) => {
     if (!coverageById.has(account.surfaceId)) {
       throw new Error(
@@ -2725,9 +2725,10 @@ function projectGenericOutputShapeCatalog(catalog, coverage) {
     }
     return !hostAbiSurfaceIds.has(account.surfaceId);
   });
-  const parameterizedOutputBindings = catalog.parameterizedOutputBindings.filter(
-    (binding) => !hostAbiSurfaceIds.has(binding.surfaceId),
-  );
+  const parameterizedOutputBindings =
+    catalog.parameterizedOutputBindings.filter(
+      (binding) => !hostAbiSurfaceIds.has(binding.surfaceId),
+    );
   const accountCounts = validateOutputShapeCatalogAccounts({
     surfaceAccounts,
     rows,
@@ -2909,6 +2910,8 @@ function validatePlanSelf(plan) {
       "target",
       "engine",
       "catalogKeyDigest",
+      "parameterizedBindingDigest",
+      "parameterizedEnvironment",
       "surfaceAccountIds",
       "rows",
       "sweepPlanDigest",
@@ -2922,6 +2925,12 @@ function validatePlanSelf(plan) {
     plan.executor !== OUTPUT_SHAPE_SWEEP_EXECUTOR ||
     !Array.isArray(plan.rows) ||
     plan.catalogKeyDigest !== outputShapeCatalogKeyDigest(plan.rows) ||
+    plan.parameterizedBindingDigest !==
+      outputParameterizedBindingDigest(
+        plan.parameterizedEnvironment.map(
+          ({ catalogBinding }) => catalogBinding,
+        ),
+      ) ||
     plan.sweepPlanDigest !== planDigest(plan)
   ) {
     throw new Error("output-shape sweep plan has stale or mismatched bindings");
@@ -2929,6 +2938,22 @@ function validatePlanSelf(plan) {
   validateSurfaceAccountIds(
     plan.surfaceAccountIds,
     "output-shape sweep plan.surfaceAccountIds",
+  );
+  if (!Array.isArray(plan.parameterizedEnvironment)) {
+    throw new Error(
+      "output-shape sweep plan.parameterizedEnvironment must be an array",
+    );
+  }
+  for (const [index, entry] of plan.parameterizedEnvironment.entries()) {
+    exactKeys(
+      entry,
+      ["catalogBinding", "sweepBinding"],
+      `output-shape sweep plan.parameterizedEnvironment[${index}]`,
+    );
+  }
+  validateEnvironmentOutputSweepBindings(
+    plan.parameterizedEnvironment.map(({ sweepBinding }) => sweepBinding),
+    plan.parameterizedEnvironment.map(({ catalogBinding }) => catalogBinding),
   );
   const rowsByKey = uniqueKeyMap(plan.rows, "output-shape sweep plan rows");
   assertCanonicalRowOrder(plan.rows, "output-shape sweep plan");
@@ -2978,6 +3003,9 @@ export function buildOutputShapeSweepPlan({
       };
     }),
   );
+  const environmentSweepBindings = buildEnvironmentOutputSweepBindings(
+    catalog.parameterizedOutputBindings,
+  );
   const plan = {
     outputShapeSweepPlanSchema: PLAN_SCHEMA,
     profile: PROFILE,
@@ -2987,6 +3015,13 @@ export function buildOutputShapeSweepPlan({
     target: structuredClone(target),
     engine: structuredClone(engine),
     catalogKeyDigest: catalog.catalogKeyDigest,
+    parameterizedBindingDigest: catalog.parameterizedBindingDigest,
+    parameterizedEnvironment: catalog.parameterizedOutputBindings.map(
+      (catalogBinding, index) => ({
+        catalogBinding: structuredClone(catalogBinding),
+        sweepBinding: structuredClone(environmentSweepBindings[index]),
+      }),
+    ),
     surfaceAccountIds: catalogSurfaceAccountIds(catalog),
     rows,
   };
@@ -3006,6 +3041,10 @@ export function validateOutputShapeSweepPlan(
     canonicalJson(plan.target) !== canonicalJson(target) ||
     canonicalJson(plan.engine) !== canonicalJson(engine) ||
     plan.catalogKeyDigest !== catalog.catalogKeyDigest ||
+    plan.parameterizedBindingDigest !== catalog.parameterizedBindingDigest ||
+    canonicalJson(
+      plan.parameterizedEnvironment.map(({ catalogBinding }) => catalogBinding),
+    ) !== canonicalJson(catalog.parameterizedOutputBindings) ||
     plan.catalogKeyDigest !== outputShapeCatalogKeyDigest(catalog.rows) ||
     canonicalJson(plan.surfaceAccountIds) !==
       canonicalJson(catalogSurfaceAccountIds(catalog))
@@ -3729,6 +3768,7 @@ export function buildOutputShapeSweepArtifactFromExecutorBatch({
       "loadedEngineIdentity",
       "compiledRegistrarIds",
       "results",
+      "parameterizedResults",
       "unexercisable",
     ],
     "output-shape executor batch",
@@ -3896,11 +3936,20 @@ export function buildOutputShapeSweepArtifactFromExecutorBatch({
       proof: structuredClone(result.proof),
     });
   }
+  const parameterizedObservations = buildEnvironmentOutputSweepObservations(
+    plan.parameterizedEnvironment.map(({ sweepBinding }) => sweepBinding),
+    batch.parameterizedResults,
+    {
+      executor: batch.executor,
+      loadedEngineBinaryDigest: batch.loadedEngineIdentity.binaryDigest,
+    },
+  );
   const artifact = sealOutputShapeSweepArtifact({
     plan,
     loadedEngineIdentity: batch.loadedEngineIdentity,
     compiledRegistrarIds: batch.compiledRegistrarIds,
     observations,
+    parameterizedObservations,
   });
   validateOutputShapeSweepArtifact(artifact, plan);
   return artifact;
@@ -3912,6 +3961,7 @@ export function sealOutputShapeSweepArtifact({
   loadedEngineIdentity,
   compiledRegistrarIds,
   observations,
+  parameterizedObservations = [],
 }) {
   const artifact = {
     outputShapeSweepArtifactSchema: ARTIFACT_SCHEMA,
@@ -3925,6 +3975,7 @@ export function sealOutputShapeSweepArtifact({
     loadedEngineIdentity: structuredClone(loadedEngineIdentity),
     compiledRegistrarIds: [...compiledRegistrarIds],
     observations: structuredClone(observations),
+    parameterizedObservations: structuredClone(parameterizedObservations),
   };
   artifact.sweepArtifactDigest = artifactDigest(artifact);
   return artifact;
@@ -3946,6 +3997,7 @@ export function validateOutputShapeSweepArtifact(artifact, plan) {
       "loadedEngineIdentity",
       "compiledRegistrarIds",
       "observations",
+      "parameterizedObservations",
       "sweepArtifactDigest",
     ],
     "output-shape sweep artifact",
@@ -4018,6 +4070,14 @@ export function validateOutputShapeSweepArtifact(artifact, plan) {
       `sweep observation ${canonicalKey}.proof`,
     );
   }
+  validateEnvironmentOutputSweepObservations(
+    plan.parameterizedEnvironment.map(({ sweepBinding }) => sweepBinding),
+    artifact.parameterizedObservations,
+    {
+      executor: artifact.executor,
+      loadedEngineBinaryDigest: artifact.loadedEngineIdentity.binaryDigest,
+    },
+  );
   return artifact;
 }
 
@@ -4111,10 +4171,7 @@ export function validatePromotableOutputDispositionEvidence({
     target: state.target,
     engine: state.engine,
   });
-  validateOutputShapeSweepArtifact(
-    evidence.sweepArtifact,
-    evidence.sweepPlan,
-  );
+  validateOutputShapeSweepArtifact(evidence.sweepArtifact, evidence.sweepPlan);
   const reconstructed = buildVerifiedOutputDispositionEvidence({
     catalog,
     dispositionRows,
@@ -4136,6 +4193,8 @@ export function validatePromotableOutputDispositionEvidence({
     rows: catalog.rows,
     parameterizedOutputBindings:
       catalog[ENVIRONMENT_PARAMETERIZED_OUTPUT_BINDINGS_FIELD],
+    parameterizedOutputEvidence:
+      evidence.sweepArtifact.parameterizedObservations,
     promotionStatus: "verified",
   });
   return state;

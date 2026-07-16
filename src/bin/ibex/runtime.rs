@@ -22,6 +22,40 @@ use std::time::Duration;
 /// compilation attempts for the rest of the process lifetime.
 static BYTECODE_INCOMPATIBLE: AtomicBool = AtomicBool::new(false);
 
+#[cfg(feature = "module-runner")]
+const LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR: &str = "0.1";
+
+#[cfg(feature = "module-runner")]
+fn legacy_module_loader_window_is_open() -> bool {
+    let version = env!("CARGO_PKG_VERSION");
+    let in_bounded_release = version == LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR
+        || version.starts_with(&format!("{LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR}."));
+    let explicitly_disabled = std::env::var("IBEX_LEGACY_MODULE_LOADER")
+        .ok()
+        .is_some_and(|value| matches!(value.as_str(), "0" | "false" | "FALSE" | "no" | "NO"));
+    in_bounded_release && !explicitly_disabled
+}
+
+#[cfg(feature = "module-runner")]
+// @ref LLP 0026#performance-and-platform-gates — native admission is exact
+// to the target tuples carrying matching evaluator and compartment artifacts.
+fn native_module_runner_target_is_advertised(os: &str, arch: &str) -> bool {
+    matches!((os, arch), ("macos", "aarch64") | ("linux", "x86_64"))
+}
+
+#[cfg(feature = "module-runner")]
+fn current_native_module_runner_target_is_advertised() -> bool {
+    native_module_runner_target_is_advertised(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+#[cfg(feature = "module-runner")]
+fn module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
+    let executable = std::env::current_exe().context("locate module producer executable")?;
+    let bytes = std::fs::read(&executable)
+        .with_context(|| format!("read module producer executable {}", executable.display()))?;
+    ibex_runtime::module_loader::artifact::digest_bytes("ibex/module-producer-binary/1", &bytes)
+}
+
 const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
   if (g.__exactRuntimeLoaded === true) return;
 
@@ -3219,16 +3253,178 @@ impl Runtime {
         let absolute_path = normalize_windows_tool_path(absolute_path);
         let path_str = absolute_path.to_string_lossy();
         let exec_path = resolve_exec_path(&["ibex"]);
-        let entry_path = match absolute_path.extension().and_then(|s| s.to_str()) {
-            Some(ext)
-                if matches!(
-                    ext.to_ascii_lowercase().as_str(),
+
+        let script_entry = absolute_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
                     "mjs" | "js" | "cjs" | "ts" | "tsx" | "jsx" | "mts" | "cts"
-                ) =>
-            {
-                prepare_entry_with_format(&path_str, self.bundle_format).await?
+                )
+            });
+
+        #[cfg(feature = "module-runner")]
+        let (native_graph, prepared_source_path) = 'native_graph: {
+            use ibex_runtime::module_loader::runner_pipeline::{
+                build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
+                prepared_graph_cache_dir, publish_prepared_source_graph_v1,
+                SourceModuleGraphBuildV1,
+            };
+
+            if !script_entry {
+                (None, absolute_path.clone())
+            } else if self.host.armed_snapshot().is_none() {
+                // Audit/diagnostic runtimes deliberately have no immutable
+                // armed snapshot. They retain the compatibility evaluator;
+                // production runner admission never manufactures authority
+                // from that weaker host.
+                (None, absolute_path.clone())
+            } else if !current_native_module_runner_target_is_advertised() {
+                if !legacy_module_loader_window_is_open() {
+                    anyhow::bail!(
+                        "native module runner is not advertised for {}-{} and the bounded legacy loader window is closed",
+                        std::env::consts::OS,
+                        std::env::consts::ARCH,
+                    );
+                }
+                eprintln!(
+                    "warning: native module runner is unadvertised for {}-{}; using compatibility loader through {}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                    LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR,
+                );
+                (None, absolute_path.clone())
+            } else {
+                let producer_digest = module_producer_binary_digest()?;
+                // Prepared bytes are an optimization, never an authority
+                // source. Reconstruct the authenticated source graph first;
+                // a warm cache is admitted only if its complete deterministic
+                // publication equals that trusted in-memory graph.
+                // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+                let graph = match build_authenticated_source_graph_v1(
+                    &absolute_path,
+                    producer_digest.clone(),
+                    &engine::hermes::bytecode_cache_identity(),
+                )? {
+                    SourceModuleGraphBuildV1::Native(graph) => graph,
+                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                        if !legacy_module_loader_window_is_open() {
+                            anyhow::bail!(
+                                "native module runner does not support this graph and the bounded legacy loader window is closed: {}",
+                                requirement.reason
+                            );
+                        }
+                        eprintln!(
+                            "warning: native module runner compatibility fallback (expires after {}): {}",
+                            LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR,
+                            requirement.reason
+                        );
+                        break 'native_graph (None, absolute_path.clone());
+                    }
+                };
+                let cache_root = runtime_cache_dir()?;
+                let mut existing_prepared_source = None;
+                let mut candidate_formats = vec![self.bundle_format];
+                if self.bundle_format == BundleFormat::Cjs {
+                    candidate_formats.push(BundleFormat::Esm);
+                }
+                for format in candidate_formats {
+                    let cache_key = bundle_cache_key(&absolute_path, format)?;
+                    let artifact_root = bundle_artifact_root(&cache_root, &cache_key);
+                    if let Some(output) =
+                        find_fresh_bundle(&artifact_root, &absolute_path, format).await
+                    {
+                        existing_prepared_source = Some(output);
+                        break;
+                    }
+                }
+
+                if let Some(prepared_source) = existing_prepared_source.as_ref() {
+                    if let Ok(manifest) = read_bundle_manifest(prepared_source).await {
+                        if valid_sha256(&manifest.graph_digest) {
+                            let deployment_digest =
+                                ibex_runtime::module_loader::artifact::digest_bytes(
+                                    "ibex/rolldown-deployment-graph/1",
+                                    manifest.graph_digest.as_bytes(),
+                                )?;
+                            if let Some(artifact_dir) = prepared_source.parent() {
+                                let cache_dir =
+                                    prepared_graph_cache_dir(artifact_dir, &deployment_digest);
+                                if cache_dir.join("index.json").is_file() {
+                                    match load_prepared_source_graph_v1(
+                                        &cache_dir,
+                                        &graph,
+                                        &deployment_digest,
+                                    ) {
+                                        Ok(graph) => {
+                                            break 'native_graph (
+                                                Some(graph),
+                                                prepared_source.clone(),
+                                            );
+                                        }
+                                        Err(error) => {
+                                            agent_logs::record_bundler_log(
+                                                "warn",
+                                                format!(
+                                                    "Prepared module graph was stale or invalid and will be rebuilt: {error:#}"
+                                                ),
+                                                None,
+                                            );
+                                            std::fs::remove_dir_all(&cache_dir).with_context(
+                                                || {
+                                                    format!(
+                                                        "remove invalid prepared module cache {}",
+                                                        cache_dir.display()
+                                                    )
+                                                },
+                                            )?;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let prepared_source =
+                    prepare_entry_for_bytecode_build(&path_str, self.bundle_format).await?;
+                if prepared_source == absolute_path {
+                    (Some(graph), prepared_source)
+                } else {
+                    let manifest = read_bundle_manifest(&prepared_source).await?;
+                    let deployment_digest = ibex_runtime::module_loader::artifact::digest_bytes(
+                        "ibex/rolldown-deployment-graph/1",
+                        manifest.graph_digest.as_bytes(),
+                    )?;
+                    let artifact_dir = prepared_source.parent().ok_or_else(|| {
+                        anyhow::anyhow!("prepared bundle has no artifact directory")
+                    })?;
+                    let cache_dir = publish_prepared_source_graph_v1(
+                        &graph,
+                        artifact_dir,
+                        deployment_digest.clone(),
+                    )?;
+                    let prepared =
+                        load_prepared_source_graph_v1(&cache_dir, &graph, &deployment_digest)?;
+                    (Some(prepared), prepared_source)
+                }
             }
-            _ => absolute_path.clone(),
+        };
+
+        #[cfg(feature = "module-runner")]
+        let entry_path = if native_graph.is_some() {
+            prepared_source_path
+        } else if script_entry {
+            prepare_entry_with_format(&path_str, self.bundle_format).await?
+        } else {
+            absolute_path.clone()
+        };
+        #[cfg(not(feature = "module-runner"))]
+        let entry_path = if script_entry {
+            prepare_entry_with_format(&path_str, self.bundle_format).await?
+        } else {
+            absolute_path.clone()
         };
         // Hold a shared OS file lock for the entire execution. Quota pruning
         // takes the exclusive side, so lazy per-package chunk loads remain
@@ -3348,6 +3544,12 @@ impl Runtime {
         let chunk_dir_json =
             serde_json::to_string(&chunk_dir).unwrap_or_else(|_| "\"\"".to_string());
         let argv_code = format!("globalThis.__exactChunkDir = {chunk_dir_json};\n{argv_code}");
+
+        #[cfg(feature = "module-runner")]
+        if let Some(graph) = native_graph.as_ref() {
+            self.engine.eval_immediate(&argv_code).await?;
+            return self.engine.run_authenticated_module_graph(graph).await;
+        }
 
         if cfg!(windows) {
             let source = tokio::fs::read_to_string(&entry_path)
@@ -4110,6 +4312,28 @@ fn build_default_armed_host(
     let mut graph_edges = Vec::new();
     let root_principal = serde_json::json!({"kind": "root", "identity": "project-root"});
     let mut package_bindings = Vec::new();
+    // @ref LLP 0023#12-package-bindings-are-derived-from-the-graph-and-contained-in-the-project
+    // — snapshot edges bind the caller-visible request and resolution mode to
+    // one exact package principal before the resolver can inspect its root.
+    let push_typed_edges = |edges: &mut Vec<serde_json::Value>,
+                            importer: &serde_json::Value,
+                            imported: &serde_json::Value,
+                            request_specifier: &str| {
+        for (resolution_kind, conditions) in [
+            ("common-js-require", vec!["node", "require"]),
+            ("dynamic-import", vec!["import", "node"]),
+            ("esm-static", vec!["import", "node"]),
+        ] {
+            edges.push(serde_json::json!({
+                "importer": importer,
+                "imported": imported,
+                "requestSpecifier": request_specifier,
+                "resolutionKind": resolution_kind,
+                "conditions": conditions,
+                "attributes": {},
+            }));
+        }
+    };
     let installed_packages = authenticated_installed_packages(&project_root, policy_principals)?;
     for row in policy_principals {
         let principal = row["principal"].clone();
@@ -4134,16 +4358,6 @@ fn build_default_armed_host(
             "imports": row["imports"].clone(),
             "endowments": row["endowments"].clone(),
         }));
-        graph_nodes.push(serde_json::json!({"principal": principal}));
-        if root_package_imports
-            .iter()
-            .any(|locator| principal["locator"].as_str() == Some(locator.as_str()))
-        {
-            graph_edges.push(serde_json::json!({
-                "importer": root_principal,
-                "imported": principal,
-            }));
-        }
         if let (Some(name), Some(locator), Some(integrity)) = (
             principal["name"].as_str(),
             principal["locator"].as_str(),
@@ -4166,6 +4380,25 @@ fn build_default_armed_host(
             let package_root = matches[0].root.clone();
             let object = runtime_object_identity_json(&package_root)?;
             let package_components = runtime_path_components_json(&package_root)?;
+            let project_relative = package_root.strip_prefix(&project_root).with_context(|| {
+                format!(
+                    "authenticated package root {} is outside project {}",
+                    package_root.display(),
+                    project_root.display()
+                )
+            })?;
+            let virtual_components = runtime_path_components_json(project_relative)?;
+            graph_nodes.push(serde_json::json!({
+                "principal": principal,
+                "resolvingSpecifier": name,
+                "rootObject": object,
+                "virtualAliases": [{
+                    "root": "project",
+                    "components": virtual_components,
+                }],
+                "platformDisposition": "required",
+            }));
+            push_typed_edges(&mut graph_edges, &root_principal, &principal, name);
             package_bindings.push(serde_json::json!({
                     "logicalRoot": "package",
                     "owner": principal,
@@ -4195,10 +4428,10 @@ fn build_default_armed_host(
             let imported = principals_by_locator.get(locator).with_context(|| {
                 format!("canonical policy imports unknown package locator {locator}")
             })?;
-            graph_edges.push(serde_json::json!({
-                "importer": importer,
-                "imported": imported,
-            }));
+            let request_specifier = imported["name"]
+                .as_str()
+                .context("canonical imported principal has no package name")?;
+            push_typed_edges(&mut graph_edges, &importer, imported, request_specifier);
         }
     }
     let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
@@ -5417,38 +5650,10 @@ fn authenticated_installed_packages(
 }
 
 fn runtime_object_identity_json(path: &std::path::Path) -> Result<serde_json::Value> {
-    let metadata = std::fs::metadata(path)
+    let identity = ibex_runtime::host::object_identity_for_host_path(path)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
         .with_context(|| format!("failed to identify {}", path.display()))?;
-    runtime_object_identity_from_metadata(&metadata)
-}
-
-fn runtime_object_identity_from_metadata(
-    metadata: &std::fs::Metadata,
-) -> Result<serde_json::Value> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        Ok(serde_json::json!({
-            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
-                "apple"
-            } else if cfg!(target_os = "android") {
-                "android"
-            } else {
-                "unix"
-            },
-            "volume": format!("dev:{}", metadata.dev()),
-            "file": format!("ino:{}", metadata.ino()),
-        }))
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        Ok(serde_json::json!({
-            "platform": "windows",
-            "volume": format!("volume:{}", metadata.volume_serial_number().unwrap_or(0)),
-            "file": format!("file:{}", metadata.file_index().unwrap_or(0)),
-        }))
-    }
+    serde_json::to_value(identity).context("serializing runtime object identity")
 }
 
 fn runtime_path_components_json(path: &std::path::Path) -> Result<Vec<serde_json::Value>> {
@@ -5669,7 +5874,9 @@ fn materialize_protected_artifact(
         if observed != expected {
             anyhow::bail!("protected artifact content mismatch at {}", path.display());
         }
-        runtime_object_identity_from_metadata(&metadata)
+        let identity = ibex_runtime::host::object_identity_for_open_file(file)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        serde_json::to_value(identity).context("serializing protected artifact identity")
     }
 
     let directory = cache_root.join("capsec-artifacts");
@@ -11879,6 +12086,56 @@ pub(crate) mod tests {
         .unwrap();
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        let package_principal = value["packageGraph"]["nodes"][0]["principal"].clone();
+        let root_principal = value["rootIdentity"].clone();
+        let package_object = value["rootBindings"][0]["object"].clone();
+        value["packageGraph"]["nodes"][0] = serde_json::json!({
+            "principal": package_principal.clone(),
+            "resolvingSpecifier": "image-lib",
+            "rootObject": package_object,
+            "virtualAliases": [{
+                "root": "project",
+                "components": [
+                    {"encoding": "utf8", "value": "node_modules"},
+                    {"encoding": "utf8", "value": "image-lib"}
+                ]
+            }],
+            "platformDisposition": "required"
+        });
+        value["packageGraph"]["importEdges"] = serde_json::json!([
+            {
+                "importer": root_principal.clone(),
+                "imported": package_principal.clone(),
+                "requestSpecifier": "image-lib",
+                "resolutionKind": "common-js-require",
+                "conditions": ["node", "require"],
+                "attributes": {}
+            },
+            {
+                "importer": root_principal.clone(),
+                "imported": package_principal.clone(),
+                "requestSpecifier": "image-lib",
+                "resolutionKind": "dynamic-import",
+                "conditions": ["import", "node"],
+                "attributes": {}
+            },
+            {
+                "importer": root_principal,
+                "imported": package_principal,
+                "requestSpecifier": "image-lib",
+                "resolutionKind": "esm-static",
+                "conditions": ["import", "node"],
+                "attributes": {}
+            }
+        ]);
+        value["packageGraph"]["digest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                "ibex:capsec:package-graph:1",
+                &value["packageGraph"],
+                &["digest".to_owned()],
+            )
+            .unwrap(),
+        );
         let engine = crate::engine::hermes::HermesEngine::loaded_engine_identity()
             .expect("arming fixture requires the authenticated loaded engine");
         value["engine"]["target"] = serde_json::Value::String(exact_runtime_target());
@@ -14083,6 +14340,22 @@ pub(crate) mod tests {
         let selected = selected.unwrap();
         assert!(selected.starts_with(std::fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap()));
         assert!(!selected.starts_with(fake.path()));
+    }
+
+    #[cfg(feature = "module-runner")]
+    #[test]
+    fn native_module_runner_has_a_nonempty_exact_target_advertisement() {
+        assert!(native_module_runner_target_is_advertised(
+            "macos", "aarch64"
+        ));
+        assert!(native_module_runner_target_is_advertised("linux", "x86_64"));
+        assert!(!native_module_runner_target_is_advertised(
+            "windows", "x86_64"
+        ));
+        assert!(!native_module_runner_target_is_advertised(
+            "macos", "x86_64"
+        ));
+        assert!(!native_module_runner_target_is_advertised("ios", "aarch64"));
     }
 
     #[test]

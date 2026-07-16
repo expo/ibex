@@ -1,0 +1,72 @@
+{
+  "schema": "ibex/module-runner-producer-spike-performance/2",
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "release": "25.5.0",
+    "cpu": "Apple M5 Max"
+  },
+  "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+  "revision": "6d7c3855e808c7bd49acfb65c8da81c02df54190",
+  "build": {
+    "profile": "release",
+    "binary": "ibex",
+    "freshCargoTargetDirectory": true,
+    "authenticatedHermes": {
+      "release": "1.0.0",
+      "hbcBytecodeVersion": 99,
+      "matchingCompilerHeadersAndFramework": true
+    }
+  },
+  "defaultBuild": {
+    "command": "cargo build --release --bin ibex",
+    "samples": [
+      {
+        "id": "pair-1-first",
+        "realSeconds": 178.86,
+        "binaryBytes": 55929216,
+        "hostContentionObserved": false,
+        "usableForCompileBudget": true
+      },
+      {
+        "id": "pair-2-second",
+        "realSeconds": 279.45,
+        "binaryBytes": 55929216,
+        "hostContentionObserved": true,
+        "usableForCompileBudget": false,
+        "note": "Excluded: unrelated Ibex test jobs and Snapback builds started during this sample."
+      }
+    ]
+  },
+  "spikeFeatureBuild": {
+    "command": "cargo build --release --bin ibex --features module-runner-spike",
+    "samples": [
+      {
+        "id": "pair-1-second",
+        "realSeconds": 160.59,
+        "binaryBytes": 55911840,
+        "hostContentionObserved": false,
+        "usableForCompileBudget": true
+      },
+      {
+        "id": "pair-2-first",
+        "realSeconds": 176.91,
+        "binaryBytes": 55911840,
+        "hostContentionObserved": false,
+        "usableForCompileBudget": true
+      }
+    ]
+  },
+  "comparison": {
+    "defaultSample": "pair-1-first",
+    "spikeSample": "pair-2-first",
+    "reason": "Compare the uncontended first build from each order; the pair-1 second build retained a warm-input advantage."
+  },
+  "delta": {
+    "realSeconds": -1.95,
+    "realPercent": -1.09,
+    "binaryBytes": -17376,
+    "binaryPercent": -0.031
+  },
+  "interpretation": "Across fresh target directories, the uncontended first-in-order builds differ by -1.09%, inside observed build-order variance and not evidence of a speedup. The release binary has no measurable size growth because the fixture-only producer is unreachable from the ibex executable and dead-stripped; the -17,376-byte result is linker variance, not a claimed optimization. The explicitly excluded sample demonstrates why host-process observation is part of the measurement protocol."
+}

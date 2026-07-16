@@ -1,0 +1,79 @@
+{
+  "schema": "ibex/module-semantics-scanner-regression-coverage/1",
+  "requiredIssues": [
+    "ENG-22514",
+    "ENG-22520",
+    "ENG-22528",
+    "ENG-22536",
+    "ENG-22546",
+    "ENG-22558",
+    "ENG-22569",
+    "ENG-22811",
+    "ENG-22990",
+    "ENG-23036",
+    "ENG-23137",
+    "ENG-23481"
+  ],
+  "families": [
+    {
+      "issue": "ENG-22514",
+      "owner": "module-semantics",
+      "fixtureIds": ["scanner-eng-22514-comments"]
+    },
+    {
+      "issue": "ENG-22520",
+      "owner": "module-semantics",
+      "fixtureIds": ["scanner-eng-22520-strings"]
+    },
+    {
+      "issue": "ENG-22528",
+      "owner": "module-semantics",
+      "fixtureIds": ["scanner-eng-22528-regex-template"]
+    },
+    {
+      "issue": "ENG-22536",
+      "owner": "module-semantics",
+      "fixtureIds": ["scanner-eng-22514-comments", "scanner-eng-22528-regex-template"]
+    },
+    {
+      "issue": "ENG-22546",
+      "owner": "module-semantics",
+      "fixtureIds": ["scanner-eng-22528-regex-template"]
+    },
+    {
+      "issue": "ENG-22558",
+      "owner": "llp0019-hermes-compat",
+      "fixtureIds": ["nested-closure-capture"]
+    },
+    {
+      "issue": "ENG-22569",
+      "owner": "llp0019-hermes-compat",
+      "fixtureIds": ["live-iterator-semantics"]
+    },
+    {
+      "issue": "ENG-22811",
+      "owner": "module-semantics",
+      "fixtureIds": ["dependency-top-level-await-order"]
+    },
+    {
+      "issue": "ENG-22990",
+      "owner": "llp0019-hermes-compat",
+      "fixtureIds": ["bailed-break-continue", "bailed-labeled-continue"]
+    },
+    {
+      "issue": "ENG-23036",
+      "owner": "llp0019-hermes-compat",
+      "fixtureIds": ["iterator-close-on-throw"]
+    },
+    {
+      "issue": "ENG-23137",
+      "owner": "llp0019-hermes-compat",
+      "fixtureIds": ["bailed-asi-bare-break-continue", "minified-destructured-header"]
+    },
+    {
+      "issue": "ENG-23481",
+      "owner": "module-semantics",
+      "fixtureIds": ["source-map-original-line", "esm-commonjs-namespace"]
+    }
+  ]
+}

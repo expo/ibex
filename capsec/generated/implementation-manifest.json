@@ -115735,6 +115735,240 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u",
+      "observedKey": "host-abi:ex_hermes_commonjs_create_record",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_create_record"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_create_record"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_create_record"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_create_record"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_create_record"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_create_esm_adapter",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_create_esm_adapter"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_declare_export",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_declare_export"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_declare_export"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_declare_export"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_declare_export"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_declare_export"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_evaluate",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_evaluate"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_evaluate"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_link_dynamic_import",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_link_dynamic_import"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_dynamic_import"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_link_dynamic_import"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_dynamic_import"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.record.link.dynamic.import.1ro0xde.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_link_require",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_link_require"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_link_require"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.record.link.require.0pb9q0s.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.link.require.esm.06f0u7s",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_link_require_esm",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.link.require.esm.06f0u7s.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.link.require.esm.06f0u7s.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_link_require_esm"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require_esm"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require_esm"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_link_require_esm"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_require_esm"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.link.require.esm.06f0u7s.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.record.link.require.esm.06f0u7s.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.record.link.require.esm.06f0u7s.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.create.04wgtwz",
       "observedKey": "host-abi:ex_hermes_create",
       "branchId": "surface.host.abi.ex.hermes.create.04wgtwz.default",
@@ -117129,6 +117363,74 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6",
+      "observedKey": "host-abi:ex_hermes_graph_context_create",
+      "branchId": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_graph_context_create"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_create"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_create"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_graph_context_create"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_create"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default.non-capability",
+        "surface.host.abi.ex.hermes.graph.context.create.14d1ct6.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.graph.context.retain.1norhoj",
+      "observedKey": "host-abi:ex_hermes_graph_context_retain",
+      "branchId": "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_graph_context_retain"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_retain"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_retain"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_graph_context_retain"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_graph_context_retain"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default.non-capability",
+        "surface.host.abi.ex.hermes.graph.context.retain.1norhoj.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
       "observedKey": "host-abi:ex_hermes_has_pending_tasks",
       "branchId": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c.default",
@@ -117162,6 +117464,532 @@
         "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c.default.non-capability",
         "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c.default.principal-restore",
         "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c.default.snapshot-mismatch-deny"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
+      "observedKey": "host-abi:ex_hermes_module_compile_factory",
+      "branchId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_compile_factory"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_compile_factory"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.create.record.0hokcts",
+      "observedKey": "host-abi:ex_hermes_module_create_record",
+      "branchId": "surface.host.abi.ex.hermes.module.create.record.0hokcts.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.create.record.0hokcts.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_create_record"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_create_record"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_create_record"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.create.record.0hokcts.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.create.record.0hokcts.default.non-capability",
+        "surface.host.abi.ex.hermes.module.create.record.0hokcts.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm",
+      "observedKey": "host-abi:ex_hermes_module_load_carrier_factory",
+      "branchId": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_load_carrier_factory"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_load_carrier_factory"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.pin.generation.1uroxl2",
+      "observedKey": "host-abi:ex_hermes_module_pin_generation",
+      "branchId": "surface.host.abi.ex.hermes.module.pin.generation.1uroxl2.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.pin.generation.1uroxl2.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_pin_generation"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_pin_generation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_pin_generation"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_pin_generation"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_pin_generation"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.pin.generation.1uroxl2.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.pin.generation.1uroxl2.default.non-capability",
+        "surface.host.abi.ex.hermes.module.pin.generation.1uroxl2.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
+      "observedKey": "host-abi:ex_hermes_module_record_declare_export",
+      "branchId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_declare_export"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_declare_export"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_declare_export"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_declare_export"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_declare_export"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7.default.non-capability",
+        "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.instantiate.043epyu",
+      "observedKey": "host-abi:ex_hermes_module_record_instantiate",
+      "branchId": "surface.host.abi.ex.hermes.module.record.instantiate.043epyu.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.instantiate.043epyu.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_instantiate"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_instantiate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_instantiate"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_instantiate"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_instantiate"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.instantiate.043epyu.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e",
+      "observedKey": "host-abi:ex_hermes_module_record_link_dependency",
+      "branchId": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_link_dependency"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dependency"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dependency"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_link_dependency"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dependency"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default.non-capability",
+        "surface.host.abi.ex.hermes.module.record.link.dependency.0orur8e.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do",
+      "observedKey": "host-abi:ex_hermes_module_record_link_dynamic_import",
+      "branchId": "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_link_dynamic_import"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dynamic_import"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_link_dynamic_import"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_dynamic_import"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default.non-capability",
+        "surface.host.abi.ex.hermes.module.record.link.dynamic.import.1u6o6do.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t",
+      "observedKey": "host-abi:ex_hermes_module_record_link_export",
+      "branchId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_link_export"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_export"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_export"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_link_export"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_export"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default.non-capability",
+        "surface.host.abi.ex.hermes.module.record.link.export.0789c9t.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm",
+      "observedKey": "host-abi:ex_hermes_module_record_link_import",
+      "branchId": "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_link_import"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_import"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_link_import"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_import"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm.default.non-capability",
+        "surface.host.abi.ex.hermes.module.record.link.import.08ciyfm.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
+      "observedKey": "host-abi:ex_hermes_module_record_namespace_json",
+      "branchId": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_namespace_json"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_namespace_json"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua",
+      "observedKey": "host-abi:ex_hermes_module_record_poll_evaluation",
+      "branchId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_poll_evaluation"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_poll_evaluation"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a",
+      "observedKey": "host-abi:ex_hermes_module_record_run_declare",
+      "branchId": "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_run_declare"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_declare"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_declare"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_run_declare"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_declare"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
+      "observedKey": "host-abi:ex_hermes_module_record_run_execute",
+      "branchId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_run_execute"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_execute"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_execute"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_run_execute"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_execute"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8",
+      "observedKey": "host-abi:ex_hermes_module_release_handle",
+      "branchId": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.release.handle.1cr80y8.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_release_handle"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_release_handle"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_release_handle"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_release_handle"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_release_handle"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.release.handle.1cr80y8.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.unpin.generation.0bvxkc5",
+      "observedKey": "host-abi:ex_hermes_module_unpin_generation",
+      "branchId": "surface.host.abi.ex.hermes.module.unpin.generation.0bvxkc5.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.unpin.generation.0bvxkc5.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_unpin_generation"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_unpin_generation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_unpin_generation"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_unpin_generation"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_unpin_generation"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.unpin.generation.0bvxkc5.default.non-capability"
       ]
     },
     {
@@ -118118,6 +118946,38 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.try.destroy.0zf7qwp",
+      "observedKey": "host-abi:ex_hermes_try_destroy",
+      "branchId": "surface.host.abi.ex.hermes.try.destroy.0zf7qwp.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.try.destroy.0zf7qwp.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_try_destroy"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_try_destroy"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_try_destroy"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_try_destroy"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_try_destroy"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.try.destroy.0zf7qwp.default.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.value.kind.1p2efiz",
       "observedKey": "host-abi:ex_hermes_value_kind",
       "branchId": "surface.host.abi.ex.hermes.value.kind.1p2efiz.default",
@@ -118653,6 +119513,40 @@
         "surface.host.abi.ex.host.authorize.typed.udp.datagram.stack.0q1nyra.default.cannot-widen-authority",
         "surface.host.abi.ex.host.authorize.typed.udp.datagram.stack.0q1nyra.default.non-capability",
         "surface.host.abi.ex.host.authorize.typed.udp.datagram.stack.0q1nyra.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.build.exact.armed.embedder.artifacts.0ec6i9m",
+      "observedKey": "host-abi:ex_host_build_exact_armed_embedder_artifacts",
+      "branchId": "surface.host.abi.ex.host.build.exact.armed.embedder.artifacts.0ec6i9m.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.build.exact.armed.embedder.artifacts.0ec6i9m.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_build_exact_armed_embedder_artifacts"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_armed_embedder_artifacts"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_build_exact_armed_embedder_artifacts"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_build_exact_armed_embedder_artifacts"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.build.exact.armed.embedder.artifacts.0ec6i9m.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.build.exact.armed.embedder.artifacts.0ec6i9m.default.non-capability",
+        "surface.host.abi.ex.host.build.exact.armed.embedder.artifacts.0ec6i9m.default.post-lockdown-invariant"
       ]
     },
     {
@@ -121993,6 +122887,40 @@
         "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77.default.cannot-widen-authority",
         "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77.default.non-capability",
         "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.prepare.exact.armed.embedder.artifacts.176c653",
+      "observedKey": "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
+      "branchId": "surface.host.abi.ex.host.prepare.exact.armed.embedder.artifacts.176c653.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.prepare.exact.armed.embedder.artifacts.176c653.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_prepare_exact_armed_embedder_artifacts"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_prepare_exact_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_prepare_exact_armed_embedder_artifacts"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_prepare_exact_armed_embedder_artifacts"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_prepare_exact_armed_embedder_artifacts"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.prepare.exact.armed.embedder.artifacts.176c653.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.prepare.exact.armed.embedder.artifacts.176c653.default.non-capability",
+        "surface.host.abi.ex.host.prepare.exact.armed.embedder.artifacts.176c653.default.post-lockdown-invariant"
       ]
     },
     {
@@ -126205,6 +127133,57 @@
       ]
     },
     {
+      "edgeId": "surface.loader.entry.module.static.import.1kce2vv",
+      "observedKey": "loader:entry:module-static-import",
+      "branchId": "surface.loader.entry.module.static.import.1kce2vv.main",
+      "enforcementBranchId": "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:entry:module-static-import"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#moduleStaticImport"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#moduleStaticImport"
+        ],
+        "terminalObservedKey": "loader:entry:module-static-import"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#moduleStaticImport"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.builtin-or-memory.no-effect",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.cached-transform.allow",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.cached-transform.branch-selection",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.cached-transform.deny",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.cached-transform.malformed",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.cached-transform.missing-attribution",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.cached-transform.wrong-principal",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.disk-source.allow",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.disk-source.branch-selection",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.disk-source.deny",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.disk-source.malformed",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.disk-source.missing-attribution",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.disk-source.wrong-principal",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.external-transform.allow",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.external-transform.branch-selection",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.external-transform.deny",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.external-transform.malformed",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.external-transform.missing-attribution",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.14qngn1.logical.external-transform.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.loader.entry.require.resolve.0i97kvw",
       "observedKey": "loader:entry:require-resolve",
       "branchId": "surface.loader.entry.require.resolve.0i97kvw.main",
@@ -127482,10 +128461,8 @@
           "src/module_loader/mod.rs#load_source:external:call:Some:count-1",
           "src/module_loader/mod.rs#load_source:external:call:let:count-1",
           "src/module_loader/mod.rs#load_source:external:method:as_ref:count-1",
-          "src/module_loader/mod.rs#load_source:external:method:display:count-1",
           "src/module_loader/mod.rs#load_source:external:method:is_some:count-1",
           "src/module_loader/mod.rs#load_source:external:method:ok_or_else:count-1",
-          "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
           "src/module_loader/mod.rs#load_source_bytes:external:call:Ok:count-1",
           "src/module_loader/mod.rs#load_source_bytes:external:call:Some:count-1",
           "src/module_loader/mod.rs#load_source_bytes:external:method:as_ref:count-1",
@@ -127894,10 +128871,8 @@
           "src/module_loader/mod.rs#load_source:external:call:Some:count-1",
           "src/module_loader/mod.rs#load_source:external:call:let:count-1",
           "src/module_loader/mod.rs#load_source:external:method:as_ref:count-1",
-          "src/module_loader/mod.rs#load_source:external:method:display:count-1",
           "src/module_loader/mod.rs#load_source:external:method:is_some:count-1",
           "src/module_loader/mod.rs#load_source:external:method:ok_or_else:count-1",
-          "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
           "src/module_loader/mod.rs#load_source_bytes:external:call:Ok:count-1",
           "src/module_loader/mod.rs#load_source_bytes:external:call:Some:count-1",
           "src/module_loader/mod.rs#load_source_bytes:external:method:as_ref:count-1",
@@ -128313,10 +129288,8 @@
         "src/module_loader/mod.rs#load_source:external:call:Some:count-1",
         "src/module_loader/mod.rs#load_source:external:call:let:count-1",
         "src/module_loader/mod.rs#load_source:external:method:as_ref:count-1",
-        "src/module_loader/mod.rs#load_source:external:method:display:count-1",
         "src/module_loader/mod.rs#load_source:external:method:is_some:count-1",
         "src/module_loader/mod.rs#load_source:external:method:ok_or_else:count-1",
-        "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
         "src/module_loader/mod.rs#load_source_bytes:external:call:Ok:count-1",
         "src/module_loader/mod.rs#load_source_bytes:external:call:Some:count-1",
         "src/module_loader/mod.rs#load_source_bytes:external:method:as_ref:count-1",
@@ -128818,10 +129791,8 @@
           "src/module_loader/mod.rs#load_source:external:call:Some:count-1",
           "src/module_loader/mod.rs#load_source:external:call:let:count-1",
           "src/module_loader/mod.rs#load_source:external:method:as_ref:count-1",
-          "src/module_loader/mod.rs#load_source:external:method:display:count-1",
           "src/module_loader/mod.rs#load_source:external:method:is_some:count-1",
           "src/module_loader/mod.rs#load_source:external:method:ok_or_else:count-1",
-          "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
           "src/module_loader/mod.rs#manifest_input:external:call:Ok:count-4",
           "src/module_loader/mod.rs#manifest_input:external:call:Some:count-2",
           "src/module_loader/mod.rs#manifest_input:external:method:as_ref:count-1",
@@ -128858,7 +129829,10 @@
           "src/module_loader/mod.rs#module_kind_from_path:external:method:extension:count-1",
           "src/module_loader/mod.rs#module_kind_from_path:external:method:map:count-1",
           "src/module_loader/mod.rs#module_kind_from_path:external:method:to_ascii_lowercase:count-1",
-          "src/module_loader/mod.rs#module_resolve_options:external:method:into:count-23",
+          "src/module_loader/mod.rs#module_resolve_options:external:method:collect:count-1",
+          "src/module_loader/mod.rs#module_resolve_options:external:method:into:count-19",
+          "src/module_loader/mod.rs#module_resolve_options:external:method:map:count-1",
+          "src/module_loader/mod.rs#module_resolve_options:external:method:names:count-1",
           "src/module_loader/mod.rs#module_resolve_options:external:qualified:ResolveOptions::default:count-1",
           "src/module_loader/mod.rs#needs_js_downlevel:external:call:Some:count-1",
           "src/module_loader/mod.rs#needs_js_downlevel:external:method:and_then:count-3",
@@ -128904,7 +129878,6 @@
           "src/module_loader/mod.rs#normalize_import_target:external:method:extension:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:is_none:count-1",
-          "src/module_loader/mod.rs#normalize_import_target:external:method:iter:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:join:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:call:Err:count-2",
@@ -128961,12 +129934,15 @@
           "src/module_loader/mod.rs#parse_manifest:external:qualified:ResolverManifestInput::Present:count-1",
           "src/module_loader/mod.rs#parse_manifest:external:qualified:serde_json::from_slice:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:call:Some:count-6",
+          "src/module_loader/mod.rs#pick_package_import_path:external:method:chain:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:method:contains:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:method:get:count-1",
+          "src/module_loader/mod.rs#pick_package_import_path:external:method:names:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:method:replacen:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:method:to_string:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:qualified:Value::Object:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:qualified:Value::String:count-1",
+          "src/module_loader/mod.rs#pick_package_import_path:external:qualified:std::iter::once:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Some:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:for:count-1",
@@ -129039,6 +130015,8 @@
           "src/module_loader/mod.rs#read_transpile_cache:external:method:map_err:count-1",
           "src/module_loader/mod.rs#read_transpile_cache:external:qualified:String::from_utf8:count-1",
           "src/module_loader/mod.rs#read_transpile_cache:external:qualified:std::fs::read:count-2",
+          "src/module_loader/mod.rs#resolve:external:qualified:ConditionSet::for_kind:count-1",
+          "src/module_loader/mod.rs#resolve:external:qualified:ImportAttributes::default:count-1",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Err:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Ok:count-3",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Some:count-3",
@@ -129056,11 +130034,13 @@
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:push:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:to_path_buf:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:qualified:io::Error::new:count-3",
-          "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-3",
+          "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Ok:count-2",
+          "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-5",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:method:get:count-1",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:method:to_string:count-1",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:crate::vfs::SourceId::builtin:count-1",
+          "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:identity::SourceId::builtin:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Ok:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Some:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:and_then:count-1",
@@ -129071,39 +130051,43 @@
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:ok_or_else:count-3",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:parent:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:with_context:count-1",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
-          "src/module_loader/mod.rs#resolve_meta:external:call:Err:count-4",
-          "src/module_loader/mod.rs#resolve_meta:external:call:Ok:count-2",
-          "src/module_loader/mod.rs#resolve_meta:external:call:Some:count-3",
-          "src/module_loader/mod.rs#resolve_meta:external:method:is_empty:count-1",
-          "src/module_loader/mod.rs#resolve_meta:external:method:starts_with:count-3",
-          "src/module_loader/mod.rs#resolve_meta:external:method:trim:count-1",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Err:count-3",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Ok:count-1",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Some:count-2",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:is_empty:count-1",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:starts_with:count-2",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:trim:count-1",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Err:count-3",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Ok:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Some:count-4",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:and_then:count-2",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:any:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:context:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:get:count-3",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_empty:count-2",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_null:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_some_and:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:join:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:map:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:ok_or_else:count-2",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:split:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:starts_with:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:strip_prefix:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:to_owned:count-3",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:trim:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+          "src/module_loader/mod.rs#resolve_meta:external:qualified:ConditionSet::for_kind:count-1",
+          "src/module_loader/mod.rs#resolve_meta:external:qualified:ImportAttributes::default:count-1",
+          "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
+          "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ImportAttributes::default:count-1",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Err:count-4",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Some:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:is_empty:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:starts_with:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:trim:count-1",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ConditionSet::for_kind:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ImportAttributes::default:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Err:count-4",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Some:count-4",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:and_then:count-2",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:any:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:get:count-3",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_empty:count-3",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_null:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_some_and:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:join:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:map:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:ok_or_else:count-2",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:split:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:starts_with:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:strip_prefix:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:to_owned:count-3",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:trim:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:call:Err:count-5",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:call:Some:count-3",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:method:is_empty:count-2",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:method:starts_with:count-3",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:method:trim:count-1",
           "src/module_loader/mod.rs#resolve_package_import:external:call:Some:count-3",
           "src/module_loader/mod.rs#resolve_package_import:external:call:let:count-1",
           "src/module_loader/mod.rs#resolve_package_import:external:method:as_object:count-1",
@@ -129148,21 +130132,22 @@
           "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Err:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Ok:count-2",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-15",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-17",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:let:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-2",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-3",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_deref:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_str:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:directory:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:exists:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-2",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-3",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:flatten:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:full_path:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_none:count-5",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:join:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-1",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:module_type:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:name:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:normalize_in_boundary:count-1",
@@ -129172,7 +130157,7 @@
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:starts_with:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:then:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_path_buf:count-2",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-2",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-3",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string_lossy:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:unzip:count-1",
@@ -129378,6 +130363,9 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:std::process::id:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:u64::from_le_bytes:count-1",
+          "src/module_loader/mod.rs#validate_import_attributes:external:call:Err:count-2",
+          "src/module_loader/mod.rs#validate_import_attributes:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#validate_import_attributes:external:method:asserts_json:count-2",
           "src/module_loader/mod.rs#verify_transpile_override_identity:external:call:Ok:count-1",
           "src/module_loader/mod.rs#verify_transpile_override_identity:external:call:let:count-1",
           "src/module_loader/mod.rs#verify_transpile_override_identity:external:method:display:count-1",
@@ -129650,10 +130638,8 @@
           "src/module_loader/mod.rs#load_source:external:call:Some:count-1",
           "src/module_loader/mod.rs#load_source:external:call:let:count-1",
           "src/module_loader/mod.rs#load_source:external:method:as_ref:count-1",
-          "src/module_loader/mod.rs#load_source:external:method:display:count-1",
           "src/module_loader/mod.rs#load_source:external:method:is_some:count-1",
           "src/module_loader/mod.rs#load_source:external:method:ok_or_else:count-1",
-          "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
           "src/module_loader/mod.rs#manifest_input:external:call:Ok:count-4",
           "src/module_loader/mod.rs#manifest_input:external:call:Some:count-2",
           "src/module_loader/mod.rs#manifest_input:external:method:as_ref:count-1",
@@ -129690,7 +130676,10 @@
           "src/module_loader/mod.rs#module_kind_from_path:external:method:extension:count-1",
           "src/module_loader/mod.rs#module_kind_from_path:external:method:map:count-1",
           "src/module_loader/mod.rs#module_kind_from_path:external:method:to_ascii_lowercase:count-1",
-          "src/module_loader/mod.rs#module_resolve_options:external:method:into:count-23",
+          "src/module_loader/mod.rs#module_resolve_options:external:method:collect:count-1",
+          "src/module_loader/mod.rs#module_resolve_options:external:method:into:count-19",
+          "src/module_loader/mod.rs#module_resolve_options:external:method:map:count-1",
+          "src/module_loader/mod.rs#module_resolve_options:external:method:names:count-1",
           "src/module_loader/mod.rs#module_resolve_options:external:qualified:ResolveOptions::default:count-1",
           "src/module_loader/mod.rs#needs_js_downlevel:external:call:Some:count-1",
           "src/module_loader/mod.rs#needs_js_downlevel:external:method:and_then:count-3",
@@ -129736,7 +130725,6 @@
           "src/module_loader/mod.rs#normalize_import_target:external:method:extension:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:is_none:count-1",
-          "src/module_loader/mod.rs#normalize_import_target:external:method:iter:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:join:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
           "src/module_loader/mod.rs#normalize_in_boundary:external:call:Err:count-2",
@@ -129793,12 +130781,15 @@
           "src/module_loader/mod.rs#parse_manifest:external:qualified:ResolverManifestInput::Present:count-1",
           "src/module_loader/mod.rs#parse_manifest:external:qualified:serde_json::from_slice:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:call:Some:count-6",
+          "src/module_loader/mod.rs#pick_package_import_path:external:method:chain:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:method:contains:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:method:get:count-1",
+          "src/module_loader/mod.rs#pick_package_import_path:external:method:names:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:method:replacen:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:method:to_string:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:qualified:Value::Object:count-1",
           "src/module_loader/mod.rs#pick_package_import_path:external:qualified:Value::String:count-1",
+          "src/module_loader/mod.rs#pick_package_import_path:external:qualified:std::iter::once:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Some:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:for:count-1",
@@ -129871,6 +130862,8 @@
           "src/module_loader/mod.rs#read_transpile_cache:external:method:map_err:count-1",
           "src/module_loader/mod.rs#read_transpile_cache:external:qualified:String::from_utf8:count-1",
           "src/module_loader/mod.rs#read_transpile_cache:external:qualified:std::fs::read:count-2",
+          "src/module_loader/mod.rs#resolve:external:qualified:ConditionSet::for_kind:count-1",
+          "src/module_loader/mod.rs#resolve:external:qualified:ImportAttributes::default:count-1",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Err:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Ok:count-3",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Some:count-3",
@@ -129888,11 +130881,13 @@
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:push:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:to_path_buf:count-2",
           "src/module_loader/mod.rs#resolve_bounded_unix_path:external:qualified:io::Error::new:count-3",
-          "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-3",
+          "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Ok:count-2",
+          "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-5",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:method:get:count-1",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:method:to_string:count-1",
           "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:crate::vfs::SourceId::builtin:count-1",
+          "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:identity::SourceId::builtin:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Ok:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Some:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:and_then:count-1",
@@ -129903,39 +130898,43 @@
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:ok_or_else:count-3",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:parent:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:with_context:count-1",
+          "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
           "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
-          "src/module_loader/mod.rs#resolve_meta:external:call:Err:count-4",
-          "src/module_loader/mod.rs#resolve_meta:external:call:Ok:count-2",
-          "src/module_loader/mod.rs#resolve_meta:external:call:Some:count-3",
-          "src/module_loader/mod.rs#resolve_meta:external:method:is_empty:count-1",
-          "src/module_loader/mod.rs#resolve_meta:external:method:starts_with:count-3",
-          "src/module_loader/mod.rs#resolve_meta:external:method:trim:count-1",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Err:count-3",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Ok:count-1",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Some:count-2",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:is_empty:count-1",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:starts_with:count-2",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:trim:count-1",
-          "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Err:count-3",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Ok:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Some:count-4",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:and_then:count-2",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:any:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:context:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:get:count-3",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_empty:count-2",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_null:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_some_and:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:join:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:map:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:ok_or_else:count-2",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:split:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:starts_with:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:strip_prefix:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:to_owned:count-3",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:trim:count-1",
-          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+          "src/module_loader/mod.rs#resolve_meta:external:qualified:ConditionSet::for_kind:count-1",
+          "src/module_loader/mod.rs#resolve_meta:external:qualified:ImportAttributes::default:count-1",
+          "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
+          "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ImportAttributes::default:count-1",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Err:count-4",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Some:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:is_empty:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:starts_with:count-2",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:trim:count-1",
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ConditionSet::for_kind:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ImportAttributes::default:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Err:count-4",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Some:count-4",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:and_then:count-2",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:any:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:get:count-3",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_empty:count-3",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_null:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_some_and:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:join:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:map:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:ok_or_else:count-2",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:split:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:starts_with:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:strip_prefix:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:to_owned:count-3",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:trim:count-1",
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:call:Err:count-5",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:call:Some:count-3",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:method:is_empty:count-2",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:method:starts_with:count-3",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:method:trim:count-1",
           "src/module_loader/mod.rs#resolve_package_import:external:call:Some:count-3",
           "src/module_loader/mod.rs#resolve_package_import:external:call:let:count-1",
           "src/module_loader/mod.rs#resolve_package_import:external:method:as_object:count-1",
@@ -129980,21 +130979,22 @@
           "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Err:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Ok:count-2",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-15",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-17",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:let:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-2",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-3",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_deref:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_str:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:directory:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:exists:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-2",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-3",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:flatten:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:full_path:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_none:count-5",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:join:count-1",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-1",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-2",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:module_type:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:name:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:normalize_in_boundary:count-1",
@@ -130004,7 +131004,7 @@
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:starts_with:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:then:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_path_buf:count-2",
-          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-2",
+          "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-3",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string_lossy:count-1",
           "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:unzip:count-1",
@@ -130210,6 +131210,9 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:std::process::id:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:u64::from_le_bytes:count-1",
+          "src/module_loader/mod.rs#validate_import_attributes:external:call:Err:count-2",
+          "src/module_loader/mod.rs#validate_import_attributes:external:call:Ok:count-1",
+          "src/module_loader/mod.rs#validate_import_attributes:external:method:asserts_json:count-2",
           "src/module_loader/mod.rs#verify_transpile_override_identity:external:call:Ok:count-1",
           "src/module_loader/mod.rs#verify_transpile_override_identity:external:call:let:count-1",
           "src/module_loader/mod.rs#verify_transpile_override_identity:external:method:display:count-1",
@@ -130489,10 +131492,8 @@
         "src/module_loader/mod.rs#load_source:external:call:Some:count-1",
         "src/module_loader/mod.rs#load_source:external:call:let:count-1",
         "src/module_loader/mod.rs#load_source:external:method:as_ref:count-1",
-        "src/module_loader/mod.rs#load_source:external:method:display:count-1",
         "src/module_loader/mod.rs#load_source:external:method:is_some:count-1",
         "src/module_loader/mod.rs#load_source:external:method:ok_or_else:count-1",
-        "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
         "src/module_loader/mod.rs#manifest_input:external:call:Ok:count-4",
         "src/module_loader/mod.rs#manifest_input:external:call:Some:count-2",
         "src/module_loader/mod.rs#manifest_input:external:method:as_ref:count-1",
@@ -130529,7 +131530,10 @@
         "src/module_loader/mod.rs#module_kind_from_path:external:method:extension:count-1",
         "src/module_loader/mod.rs#module_kind_from_path:external:method:map:count-1",
         "src/module_loader/mod.rs#module_kind_from_path:external:method:to_ascii_lowercase:count-1",
-        "src/module_loader/mod.rs#module_resolve_options:external:method:into:count-23",
+        "src/module_loader/mod.rs#module_resolve_options:external:method:collect:count-1",
+        "src/module_loader/mod.rs#module_resolve_options:external:method:into:count-19",
+        "src/module_loader/mod.rs#module_resolve_options:external:method:map:count-1",
+        "src/module_loader/mod.rs#module_resolve_options:external:method:names:count-1",
         "src/module_loader/mod.rs#module_resolve_options:external:qualified:ResolveOptions::default:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:call:Some:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:method:and_then:count-3",
@@ -130575,7 +131579,6 @@
         "src/module_loader/mod.rs#normalize_import_target:external:method:extension:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:is_absolute:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:is_none:count-1",
-        "src/module_loader/mod.rs#normalize_import_target:external:method:iter:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:join:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
         "src/module_loader/mod.rs#normalize_in_boundary:external:call:Err:count-2",
@@ -130632,12 +131635,15 @@
         "src/module_loader/mod.rs#parse_manifest:external:qualified:ResolverManifestInput::Present:count-1",
         "src/module_loader/mod.rs#parse_manifest:external:qualified:serde_json::from_slice:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:call:Some:count-6",
+        "src/module_loader/mod.rs#pick_package_import_path:external:method:chain:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:method:contains:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:method:get:count-1",
+        "src/module_loader/mod.rs#pick_package_import_path:external:method:names:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:method:replacen:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:method:to_string:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:qualified:Value::Object:count-1",
         "src/module_loader/mod.rs#pick_package_import_path:external:qualified:Value::String:count-1",
+        "src/module_loader/mod.rs#pick_package_import_path:external:qualified:std::iter::once:count-1",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Some:count-1",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:for:count-1",
@@ -130710,6 +131716,8 @@
         "src/module_loader/mod.rs#read_transpile_cache:external:method:map_err:count-1",
         "src/module_loader/mod.rs#read_transpile_cache:external:qualified:String::from_utf8:count-1",
         "src/module_loader/mod.rs#read_transpile_cache:external:qualified:std::fs::read:count-2",
+        "src/module_loader/mod.rs#resolve:external:qualified:ConditionSet::for_kind:count-1",
+        "src/module_loader/mod.rs#resolve:external:qualified:ImportAttributes::default:count-1",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Err:count-2",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Ok:count-3",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:call:Some:count-3",
@@ -130727,11 +131735,13 @@
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:push:count-2",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:method:to_path_buf:count-2",
         "src/module_loader/mod.rs#resolve_bounded_unix_path:external:qualified:io::Error::new:count-3",
-        "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-3",
+        "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Ok:count-2",
+        "src/module_loader/mod.rs#resolve_builtin_meta:external:call:Some:count-5",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:method:get:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:method:to_string:count-1",
         "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:crate::vfs::SourceId::builtin:count-1",
+        "src/module_loader/mod.rs#resolve_builtin_meta:external:qualified:identity::SourceId::builtin:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Ok:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:call:Some:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:and_then:count-1",
@@ -130742,39 +131752,43 @@
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:ok_or_else:count-3",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:parent:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:method:with_context:count-1",
+        "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
         "src/module_loader/mod.rs#resolve_direct_file_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
-        "src/module_loader/mod.rs#resolve_meta:external:call:Err:count-4",
-        "src/module_loader/mod.rs#resolve_meta:external:call:Ok:count-2",
-        "src/module_loader/mod.rs#resolve_meta:external:call:Some:count-3",
-        "src/module_loader/mod.rs#resolve_meta:external:method:is_empty:count-1",
-        "src/module_loader/mod.rs#resolve_meta:external:method:starts_with:count-3",
-        "src/module_loader/mod.rs#resolve_meta:external:method:trim:count-1",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Err:count-3",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Ok:count-1",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:call:Some:count-2",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:is_empty:count-1",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:starts_with:count-2",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:method:trim:count-1",
-        "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ResolverGeneric::new_with_file_system:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Err:count-3",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Ok:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:call:Some:count-4",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:and_then:count-2",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:any:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:context:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:get:count-3",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_empty:count-2",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_null:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:is_some_and:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:join:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:map:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:ok_or_else:count-2",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:split:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:starts_with:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:strip_prefix:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:to_owned:count-3",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:method:trim:count-1",
-        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+        "src/module_loader/mod.rs#resolve_meta:external:qualified:ConditionSet::for_kind:count-1",
+        "src/module_loader/mod.rs#resolve_meta:external:qualified:ImportAttributes::default:count-1",
+        "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ConditionSet::for_kind:count-1",
+        "src/module_loader/mod.rs#resolve_meta_authenticated:external:qualified:ImportAttributes::default:count-1",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Err:count-4",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:call:Some:count-2",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:is_empty:count-2",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:starts_with:count-2",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:method:trim:count-1",
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ConditionSet::for_kind:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package:external:qualified:ImportAttributes::default:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Err:count-4",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:call:Some:count-4",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:and_then:count-2",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:any:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:context:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:get:count-3",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_empty:count-3",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_null:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:is_some_and:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:join:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:map:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:ok_or_else:count-2",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:split:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:starts_with:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:strip_prefix:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:to_owned:count-3",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:method:trim:count-1",
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed:external:qualified:ResolverGeneric::new_with_file_system:count-1",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:call:Err:count-5",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:call:Some:count-3",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:method:is_empty:count-2",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:method:starts_with:count-3",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:method:trim:count-1",
         "src/module_loader/mod.rs#resolve_package_import:external:call:Some:count-3",
         "src/module_loader/mod.rs#resolve_package_import:external:call:let:count-1",
         "src/module_loader/mod.rs#resolve_package_import:external:method:as_object:count-1",
@@ -130819,21 +131833,22 @@
         "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Err:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Ok:count-2",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-15",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:Some:count-17",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:call:let:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-2",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:and_then:count-3",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_deref:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:as_str:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:directory:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:eq_ignore_ascii_case:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:exists:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-2",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:extension:count-3",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:flatten:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:full_path:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_absolute:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:is_none:count-5",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:join:count-1",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-1",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:map:count-2",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:module_type:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:name:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:normalize_in_boundary:count-1",
@@ -130843,7 +131858,7 @@
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:starts_with:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:then:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_path_buf:count-2",
-        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-2",
+        "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_str:count-3",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:to_string_lossy:count-1",
         "src/module_loader/mod.rs#resolve_with_resolver_at:external:method:unzip:count-1",
@@ -131049,6 +132064,9 @@
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:std::process::id:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:u64::from_le_bytes:count-1",
+        "src/module_loader/mod.rs#validate_import_attributes:external:call:Err:count-2",
+        "src/module_loader/mod.rs#validate_import_attributes:external:call:Ok:count-1",
+        "src/module_loader/mod.rs#validate_import_attributes:external:method:asserts_json:count-2",
         "src/module_loader/mod.rs#verify_transpile_override_identity:external:call:Ok:count-1",
         "src/module_loader/mod.rs#verify_transpile_override_identity:external:call:let:count-1",
         "src/module_loader/mod.rs#verify_transpile_override_identity:external:method:display:count-1",
@@ -133355,6 +134373,57 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.javascript.modulestaticimport.02xy8he",
+      "observedKey": "loader:function:javascript:moduleStaticImport",
+      "branchId": "surface.loader.function.javascript.modulestaticimport.02xy8he.main",
+      "enforcementBranchId": "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:javascript:moduleStaticImport"
+        ],
+        "proofSourceRefs": [
+          "src/engine/bootstrap/module-loader.js#moduleStaticImport"
+        ],
+        "sourceRefs": [
+          "src/engine/bootstrap/module-loader.js#moduleStaticImport"
+        ],
+        "terminalObservedKey": "loader:function:javascript:moduleStaticImport"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#moduleStaticImport"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.builtin-or-memory.no-effect",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.cached-transform.allow",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.cached-transform.branch-selection",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.cached-transform.deny",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.cached-transform.malformed",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.cached-transform.missing-attribution",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.cached-transform.wrong-principal",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.disk-source.allow",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.disk-source.branch-selection",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.disk-source.deny",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.disk-source.malformed",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.disk-source.missing-attribution",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.disk-source.wrong-principal",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.external-transform.allow",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.external-transform.branch-selection",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.external-transform.deny",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.external-transform.malformed",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.external-transform.missing-attribution",
+        "enforcement.src.engine.bootstrap.module.loader.js.modulestaticimport.1qh4gge.logical.external-transform.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.javascript.originalmoduleregistryforrecord.0slt8xx",
       "observedKey": "loader:function:javascript:originalModuleRegistryForRecord",
       "branchId": "surface.loader.function.javascript.originalmoduleregistryforrecord.0slt8xx.main",
@@ -134476,6 +135545,72 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.rust.load.runner.source.0me5nub",
+      "observedKey": "loader:function:rust:load_runner_source",
+      "branchId": "surface.loader.function.rust.load.runner.source.0me5nub.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.load.runner.source.03iq7yx",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:load_runner_source"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#load_runner_source"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#load_runner_source"
+        ],
+        "terminalObservedKey": "loader:function:rust:load_runner_source"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#load_runner_source"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.load.runner.source.03iq7yx.allow",
+        "enforcement.src.module.loader.mod.rs.load.runner.source.03iq7yx.deny",
+        "enforcement.src.module.loader.mod.rs.load.runner.source.03iq7yx.malformed",
+        "enforcement.src.module.loader.mod.rs.load.runner.source.03iq7yx.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.load.runner.source.03iq7yx.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.load.runner.source.bytes.1avskw7",
+      "observedKey": "loader:function:rust:load_runner_source_bytes",
+      "branchId": "surface.loader.function.rust.load.runner.source.bytes.1avskw7.main",
+      "enforcementBranchId": "surface.loader.function.rust.load.runner.source.bytes.1avskw7.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:rust:load_runner_source_bytes"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#load_runner_source_bytes"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#load_runner_source_bytes"
+        ],
+        "terminalObservedKey": "loader:function:rust:load_runner_source_bytes"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#load_runner_source_bytes"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.function.rust.load.runner.source.bytes.1avskw7.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.rust.load.source.1lpnc7u",
       "observedKey": "loader:function:rust:load_source",
       "branchId": "surface.loader.function.rust.load.source.1lpnc7u.main",
@@ -135318,6 +136453,51 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.rust.resolve.meta.authenticated.typed.0ysuk51",
+      "observedKey": "loader:function:rust:resolve_meta_authenticated_typed",
+      "branchId": "surface.loader.function.rust.resolve.meta.authenticated.typed.0ysuk51.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:resolve_meta_authenticated_typed"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolve_meta_authenticated_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.metadata-only.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.metadata-only.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.metadata-only.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.metadata-only.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.metadata-only.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.metadata-only.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.no-host-lookup.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.no-host-lookup.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.no-host-lookup.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.symlink-target.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.symlink-target.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.symlink-target.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.symlink-target.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.symlink-target.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.0rlr6jm.logical.symlink-target.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.0p98ab7",
       "observedKey": "loader:function:rust:resolve_meta_from_authenticated_bound_package",
       "branchId": "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.0p98ab7.descriptor.relative.posix",
@@ -135406,6 +136586,48 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.typed.1llmv94",
+      "observedKey": "loader:function:rust:resolve_meta_from_authenticated_bound_package_typed",
+      "branchId": "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.typed.1llmv94.main",
+      "enforcementBranchId": "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:resolve_meta_from_authenticated_bound_package_typed"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolve_meta_from_authenticated_bound_package_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.metadata-only.allow",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.metadata-only.branch-selection",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.metadata-only.deny",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.metadata-only.malformed",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.metadata-only.missing-attribution",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.metadata-only.wrong-principal",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.symlink-target.allow",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.symlink-target.branch-selection",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.symlink-target.deny",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.symlink-target.malformed",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.symlink-target.missing-attribution",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.13smfm2.logical.symlink-target.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
       "observedKey": "loader:function:rust:resolve_meta_from_bound_package",
       "branchId": "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b.main",
@@ -135454,6 +136676,108 @@
         "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.external-transform.malformed",
         "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.external-transform.missing-attribution",
         "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.external-transform.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+      "observedKey": "loader:function:rust:resolve_meta_from_bound_package_typed",
+      "branchId": "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:resolve_meta_from_bound_package_typed"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_from_bound_package_typed"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_from_bound_package_typed"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolve_meta_from_bound_package_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_from_bound_package_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.builtin-or-memory.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.cached-transform.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.cached-transform.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.cached-transform.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.cached-transform.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.cached-transform.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.cached-transform.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.disk-source.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.disk-source.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.disk-source.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.disk-source.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.disk-source.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.disk-source.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.external-transform.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.external-transform.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.external-transform.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.external-transform.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.external-transform.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.typed.1gxji1q.logical.external-transform.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
+      "observedKey": "loader:function:rust:resolve_meta_typed",
+      "branchId": "surface.loader.function.rust.resolve.meta.typed.1o68m2x.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:resolve_meta_typed"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_typed"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_typed"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolve_meta_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.builtin-or-memory.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.cached-transform.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.cached-transform.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.cached-transform.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.cached-transform.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.cached-transform.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.cached-transform.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.disk-source.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.disk-source.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.disk-source.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.disk-source.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.disk-source.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.disk-source.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.external-transform.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.external-transform.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.external-transform.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.external-transform.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.external-transform.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0clim4q.logical.external-transform.wrong-principal"
       ]
     },
     {
@@ -136279,6 +137603,37 @@
         "enforcement.src.module.loader.mod.rs.transpile.module.0zidf7i.logical.external-transform.malformed",
         "enforcement.src.module.loader.mod.rs.transpile.module.0zidf7i.logical.external-transform.missing-attribution",
         "enforcement.src.module.loader.mod.rs.transpile.module.0zidf7i.logical.external-transform.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.validate.import.attributes.0qchd64",
+      "observedKey": "loader:function:rust:validate_import_attributes",
+      "branchId": "surface.loader.function.rust.validate.import.attributes.0qchd64.main",
+      "enforcementBranchId": "surface.loader.function.rust.validate.import.attributes.0qchd64.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:rust:validate_import_attributes"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#validate_import_attributes"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#validate_import_attributes"
+        ],
+        "terminalObservedKey": "loader:function:rust:validate_import_attributes"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#validate_import_attributes"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.function.rust.validate.import.attributes.0qchd64.main.non-capability"
       ]
     },
     {
@@ -139454,6 +140809,132 @@
         "surface.loader.lazy.installer.exactensurewebcrypto.node.crypto.0rd0si8.main.cannot-widen-authority",
         "surface.loader.lazy.installer.exactensurewebcrypto.node.crypto.0rd0si8.main.non-capability",
         "surface.loader.lazy.installer.exactensurewebcrypto.node.crypto.0rd0si8.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.module.runner.cache.access.0xf8bln",
+      "observedKey": "loader:module-runner-cache-access",
+      "branchId": "surface.loader.module.runner.cache.access.0xf8bln.main",
+      "enforcementBranchId": "surface.loader.module.runner.cache.access.0xf8bln.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:module-runner-cache-access"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "sourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "terminalObservedKey": "loader:module-runner-cache-access"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize_then_access"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.module.runner.cache.access.0xf8bln.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.module.runner.edge.authorization.0qnrmj5",
+      "observedKey": "loader:module-runner-edge-authorization",
+      "branchId": "surface.loader.module.runner.edge.authorization.0qnrmj5.main",
+      "enforcementBranchId": "surface.loader.module.runner.edge.authorization.0qnrmj5.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:module-runner-edge-authorization"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/security.rs#authorize"
+        ],
+        "sourceRefs": [
+          "src/module_loader/security.rs#authorize"
+        ],
+        "terminalObservedKey": "loader:module-runner-edge-authorization"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.loader.module.runner.edge.authorization.0qnrmj5.main.cannot-widen-authority",
+        "surface.loader.module.runner.edge.authorization.0qnrmj5.main.non-capability",
+        "surface.loader.module.runner.edge.authorization.0qnrmj5.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.module.runner.prepared.carrier.access.1iok9a9",
+      "observedKey": "loader:module-runner-prepared-carrier-access",
+      "branchId": "surface.loader.module.runner.prepared.carrier.access.1iok9a9.main",
+      "enforcementBranchId": "surface.loader.module.runner.prepared.carrier.access.1iok9a9.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:module-runner-prepared-carrier-access"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "sourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "terminalObservedKey": "loader:module-runner-prepared-carrier-access"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize_then_access"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.module.runner.prepared.carrier.access.1iok9a9.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.module.runner.trusted.source.acquisition.0bstk81",
+      "observedKey": "loader:module-runner-trusted-source-acquisition",
+      "branchId": "surface.loader.module.runner.trusted.source.acquisition.0bstk81.main",
+      "enforcementBranchId": "surface.loader.module.runner.trusted.source.acquisition.0bstk81.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:module-runner-trusted-source-acquisition"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "sourceRefs": [
+          "src/module_loader/security.rs#authorize_then_access"
+        ],
+        "terminalObservedKey": "loader:module-runner-trusted-source-acquisition"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/security.rs#authorize_then_access"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.module.runner.trusted.source.acquisition.0bstk81.main.non-capability"
       ]
     },
     {
@@ -148362,6 +149843,51 @@
       ]
     },
     {
+      "edgeId": "surface.loader.route.resolution.rust.resolve.meta.authenticated.typed.0aw2nnq",
+      "observedKey": "loader:route:resolution:rust:resolve_meta_authenticated_typed",
+      "branchId": "surface.loader.route.resolution.rust.resolve.meta.authenticated.typed.0aw2nnq.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:route:resolution:rust:resolve_meta_authenticated_typed"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_authenticated_typed"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:resolve_meta_authenticated_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_authenticated_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.metadata-only.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.metadata-only.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.metadata-only.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.metadata-only.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.metadata-only.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.metadata-only.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.no-host-lookup.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.no-host-lookup.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.no-host-lookup.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.symlink-target.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.symlink-target.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.symlink-target.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.symlink-target.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.symlink-target.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.authenticated.typed.1r4oqxz.logical.symlink-target.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.10lvxcq",
       "observedKey": "loader:route:resolution:rust:resolve_meta_from_authenticated_bound_package",
       "branchId": "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.10lvxcq.descriptor.relative.posix",
@@ -148447,6 +149973,93 @@
         "enforcement.dule.loader.mod.rs.resolve.meta.from.authenticated.bound.package.19ksox2.logical.symlink-target.malformed",
         "enforcement.dule.loader.mod.rs.resolve.meta.from.authenticated.bound.package.19ksox2.logical.symlink-target.missing-attribution",
         "enforcement.dule.loader.mod.rs.resolve.meta.from.authenticated.bound.package.19ksox2.logical.symlink-target.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.type.15s6chl",
+      "observedKey": "loader:route:resolution:rust:resolve_meta_from_authenticated_bound_package_typed",
+      "branchId": "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.type.15s6chl.main",
+      "enforcementBranchId": "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:route:resolution:rust:resolve_meta_from_authenticated_bound_package_typed"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:resolve_meta_from_authenticated_bound_package_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_from_authenticated_bound_package_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.metadata-only.allow",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.metadata-only.branch-selection",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.metadata-only.deny",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.metadata-only.malformed",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.metadata-only.missing-attribution",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.metadata-only.wrong-principal",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.symlink-target.allow",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.symlink-target.branch-selection",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.symlink-target.deny",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.symlink-target.malformed",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.symlink-target.missing-attribution",
+        "enforcement.oader.mod.rs.resolve.meta.from.authenticated.bound.package.typed.036hf6f.logical.symlink-target.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolve.meta.typed.11cq4bq",
+      "observedKey": "loader:route:resolution:rust:resolve_meta_typed",
+      "branchId": "surface.loader.route.resolution.rust.resolve.meta.typed.11cq4bq.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:route:resolution:rust:resolve_meta_typed"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_typed"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_typed"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:resolve_meta_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.builtin-or-memory.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.metadata.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.metadata.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.metadata.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.metadata.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.metadata.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.metadata.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.on-disk.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.on-disk.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.on-disk.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.on-disk.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.on-disk.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.typed.0tmmnnb.logical.on-disk.wrong-principal"
       ]
     },
     {
@@ -150234,6 +151847,37 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.loader.route.resolution.rust.unique.tmp.path.036vwz6.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.validate.import.attributes.10zvr6j",
+      "observedKey": "loader:route:resolution:rust:validate_import_attributes",
+      "branchId": "surface.loader.route.resolution.rust.validate.import.attributes.10zvr6j.main",
+      "enforcementBranchId": "surface.loader.route.resolution.rust.validate.import.attributes.10zvr6j.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:resolution:rust:validate_import_attributes"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#validate_import_attributes"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#validate_import_attributes"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:validate_import_attributes"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#validate_import_attributes"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.route.resolution.rust.validate.import.attributes.10zvr6j.main.non-capability"
       ]
     },
     {
@@ -152079,10 +153723,12 @@
           "native-op:__compartments"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#__compartments",
           "src/engine/hermes_runtime.cc#__compartments",
           "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__compartments"
         ],
         "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#__compartments",
           "src/engine/hermes_runtime.cc#__compartments",
           "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__compartments"
         ],
@@ -152094,6 +153740,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#__compartments",
         "src/engine/hermes_runtime.cc#__compartments",
         "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__compartments"
       ],
@@ -152131,6 +153778,37 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.native.op.dirname.11h8rni.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.esmodule.1520cqi",
+      "observedKey": "native-op:__esModule",
+      "branchId": "surface.native.op.esmodule.1520cqi.main",
+      "enforcementBranchId": "surface.native.op.esmodule.1520cqi.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__esModule"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#__esModule"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#__esModule"
+        ],
+        "terminalObservedKey": "native-op:__esModule"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#__esModule"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.esmodule.1520cqi.main.non-capability"
       ]
     },
     {
@@ -256848,13 +258526,14 @@
       "edgeId": "surface.startup.env.dynamic.rust.command.default.env.1o1kxgs",
       "observedKey": "startup:env:<dynamic>:rust:Command::default_env",
       "branchId": "surface.startup.env.dynamic.rust.command.default.env.1o1kxgs.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.command.default.env.dynamic.write.1imset7",
+      "enforcementBranchId": "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0i21j80",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:<dynamic>:rust:Command::default_env"
         ],
         "proofSourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/engine/hermes.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/runtime.rs#Command::default_env:dynamic:write",
@@ -256863,6 +258542,7 @@
           "src/module_loader/mod.rs#Command::default_env:dynamic:write"
         ],
         "sourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/engine/hermes.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
           "src/bin/ibex/runtime.rs#Command::default_env:dynamic:write",
@@ -256878,6 +258558,7 @@
         "kind": "all"
       },
       "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/engine/hermes.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/main.rs#Command::default_env:dynamic:write",
         "src/bin/ibex/runtime.rs#Command::default_env:dynamic:write",
@@ -256887,11 +258568,11 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.default.env.dynamic.write.1imset7.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.default.env.dynamic.write.1imset7.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.default.env.dynamic.write.1imset7.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.default.env.dynamic.write.1imset7.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.command.default.env.dynamic.write.1imset7.wrong-principal"
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0i21j80.allow",
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0i21j80.deny",
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0i21j80.malformed",
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0i21j80.missing-attribution",
+        "enforcement.xact.fixture.evidence.batch.rs.command.default.env.dynamic.write.0i21j80.wrong-principal"
       ]
     },
     {
@@ -259970,6 +261651,68 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.capsec.fixture.evidence.binding.09iafhp",
+      "observedKey": "startup:env:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING",
+      "branchId": "surface.startup.env.ibex.capsec.fixture.evidence.binding.09iafhp.main",
+      "enforcementBranchId": "surface.startup.env.ibex.capsec.fixture.evidence.binding.09iafhp.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_BINDING:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.capsec.fixture.evidence.binding.09iafhp.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.capsec.fixture.evidence.output.16bqkc9",
+      "observedKey": "startup:env:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT",
+      "branchId": "surface.startup.env.ibex.capsec.fixture.evidence.output.16bqkc9.main",
+      "enforcementBranchId": "surface.startup.env.ibex.capsec.fixture.evidence.output.16bqkc9.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.capsec.fixture.evidence.output.16bqkc9.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2",
       "observedKey": "startup:env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT",
       "branchId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2.main",
@@ -260015,11 +261758,13 @@
         ],
         "proofSourceRefs": [
           "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
         ],
         "sourceRefs": [
           "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
+          "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
           "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
         ],
@@ -260032,6 +261777,7 @@
       },
       "sourceRefs": [
         "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
+        "src/bin/ibex/engine/capsec_exact_fixture_evidence_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
         "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
         "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
       ],
@@ -260251,6 +261997,37 @@
         "enforcement.ost.http.server.rs.env.var.ibex.http.max.request.body.bytes.read.1k0jxi7.logical.unset.branch-selection",
         "enforcement.ost.http.server.rs.env.var.ibex.http.max.request.body.bytes.read.1k0jxi7.logical.unset.malformed-branch-facts",
         "enforcement.ost.http.server.rs.env.var.ibex.http.max.request.body.bytes.read.1k0jxi7.logical.unset.no-effect"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.legacy.module.loader.0jlar90",
+      "observedKey": "startup:env:IBEX_LEGACY_MODULE_LOADER",
+      "branchId": "surface.startup.env.ibex.legacy.module.loader.0jlar90.main",
+      "enforcementBranchId": "surface.startup.env.ibex.legacy.module.loader.0jlar90.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_LEGACY_MODULE_LOADER"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/runtime.rs#env::var:IBEX_LEGACY_MODULE_LOADER:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/runtime.rs#env::var:IBEX_LEGACY_MODULE_LOADER:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_LEGACY_MODULE_LOADER"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/runtime.rs#env::var:IBEX_LEGACY_MODULE_LOADER:read"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.legacy.module.loader.0jlar90.main.non-capability"
       ]
     },
     {
@@ -266506,9 +268283,11 @@
         "surface.loader.entry.load.1vl9zdm",
         "surface.loader.entry.local.require.03abno3",
         "surface.loader.entry.module.dynamic.import.0dus8oc",
+        "surface.loader.entry.module.static.import.1kce2vv",
         "surface.loader.function.javascript.importimpl.06qdy7u",
         "surface.loader.function.javascript.load.0jcovw1",
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
+        "surface.loader.function.javascript.modulestaticimport.02xy8he",
         "surface.loader.function.javascript.publicimport.1gdgiad",
         "surface.loader.function.javascript.sessionstaticimport.038w34i",
         "surface.loader.function.rust.load.module.source.05yf8kp",
@@ -266517,6 +268296,8 @@
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+        "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
         "surface.loader.function.rust.resolve.transpile.cache.dir.0aocxoq",
         "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
@@ -266661,7 +268442,7 @@
         "surface.startup.supervisor.history.global.platform.data.root.0ykfpn6",
         "surface.startup.supervisor.history.project.platform.data.root.16mbl6y"
       ],
-      "rationale": "Covered by 183 observed effect edges."
+      "rationale": "Covered by 187 observed effect edges."
     },
     {
       "definitionId": "env:write",
@@ -266856,6 +268637,7 @@
         "surface.loader.entry.load.1vl9zdm",
         "surface.loader.entry.local.require.03abno3",
         "surface.loader.entry.module.dynamic.import.0dus8oc",
+        "surface.loader.entry.module.static.import.1kce2vv",
         "surface.loader.entry.require.resolve.0i97kvw",
         "surface.loader.entry.resolve.path.0ohizge",
         "surface.loader.esm.module.1nqe17q",
@@ -266864,6 +268646,7 @@
         "surface.loader.function.javascript.importimpl.06qdy7u",
         "surface.loader.function.javascript.load.0jcovw1",
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
+        "surface.loader.function.javascript.modulestaticimport.02xy8he",
         "surface.loader.function.javascript.publicimport.1gdgiad",
         "surface.loader.function.javascript.resolvemodulepath.00f9vog",
         "surface.loader.function.javascript.sessionstaticimport.038w34i",
@@ -266883,8 +268666,12 @@
         "surface.loader.function.rust.resolve.direct.file.meta.authenticated.0wsyo3z",
         "surface.loader.function.rust.resolve.meta.1w33i7e",
         "surface.loader.function.rust.resolve.meta.authenticated.12fvo0m",
+        "surface.loader.function.rust.resolve.meta.authenticated.typed.0ysuk51",
         "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.0p98ab7",
+        "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.typed.1llmv94",
         "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+        "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
         "surface.loader.function.rust.resolve.package.import.1ekm6ob",
         "surface.loader.function.rust.resolve.package.import.target.12zd4rp",
         "surface.loader.function.rust.resolve.package.link.0908ym6",
@@ -267017,7 +268804,10 @@
         "surface.loader.route.resolution.rust.resolve.direct.file.meta.authenticated.17zaun8",
         "surface.loader.route.resolution.rust.resolve.meta.0dfscy5",
         "surface.loader.route.resolution.rust.resolve.meta.authenticated.0j9vwrx",
+        "surface.loader.route.resolution.rust.resolve.meta.authenticated.typed.0aw2nnq",
         "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.10lvxcq",
+        "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.type.15s6chl",
+        "surface.loader.route.resolution.rust.resolve.meta.typed.11cq4bq",
         "surface.loader.route.resolution.rust.resolve.package.import.16ouylg",
         "surface.loader.route.resolution.rust.resolve.package.import.target.1o027hw",
         "surface.loader.route.resolution.rust.resolve.transpile.cache.dir.0zd8c1f",
@@ -267139,7 +268929,7 @@
         "surface.startup.supervisor.history.store.open.0u6mrwv",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 403 observed effect edges."
+      "rationale": "Covered by 412 observed effect edges."
     },
     {
       "definitionId": "fs:read",
@@ -267246,6 +269036,7 @@
         "surface.loader.entry.load.1vl9zdm",
         "surface.loader.entry.local.require.03abno3",
         "surface.loader.entry.module.dynamic.import.0dus8oc",
+        "surface.loader.entry.module.static.import.1kce2vv",
         "surface.loader.entry.require.resolve.0i97kvw",
         "surface.loader.entry.resolve.path.0ohizge",
         "surface.loader.esm.module.1nqe17q",
@@ -267253,11 +269044,13 @@
         "surface.loader.function.javascript.importimpl.06qdy7u",
         "surface.loader.function.javascript.load.0jcovw1",
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
+        "surface.loader.function.javascript.modulestaticimport.02xy8he",
         "surface.loader.function.javascript.publicimport.1gdgiad",
         "surface.loader.function.javascript.resolvemodulepath.00f9vog",
         "surface.loader.function.javascript.sessionstaticimport.038w34i",
         "surface.loader.function.rust.authenticated.resolver.base.dir.1fimm38",
         "surface.loader.function.rust.load.module.source.05yf8kp",
+        "surface.loader.function.rust.load.runner.source.0me5nub",
         "surface.loader.function.rust.load.source.1lpnc7u",
         "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
@@ -267270,8 +269063,12 @@
         "surface.loader.function.rust.resolve.direct.file.meta.authenticated.0wsyo3z",
         "surface.loader.function.rust.resolve.meta.1w33i7e",
         "surface.loader.function.rust.resolve.meta.authenticated.12fvo0m",
+        "surface.loader.function.rust.resolve.meta.authenticated.typed.0ysuk51",
         "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.0p98ab7",
+        "surface.loader.function.rust.resolve.meta.from.authenticated.bound.package.typed.1llmv94",
         "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+        "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
         "surface.loader.function.rust.resolve.package.import.1ekm6ob",
         "surface.loader.function.rust.resolve.package.import.target.12zd4rp",
         "surface.loader.function.rust.resolve.package.link.0908ym6",
@@ -267360,7 +269157,10 @@
         "surface.loader.route.resolution.rust.resolve.direct.file.meta.authenticated.17zaun8",
         "surface.loader.route.resolution.rust.resolve.meta.0dfscy5",
         "surface.loader.route.resolution.rust.resolve.meta.authenticated.0j9vwrx",
+        "surface.loader.route.resolution.rust.resolve.meta.authenticated.typed.0aw2nnq",
         "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.10lvxcq",
+        "surface.loader.route.resolution.rust.resolve.meta.from.authenticated.bound.package.type.15s6chl",
+        "surface.loader.route.resolution.rust.resolve.meta.typed.11cq4bq",
         "surface.loader.route.resolution.rust.resolve.package.import.16ouylg",
         "surface.loader.route.resolution.rust.resolve.package.import.target.1o027hw",
         "surface.loader.route.resolution.rust.resolve.with.oxc.041lcln",
@@ -267436,7 +269236,7 @@
         "surface.startup.supervisor.history.journal.recover.1tl92hf",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 290 observed effect edges."
+      "rationale": "Covered by 300 observed effect edges."
     },
     {
       "definitionId": "fs:watch",
@@ -267604,9 +269404,11 @@
         "surface.loader.entry.load.1vl9zdm",
         "surface.loader.entry.local.require.03abno3",
         "surface.loader.entry.module.dynamic.import.0dus8oc",
+        "surface.loader.entry.module.static.import.1kce2vv",
         "surface.loader.function.javascript.importimpl.06qdy7u",
         "surface.loader.function.javascript.load.0jcovw1",
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
+        "surface.loader.function.javascript.modulestaticimport.02xy8he",
         "surface.loader.function.javascript.publicimport.1gdgiad",
         "surface.loader.function.javascript.sessionstaticimport.038w34i",
         "surface.loader.function.rust.load.module.source.05yf8kp",
@@ -267615,6 +269417,8 @@
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+        "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
         "surface.loader.function.rust.resolve.transpile.cache.dir.0aocxoq",
         "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
@@ -267759,7 +269563,7 @@
         "surface.startup.supervisor.history.store.open.0u6mrwv",
         "surface.startup.supervisor.history.user.key.read.create.16p08qw"
       ],
-      "rationale": "Covered by 296 observed effect edges."
+      "rationale": "Covered by 300 observed effect edges."
     },
     {
       "definitionId": "inspector:activate",
@@ -269097,9 +270901,11 @@
         "surface.loader.entry.load.1vl9zdm",
         "surface.loader.entry.local.require.03abno3",
         "surface.loader.entry.module.dynamic.import.0dus8oc",
+        "surface.loader.entry.module.static.import.1kce2vv",
         "surface.loader.function.javascript.importimpl.06qdy7u",
         "surface.loader.function.javascript.load.0jcovw1",
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
+        "surface.loader.function.javascript.modulestaticimport.02xy8he",
         "surface.loader.function.javascript.publicimport.1gdgiad",
         "surface.loader.function.javascript.sessionstaticimport.038w34i",
         "surface.loader.function.rust.load.module.source.05yf8kp",
@@ -269107,6 +270913,8 @@
         "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+        "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
         "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.cache.status.02xnv4z",
@@ -269158,7 +270966,7 @@
         "surface.startup.env.ibex.hermes.tool.dir.0878egj",
         "surface.startup.env.path.1sio6bc"
       ],
-      "rationale": "Covered by 78 observed effect edges."
+      "rationale": "Covered by 82 observed effect edges."
     },
     {
       "definitionId": "process:umask",
@@ -269492,6 +271300,7 @@
         "surface.host.abi.ex.hermes.gc.07e6shp",
         "surface.host.abi.ex.hermes.get.gc.stats.0w4g890",
         "surface.host.abi.ex.hermes.get.heap.info.0sv0nxd",
+        "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
         "surface.host.abi.ex.hermes.value.kind.1p2efiz",
         "surface.host.abi.ex.worklet.install.metrics.1d5ipuc",
         "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4",
@@ -269657,7 +271466,7 @@
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 481 observed surface edges."
+      "rationale": "Closed by 482 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -269795,9 +271604,11 @@
         "surface.loader.entry.load.1vl9zdm",
         "surface.loader.entry.local.require.03abno3",
         "surface.loader.entry.module.dynamic.import.0dus8oc",
+        "surface.loader.entry.module.static.import.1kce2vv",
         "surface.loader.function.javascript.importimpl.06qdy7u",
         "surface.loader.function.javascript.load.0jcovw1",
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
+        "surface.loader.function.javascript.modulestaticimport.02xy8he",
         "surface.loader.function.javascript.publicimport.1gdgiad",
         "surface.loader.function.javascript.sessionstaticimport.038w34i",
         "surface.loader.function.rust.load.module.source.05yf8kp",
@@ -269805,6 +271616,8 @@
         "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+        "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
         "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.cache.status.02xnv4z",
@@ -269856,7 +271669,7 @@
         "surface.native.op.global.process.stdin.setencoding.0rna4tr",
         "surface.native.op.global.require.00nyxb6"
       ],
-      "rationale": "Covered by 137 observed effect edges."
+      "rationale": "Covered by 141 observed effect edges."
     },
     {
       "definitionId": "stdio:write",
@@ -269947,9 +271760,11 @@
         "surface.loader.entry.load.1vl9zdm",
         "surface.loader.entry.local.require.03abno3",
         "surface.loader.entry.module.dynamic.import.0dus8oc",
+        "surface.loader.entry.module.static.import.1kce2vv",
         "surface.loader.function.javascript.importimpl.06qdy7u",
         "surface.loader.function.javascript.load.0jcovw1",
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
+        "surface.loader.function.javascript.modulestaticimport.02xy8he",
         "surface.loader.function.javascript.publicimport.1gdgiad",
         "surface.loader.function.javascript.sessionstaticimport.038w34i",
         "surface.loader.function.rust.load.module.source.05yf8kp",
@@ -269957,6 +271772,8 @@
         "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.typed.1thkdsk",
+        "surface.loader.function.rust.resolve.meta.typed.1o68m2x",
         "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.cache.status.02xnv4z",
@@ -270031,7 +271848,7 @@
         "surface.startup.env.node.pending.deprecation.08gz4k2",
         "surface.startup.env.term.1uw6gat"
       ],
-      "rationale": "Covered by 168 observed effect edges."
+      "rationale": "Covered by 172 observed effect edges."
     },
     {
       "definitionId": "storage:persist",
@@ -270613,59 +272430,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-6_vD3_Ym3fSCJoPJC7qncc8YwMPEg8OkwjIYEKrJHGc"
+      "rawContentDigest": "sha256-Jt-Brr8qm22iYFqxhd9oLe7ctoN1jJC_SzLGkcNxi00"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-G8VFBsYKe7fQaNt2kkWov6AqgAaao8skg6Bfvr5JM98"
+      "rawContentDigest": "sha256-j98Kbz400ivBX-Ev7_uANzxES92iXcXENAZCnYPAmLo"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-sCKepkD47SjxzsASVY4dUek-7pULg9_csEkG4nbzpoY"
+      "rawContentDigest": "sha256-sQJm2_dGfMEX6mLxLLyg5NTEk4HJxVccCTLUvf65cZs"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-tPD7jBYc44CyREHNIImM4ix65iDWSOz1XKJS0oIWlvY"
+      "rawContentDigest": "sha256-ZpJpqDi134t7DlwkY-li01zmYGQelsCsVTS0snhzn0U"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-sgkoIFuuU-VE_EShP-6ObPVA-onAzQNMqavyBG4s-2s"
+      "rawContentDigest": "sha256-3C9VN0U7WOiCQIVwfh5F54ZsW4rqJr-SaSPe4oX_J_Q"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-FbQtmaz6vvYkeAdYaB_WHpq3UOQyVDw8YXLOC0uhzEo"
+      "rawContentDigest": "sha256-DhSfYAqcZVucInAIKn3fMkHqxivb07zn6gYDRXkxrZc"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-CULeHo54AVoiW3doa_M4wY4oicAX1bJoJ9-w4FHJOjM"
+      "rawContentDigest": "sha256-r0AFEkHgvyzXxppRWs8-hmBnpfyWYmQVYFadntQItEU"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-Vc1lZhSi2U5FQZYzkzTK7qshY25LnzP0D541RlqF0k4"
+      "rawContentDigest": "sha256-1R-b2wWRRaRbvZ4uY8VucB_pPVjK2XTnYRyd3z3dzAw"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-IFokMmAsTjGgbgwM6eiW37ubwwA4_6P-8hnbcp186d0"
+      "rawContentDigest": "sha256-pt5e6ieuDXVFRZhYQEp9vxg9SDmiIe7wy6JaMEvpiNQ"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-9RYLihBOjTqfcXeFUUnqlHV40x-ipd4czGHFkpRkXUg"
+      "rawContentDigest": "sha256-lTyK7wMQb_wCbOkmc62wMUyWUyfR9SZ13G5hatf4SAU"
     }
   ],
   "counts": {
-    "observedReferences": 12774,
-    "logicalSurfaces": 7272,
-    "enforcementBranches": 7491,
-    "coverageEdges": 7272,
-    "targetCells": 7272
+    "observedReferences": 12839,
+    "logicalSurfaces": 7321,
+    "enforcementBranches": 7540,
+    "coverageEdges": 7321,
+    "targetCells": 7321
   }
 }
