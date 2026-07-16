@@ -3268,7 +3268,9 @@ fn validate_snapshot_protected_artifacts(
     Ok(())
 }
 
-fn object_identity_for_host_path(
+/// Pin a host path without following a final symlink/reparse point and derive
+/// its stable platform object identity from the opened handle.
+pub fn object_identity_for_host_path(
     path: &std::path::Path,
 ) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
     let mut options = std::fs::OpenOptions::new();
@@ -3313,7 +3315,10 @@ fn object_identity_for_metadata(
     })
 }
 
-fn object_identity_for_open_file(
+/// Derive a stable platform object identity from an already-open file handle.
+/// This is the cross-platform alternative to Rust's unstable Windows
+/// `MetadataExt::file_index` and `volume_serial_number` accessors.
+pub fn object_identity_for_open_file(
     file: &std::fs::File,
 ) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
     #[cfg(unix)]

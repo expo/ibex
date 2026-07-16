@@ -2716,38 +2716,10 @@ fn authenticated_installed_packages(
 }
 
 fn runtime_object_identity_json(path: &std::path::Path) -> Result<serde_json::Value> {
-    let metadata = std::fs::metadata(path)
+    let identity = ibex_runtime::host::object_identity_for_host_path(path)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
         .with_context(|| format!("failed to identify {}", path.display()))?;
-    runtime_object_identity_from_metadata(&metadata)
-}
-
-fn runtime_object_identity_from_metadata(
-    metadata: &std::fs::Metadata,
-) -> Result<serde_json::Value> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        return Ok(serde_json::json!({
-            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
-                "apple"
-            } else if cfg!(target_os = "android") {
-                "android"
-            } else {
-                "unix"
-            },
-            "volume": format!("dev:{}", metadata.dev()),
-            "file": format!("ino:{}", metadata.ino()),
-        }));
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        Ok(serde_json::json!({
-            "platform": "windows",
-            "volume": format!("volume:{}", metadata.volume_serial_number().unwrap_or(0)),
-            "file": format!("file:{}", metadata.file_index().unwrap_or(0)),
-        }))
-    }
+    serde_json::to_value(identity).context("serializing runtime object identity")
 }
 
 fn runtime_path_components_json(path: &std::path::Path) -> Result<Vec<serde_json::Value>> {
@@ -2832,7 +2804,9 @@ fn materialize_protected_artifact(
         if observed != expected {
             anyhow::bail!("protected artifact content mismatch at {}", path.display());
         }
-        runtime_object_identity_from_metadata(&metadata)
+        let identity = ibex_runtime::host::object_identity_for_open_file(file)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+        serde_json::to_value(identity).context("serializing protected artifact identity")
     }
 
     let directory = cache_root.join("capsec-artifacts");

@@ -2690,19 +2690,7 @@ mod tests {
 
     #[cfg(windows)]
     fn test_object_identity(path: &Path) -> capsec_semantics::model::ObjectIdentity {
-        use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
-        use std::os::windows::fs::MetadataExt;
-        let metadata = std::fs::metadata(path).unwrap();
-        ObjectIdentity {
-            platform: ObjectPlatform::Windows,
-            volume: NonEmptyString::new(format!(
-                "volume:{}",
-                metadata.volume_serial_number().unwrap_or(0)
-            ))
-            .unwrap(),
-            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))
-                .unwrap(),
-        }
+        crate::host::object_identity_for_host_path(path).unwrap()
     }
 
     fn test_loader() -> ModuleLoader {
