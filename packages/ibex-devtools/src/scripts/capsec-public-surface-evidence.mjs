@@ -1558,6 +1558,35 @@ function validateRuntimeInvocation(observation, recipe) {
     }
   } else if (authored.expectedResult === "absent") {
     if (
+      invocation.invocationSchema ===
+        "ibex/capsec-builtin-export-invocation/1" &&
+      invocation.kind === "builtin-export-read"
+    ) {
+      exactKeys(
+        invocation.result,
+        ["kind", "moduleSpecifier", "exportName", "segment", "available"],
+        `${recipe.fixtureId}: target-absent builtin result`,
+      );
+      const availability = authored.sourceDescriptor?.platformAvailability;
+      const accessPath = authored.sourceDescriptor?.access?.path;
+      if (
+        invocation.result.kind !== "missing" ||
+        invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+        invocation.result.exportName !== authored.exportName ||
+        invocation.result.segment !== authored.exportName ||
+        !Array.isArray(invocation.result.available) ||
+        invocation.result.available.includes(authored.exportName) ||
+        !Array.isArray(availability) ||
+        availability.length === 0 ||
+        availability.includes("darwin") ||
+        !Array.isArray(accessPath) ||
+        accessPath.at(-1) !== authored.exportName
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: public builtin did not prove source-bound target absence`,
+        );
+      }
+    } else if (
       invocation.invocationSchema === "ibex/capsec-native-global-invocation/1"
     ) {
       if (invocation.result.kind !== "missing") {
@@ -2127,11 +2156,18 @@ export function validatePublicFixtureRuntimeObservation(
     ) {
       throw new Error(`${recipe.fixtureId}: malformed exact-absence evidence`);
     }
+    const builtinTargetAbsence =
+      authored.expectedResult === "absent" &&
+      observation.invocation.invocationSchema ===
+        "ibex/capsec-builtin-export-invocation/1";
     const sourceVariantAbsence =
       authored.expectedResult === "absent" &&
+      !builtinTargetAbsence &&
       observation.invocation.invocationSchema !==
         "ibex/capsec-native-global-invocation/1";
-    terminalObservedKey = sourceVariantAbsence
+    terminalObservedKey = builtinTargetAbsence
+      ? observation.invocation.surfaceObservedKey
+      : sourceVariantAbsence
       ? `${observation.invocation.result.surfaceKind}:${observation.invocation.result.surfaceName}`
       : observation.invocation.surfaceObservedKey;
   } else {

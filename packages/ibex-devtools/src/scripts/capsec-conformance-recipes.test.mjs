@@ -721,9 +721,24 @@ describe("exact-target CapSec executable recipes", () => {
         ),
       ),
     ).toBe(false);
+    const targetAbsentReads = publicReads.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.expectedResult === "absent",
+    );
+    expect(targetAbsentReads).toHaveLength(14);
     expect(
-      recipes.summary.residualReasons["builtin-export-not-available-on-target"],
-    ).toBe(14);
+      targetAbsentReads.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor
+            .platformAvailability.length > 0 &&
+          !recipe.publicSurfaceProbe.invocation.sourceDescriptor
+            .platformAvailability.includes("darwin"),
+      ),
+    ).toBe(true);
+    expect(
+      recipes.summary.residualReasons["builtin-export-not-available-on-target"] ??
+        0,
+    ).toBe(0);
   });
 
   test("binds target absence to source variants and exact runtime lookups", () => {

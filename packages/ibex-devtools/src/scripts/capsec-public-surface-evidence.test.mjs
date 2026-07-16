@@ -364,6 +364,81 @@ function noncapBuiltinCallObservation(recipe) {
   };
 }
 
+function completeNoncapBuiltinAbsenceCatalog() {
+  const catalog = completeNoncapBuiltinCallCatalog();
+  const recipe = catalog.recipes[0];
+  const surfaceObservedKey = "builtin:export:node_constants:EDQUOT";
+  const sourceDescriptor = {
+    kind: "builtin-export",
+    sourceKey: "node_constants",
+    exportName: "EDQUOT",
+    exportIdioms: ["object-binding", "object-source", "table-copy"],
+    moduleSpecifiers: ["constants", "node:constants"],
+    sourceRef: "src/builtins/constants.js#exports:EDQUOT",
+    valueShape: "data",
+    platformAvailability: ["android", "linux"],
+    access: { kind: "export-property", path: ["EDQUOT"] },
+  };
+  recipe.fixtureId = "fixture.noncap-builtin.target-absent";
+  recipe.terminalObservedKey = surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [surfaceObservedKey];
+  recipe.route.alternatives = [
+    { terminalObservedKey: surfaceObservedKey, proofPaths: [surfaceObservedKey] },
+  ];
+  recipe.publicSurfaceProbe.surfaceObservedKey = surfaceObservedKey;
+  recipe.publicSurfaceProbe.invocation = {
+    invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+    kind: "builtin-export-read",
+    moduleSpecifier: "node:constants",
+    exportName: "EDQUOT",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    arguments: [],
+    setup: { kind: "none" },
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    requiredAuthority: [],
+    expectedResult: "absent",
+    expectedTypedDecisionCount: 0,
+    expectedTypedStages: [],
+    allowedCoverageEdgeIds: [],
+    expectedActionIds: [],
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function noncapBuiltinAbsenceObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      moduleSpecifier: invocation.moduleSpecifier,
+      exportName: invocation.exportName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      completion: {
+        kind: invocation.completion.kind,
+        timeoutMilliseconds: invocation.completion.timeoutMilliseconds,
+        status: "quiescent",
+      },
+      result: {
+        kind: "missing",
+        moduleSpecifier: invocation.moduleSpecifier,
+        exportName: invocation.exportName,
+        segment: invocation.exportName,
+        available: ["EACCES", "ENOENT"],
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
 function completeAbsenceCatalog() {
   const sourceDescriptor = {
     kind: "target-absent-host-abi",
@@ -1686,6 +1761,48 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/unsupported runtime invocation schema/);
+  });
+
+  test("accepts source-bound builtin target absence only after a public read", () => {
+    const catalog = completeNoncapBuiltinAbsenceCatalog();
+    const recipe = catalog.recipes[0];
+    const observed = noncapBuiltinAbsenceObservation(recipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const fabricated = structuredClone(observed);
+    fabricated.invocation.result.available.push("EDQUOT");
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: fabricated,
+        coverage,
+      }),
+    ).toThrow(/did not prove source-bound target absence/);
+
+    const availableHere = structuredClone(recipe);
+    availableHere.publicSurfaceProbe.invocation.sourceDescriptor.platformAvailability =
+      ["darwin", "linux"];
+    availableHere.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        availableHere.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    const availableObservation = noncapBuiltinAbsenceObservation(availableHere);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: availableHere,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: availableObservation,
+        coverage,
+      }),
+    ).toThrow(/did not prove source-bound target absence/);
   });
 
   test("accepts exact-target ABI absence only after a runtime symbol lookup", () => {

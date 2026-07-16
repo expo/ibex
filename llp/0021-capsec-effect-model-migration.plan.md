@@ -554,16 +554,18 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalog has 22,996 required
-fixtures, 4,638 fully executable recipes, and 18,358 unresolved
+fixtures, 4,652 fully executable recipes, and 18,344 unresolved
 fixtures. The latest source-bound tranche adds five cached system-information
 authorization scenarios and twelve asynchronous path-operation scenarios for
 the `readdir` and `realpath` branches, plus five zlib stream lifecycle recipes,
 eleven TLS lifecycle recipes, and a principal-owned network stamp recipe. The
 resource recipes create, exercise, and release their runtime/principal-owned
-native state in one bounded invocation. Async evidence remains open through a
-bounded event-loop quiescence drain and binds both the dispatch edge and the
-worker edge actually observed at runtime. The existing Apple matrix therefore
-remains unsupported;
+native state in one bounded invocation. Fourteen Linux/Android-only
+`node:constants` exports now carry source-bound Apple absence evidence from the
+real public module path rather than remaining generic availability residuals.
+Async evidence remains open through a bounded event-loop quiescence drain and
+binds both the dispatch edge and the worker edge actually observed at runtime.
+The existing Apple matrix therefore remains unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
 

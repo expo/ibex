@@ -585,13 +585,20 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         Some(descriptor.export_name.as_str())
     );
     assert!(!descriptor.source_ref.is_empty());
+    if invocation.expected_result == "absent" {
+        assert!(descriptor.platform_availability.is_some());
+    }
     if let Some(platforms) = descriptor.platform_availability.as_deref() {
         assert!(!platforms.is_empty());
         assert!(is_sorted_set(platforms));
         assert!(platforms
             .iter()
             .all(|platform| matches!(platform.as_str(), "android" | "darwin" | "linux")));
-        assert!(platforms.iter().any(|platform| platform == "darwin"));
+        if invocation.expected_result == "absent" {
+            assert!(!platforms.iter().any(|platform| platform == "darwin"));
+        } else {
+            assert!(platforms.iter().any(|platform| platform == "darwin"));
+        }
     }
     assert!(!descriptor.export_idioms.is_empty());
     assert!(is_sorted_set(&descriptor.export_idioms));
@@ -606,7 +613,10 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         Some(&descriptor.access)
     );
     if is_read {
-        assert_eq!(invocation.expected_result, "return");
+        assert!(matches!(
+            invocation.expected_result.as_str(),
+            "return" | "absent"
+        ));
         assert!(invocation.template_id.is_none());
         assert!(invocation.body_entry_proof.is_none());
         assert!(invocation.arguments.is_empty());
@@ -796,7 +806,12 @@ async fn execute_recipe(
     quiescence?;
     let invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("public builtin returned invalid JSON");
-    if invocation_result["kind"] != "return" {
+    let expected_kind = if probe.invocation.expected_result == "absent" {
+        "missing"
+    } else {
+        "return"
+    };
+    if invocation_result["kind"] != expected_kind {
         return Err(format!(
             "{}: public builtin probe failed: {invocation_result}",
             recipe.fixture_id

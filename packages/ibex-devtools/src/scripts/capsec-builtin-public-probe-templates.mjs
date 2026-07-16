@@ -1579,7 +1579,12 @@ function exportAccess(exportName, exportIdioms) {
   return { kind: "export-property", path: segments };
 }
 
-function sourceDescriptor(surface, target, allowedValueShapes) {
+function sourceDescriptor(
+  surface,
+  target,
+  allowedValueShapes,
+  { allowTargetAbsence = false } = {},
+) {
   const metadata = surface?.metadata;
   const availability = platformAvailability(metadata);
   const targetPlatform = platformForTarget(target);
@@ -1604,7 +1609,8 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
     canonicalJson(metadata.publicModuleSpecifiers) !==
       canonicalJson(canonicalSet(metadata.publicModuleSpecifiers)) ||
     availability === false ||
-    (availability &&
+    (!allowTargetAbsence &&
+      availability &&
       (!targetPlatform || !availability.includes(targetPlatform))) ||
     !Array.isArray(surface.sourceRefs) ||
     surface.sourceRefs.length !== 1
@@ -1664,10 +1670,17 @@ export function authoredNonCapabilityBuiltinProbe({
   if (!surfaceObservedKey.startsWith("builtin:export:")) {
     return null;
   }
+  const availability = platformAvailability(surface?.metadata);
+  const targetPlatform = platformForTarget(target);
+  const targetAbsent =
+    Array.isArray(availability) &&
+    targetPlatform !== null &&
+    !availability.includes(targetPlatform);
   const readDescriptor = sourceDescriptor(
     surface,
     target,
     new Set(["accessor", "data"]),
+    { allowTargetAbsence: targetAbsent },
   );
   const readEligible =
     readDescriptor &&
@@ -1701,7 +1714,7 @@ export function authoredNonCapabilityBuiltinProbe({
         setup: { kind: "none" },
         completion: { ...EVENT_LOOP_COMPLETION },
         requiredAuthority: [],
-        expectedResult: "return",
+        expectedResult: targetAbsent ? "absent" : "return",
         expectedTypedDecisionCount: 0,
         expectedTypedStages: [],
         allowedCoverageEdgeIds: [],
