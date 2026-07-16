@@ -244,14 +244,14 @@ describe("Exact fixture-evidence pilot", () => {
     };
   }, 60_000);
 
-  test("accepts exactly seven independently bound runtime observations", () => {
+  test("accepts exactly eight independently bound runtime observations", () => {
     expect(() =>
       validateExactFixtureEvidenceArtifact(artifact, context),
     ).not.toThrow();
-    expect(artifact.executions).toHaveLength(7);
+    expect(artifact.executions).toHaveLength(8);
   });
 
-  test("credits exactly seven actual fixtures and keeps promotion closed", () => {
+  test("credits exactly eight actual fixtures and keeps promotion closed", () => {
     const report = buildConformanceReport({
       coverage: context.coverage,
       implementation: context.implementation,
@@ -264,9 +264,9 @@ describe("Exact fixture-evidence pilot", () => {
     });
     expect(report.status).toBe("incomplete");
     expect(report.summary).toMatchObject({
-      requiredFixtures: 22_990,
-      passedFixtures: 7,
-      missingFixtures: 22_983,
+      requiredFixtures: 22_993,
+      passedFixtures: 8,
+      missingFixtures: 22_985,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(/incomplete/u);

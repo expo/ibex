@@ -10,9 +10,16 @@
 
 use anyhow::{Context as _, Result};
 use base64::Engine as _;
-use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+use capsec_semantics::arming::{
+    ArmedSnapshot, ExactEmbedderBinding, ExactEmbedderEndowments, ExpectedArmingIdentity,
+    ExpectedProtectedArtifact, ProtectedArtifactRole,
+};
 use capsec_semantics::digest::{compute_checked_contract_digest, DigestKind};
-use capsec_semantics::model::Digest;
+use capsec_semantics::model::{Digest, LogicalPath, LogicalRoot};
+use sha2::{Digest as _, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::{Read as _, Seek as _, Write as _};
+use std::path::Path;
 
 const PRODUCTION_RUN_NONCE_BYTES: usize = 16;
 const CONTRACT_FIXTURE_RUN_NONCE: &str = "AQIDBAUGBwgJCgsMDQ4PEA";
@@ -24,6 +31,298 @@ pub struct PreparedEmbedderArtifacts {
     pub armed_snapshot_digest: String,
     pub snapshot: serde_json::Value,
     pub expected_identity: ExpectedArmingIdentity,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExactOperationManifest {
+    #[serde(rename = "$schema")]
+    schema_path: Option<String>,
+    schema: String,
+    schema_version: u32,
+    operations: Vec<ExactOperation>,
+    endowments: ExactOperationEndowments,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExactOperation {
+    id: u32,
+    name: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExactOperationEndowments {
+    app: Vec<u32>,
+    agent_isolate: Vec<u32>,
+    ui_worklet: Vec<u32>,
+}
+
+struct MaterializedManifest {
+    host_path: LogicalPath,
+    object: capsec_semantics::model::ObjectIdentity,
+    content_digest: Digest,
+}
+
+fn valid_operation_name(name: &str) -> bool {
+    let mut segments = name.split('.');
+    let valid_segment = |segment: &str| {
+        let mut characters = segment.chars();
+        characters
+            .next()
+            .is_some_and(|character| character.is_ascii_alphabetic())
+            && characters.all(|character| character.is_ascii_alphanumeric())
+    };
+    let Some(first) = segments.next() else {
+        return false;
+    };
+    valid_segment(first) && segments.clone().next().is_some() && segments.all(valid_segment)
+}
+
+fn parse_exact_operation_manifest(bytes: &[u8]) -> Result<ExactEmbedderBinding> {
+    let text = std::str::from_utf8(bytes).context("Exact operation manifest is not UTF-8")?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .context("Exact operation manifest is not strict JSON")?;
+    let manifest: ExactOperationManifest =
+        serde_json::from_value(value).context("invalid Exact operation manifest")?;
+    anyhow::ensure!(
+        manifest.schema == "exact.host-call-operations/v1" && manifest.schema_version == 1,
+        "Exact operation manifest has an unsupported schema"
+    );
+    anyhow::ensure!(
+        manifest
+            .schema_path
+            .as_deref()
+            .is_none_or(|path| path == "./host-call-operations.schema.json"),
+        "Exact operation manifest has an unexpected schema path"
+    );
+    anyhow::ensure!(
+        !manifest.operations.is_empty(),
+        "Exact operation manifest operations must not be empty"
+    );
+
+    let mut previous_id = 0_u32;
+    let mut ids = BTreeSet::new();
+    let mut names = BTreeSet::new();
+    let mut names_by_id = BTreeMap::new();
+    for operation in &manifest.operations {
+        anyhow::ensure!(
+            operation.id > previous_id,
+            "Exact operation IDs must be strictly increasing"
+        );
+        anyhow::ensure!(
+            valid_operation_name(&operation.name),
+            "Exact operation name is invalid: {}",
+            operation.name
+        );
+        anyhow::ensure!(
+            ids.insert(operation.id),
+            "Exact operation ID is duplicated: {}",
+            operation.id
+        );
+        anyhow::ensure!(
+            names.insert(operation.name.clone()),
+            "Exact operation name is duplicated: {}",
+            operation.name
+        );
+        names_by_id.insert(operation.id, operation.name.as_str());
+        previous_id = operation.id;
+    }
+
+    let mut endowed = BTreeSet::new();
+    for (context, context_ids) in [
+        ("app", &manifest.endowments.app),
+        ("agentIsolate", &manifest.endowments.agent_isolate),
+        ("uiWorklet", &manifest.endowments.ui_worklet),
+    ] {
+        anyhow::ensure!(
+            context_ids.len() <= 4096,
+            "Exact {context} endowment exceeds the 4096-operation limit"
+        );
+        let mut previous = 0_u32;
+        for id in context_ids {
+            anyhow::ensure!(
+                ids.contains(id),
+                "Exact {context} endowment references unknown operation ID {id}"
+            );
+            anyhow::ensure!(
+                *id > previous,
+                "Exact {context} endowment IDs must be strictly increasing"
+            );
+            anyhow::ensure!(
+                endowed.insert(*id),
+                "Exact operation ID {id} is endowed to multiple runtime contexts"
+            );
+            previous = *id;
+        }
+    }
+    anyhow::ensure!(
+        !manifest.endowments.app.is_empty(),
+        "Exact app endowment must not be empty"
+    );
+    anyhow::ensure!(
+        manifest.endowments.ui_worklet.is_empty(),
+        "Exact UI worklet endowment must remain empty"
+    );
+    anyhow::ensure!(
+        endowed == ids,
+        "every Exact operation must have exactly one runtime endowment"
+    );
+    let agent_names = manifest
+        .endowments
+        .agent_isolate
+        .iter()
+        .filter_map(|id| names_by_id.get(id).copied())
+        .collect::<BTreeSet<_>>();
+    let expected_agent_names = [
+        "agentIsolate.appRuntimeHealth",
+        "agentIsolate.bindFailed",
+        "agentIsolate.config",
+        "agentIsolate.ready",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    anyhow::ensure!(
+        agent_names == expected_agent_names,
+        "Exact agent isolate must receive exactly its four control-plane operations"
+    );
+
+    let manifest_digest = Digest::new(format!(
+        "sha256-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+    ))
+    .map_err(anyhow::Error::msg)?;
+    Ok(ExactEmbedderBinding {
+        schema: "exact/host-operation-endowments/1".into(),
+        operation_manifest_digest: manifest_digest,
+        endowments: ExactEmbedderEndowments {
+            app: manifest.endowments.app,
+            agent_isolate: manifest.endowments.agent_isolate,
+            ui_worklet: manifest.endowments.ui_worklet,
+        },
+    })
+}
+
+fn manifest_artifact_path(path: &Path) -> Result<LogicalPath> {
+    Ok(LogicalPath {
+        root: LogicalRoot::Absolute,
+        components: super::host_path_components(path)?,
+        host_bound: Some(true),
+    })
+}
+
+fn materialize_exact_operation_manifest(
+    bytes: &[u8],
+    digest: &Digest,
+) -> Result<MaterializedManifest> {
+    let cache_root = crate::runtime_cache_dir()?;
+    let directory = cache_root.join("capsec-artifacts");
+    std::fs::create_dir_all(&directory)?;
+    let directory_metadata = std::fs::symlink_metadata(&directory)?;
+    anyhow::ensure!(
+        directory_metadata.is_dir() && !directory_metadata.file_type().is_symlink(),
+        "Exact manifest artifact parent is not a stable directory"
+    );
+    let directory = std::fs::canonicalize(directory)?;
+    let filename = format!(
+        "{}.exact-operation-manifest.json",
+        digest.as_str().trim_start_matches("sha256-")
+    );
+    let path = directory.join(filename);
+
+    let open_existing = || -> Result<std::fs::File> {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        }
+        options
+            .open(&path)
+            .with_context(|| format!("failed to pin Exact manifest artifact {}", path.display()))
+    };
+    let validate = |file: &mut std::fs::File| -> Result<()> {
+        let metadata = file.metadata()?;
+        anyhow::ensure!(
+            metadata.is_file(),
+            "Exact manifest artifact is not a regular file"
+        );
+        #[cfg(unix)]
+        anyhow::ensure!(
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                metadata.permissions().mode() & 0o222 == 0
+            },
+            "Exact manifest artifact is mutable"
+        );
+        #[cfg(not(unix))]
+        anyhow::ensure!(
+            metadata.permissions().readonly(),
+            "Exact manifest artifact is mutable"
+        );
+        file.rewind()?;
+        let mut observed = Vec::with_capacity(metadata.len() as usize);
+        file.read_to_end(&mut observed)?;
+        anyhow::ensure!(
+            observed == bytes,
+            "Exact manifest artifact content mismatch"
+        );
+        Ok(())
+    };
+
+    if path.exists() {
+        let mut existing = open_existing()?;
+        validate(&mut existing)?;
+    } else {
+        let mut nonce = [0_u8; 16];
+        getrandom::getrandom(&mut nonce)
+            .context("failed to name Exact manifest staging artifact")?;
+        let temporary = directory.join(format!(
+            ".exact-operation-manifest.{}.tmp",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(nonce)
+        ));
+        let mut staged = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        let publish = (|| -> Result<()> {
+            staged.write_all(bytes)?;
+            staged.sync_all()?;
+            let mut permissions = staged.metadata()?.permissions();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                permissions.set_mode(0o400);
+            }
+            #[cfg(not(unix))]
+            permissions.set_readonly(true);
+            staged.set_permissions(permissions)?;
+            staged.sync_all()?;
+            validate(&mut staged)?;
+            match std::fs::hard_link(&temporary, &path) {
+                Ok(()) => std::fs::File::open(&directory)?.sync_all()?,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let mut existing = open_existing()?;
+                    validate(&mut existing)?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+            Ok(())
+        })();
+        let _ = std::fs::remove_file(&temporary);
+        publish?;
+    }
+
+    let path = std::fs::canonicalize(path)?;
+    let object = super::object_identity_for_host_path(&path)?;
+    Ok(MaterializedManifest {
+        host_path: manifest_artifact_path(&path)?,
+        object,
+        content_digest: digest.clone(),
+    })
 }
 
 fn runtime_target_triple() -> String {
@@ -166,12 +465,94 @@ pub fn prepare_embedder_artifacts(
     })
 }
 
+/// Authenticate a generic Ibex artifact pair, bind Exact's checked operation
+/// manifest as the fifth protected artifact, and freshen the result.
+///
+/// This is target-local by design: materializing the protected manifest and
+/// authenticating the engine/root objects must happen after application
+/// installation, where their real filesystem identities exist. The caller
+/// supplies no operation allowlist; all three context endowments are derived
+/// from the one strict manifest byte string.
+/// @ref LLP 0002#the-exact-embedder-ingress — the manifest digest and complete
+/// context projection are authenticated before Exact can install its channel.
+pub fn prepare_exact_embedder_artifacts(
+    template_bytes: &[u8],
+    expected_identity_bytes: &[u8],
+    operation_manifest_bytes: &[u8],
+) -> Result<PreparedEmbedderArtifacts> {
+    super::reject_closed_startup_environment()?;
+    let expected_text = std::str::from_utf8(expected_identity_bytes)
+        .context("expected arming identity is not UTF-8")?;
+    let expected_value = capsec_semantics::strict_json::parse_strict(expected_text)
+        .context("expected arming identity is not strict JSON")?;
+    let supplied: ExpectedArmingIdentity =
+        serde_json::from_value(expected_value).context("invalid expected arming identity")?;
+    let mut expected = verify_expected_identity(supplied)?;
+
+    let template = ArmedSnapshot::load(template_bytes, &expected)
+        .context("snapshot template authentication refused")?;
+    super::validate_loaded_engine_identity(&template)?;
+    super::validate_snapshot_protected_artifacts(&template)?;
+    super::validate_snapshot_root_bindings(&template)?;
+    anyhow::ensure!(
+        template.document().get("exactEmbedder").is_none(),
+        "snapshot template already carries an Exact embedder binding"
+    );
+    anyhow::ensure!(
+        !expected
+            .protected_artifacts
+            .iter()
+            .any(|artifact| artifact.role == ProtectedArtifactRole::ExactOperationManifest),
+        "expected identity already carries an Exact operation manifest"
+    );
+
+    let binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
+    let manifest = materialize_exact_operation_manifest(
+        operation_manifest_bytes,
+        &binding.operation_manifest_digest,
+    )?;
+    let mut document = template.document().clone();
+    document["exactEmbedder"] = serde_json::to_value(binding)?;
+    document["protectedObjects"]
+        .as_array_mut()
+        .context("snapshot protectedObjects must be an array")?
+        .push(serde_json::json!({
+            "role": "exact-operation-manifest",
+            "object": manifest.object.clone(),
+            "deniedActions": ["fs:write"],
+        }));
+    expected
+        .protected_artifacts
+        .push(ExpectedProtectedArtifact {
+            role: ProtectedArtifactRole::ExactOperationManifest,
+            host_path: manifest.host_path,
+            object: manifest.object,
+            content_digest: manifest.content_digest,
+        });
+
+    let digest = freshen_document(&mut document, fresh_production_nonce()?)?;
+    expected.armed_snapshot_digest = digest.clone();
+    let fresh_bytes = serde_json::to_vec(&document)?;
+    let fresh = ArmedSnapshot::load(&fresh_bytes, &expected)
+        .context("Exact-bound snapshot authentication refused")?;
+    super::validate_loaded_engine_identity(&fresh)?;
+    super::validate_snapshot_protected_artifacts(&fresh)?;
+    super::validate_snapshot_root_bindings(&fresh)?;
+
+    Ok(PreparedEmbedderArtifacts {
+        artifact_schema: "ibex/armed-embedder-artifacts/1",
+        armed_snapshot_digest: digest.as_str().to_owned(),
+        snapshot: document,
+        expected_identity: expected,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use capsec_semantics::arming::{ExpectedProtectedArtifact, ProtectedArtifactRole};
     use capsec_semantics::model::{LogicalPath, LogicalRoot};
-    use sha2::{Digest as _, Sha256};
+    use sha2::Sha256;
 
     struct RealEmbedderFixture {
         _temp: tempfile::TempDir,
@@ -372,6 +753,47 @@ mod tests {
         serde_json::from_slice(&bytes).unwrap()
     }
 
+    fn exact_manifest() -> Vec<u8> {
+        br#"{
+          "$schema":"./host-call-operations.schema.json",
+          "schema":"exact.host-call-operations/v1",
+          "schemaVersion":1,
+          "operations":[
+            {"id":1000,"name":"app.render"},
+            {"id":2200,"name":"agentIsolate.appRuntimeHealth"},
+            {"id":2201,"name":"agentIsolate.bindFailed"},
+            {"id":2202,"name":"agentIsolate.config"},
+            {"id":2203,"name":"agentIsolate.ready"}
+          ],
+          "endowments":{
+            "app":[1000],
+            "agentIsolate":[2200,2201,2202,2203],
+            "uiWorklet":[]
+          }
+        }"#
+        .to_vec()
+    }
+
+    fn prepare_exact_through_abi(fixture: &RealEmbedderFixture) -> serde_json::Value {
+        let manifest = exact_manifest();
+        let output = unsafe {
+            crate::host::abi::ex_host_prepare_exact_armed_embedder_artifacts(
+                fixture.snapshot.as_ptr(),
+                fixture.snapshot.len(),
+                fixture.expected_identity.as_ptr(),
+                fixture.expected_identity.len(),
+                manifest.as_ptr(),
+                manifest.len(),
+            )
+        };
+        assert!(!output.is_null());
+        let bytes = unsafe { std::ffi::CStr::from_ptr(output) }
+            .to_bytes()
+            .to_vec();
+        crate::host::abi::ex_host_free_string(output);
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
     fn with_exact_embedder_binding(mut fixture: RealEmbedderFixture) -> RealEmbedderFixture {
         let mut snapshot: serde_json::Value = serde_json::from_slice(&fixture.snapshot).unwrap();
         let mut expected: ExpectedArmingIdentity =
@@ -534,6 +956,77 @@ mod tests {
         assert_eq!(
             reingested.digest().as_str(),
             artifacts["armedSnapshotDigest"].as_str().unwrap()
+        );
+    }
+
+    #[test]
+    fn public_exact_prepare_derives_and_protects_manifest_endowments() {
+        let fixture = real_embedder_fixture();
+        let envelope = prepare_exact_through_abi(&fixture);
+        assert_eq!(envelope["ok"], true, "{envelope}");
+        let artifacts = &envelope["artifacts"];
+        assert_eq!(
+            artifacts["snapshot"]["exactEmbedder"]["schema"],
+            "exact/host-operation-endowments/1"
+        );
+        assert_eq!(
+            artifacts["snapshot"]["exactEmbedder"]["endowments"]["app"],
+            serde_json::json!([1000])
+        );
+        assert_eq!(
+            artifacts["snapshot"]["exactEmbedder"]["endowments"]["agentIsolate"],
+            serde_json::json!([2200, 2201, 2202, 2203])
+        );
+        assert_eq!(
+            artifacts["snapshot"]["exactEmbedder"]["endowments"]["uiWorklet"],
+            serde_json::json!([])
+        );
+        assert!(artifacts["snapshot"]["protectedObjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["role"] == "exact-operation-manifest"));
+        assert!(artifacts["expectedIdentity"]["protectedArtifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["role"] == "exact-operation-manifest"));
+        let digest = artifacts["snapshot"]["exactEmbedder"]["operationManifestDigest"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            artifacts["expectedIdentity"]["protectedArtifacts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["role"] == "exact-operation-manifest")
+                .unwrap()["contentDigest"],
+            digest
+        );
+    }
+
+    #[test]
+    fn exact_manifest_validation_refuses_noncanonical_or_ambient_endowments() {
+        let mut reordered: serde_json::Value = serde_json::from_slice(&exact_manifest()).unwrap();
+        reordered["endowments"]["agentIsolate"] = serde_json::json!([2201, 2200, 2202, 2203]);
+        assert!(
+            parse_exact_operation_manifest(&serde_json::to_vec(&reordered).unwrap())
+                .unwrap_err()
+                .to_string()
+                .contains("strictly increasing")
+        );
+
+        let mut worklet: serde_json::Value = serde_json::from_slice(&exact_manifest()).unwrap();
+        worklet["operations"]
+            .as_array_mut()
+            .unwrap()
+            .insert(1, serde_json::json!({"id": 1001, "name": "app.measure"}));
+        worklet["endowments"]["uiWorklet"] = serde_json::json!([1001]);
+        assert!(
+            parse_exact_operation_manifest(&serde_json::to_vec(&worklet).unwrap())
+                .unwrap_err()
+                .to_string()
+                .contains("UI worklet endowment must remain empty")
         );
     }
 

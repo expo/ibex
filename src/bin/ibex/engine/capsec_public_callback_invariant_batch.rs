@@ -279,7 +279,8 @@ fn expected_invariant(
                 Vec::new(),
                 Vec::new(),
             ),
-            "host-abi:ex_host_prepare_armed_embedder_artifacts" => (
+            "host-abi:ex_host_prepare_armed_embedder_artifacts"
+            | "host-abi:ex_host_prepare_exact_armed_embedder_artifacts" => (
                 "authority-control-plane",
                 "exact-artifact-prepare-round-trip",
                 Vec::new(),
@@ -1914,13 +1915,29 @@ async fn execute_exact_artifact_prepare(recipe: &Recipe) -> ScenarioExecution {
     let _reset = HostResetGuard;
     let session = format!("exact-artifact-prepare:{}", recipe.plan_digest);
     begin_observation(&session);
-    let output = unsafe {
-        crate::host::abi::ex_host_prepare_armed_embedder_artifacts(
-            fixture.snapshot.as_ptr(),
-            fixture.snapshot.len(),
-            fixture.expected_identity.as_ptr(),
-            fixture.expected_identity.len(),
-        )
+    let output = if recipe.terminal_observed_key
+        == "host-abi:ex_host_prepare_exact_armed_embedder_artifacts"
+    {
+        let manifest = br#"{"schema":"exact.host-call-operations/v1","schemaVersion":1,"operations":[{"id":1000,"name":"app.render"},{"id":2200,"name":"agentIsolate.appRuntimeHealth"},{"id":2201,"name":"agentIsolate.bindFailed"},{"id":2202,"name":"agentIsolate.config"},{"id":2203,"name":"agentIsolate.ready"}],"endowments":{"app":[1000],"agentIsolate":[2200,2201,2202,2203],"uiWorklet":[]}}"#;
+        unsafe {
+            crate::host::abi::ex_host_prepare_exact_armed_embedder_artifacts(
+                fixture.snapshot.as_ptr(),
+                fixture.snapshot.len(),
+                fixture.expected_identity.as_ptr(),
+                fixture.expected_identity.len(),
+                manifest.as_ptr(),
+                manifest.len(),
+            )
+        }
+    } else {
+        unsafe {
+            crate::host::abi::ex_host_prepare_armed_embedder_artifacts(
+                fixture.snapshot.as_ptr(),
+                fixture.snapshot.len(),
+                fixture.expected_identity.as_ptr(),
+                fixture.expected_identity.len(),
+            )
+        }
     };
     assert!(
         !output.is_null(),
@@ -2216,6 +2233,10 @@ async fn capsec_callback_invariant_mechanisms_smoke() {
         ),
         (
             "host-abi:ex_host_prepare_armed_embedder_artifacts",
+            "exact-artifact-prepare-round-trip",
+        ),
+        (
+            "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
             "exact-artifact-prepare-round-trip",
         ),
     ] {

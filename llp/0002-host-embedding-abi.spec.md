@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -237,8 +237,21 @@ target may advertise. The
 existence of this ABI by itself is not target-conformance evidence and does not
 relax the unsupported-target refusal.
 
-These three new symbols (`ex_hermes_set_exact_host_call_async`, its resolver,
-and `ex_host_prepare_armed_embedder_artifacts`) are a public, provisional
+`ex_host_prepare_exact_armed_embedder_artifacts` is the target-local binding
+step. It accepts an already-authenticated generic Ibex template pair plus the
+raw Exact operation-manifest bytes, validates the manifest's schema, operation
+ordering and uniqueness, exhaustive one-context projection, four exact agent
+control operations, nonempty app set, and empty UI-worklet set, then
+materializes those exact bytes as an immutable content-addressed fifth
+artifact. It derives every endowment from those bytes, freshens the nonce and
+paired digest, and re-authenticates the result. This step runs after app
+installation: filesystem object identities for the mapped engine and protected
+files cannot truthfully be minted on a different packaging machine. It still
+cannot advertise or install an unsupported target.
+
+These four new symbols (`ex_hermes_set_exact_host_call_async`, its resolver,
+`ex_host_prepare_armed_embedder_artifacts`, and
+`ex_host_prepare_exact_armed_embedder_artifacts`) are a public, provisional
 extension for the pinned Exact consumer, not an expansion of LLP 0000's five-
 function semver-major minimum. Until this Draft spec is accepted, a breaking
 change requires an atomic Ibex commit plus Exact submodule/consumer update; it

@@ -143837,6 +143837,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.host.prepare.exact.armed.embedder.artifacts.176c653",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_prepare_exact_armed_embedder_artifacts"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.host.random.fill.0y4ny2g",
       "classification": "non-capability",
       "surface": {

@@ -376,6 +376,10 @@ const EXACT_EMBEDDER_NON_CAPABILITY_SURFACES = new Map([
     "host-abi:ex_host_prepare_armed_embedder_artifacts",
     ["authority-control-plane", "exact-artifact-prepare-round-trip"],
   ],
+  [
+    "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
+    ["authority-control-plane", "exact-artifact-prepare-round-trip"],
+  ],
 ]);
 
 function validateGenerationSet(value, label) {

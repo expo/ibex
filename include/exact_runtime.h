@@ -436,6 +436,20 @@ char* ex_host_prepare_armed_embedder_artifacts(
     const uint8_t* expected_identity,
     size_t expected_identity_len);
 
+/// Authenticate a generic Ibex artifact pair, derive Exact app/agent/UI
+/// endowments from one strict operation manifest, materialize that manifest as
+/// the fifth protected artifact, and return a fresh paired artifact envelope.
+/// This target-local operation must run after installation so filesystem
+/// object identities describe the engine and roots that will actually execute.
+/// It does not advertise a target; `ex_host_install_armed` retains that gate.
+char* ex_host_prepare_exact_armed_embedder_artifacts(
+    const uint8_t* snapshot_template,
+    size_t snapshot_template_len,
+    const uint8_t* expected_identity,
+    size_t expected_identity_len,
+    const uint8_t* operation_manifest,
+    size_t operation_manifest_len);
+
 /// Release a heap-owned string returned by the host ABI.
 void ex_host_free_string(char* value);
 

@@ -5244,6 +5244,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_permission_revoke",
     "ex_host_permission_status",
     "ex_host_prepare_armed_embedder_artifacts",
+    "ex_host_prepare_exact_armed_embedder_artifacts",
     "ex_host_random_fill",
     "ex_host_register_module_package",
     "ex_host_release_context",
@@ -11797,6 +11798,7 @@ function hostAbiClassification(name) {
       "exhostinstallarmed",
       "exhostmatchesarmedsnapshotdigest",
       "exhostpreparearmedembedderartifacts",
+      "exhostprepareexactarmedembedderartifacts",
     ]).has(name)
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP4");

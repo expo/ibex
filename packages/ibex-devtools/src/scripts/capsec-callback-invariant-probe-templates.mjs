@@ -133,6 +133,13 @@ const EXACT_EMBEDDER_NON_CAPABILITY_MECHANISMS = new Map([
       rationaleId: "authority-control-plane",
     },
   ],
+  [
+    "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
+    {
+      mechanism: "exact-artifact-prepare-round-trip",
+      rationaleId: "authority-control-plane",
+    },
+  ],
 ]);
 
 const taggedDigest = (value) =>

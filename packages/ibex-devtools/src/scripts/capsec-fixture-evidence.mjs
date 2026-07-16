@@ -57,6 +57,10 @@ const EXACT_PILOT_SURFACES = new Map([
     ["non-capability", "exact-artifact-prepare-round-trip"],
   ],
   [
+    "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
+    ["non-capability", "exact-artifact-prepare-round-trip"],
+  ],
+  [
     "native-op:global:exact.invokeHostAsync",
     ["closed", "exact-unendowed-operation"],
   ],
