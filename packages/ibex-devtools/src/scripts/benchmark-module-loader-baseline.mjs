@@ -75,7 +75,9 @@ function createGraph(root, extension, { count = 40, scannerSelected = false } = 
   }
   writeFileSync(
     path.join(root, 'entry.js'),
-    `var result = require('./m0.${extension}');\nconsole.log('${marker}' + result.value);\n`,
+    // Ibex's explicit exit path drains its bounded console queue before the
+    // short-lived process terminates, including on Windows.
+    `var result = require('./m0.${extension}');\nconsole.log('${marker}' + result.value);\nprocess.exit(0);\n`,
   );
 }
 

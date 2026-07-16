@@ -15,3 +15,10 @@ scripts/apply-hermes-patches.sh text eol=lf
 scripts/build-hermes.sh text eol=lf
 scripts/build-hermes-linux.sh text eol=lf
 src/engine/hermes_runtime.cc text eol=lf
+
+# The vendored-runtime fingerprint hashes these source bytes directly. Keep
+# every authority byte-identical across checkouts so the hermetic build's
+# content check is genuinely portable to Windows.
+src/builtins/** text eol=lf
+packages/ibex-runtime-js/src/** text eol=lf
+modules.ts text eol=lf
