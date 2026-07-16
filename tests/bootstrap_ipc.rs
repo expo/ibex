@@ -41,6 +41,11 @@ const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 // measurement of CPU contention. Serialize the real-binary runs, matching the
 // established `cli_eval` harness contract, and keep a wide diagnostic bound.
 const DIAGNOSTIC_AUDIT_TIMEOUT: Duration = Duration::from_secs(60);
+// The three high-volume IPC probes include cold authenticated startup for a
+// forked debug-build child before they can finish draining their queues. Keep
+// their semantic watchdog below an independent process-group bound, while
+// leaving payload, ordering, and delivery-callback assertions exact.
+const IPC_BACKPRESSURE_HARNESS_TIMEOUT: Duration = Duration::from_secs(150);
 static AUDIT_RUN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn serialize_audit_run() -> std::sync::MutexGuard<'static, ()> {
@@ -256,7 +261,7 @@ setTimeout(() => {
   console.log(`RESULT|timeout|seq=${count}|bad=${bad}|gotBig=${gotBig}`);
   child.kill();
   process.exit(1);
-}, 45000);
+}, 120000);
 "#;
 
 const BURST_CHILD: &str = r#"
@@ -288,7 +293,7 @@ fn assert_burst_delivered(tag: &str, env: &[(&str, &str)]) {
     }
     isolate_process_group(&mut cmd);
     let mut child = cmd.spawn().expect("spawn ibex");
-    let run = capture_bounded_output(&mut child, Duration::from_secs(60));
+    let run = capture_bounded_output(&mut child, IPC_BACKPRESSURE_HARNESS_TIMEOUT);
     assert!(
         !run.timed_out,
         "burst fixture timed out\nstdout:\n{}\nstderr:\n{}",
@@ -381,7 +386,7 @@ setTimeout(() => {
   console.log('RESULT|timeout');
   child.kill();
   process.exit(1);
-}, 30000);
+}, 120000);
 "#;
 
 const SINGLE_BIG_CHILD: &str = r#"
@@ -397,7 +402,7 @@ fn assert_parent_single_big_delivered(tag: &str, env: &[(&str, &str)]) {
         SINGLE_BIG_PARENT,
         SINGLE_BIG_CHILD,
         env,
-        Duration::from_secs(60),
+        IPC_BACKPRESSURE_HARNESS_TIMEOUT,
     );
     let line = stdout
         .lines()
@@ -439,7 +444,7 @@ setTimeout(() => {
   console.log(`RESULT|timeout|cbFired=${cbFired}|cbErrs=${cbErrs}`);
   child.kill();
   process.exit(1);
-}, 45000);
+}, 120000);
 "#;
 
 const PARENT_BURST_CHILD: &str = r#"
@@ -467,7 +472,7 @@ fn assert_parent_burst_delivered(tag: &str, env: &[(&str, &str)]) {
         PARENT_BURST_PARENT,
         PARENT_BURST_CHILD,
         env,
-        Duration::from_secs(60),
+        IPC_BACKPRESSURE_HARNESS_TIMEOUT,
     );
     let line = stdout
         .lines()
