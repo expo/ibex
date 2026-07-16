@@ -378,9 +378,7 @@ fn retained_http_response_owner_check_is_captured_and_revocation_safe() {
         "var _httpNetOwnerHost = typeof __exactNetOwner === 'function' ? __exactNetOwner : null;"
     ));
     assert_eq!(
-        http_js
-            .matches("_httpNetOwnerHost('new')")
-            .count(),
+        http_js.matches("_httpNetOwnerHost('new')").count(),
         2,
         "ServerResponse and http.Server each need a fresh-owner construction path"
     );
