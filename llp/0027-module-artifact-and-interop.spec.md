@@ -1,11 +1,11 @@
 # LLP 0027: ModuleArtifact Wire and ESM/CommonJS Interop Contract
 
 **Type:** Spec
-**Status:** Draft
+**Status:** Accepted
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25063 retained graph generations through the complete embedder event-loop drive so delayed and fire-and-forget dynamic imports cannot observe released records); 2026-07-15 (ENG-25061 added host-owned builtin records and strict shared-identity JSON records across source/prepared ESM and CommonJS paths); 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
+**Revised:** 2026-07-15 (accepted by the author after the bounded CommonJS/JSON/builtin interop migration passed authenticated source/prepared real-Hermes coverage); 2026-07-15 (ENG-25063 retained graph generations through the complete embedder event-loop drive so delayed and fire-and-forget dynamic imports cannot observe released records); 2026-07-15 (ENG-25061 added host-owned builtin records and strict shared-identity JSON records across source/prepared ESM and CommonJS paths); 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
 promise-returning CommonJS-to-ESM import ABI); 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
 snapshot adapters); 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
 producer adapter, and tamper fixtures)
@@ -23,9 +23,10 @@ schema is `schemas/module-artifact-v1.schema.json`; the Rust codec and verifier
 are `src/module_loader/artifact.rs`; the checked-in tamper matrix is under
 `tests/fixtures/module-artifact-v1/`. Prepared graph publication is implemented
 by `src/module_loader/runner_pipeline.rs` and described by
-`schemas/prepared-module-graph-v1.schema.json`. The document remains Draft
-while the bounded CommonJS/JSON/builtin interop migration is completed. No
-producer output becomes trusted merely because it resembles this shape.
+`schemas/prepared-module-graph-v1.schema.json`. The bounded
+CommonJS/JSON/builtin interop migration is complete and covered through
+authenticated source and prepared execution on real Hermes. No producer
+output becomes trusted merely because it resembles this shape.
 
 ## Artifact envelope
 
