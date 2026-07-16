@@ -20,6 +20,7 @@ on:
       - "llp/0027-module-artifact-and-interop.spec.md"
       - "packages/ibex-devtools/src/scripts/benchmark-module-loader-baseline.mjs"
       - "packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs"
+      - "packages/ibex-devtools/src/scripts/transforms.mjs"
       - "include/exact_runtime.h"
       - "src/engine/hermes_module_runner.cc"
       - "src/engine/hermes_runtime_internal.h"
