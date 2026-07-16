@@ -251,11 +251,11 @@ The preferred replacement is an in-process Rust implementation using Oxc and/or
 Rolldown crates. This preserves the current "standalone runtime" property and
 does not reintroduce the old Bun/Node subprocess dependency. Oxc's transformer
 supports TypeScript and JSX transforms in the current public docs
-(`[official docs]` <https://oxc.rs/docs/guide/usage/transformer/typescript>,
-`[official docs]` <https://oxc.rs/docs/guide/usage/transformer/jsx>), and the
+(`[official docs]` <https://oxc.rs/guide/usage/transformer/typescript>,
+`[official docs]` <https://oxc.rs/guide/usage/transformer/jsx>), and the
 general transformer docs list TypeScript, JSX, syntax lowering, inject, and
 define in the pipeline
-(`[official docs]` <https://oxc.rs/docs/guide/usage/transformer>).
+(`[official docs]` <https://oxc.rs/guide/usage/transformer>).
 
 There are two candidate shapes:
 

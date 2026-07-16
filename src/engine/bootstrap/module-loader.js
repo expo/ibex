@@ -4652,6 +4652,30 @@
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i];
       var trimmed = line.trim();
+      // A balanced semicolonless export ends by ASI before another top-level
+      // module declaration. Preserve expression continuations such as
+      // `].map(...)`, but do not let a pending multiline initializer swallow
+      // the next `import`/`export` (micromark-util-html-tag-name has this exact
+      // array + doc-comment + export shape).
+      // @ref LLP 0004#loading-and-on-the-fly-transpilation — the embedded
+      // fallback must lower ordinary on-disk ESM into the synchronous CJS path.
+      var startsTopLevelModuleStatement =
+        !delimiterScanInContent(moduleScanState) && /^\s*(?:import|export)\b/.test(trimmed);
+      if (
+        pendingDefaultExport &&
+        startsTopLevelModuleStatement &&
+        moduleScanState.balance <= pendingDefaultExport.baseline
+      ) {
+        pendingDefaultExport = null;
+      }
+      if (
+        pendingVarExport &&
+        startsTopLevelModuleStatement &&
+        moduleScanState.balance <= pendingVarExport.baseline
+      ) {
+        out.push("module.exports." + pendingVarExport.name + " = " + pendingVarExport.name + ";");
+        pendingVarExport = null;
+      }
       if (pendingDefaultExport) {
         // When the continuation line starts inside template text or a block
         // comment, leave it verbatim: the whole-source transformImportMeta
@@ -4728,7 +4752,14 @@
         } else {
           for (var j = i + 1; j < lines.length; j++) {
             statement = statement + "\n" + lines[j];
-            if (indexOfStatementSemicolon(statement) !== -1) {
+            // ESM does not require semicolons. Stop as soon as the accumulated
+            // lines form a complete static module declaration; otherwise a
+            // unified/remark-style multiline import consumes the following
+            // import (and often the rest of the file).
+            if (
+              looksLikeCompleteModuleStatement(stripModuleStatementComments(statement)) ||
+              indexOfStatementSemicolon(statement) !== -1
+            ) {
               i = j;
               break;
             }
@@ -4903,12 +4934,16 @@
       m = transformed.match(
         /^(\s*)export\s+default\s+async\s+function\s+([A-Za-z_$][\w$]*)([\s\S]*)$/
       );
+      // Keep named functions as declarations: ESM hoists them, and packages
+      // legitimately reference or decorate the binding before its export
+      // line. Assigning the already-hoisted name to module.exports preserves
+      // that behavior without adding an output line.
       if (m) {
         out.push(
           m[1] +
-            "const " +
+            "module.exports.default = " +
             m[2] +
-            " = module.exports.default = async function " +
+            "; async function " +
             m[2] +
             m[3]
         );
@@ -4921,9 +4956,9 @@
       if (m) {
         out.push(
           m[1] +
-            "const " +
+            "module.exports.default = " +
             m[2] +
-            " = module.exports.default = function " +
+            "; function " +
             m[2] +
             m[3]
         );
@@ -4981,11 +5016,11 @@
       if (m) {
         out.push(
           m[1] +
-            "const " +
+            "module.exports." +
             m[2] +
-            " = module.exports." +
+            " = " +
             m[2] +
-            " = async function " +
+            "; async function " +
             m[2] +
             m[3]
         );
@@ -4996,11 +5031,11 @@
       if (m) {
         out.push(
           m[1] +
-            "const " +
+            "module.exports." +
             m[2] +
-            " = module.exports." +
+            " = " +
             m[2] +
-            " = function " +
+            "; function " +
             m[2] +
             m[3]
         );
@@ -5060,6 +5095,16 @@
       }
 
       out.push(transformed);
+    }
+    // A final semicolonless variable export has no following statement to
+    // prove its ASI boundary. At EOF, balanced code is necessarily complete;
+    // leave unbalanced/unterminated input for Hermes to diagnose as syntax.
+    if (
+      pendingVarExport &&
+      moduleScanState.balance <= pendingVarExport.baseline &&
+      !delimiterScanInContent(moduleScanState)
+    ) {
+      out.push("module.exports." + pendingVarExport.name + " = " + pendingVarExport.name + ";");
     }
     return out.join("\n");
   }
