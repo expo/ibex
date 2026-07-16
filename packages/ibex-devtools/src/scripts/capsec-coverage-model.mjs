@@ -4563,13 +4563,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "prefersReducedMotion",
     "prefersReducedTransparency",
   ],
-  __exactAccessibilityState: [
-    "",
-    "changeTimer",
-    "eventListeners",
-    "listeners",
-    "snapshot",
-  ],
   __exactAllowNativesSyntax: [""],
   __exactAndroidCameraMetadata: [
     "backend",
@@ -4611,7 +4604,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactLoadTimings: ["", "installGlobalsEnd", "installGlobalsStart"],
   __exactLocaleChanged: [""],
   __exactLocaleSnapshot: ["tag", "tags", "uses24Hour"],
-  __exactLocaleState: ["", "changeTimer", "listeners", "override", "snapshot"],
   __exactMemoryDebug: [
     "",
     "clearModuleDebugSources",

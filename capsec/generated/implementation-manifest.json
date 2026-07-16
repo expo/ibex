@@ -149412,173 +149412,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactaccessibilitystate.09y1rng",
-      "observedKey": "native-op:__exactAccessibilityState",
-      "branchId": "surface.native.op.exactaccessibilitystate.09y1rng.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.09y1rng.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.09y1rng.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
-      "observedKey": "native-op:__exactAccessibilityState.changeTimer",
-      "branchId": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState.changeTimer"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState.changeTimer"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.changeTimer",
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
-      "observedKey": "native-op:__exactAccessibilityState.eventListeners",
-      "branchId": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState.eventListeners"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.eventListeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.eventListeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState.eventListeners"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.eventListeners",
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactaccessibilitystate.listeners.0d34we3",
-      "observedKey": "native-op:__exactAccessibilityState.listeners",
-      "branchId": "surface.native.op.exactaccessibilitystate.listeners.0d34we3.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.listeners.0d34we3.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState.listeners"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState.listeners"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.listeners",
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.listeners.0d34we3.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy",
-      "observedKey": "native-op:__exactAccessibilityState.snapshot",
-      "branchId": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState.snapshot"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState.snapshot"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.snapshot",
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy.all.closed"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactaescbcdecrypt.12v0if3",
       "observedKey": "native-op:__exactAesCbcDecrypt",
       "branchId": "surface.native.op.exactaescbcdecrypt.12v0if3.default",
@@ -158496,173 +158329,6 @@
         "enforcement.mes.runtime.android.cc.jsi.global.exactlocalesnapshot.uses24hour.1gr284e.malformed",
         "enforcement.mes.runtime.android.cc.jsi.global.exactlocalesnapshot.uses24hour.1gr284e.missing-attribution",
         "enforcement.mes.runtime.android.cc.jsi.global.exactlocalesnapshot.uses24hour.1gr284e.wrong-principal"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactlocalestate.0bxrb04",
-      "observedKey": "native-op:__exactLocaleState",
-      "branchId": "surface.native.op.exactlocalestate.0bxrb04.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.0bxrb04.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.0bxrb04.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactlocalestate.changetimer.1wvq6ob",
-      "observedKey": "native-op:__exactLocaleState.changeTimer",
-      "branchId": "surface.native.op.exactlocalestate.changetimer.1wvq6ob.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.changetimer.1wvq6ob.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState.changeTimer"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState.changeTimer"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.changeTimer",
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.changetimer.1wvq6ob.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactlocalestate.listeners.0tfhbkj",
-      "observedKey": "native-op:__exactLocaleState.listeners",
-      "branchId": "surface.native.op.exactlocalestate.listeners.0tfhbkj.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.listeners.0tfhbkj.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState.listeners"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState.listeners"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.listeners",
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.listeners.0tfhbkj.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactlocalestate.override.0ovx5qm",
-      "observedKey": "native-op:__exactLocaleState.override",
-      "branchId": "surface.native.op.exactlocalestate.override.0ovx5qm.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.override.0ovx5qm.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState.override"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.override",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.override",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState.override"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.override",
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.override.0ovx5qm.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactlocalestate.snapshot.02mz88i",
-      "observedKey": "native-op:__exactLocaleState.snapshot",
-      "branchId": "surface.native.op.exactlocalestate.snapshot.02mz88i.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.snapshot.02mz88i.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState.snapshot"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState.snapshot"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.snapshot",
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.snapshot.02mz88i.all.closed"
       ]
     },
     {
@@ -265048,11 +264714,6 @@
         "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
         "surface.host.abi.ex.worklet.install.metrics.1d5ipuc",
         "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4",
-        "surface.native.op.exactaccessibilitystate.09y1rng",
-        "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
-        "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
-        "surface.native.op.exactaccessibilitystate.listeners.0d34we3",
-        "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy",
         "surface.native.op.exactdebugmodulesource.17ymgg1",
         "surface.native.op.exactdebugmodulesources.0897z1y",
         "surface.native.op.exactdebugmodulesources.length.0srmigk",
@@ -265069,11 +264730,6 @@
         "surface.native.op.exactgetheapinfo.0kb2eh1",
         "surface.native.op.exactgetsourcecachestats.16llubz",
         "surface.native.op.exacthostnavigator.dynamic.table.host.navigator.properties.13lbyy8",
-        "surface.native.op.exactlocalestate.0bxrb04",
-        "surface.native.op.exactlocalestate.changetimer.1wvq6ob",
-        "surface.native.op.exactlocalestate.listeners.0tfhbkj",
-        "surface.native.op.exactlocalestate.override.0ovx5qm",
-        "surface.native.op.exactlocalestate.snapshot.02mz88i",
         "surface.native.op.exactmemorydebug.0fduxil",
         "surface.native.op.exactmemorydebug.clearmoduledebugsources.058wjyh",
         "surface.native.op.exactmemorydebug.formatbytes.09utsnx",
@@ -265225,7 +264881,7 @@
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 497 observed surface edges."
+      "rationale": "Closed by 487 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -266207,44 +265863,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-wS2qZUbRa1lp17TR6U4cPwav1ZvPBlztev89ueZ8VZs"
+      "rawContentDigest": "sha256--pIgzjvPm5_eR4f9l2Qmp9nhuGiHS5LnTouwR-9fbVE"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-41nO_T_Dj8PbRqWyCrgsmqZxLRDntEGfuLmgUES-ZRI"
+      "rawContentDigest": "sha256-da_iHzL_Cwc6T7CEX3VQ6Ykkd9EXllZ-4IYW-nvgVpU"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-S9rC5GLKCFoqUFyjNREvpF_YTKhNriCktUymZQjwt0g"
+      "rawContentDigest": "sha256-Qbc-nrRt4WdWZEjgdEMFqfQnef9HdV5SG1O32cITfAo"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-3y1jNOuNGoN00qs0YSpE9YP3k8UhyCIqT-J1JaePgf4"
+      "rawContentDigest": "sha256-FEg5sh8wc_llKN0sgILr0myRTbWxCxeFaQCcMvixXA8"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-SqvTC2M5JK0mnPZrlSkyLI43zcJrYPvNK91rf-BkKnU"
+      "rawContentDigest": "sha256-z7wiFb56y70CnEJH_IDDWuO8B8x3oOApTieU12LPLp4"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-Hcyx0GxHNhR4uZyh5pn-YjutigbKbEXExm_MOE06yRQ"
+      "rawContentDigest": "sha256-hdXq59D8uhqD5STkoKYJBjyTTCx6aC7DGL1JrGeTkZc"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-IRZz6qLq2brHsHNMaUesu1jti1yv__BipaHXTHTc77c"
+      "rawContentDigest": "sha256--N1swLrP3fBThpvCoA8Pn9BXJahO_-MKb0wYl5NI_yU"
     }
   ],
   "counts": {
-    "observedReferences": 12831,
-    "logicalSurfaces": 7152,
-    "enforcementBranches": 7351,
-    "coverageEdges": 7152,
-    "targetCells": 7152
+    "observedReferences": 12813,
+    "logicalSurfaces": 7142,
+    "enforcementBranches": 7341,
+    "coverageEdges": 7142,
+    "targetCells": 7142
   }
 }

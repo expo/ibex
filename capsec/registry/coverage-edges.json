@@ -193610,56 +193610,6 @@
       "rationale": "Embedder accessibility and appearance mirrors disclose external application state through a shared object."
     },
     {
-      "id": "surface.native.op.exactaccessibilitystate.09y1rng",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
-      "id": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState.changeTimer"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
-      "id": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState.eventListeners"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
-      "id": "surface.native.op.exactaccessibilitystate.listeners.0d34we3",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState.listeners"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
-      "id": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState.snapshot"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
       "id": "surface.native.op.exactaescbcdecrypt.12v0if3",
       "classification": "non-capability",
       "surface": {
@@ -201910,56 +201860,6 @@
           "negative-generation-change"
         ]
       }
-    },
-    {
-      "id": "surface.native.op.exactlocalestate.0bxrb04",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
-    },
-    {
-      "id": "surface.native.op.exactlocalestate.changetimer.1wvq6ob",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState.changeTimer"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
-    },
-    {
-      "id": "surface.native.op.exactlocalestate.listeners.0tfhbkj",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState.listeners"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
-    },
-    {
-      "id": "surface.native.op.exactlocalestate.override.0ovx5qm",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState.override"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
-    },
-    {
-      "id": "surface.native.op.exactlocalestate.snapshot.02mz88i",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState.snapshot"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
     },
     {
       "id": "surface.native.op.exactlstat.1c98s6l",

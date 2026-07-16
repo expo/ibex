@@ -49,9 +49,12 @@ interface ExactAccessibilityRuntimeState {
   changeTimer: ReturnType<typeof setTimeout> | null;
 }
 
+// @ref LLP 0011#state-modules — normalized mutable state is shared through the
+// module singleton; the host-facing globals carry snapshots and notifications,
+// not a project-code-visible state object.
+let exactAccessibilityState: ExactAccessibilityRuntimeState | undefined;
+
 declare global {
-  // eslint-disable-next-line no-var
-  var __exactAccessibilityState: ExactAccessibilityRuntimeState | undefined;
   // eslint-disable-next-line no-var
   var __exactAccessibilitySnapshot: NativeAccessibilitySnapshot | undefined;
   // eslint-disable-next-line no-var
@@ -126,10 +129,10 @@ function createDefaultState(): ExactAccessibilityRuntimeState {
 }
 
 function getAccessibilityState(): ExactAccessibilityRuntimeState {
-  if (!globalThis.__exactAccessibilityState) {
-    globalThis.__exactAccessibilityState = createDefaultState();
+  if (!exactAccessibilityState) {
+    exactAccessibilityState = createDefaultState();
   }
-  return globalThis.__exactAccessibilityState;
+  return exactAccessibilityState;
 }
 
 function dispatchAccessibilityChange(state: ExactAccessibilityRuntimeState): void {
@@ -253,11 +256,11 @@ export function refreshExactAccessibility(): ExactAccessibilitySnapshot {
 }
 
 export function _resetExactAccessibilityForTests(): void {
-  const state = globalThis.__exactAccessibilityState;
+  const state = exactAccessibilityState;
   if (state?.changeTimer != null) {
     clearTimeout(state.changeTimer);
   }
-  delete globalThis.__exactAccessibilityState;
+  exactAccessibilityState = undefined;
   delete globalThis.__exactAccessibilityChanged;
   delete globalThis.__exactAccessibilitySnapshot;
 }
