@@ -34,6 +34,7 @@ const SURFACE_KINDS = new Set([
 const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__StringBuffer",
   "__compartments",
+  "__esModule",
   "__ex_p",
   "__ibexCapsecContextObserver_",
   "__exact",
@@ -2833,6 +2834,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
 // join; this list prevents a reviewed constructor family from blessing a new
 // member with a suggestive or effectful name.
 const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
+  "__esModule",
   "__exact",
   "__exactCancel",
   "__exactDeepFreeze",
@@ -5104,6 +5106,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_commonjs_record_evaluate",
     "ex_hermes_commonjs_record_link_dynamic_import",
     "ex_hermes_commonjs_record_link_require",
+    "ex_hermes_commonjs_record_link_require_esm",
     "ex_hermes_create",
     "ex_hermes_create_armed",
     "ex_hermes_create_diagnostic",
@@ -5138,6 +5141,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_module_compile_factory",
     "ex_hermes_module_create_record",
     "ex_hermes_module_load_carrier_factory",
+    "ex_hermes_module_pin_generation",
     "ex_hermes_module_record_declare_export",
     "ex_hermes_module_record_instantiate",
     "ex_hermes_module_record_link_dependency",
@@ -5149,6 +5153,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_module_record_run_declare",
     "ex_hermes_module_record_run_execute",
     "ex_hermes_module_release_handle",
+    "ex_hermes_module_unpin_generation",
     "ex_hermes_next_timer",
     "ex_hermes_notify_callback",
     "ex_hermes_now_ms",
@@ -12179,6 +12184,7 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_commonjs_record_declare_export",
         "ex_hermes_commonjs_record_link_dynamic_import",
         "ex_hermes_commonjs_record_link_require",
+        "ex_hermes_commonjs_record_link_require_esm",
         "ex_hermes_graph_context_create",
         "ex_hermes_graph_context_retain",
         "ex_hermes_module_create_record",
@@ -12187,6 +12193,7 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_module_record_link_dynamic_import",
         "ex_hermes_module_record_link_export",
         "ex_hermes_module_record_link_import",
+        "ex_hermes_module_pin_generation",
       ]).has(surface.name)
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
@@ -12194,6 +12201,7 @@ function classifyConcreteSurface(surface) {
     if (
       new Set([
         "ex_hermes_module_release_handle",
+        "ex_hermes_module_unpin_generation",
         "ex_hermes_try_destroy",
       ]).has(surface.name)
     ) {
@@ -12272,6 +12280,9 @@ function classifyConcreteSurface(surface) {
       return nativeEscapeClassification(text);
     }
     if (!REVIEWED_NATIVE_OPERATION_NAMES.has(surface.name)) return null;
+    if (surface.name === "__esModule") {
+      return nonCapabilitySpec("module-reachability-only", "WP8");
+    }
     if (surface.name === "__ibexCapsecContextObserver_") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }

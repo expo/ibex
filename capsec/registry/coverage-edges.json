@@ -139990,6 +139990,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.hermes.commonjs.record.link.require.esm.06f0u7s",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_commonjs_record_link_require_esm"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.create.04wgtwz",
       "classification": "non-capability",
       "surface": {
@@ -140330,6 +140340,16 @@
       "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
     },
     {
+      "id": "surface.host.abi.ex.hermes.module.pin.generation.1uroxl2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_pin_generation"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
       "classification": "non-capability",
       "surface": {
@@ -140435,6 +140455,16 @@
       "surface": {
         "kind": "host-abi",
         "name": "ex_hermes_module_release_handle"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.module.unpin.generation.0bvxkc5",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_module_unpin_generation"
       },
       "rationaleId": "authority-release",
       "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
@@ -193379,6 +193409,16 @@
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.native.op.esmodule.1520cqi",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__esModule"
+      },
+      "rationaleId": "module-reachability-only",
+      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
     },
     {
       "id": "surface.native.op.ex.p.1qv50n0",
