@@ -16412,8 +16412,12 @@ mod tests {
         // SAFETY: fpathconf only queries the live pipe descriptor.
         let pipe_buf = unsafe { libc::fpathconf(write.raw(), libc::_PC_PIPE_BUF) };
         assert!(pipe_buf > 0);
-        let room = usize::try_from(pipe_buf).unwrap().saturating_mul(2);
-        assert!(filled > room);
+        let payload = vec![b's'; NATIVE_DIAGNOSTIC_MAX_BYTES];
+        let room = filled
+            .saturating_sub(1)
+            .min(usize::try_from(pipe_buf).unwrap().saturating_mul(2))
+            .min(payload.len().saturating_sub(1));
+        assert!(room > 0, "pipe exposed no room for a partial write");
         let mut removed = 0_usize;
         let mut scratch = [0_u8; 4096];
         while removed < room {
@@ -16429,9 +16433,12 @@ mod tests {
             removed += amount as usize;
         }
 
-        let payload = vec![b's'; NATIVE_DIAGNOSTIC_MAX_BYTES];
         let accepted = write_bounded_capture_suffix(write.raw(), &payload, Instant::now());
-        assert!(accepted < payload.len());
+        assert!(
+            accepted > 0 && accepted < payload.len(),
+            "test did not produce a partial suffix write: {accepted} of {} bytes",
+            payload.len()
+        );
 
         let mut observed = Vec::new();
         loop {
@@ -19238,17 +19245,16 @@ mod tests {
         // SAFETY: fpathconf queries a live pipe descriptor without mutating it.
         let pipe_buf = unsafe { libc::fpathconf(destination_descriptor, libc::_PC_PIPE_BUF) };
         assert!(pipe_buf > 0, "pipe did not report a positive PIPE_BUF");
-        let room = usize::try_from(pipe_buf).unwrap() * 2;
-        assert!(
-            filled > room,
-            "pipe capacity {filled} was too small to arrange a partial write"
-        );
+        let frame_len = BROKER_QUEUE_BOUND_BYTES / 2;
+        let room = filled
+            .saturating_sub(1)
+            .min(usize::try_from(pipe_buf).unwrap().saturating_mul(2))
+            .min(frame_len.saturating_sub(1));
+        assert!(room > 0, "pipe exposed no room for a partial write");
         let removed_fill = read_available(output_read.raw(), room);
         assert_eq!(removed_fill, vec![FILL_BYTE; room]);
 
-        let frame: Vec<_> = (0..BROKER_QUEUE_BOUND_BYTES / 2)
-            .map(|index| (index % 251) as u8)
-            .collect();
+        let frame: Vec<_> = (0..frame_len).map(|index| (index % 251) as u8).collect();
         let routes = BrokerRoutes {
             program_stdout: NATIVE_STDOUT_RELAY,
             program_stderr: NATIVE_STDOUT_RELAY,
