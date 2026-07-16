@@ -1051,7 +1051,7 @@ describe("exact-target CapSec executable recipes", () => {
             "src/builtins/events.js#process.env:EXACT_DEBUG_EMIT_LISTENER:read",
           mechanism: "event-emitter-emit",
           moduleSpecifier: "node:events",
-          preloads: ["node:events"],
+          preloads: [],
         },
       ],
       [
@@ -1060,7 +1060,7 @@ describe("exact-target CapSec executable recipes", () => {
           sourceRef: "src/builtins/http.js#process.env:NODE_DEBUG:read",
           mechanism: "builtin-module-load",
           moduleSpecifier: "node:http",
-          preloads: ["node:util"],
+          preloads: ["node:events", "node:stream", "node:util"],
         },
       ],
     ]);
@@ -1898,7 +1898,7 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
-  test("binds scalar environment reads to one exact broker-base name", () => {
+  test("binds armed scalar environment reads to one exact principal overlay name", () => {
     const environmentRead = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName === "__exactGetEnv",
@@ -1921,7 +1921,7 @@ describe("exact-target CapSec executable recipes", () => {
                 cap: "env:read",
                 resource: {
                   kind: "environment-name",
-                  target: "broker-base",
+                  target: "principal-overlay",
                   name: "PATH",
                 },
               },

@@ -736,7 +736,7 @@ const nativeEnvironmentReadTemplate = (name) =>
         cap: "env:read",
         resource: {
           kind: "environment-name",
-          target: "broker-base",
+          target: "principal-overlay",
           name,
         },
       },

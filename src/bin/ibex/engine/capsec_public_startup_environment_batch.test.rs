@@ -130,14 +130,14 @@ const EXPECTED_SOURCES: [ExpectedSource; 3] = [
         source_ref: "src/builtins/http.js#process.env:NODE_DEBUG:read",
         mechanism: "builtin-module-load",
         module_specifier: Some("node:http"),
-        preload_module_specifiers: &["node:util"],
+        preload_module_specifiers: &["node:events", "node:stream", "node:util"],
     },
     ExpectedSource {
         environment_name: "EXACT_DEBUG_EMIT_LISTENER",
         source_ref: "src/builtins/events.js#process.env:EXACT_DEBUG_EMIT_LISTENER:read",
         mechanism: "event-emitter-emit",
         module_specifier: Some("node:events"),
-        preload_module_specifiers: &["node:events"],
+        preload_module_specifiers: &[],
     },
     ExpectedSource {
         environment_name: "TZ",
@@ -227,13 +227,14 @@ fn startup_environment_probe(recipe: &Recipe) -> Option<PublicSurfaceProbe> {
 }
 
 fn environment_selector(name: &str) -> serde_json::Value {
-    // @ref LLP 0021#typed-resources-and-initial-vocabulary — bind each
-    // startup source to one exact broker-base name, never an env wildcard.
+    // @ref LLP 0022#7-capabilities-principals-and-affordance-parity — armed
+    // process.env reads only the current principal's exact-name overlay;
+    // startup-source classification does not reopen the broker base.
     serde_json::json!({
         "cap": "env:read",
         "resource": {
             "kind": "environment-name",
-            "target": "broker-base",
+            "target": "principal-overlay",
             "name": name,
         },
     })
@@ -565,10 +566,10 @@ fn validate_typed_decisions(
                 "kind": "environment-occurrence",
                 "requested": {
                     "kind": "environment-name",
-                    "target": "broker-base",
+                    "target": "principal-overlay",
                     "name": environment_name,
                 },
-                "valueOrigin": "broker-base",
+                "valueOrigin": "principal-overlay",
             })
         );
         assert_eq!(decision["gates"].as_array().unwrap().len(), 1);
@@ -591,10 +592,12 @@ fn validate_typed_decisions(
 
 async fn invoke_source(
     engine: &HermesEngine,
+    host: &crate::host::Host,
     invocation: &StartupEnvironmentInvocation,
     package: Option<&PackageFixture>,
     session_id: &str,
 ) -> (serde_json::Value, usize, Vec<serde_json::Value>) {
+    let mut evaluator = AuthenticatedStartupEvaluator::new(host);
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
     // preloads are outside the observer; only the curated source operation is
     // allowed to contribute the promotion decision.
@@ -607,8 +610,8 @@ async fn invoke_source(
             serde_json::to_string(module_specifier).unwrap()
         );
         assert_eq!(
-            engine
-                .eval_immediate(&script)
+            evaluator
+                .eval_string(engine, &script)
                 .await
                 .expect("preload distinct startup environment dependency")
                 .as_deref(),
@@ -617,8 +620,8 @@ async fn invoke_source(
     }
     if package.is_some() {
         assert_eq!(
-            engine
-                .eval_immediate("require('image-lib'); 'ready'")
+            evaluator
+                .eval_string(engine, "require('image-lib'); 'ready'")
                 .await
                 .expect("preload startup environment package")
                 .as_deref(),
@@ -664,8 +667,8 @@ async fn invoke_source(
     let script = format!(
         "JSON.stringify((function(projectMarker){{try{{var value={expression};return {{kind:'return',value:value===true,projectMarker:projectMarker}};}}catch(error){{return {{kind:'throw',errorName:String(error&&error.name||'Error'),errorMessage:String(error&&error.message||error),projectMarker:projectMarker}};}}}})({project_marker}))"
     );
-    let encoded = engine
-        .eval_immediate(&script)
+    let encoded = evaluator
+        .eval_string(engine, &script)
         .await
         .expect("execute startup environment public source")
         .expect("startup environment public source returned no result");
@@ -721,7 +724,7 @@ async fn execute_recipe(
         &invocation.operation,
         &invocation.operation.environment.name,
     );
-    assert_ne!(crate::host::abi::install_host(host), 0);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
         .expect("create exact startup environment probe engine");
@@ -732,6 +735,7 @@ async fn execute_recipe(
     let session_id = format!("startup-environment-observation:{}", recipe.plan_digest);
     let (source_result, legacy_count, typed_decisions) = invoke_source(
         &engine,
+        &host,
         invocation,
         package.as_ref(),
         &session_id,
@@ -1138,18 +1142,23 @@ fn build_two_package_overlay_host(
     )
 }
 
-struct AuthenticatedOverlayEvaluator {
+/// Test-only authenticated source stream shared by the curated startup-source
+/// and principal-overlay probes. Armed project code enters through the same
+/// closed submission adapter as production REPL source; the test never
+/// reopens Hermes' sealed bare evaluator.
+/// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+struct AuthenticatedStartupEvaluator {
     session: ibex_runtime::engine::evaluation::ArmedSessionToken,
     sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
 }
 
-impl AuthenticatedOverlayEvaluator {
+impl AuthenticatedStartupEvaluator {
     fn new(host: &crate::host::Host) -> Self {
         let session = host
             .mint_armed_session_token()
-            .expect("mint authenticated principal-overlay session");
+            .expect("mint authenticated startup session");
         let sequence = ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
-            .expect("create authenticated principal-overlay submission sequence");
+            .expect("create authenticated startup submission sequence");
         Self { session, sequence }
     }
 
@@ -1176,7 +1185,7 @@ impl AuthenticatedOverlayEvaluator {
             .await
             .with_context(|| {
                 format!(
-                    "evaluate authenticated principal-overlay submission {ordinal} ({})",
+                    "evaluate authenticated startup submission {ordinal} ({})",
                     source.chars().take(80).collect::<String>()
                 )
             })?
@@ -1185,25 +1194,25 @@ impl AuthenticatedOverlayEvaluator {
             AuthenticatedEvaluation::Value { display, receipt } => {
                 engine
                     .release_undisplayed_value(
-                        receipt.expect("principal-overlay value must retain a receipt"),
+                        receipt.expect("startup value must retain a receipt"),
                     )
                     .await?;
                 anyhow::ensure!(
                     display.kind == AuthenticatedDisplayKind::String,
-                    "authenticated principal-overlay evaluation returned {:?}, expected a string",
+                    "authenticated startup evaluation returned {:?}, expected a string",
                     display.kind
                 );
                 Ok(Some(serde_json::from_str(&display.text)?))
             }
             AuthenticatedEvaluation::Throw(thrown) => {
-                anyhow::bail!("authenticated principal-overlay source threw: {thrown:?}")
+                anyhow::bail!("authenticated startup source threw: {thrown:?}")
             }
             AuthenticatedEvaluation::Cancelled => {
-                anyhow::bail!("authenticated principal-overlay source was cancelled")
+                anyhow::bail!("authenticated startup source was cancelled")
             }
             AuthenticatedEvaluation::Lifecycle(code) => {
                 anyhow::bail!(
-                    "authenticated principal-overlay source exited with lifecycle code {code}"
+                    "authenticated startup source exited with lifecycle code {code}"
                 )
             }
         }
@@ -1211,7 +1220,7 @@ impl AuthenticatedOverlayEvaluator {
 }
 
 async fn eval_overlay_json(
-    evaluator: &mut AuthenticatedOverlayEvaluator,
+    evaluator: &mut AuthenticatedStartupEvaluator,
     engine: &HermesEngine,
     expression: &str,
 ) -> serde_json::Value {
@@ -1320,7 +1329,7 @@ async fn loaded_hermes_isolates_principal_environment_overlays() {
         .load_runtime()
         .await
         .expect("load armed principal-overlay runtime");
-    let mut overlay = AuthenticatedOverlayEvaluator::new(&host);
+    let mut overlay = AuthenticatedStartupEvaluator::new(&host);
     assert_eq!(
         overlay
             .eval_string(
@@ -1620,7 +1629,7 @@ require('env-alpha').scheduleAsync({:?}, 'async-alpha', function(result) {{
         .load_runtime()
         .await
         .expect("load second armed principal-overlay runtime");
-    let mut fresh_overlay = AuthenticatedOverlayEvaluator::new(&second_engine_host);
+    let mut fresh_overlay = AuthenticatedStartupEvaluator::new(&second_engine_host);
     let cleared = eval_overlay_json(
         &mut fresh_overlay,
         &fresh,
