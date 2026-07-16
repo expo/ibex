@@ -5,6 +5,7 @@
 use super::*;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 
 mod global_callable_batch {
     include!("capsec_global_callable_batch.test.rs");
