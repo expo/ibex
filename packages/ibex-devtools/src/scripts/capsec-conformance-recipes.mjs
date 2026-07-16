@@ -766,11 +766,26 @@ const nativeProjectMetadataTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: 3, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "discovery", "repeat"],
       deny: ["requested"],
+      malformed: ["requested", "discovery", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat"],
     },
     requiredFloor: [
       {
@@ -819,11 +834,29 @@ const nativeProjectReadFileTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:read"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: 4, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 4,
+      deny: 1,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:read"],
+    },
     expectedStages: {
       allow: ["requested", "discovery", "commit", "repeat"],
       deny: ["requested"],
+      malformed: ["requested", "discovery", "commit", "repeat"],
+      "missing-attribution": ["requested", "discovery", "commit", "repeat"],
+      "wrong-principal": ["requested", "discovery", "commit", "repeat"],
     },
     requiredFloor: [
       {
