@@ -2195,6 +2195,28 @@ static FsAsyncResult fsTruncateArmedWork(
   return fsAsyncOk();
 }
 
+static FsAsyncResult fsChmodArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& target,
+    double mode) {
+  constexpr uint32_t kFsPathAsyncSurface = 13;
+  if (mode < 0 || mode > 07777 ||
+      mode != static_cast<double>(static_cast<uint32_t>(mode))) {
+    return fsAsyncError(EINVAL, "chmod", path);
+  }
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 2, kFsPathAsyncSurface, *parent, *target,
+          0, 1, nullptr) != 1) {
+    return fsAsyncError(EACCES, "chmod", path);
+  }
+  if (::fchmod(*target, static_cast<mode_t>(mode)) != 0) {
+    return fsAsyncError(errno, "chmod", path);
+  }
+  return fsAsyncOk();
+}
+
 static FsAsyncResult fsPathOpWork(
     const std::string& op,
     const std::string& a,
@@ -4998,6 +5020,19 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
                target = std::move(descriptors.target), length = x]() {
                 return fsTruncateArmedWork(
                     principal, path, parent, target, length);
+              });
+        }
+        if (ex_host_is_armed() == 1 && op == "chmod") {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Metadata mutation follows commit and worker-side repeat authorization of the retained object.
+          constexpr uint32_t kFsPathAsyncSurface = 13;
+          auto descriptors = openArmedWriteTarget(
+              runtime, a, kFsPathAsyncSurface, O_RDONLY, 0, true, "");
+          return startFsAsync(
+              handle, runtime,
+              [principal, path = a, parent = std::move(descriptors.parent),
+               target = std::move(descriptors.target), mode = x]() {
+                return fsChmodArmedWork(
+                    principal, path, parent, target, mode);
               });
         }
         if (ex_host_is_armed() == 1 && op == "mkdtemp") {

@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(322);
+    expect(nativePublicFixtures).toHaveLength(328);
     expect(
       nativePublicFixtures
         .filter(
@@ -721,6 +721,42 @@ describe("exact-target CapSec executable recipes", () => {
         },
         { kind: "json-literal", value: null },
         { kind: "json-literal", value: 2 },
+      ]);
+      expect(invocation.expectedCleanup).toBe("removed-owned-file");
+      expect(invocation.expectedActionIds).toEqual(
+        recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "discovery", "commit", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 5,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("changes mode only on an owned retained file and proves cleanup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsPathAsync" &&
+        recipe.fixtureId.includes(".logical.chmod."),
+    );
+    expect(rows).toHaveLength(6);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments.slice(0, 4)).toEqual([
+        { kind: "json-literal", value: "chmod" },
+        {
+          kind: "json-literal",
+          value: "target/ibex-capsec-fspathasync-chmod",
+        },
+        { kind: "json-literal", value: null },
+        { kind: "json-literal", value: 0o600 },
       ]);
       expect(invocation.expectedCleanup).toBe("removed-owned-file");
       expect(invocation.expectedActionIds).toEqual(

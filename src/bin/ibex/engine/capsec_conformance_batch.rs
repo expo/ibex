@@ -1638,20 +1638,24 @@ async fn execute_native_public_recipe(
             (
                 Some(NativeProbeArgument::JsonLiteral { value: operation }),
                 Some(NativeProbeArgument::JsonLiteral { value: path }),
-            ) if operation.as_str() == Some("truncate") => Some(
+            ) if matches!(operation.as_str(), Some("truncate" | "chmod")) => Some((
+                operation.as_str().unwrap().to_owned(),
                 path.as_str()
                     .expect("filesystem file fixture path must be a string")
                     .to_owned(),
-            ),
+            )),
             _ => None,
         }
     } else {
         None
     };
-    if let Some(path) = &fs_path_async_file_fixture {
-        assert_eq!(path, "target/ibex-capsec-fspathasync-truncate");
-        std::fs::write(path, b"ibex-capsec-truncate")
-            .expect("create owned truncate fixture file");
+    if let Some((operation, path)) = &fs_path_async_file_fixture {
+        assert_eq!(
+            path,
+            &format!("target/ibex-capsec-fspathasync-{operation}")
+        );
+        std::fs::write(path, b"ibex-capsec-retained-file")
+            .expect("create owned retained-file fixture");
     }
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
@@ -1711,19 +1715,30 @@ async fn execute_native_public_recipe(
             std::fs::remove_dir(path).expect("remove owned mkdtemp fixture parent");
         }
     }
-    if let Some(path) = &fs_path_async_file_fixture {
+    if let Some((operation, path)) = &fs_path_async_file_fixture {
         if invocation_result["kind"] == "return" {
-            assert_eq!(
-                std::fs::metadata(path)
-                    .expect("read truncated fixture metadata")
-                    .len(),
-                2,
-                "retained truncate fixture has the wrong final length"
-            );
+            let metadata = std::fs::metadata(path)
+                .expect("read retained-file fixture metadata");
+            if operation == "truncate" {
+                assert_eq!(
+                    metadata.len(),
+                    2,
+                    "retained truncate fixture has the wrong final length"
+                );
+            }
+            #[cfg(unix)]
+            if operation == "chmod" {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    metadata.permissions().mode() & 0o777,
+                    0o600,
+                    "retained chmod fixture has the wrong final mode"
+                );
+            }
             invocation_result["cleanup"] =
                 serde_json::Value::String("removed-owned-file".into());
         }
-        std::fs::remove_file(path).expect("remove owned truncate fixture file");
+        std::fs::remove_file(path).expect("remove owned retained-file fixture");
     }
     let typed_decisions = observed_typed_values(&session_id, typed);
     let validation = validate_native_runtime_observation(
