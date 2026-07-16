@@ -729,9 +729,15 @@ function validateRuntimeInvocation(observation, recipe) {
   if (
     invocation?.invocationSchema === "ibex/capsec-native-global-invocation/1"
   ) {
+    const requiresCompletion = authored.completion !== undefined;
     exactKeys(
       invocation,
-      [...commonKeys, "globalName", "executionProof"],
+      [
+        ...commonKeys,
+        "globalName",
+        "executionProof",
+        ...(requiresCompletion ? ["completion"] : []),
+      ],
       `${recipe.fixtureId}: native runtime invocation`,
     );
     if (
@@ -743,6 +749,30 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(
         `${recipe.fixtureId}: native runtime invocation descriptor drift`,
       );
+    }
+    if (requiresCompletion) {
+      exactKeys(
+        authored.completion,
+        ["kind", "timeoutMilliseconds"],
+        `${recipe.fixtureId}: authored native completion`,
+      );
+      exactKeys(
+        invocation.completion,
+        ["kind", "status", "timeoutMilliseconds"],
+        `${recipe.fixtureId}: native runtime completion`,
+      );
+      if (
+        authored.completion.kind !== "event-loop-quiescence" ||
+        authored.completion.timeoutMilliseconds !== 1_000 ||
+        invocation.completion.kind !== authored.completion.kind ||
+        invocation.completion.timeoutMilliseconds !==
+          authored.completion.timeoutMilliseconds ||
+        invocation.completion.status !== "quiescent"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: native work escaped its observation session`,
+        );
+      }
     }
   } else if (
     invocation?.invocationSchema === "ibex/capsec-host-abi-invocation/1"

@@ -2037,6 +2037,80 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/execution proof disagrees/);
   });
 
+  test("accepts native async evidence only after authored quiescence", () => {
+    const recipe = completeCatalog().recipes[0];
+    recipe.terminalObservedKey = "native-op:__exactPublic";
+    recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    invocation.invocationSchema = "ibex/capsec-native-global-invocation/1";
+    invocation.kind = "native-global-function";
+    invocation.globalName = "__exactPublic";
+    invocation.sourceDescriptor = {
+      kind: "native-global-function",
+      globalName: "__exactPublic",
+      arity: 0,
+      sourceRef: "src/engine/hermes_runtime.cc#jsi-global:__exactPublic",
+    };
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    invocation.arguments = [];
+    invocation.requiredFloor = [];
+    invocation.setup = [];
+    invocation.completion = {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    };
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = runtimeObservation(recipe);
+    delete observation.invocation.moduleSpecifier;
+    delete observation.invocation.exportName;
+    observation.invocation.kind = invocation.kind;
+    observation.invocation.globalName = invocation.globalName;
+    observation.invocation.executionProof = {
+      kind: "native-return",
+      bodyEntered: true,
+    };
+    observation.invocation.completion = {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+      status: "quiescent",
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const pending = structuredClone(observation);
+    pending.invocation.completion.status = "pending";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: pending,
+        coverage,
+      }),
+    ).toThrow(/native work escaped its observation session/);
+
+    const missing = structuredClone(observation);
+    delete missing.invocation.completion;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: missing,
+        coverage,
+      }),
+    ).toThrow(/unknown or missing fields/);
+  });
+
   test("accepts a source-bound zero-effect host ABI branch with cleanup", () => {
     const catalog = completeCatalog();
     const recipe = catalog.recipes[0];

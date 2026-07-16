@@ -530,7 +530,7 @@ must be promoted only from the checked conformance report. Missing artifacts,
 wrong targets, identity or registry mismatches, fixed/stale nonces, replayed
 input, and unadvertised rows all remain startup refusals.
 
-Implementation status (2026-07-14): the dedicated binary app/agent ingress and
+Implementation status (2026-07-16): the dedicated binary app/agent ingress and
 single-use completion path exist and are usable by an armed runtime without
 making `__hostCall` reachable. Its setter publishes an immutable method on the
 stable pre-captured `exact` object and atomically completes the one-shot package
@@ -544,8 +544,13 @@ graph/root objects, and protected artifacts, then replaces its construction
 nonce and digest; it cannot advertise a target. The package-side producer and
 normal Exact artifact publication, Apple/Windows conformance reports, and
 target advertisements remain incomplete. The refreshed catalog has 22,990
-required fixtures, 4,598 fully executable recipes, and 18,392 unresolved
-fixtures, so the existing Apple matrix remains unsupported;
+required fixtures, 4,615 fully executable recipes, and 18,375 unresolved
+fixtures. The latest source-bound tranche adds five cached system-information
+authorization scenarios and twelve asynchronous path-operation scenarios for
+the `readdir` and `realpath` branches. Async evidence remains open through a
+bounded event-loop quiescence drain and binds both the dispatch edge and the
+worker edge actually observed at runtime. The existing Apple matrix therefore
+remains unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
 

@@ -122,6 +122,8 @@ struct NativePublicInvocation {
     source_descriptor_digest: String,
     arguments: Vec<NativeProbeArgument>,
     #[serde(default)]
+    completion: Option<NativeProbeCompletion>,
+    #[serde(default)]
     required_floor: Vec<serde_json::Value>,
     setup: Vec<NativeProbeSetup>,
     expected_result: String,
@@ -129,6 +131,13 @@ struct NativePublicInvocation {
     expected_typed_decision_count: usize,
     allowed_coverage_edge_ids: Vec<String>,
     expected_action_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NativeProbeCompletion {
+    kind: String,
+    timeout_milliseconds: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1049,6 +1058,31 @@ fn native_invocation_script(
     )
 }
 
+const NATIVE_ASYNC_RESULT_SLOT: &str = "__ibexCapsecNativeAsyncResult";
+
+fn native_async_invocation_script(
+    invocation: &NativePublicInvocation,
+    arguments: &[serde_json::Value],
+) -> String {
+    let completion = invocation
+        .completion
+        .as_ref()
+        .expect("async native invocation requires a completion contract");
+    assert_eq!(completion.kind, "event-loop-quiescence");
+    assert_eq!(completion.timeout_milliseconds, 1_000);
+    assert!(invocation.setup.is_empty());
+    assert!(invocation
+        .arguments
+        .iter()
+        .all(|argument| matches!(argument, NativeProbeArgument::JsonLiteral { .. })));
+    format!(
+        "(function(){{var slot={};var n={};delete globalThis[slot];function record(value){{globalThis[slot]=JSON.stringify(value);}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record({{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,cleanup:\"none\"}});return \"completed\";}}value.then(function(result){{record({{kind:\"return\",globalName:n,valueType:result===null?\"null\":typeof result,cleanup:\"none\"}});}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
+        serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
+        serde_json::to_string(arguments).expect("serialize async native arguments"),
+    )
+}
+
 struct NativeRuntimeValidation {
     terminal_observed_key: String,
     execution_proof: serde_json::Value,
@@ -1192,7 +1226,48 @@ fn validate_native_runtime_observation(
             expected_observed_key
         );
     }
-    assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // an async dispatcher may observe its source-selected worker edge, but no
+    // unrelated edge may be admitted by the authored recipe.
+    let auxiliary_worker_terminal = if invocation.global_name == "__exactFsPathAsync" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if value.as_str() == Some("readdir") =>
+            {
+                Some("native-op:__exactReaddir")
+            }
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if value.as_str() == Some("realpath") =>
+            {
+                Some("native-op:__exactRealpath")
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let mut expected_allowed_coverage_edge_ids = recipe.edge_ids.clone();
+    if let Some(worker_terminal) = auxiliary_worker_terminal {
+        let worker_edges = coverage_terminals
+            .iter()
+            .filter_map(|(edge_id, terminal)| {
+                (terminal == worker_terminal).then_some(edge_id.clone())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            worker_edges.len(),
+            1,
+            "{}: async worker terminal must select one coverage edge",
+            recipe.fixture_id
+        );
+        expected_allowed_coverage_edge_ids.extend(worker_edges);
+    }
+    expected_allowed_coverage_edge_ids.sort();
+    expected_allowed_coverage_edge_ids.dedup();
+    assert_eq!(
+        invocation.allowed_coverage_edge_ids,
+        expected_allowed_coverage_edge_ids
+    );
     assert!(
         invocation
             .expected_action_ids
@@ -1422,6 +1497,14 @@ fn validate_native_runtime_observation(
             recipe.fixture_id
         );
         probe.surface_observed_key.clone()
+    } else if let Some(worker_terminal) = auxiliary_worker_terminal {
+        assert_eq!(
+            observed_terminals,
+            BTreeSet::from([worker_terminal.to_owned()]),
+            "{}: async invocation did not remain on its source-selected worker",
+            recipe.fixture_id
+        );
+        probe.surface_observed_key.clone()
     } else {
         assert_eq!(observed_terminals.len(), 1);
         observed_terminals.into_iter().next().unwrap()
@@ -1492,13 +1575,31 @@ async fn execute_native_public_recipe(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
         "public native observer has no installed host"
     );
-    let result = engine
-        .eval_immediate(&native_invocation_script(
-            invocation,
-            &arguments,
-            &setup_state,
-        ))
-        .await;
+    let result = if let Some(completion) = &invocation.completion {
+        assert_eq!(completion.kind, "event-loop-quiescence");
+        let scheduled = tokio::time::timeout(
+            std::time::Duration::from_millis(completion.timeout_milliseconds),
+            engine.eval(&native_async_invocation_script(invocation, &arguments)),
+        )
+        .await
+        .expect("native public async invocation exceeded its completion bound")
+        .expect("schedule native public async invocation in Hermes");
+        assert!(
+            matches!(scheduled.as_deref(), Some("scheduled" | "completed")),
+            "native public async invocation returned an invalid scheduling marker: {scheduled:?}"
+        );
+        engine
+            .eval_immediate(NATIVE_ASYNC_RESULT_SLOT)
+            .await
+    } else {
+        engine
+            .eval_immediate(&native_invocation_script(
+                invocation,
+                &arguments,
+                &setup_state,
+            ))
+            .await
+    };
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     let encoded = result
         .expect("execute native public invocation in Hermes")
@@ -1514,7 +1615,7 @@ async fn execute_native_public_recipe(
         &typed_decisions,
         coverage_terminals,
     );
-    let runtime_observation = serde_json::json!({
+    let mut runtime_observation = serde_json::json!({
         "observationSchema": "ibex/capsec-runtime-public-observation/1",
         "invocation": {
             "invocationSchema": "ibex/capsec-native-global-invocation/1",
@@ -1528,6 +1629,13 @@ async fn execute_native_public_recipe(
         "legacyObservationCount": legacy.len(),
         "typedDecisions": typed_decisions,
     });
+    if let Some(completion) = &invocation.completion {
+        runtime_observation["invocation"]["completion"] = serde_json::json!({
+            "kind": completion.kind,
+            "status": "quiescent",
+            "timeoutMilliseconds": completion.timeout_milliseconds,
+        });
+    }
     let mut observation = recipe.expected_observation.clone();
     observation
         .as_object_mut()

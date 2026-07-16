@@ -662,6 +662,40 @@ const nativeSystemInfoTemplate = (name) =>
     requiredSourceArity: 0,
     setup: [],
   });
+const nativeCachedSystemInfoTemplate = (name, numericName) =>
+  Object.freeze({
+    actionIds: ["sys:read"],
+    arguments: [literalArgument(numericName)],
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "commit"],
+      deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
+    },
+    requiredFloor: [
+      {
+        cap: "sys:read",
+        resource: { kind: "system-info", name },
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [],
+  });
 const nativeEnvironmentReadTemplate = (name) =>
   Object.freeze({
     actionIds: ["env:read"],
@@ -784,6 +818,10 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  [
+    "__exactAuthorizeSystemInfo",
+    nativeCachedSystemInfoTemplate("platform", 11),
+  ],
   [
     "queueMicrotask",
     nativeNoEffectTemplate(1, [harnessNoopCallbackArgument()]),
@@ -1098,6 +1136,162 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
 ]);
 
+const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
+  [
+    "__exactFsPathAsync",
+    new Map([
+      [
+        "readdir",
+        Object.freeze({
+          actionIds: ["fs:list"],
+          arguments: [
+            literalArgument("readdir"),
+            literalArgument("capsec"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: [
+            "native-op:__exactReaddir",
+          ],
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "repeat", "repeat"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "repeat", "repeat"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource("capsec"),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "realpath",
+        Object.freeze({
+          actionIds: ["fs:list"],
+          arguments: [
+            literalArgument("realpath"),
+            literalArgument("Cargo.toml"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: [
+            "native-op:__exactRealpath",
+          ],
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "repeat", "repeat"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "repeat", "repeat"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource("Cargo.toml"),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+    ]),
+  ],
+]);
+
+function logicalBranchIdForPlan(plan, scenario) {
+  const marker = ".logical.";
+  const markerIndex = plan.fixtureId.lastIndexOf(marker);
+  const suffix = `.${scenario}`;
+  if (markerIndex === -1 || !plan.fixtureId.endsWith(suffix)) return null;
+  const branchId = plan.fixtureId.slice(
+    markerIndex + marker.length,
+    -suffix.length,
+  );
+  return branchId || null;
+}
+
 const NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES = new Map([
   [
     "__exactSqliteOpen",
@@ -1293,6 +1487,7 @@ function nativePublicProbeForPlan({
   scenario,
   route,
   liveByObservedKey,
+  coverageByObservedKey,
   adapterProbe,
 }) {
   const targetAbsence = plan.expectedObservation.kind === "target-absence";
@@ -1394,6 +1589,9 @@ function nativePublicProbeForPlan({
           setup: [],
         }
       : (NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName) ??
+        NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES.get(
+          invocation.globalName,
+        )?.get(logicalBranchIdForPlan(plan, scenario)) ??
         (plan.actionIds.length === 0 &&
         new Set(["branch-selection", "no-effect"]).has(scenario)
           ? NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES.get(invocation.globalName)
@@ -1436,6 +1634,18 @@ function nativePublicProbeForPlan({
   }
   const sourceDescriptor = clone(invocation);
   const expectedStages = template.expectedStages[scenario];
+  const additionalAllowedCoverageEdgeIds = [];
+  for (const observedKey of
+    template.additionalAllowedCoverageObservedKeys ?? []) {
+    const additionalEdge = coverageByObservedKey.get(observedKey);
+    if (!additionalEdge?.id) {
+      return {
+        probe: null,
+        unavailableReason: "native-public-auxiliary-coverage-edge-unavailable",
+      };
+    }
+    additionalAllowedCoverageEdgeIds.push(additionalEdge.id);
+  }
   const expectedActionIds = adapterProbe
     ? canonicalSet(
         adapterProbe.cases
@@ -1470,6 +1680,9 @@ function nativePublicProbeForPlan({
         arguments: template.arguments.map((argument) =>
           bindNativeArgumentSources(argument, liveByObservedKey),
         ),
+        ...(template.completion
+          ? { completion: clone(template.completion) }
+          : {}),
         requiredFloor: clone(template.requiredFloor ?? []),
         setup: template.setup.map((setup) =>
           bindNativeSetupSources(setup, liveByObservedKey),
@@ -1477,7 +1690,10 @@ function nativePublicProbeForPlan({
         expectedResult: template.expectedResults[scenario],
         expectedTypedStages: clone(expectedStages),
         expectedTypedDecisionCount: template.expectedDecisionCounts[scenario],
-        allowedCoverageEdgeIds: clone(plan.edgeIds),
+        allowedCoverageEdgeIds: canonicalSet([
+          ...plan.edgeIds,
+          ...additionalAllowedCoverageEdgeIds,
+        ]),
         expectedActionIds,
       },
     },
@@ -1826,6 +2042,7 @@ export function buildConformanceRecipeCatalog({
       scenario,
       route,
       liveByObservedKey,
+      coverageByObservedKey,
       adapterProbe,
     });
     const conditionalHostAbiProbe = conditionalHostAbiProbeForPlan({

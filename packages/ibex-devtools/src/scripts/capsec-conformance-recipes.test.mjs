@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(264);
+    expect(nativePublicFixtures).toHaveLength(281);
     expect(
       nativePublicFixtures
         .filter(
@@ -556,6 +556,88 @@ describe("exact-target CapSec executable recipes", () => {
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
         recipe.scenario === "allow" ? 3 : 1,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("keeps asynchronous typed filesystem observations open through quiescence", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsPathAsync" &&
+        ["readdir", "realpath"].some((branch) =>
+          recipe.fixtureId.includes(`.logical.${branch}.`),
+        ),
+    );
+    expect(rows).toHaveLength(12);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation).toMatchObject({
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        kind: "native-global-function",
+        globalName: "__exactFsPathAsync",
+        sourceDescriptor: {
+          arity: 6,
+          globalName: "__exactFsPathAsync",
+          kind: "native-global-function",
+          sourceRef:
+            "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsPathAsync",
+        },
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedActionIds: ["fs:list"],
+      });
+      expect(invocation.arguments).toHaveLength(6);
+      expect(invocation.allowedCoverageEdgeIds).toEqual(
+        recipe.fixtureId.includes(".logical.readdir.")
+          ? [
+              "surface.native.op.exactfspathasync.10cb78b",
+              "surface.native.op.exactreaddir.0tg30vk",
+            ]
+          : [
+              "surface.native.op.exactfspathasync.10cb78b",
+              "surface.native.op.exactrealpath.06qb6s2",
+            ],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "repeat", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 4,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("executes the typed cached-system-info authorization surface", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactAuthorizeSystemInfo",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: 11 },
+      ]);
+      expect(invocation.requiredFloor).toEqual([
+        {
+          cap: "sys:read",
+          resource: { kind: "system-info", name: "platform" },
+        },
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "commit"],
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
