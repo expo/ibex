@@ -32,6 +32,7 @@ constexpr size_t kMaxGpuEventPayloadBytes = 16 * 1024 * 1024;
 
 enum class GpuMailboxPhase : uint8_t {
   Installing,
+  Activating,
   Live,
   ProtocolViolation,
   Closing,
@@ -39,12 +40,14 @@ enum class GpuMailboxPhase : uint8_t {
 };
 
 struct ExactGpuClientMailbox {
-  explicit ExactGpuClientMailbox(RuntimeCallbackTarget target) : target(target) {}
+  explicit ExactGpuClientMailbox(RuntimeCallbackTarget target)
+      : target(target), activation_thread(std::this_thread::get_id()) {}
 
   std::atomic<uint32_t> references{1};
   std::atomic<GpuMailboxPhase> phase{GpuMailboxPhase::Installing};
   std::atomic<uint64_t> accepted_events{0};
   RuntimeCallbackTarget target;
+  std::thread::id activation_thread;
   std::atomic<ExactGpuRealmTokenV1> realm{0};
 };
 
@@ -97,7 +100,18 @@ int32_t receiveGpuEvent(
   if (phase == GpuMailboxPhase::ProtocolViolation) {
     return EXACT_GPU_CLIENT_EVENT_PROTOCOL_VIOLATION;
   }
-  if (phase != GpuMailboxPhase::Live) {
+  if (phase == GpuMailboxPhase::Activating &&
+      std::this_thread::get_id() != mailbox->activation_thread) {
+    auto expected = GpuMailboxPhase::Activating;
+    mailbox->phase.compare_exchange_strong(
+        expected,
+        GpuMailboxPhase::ProtocolViolation,
+        std::memory_order_acq_rel,
+        std::memory_order_acquire);
+    return EXACT_GPU_CLIENT_EVENT_PROTOCOL_VIOLATION;
+  }
+  if (phase != GpuMailboxPhase::Live &&
+      phase != GpuMailboxPhase::Activating) {
     return EXACT_GPU_CLIENT_EVENT_DISCARDED;
   }
   if (!validGpuEvent(event)) {
@@ -254,7 +268,7 @@ extern "C" int32_t ex_hermes_set_gpu_provider_v1(
   }
   if (descriptor->flags != 0 || descriptor->reserved != 0 ||
       descriptor->topology_id !=
-          EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_DEVICE_V1 ||
+          EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_V1 ||
       !validProfileId(descriptor->profile_id, descriptor->profile_id_len) ||
       !validOperationIds(
           descriptor->sorted_operation_ids, descriptor->operation_id_count) ||
@@ -344,7 +358,7 @@ int32_t exactGpuActivateInstall(ExactHermesRuntime* runtime) {
     auto expected = GpuMailboxPhase::Installing;
     activated = binding->mailbox->phase.compare_exchange_strong(
         expected,
-        GpuMailboxPhase::Live,
+        GpuMailboxPhase::Activating,
         std::memory_order_acq_rel,
         std::memory_order_acquire);
   }
@@ -361,15 +375,24 @@ int32_t exactGpuActivateInstall(ExactHermesRuntime* runtime) {
   }
 
   binding->realm_open = true;
-  // Activation invocation, not open_realm return, is the service-visible
-  // callback-admission linearization point. Live is published first so a
-  // conforming provider may deliver synchronously from this one-way hook.
+  // Activating admits only a synchronous callback on this owner thread. A
+  // competing service-thread callback before the hook returns is still early
+  // and moves the mailbox to ProtocolViolation. Live is published only after
+  // the activation hook has returned.
   try {
     binding->api.activate_realm(binding->api.service_context, binding->realm);
   } catch (...) {
     binding->mailbox->phase.store(
         GpuMailboxPhase::ProtocolViolation, std::memory_order_release);
     return EXACT_GPU_PROVIDER_OPEN_FAILED;
+  }
+  auto expected = GpuMailboxPhase::Activating;
+  if (!binding->mailbox->phase.compare_exchange_strong(
+          expected,
+          GpuMailboxPhase::Live,
+          std::memory_order_acq_rel,
+          std::memory_order_acquire)) {
+    return EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION;
   }
   return EXACT_GPU_PROVIDER_OK;
 #endif

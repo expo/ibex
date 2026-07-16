@@ -3807,6 +3807,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   handle->runtime_thread = std::this_thread::get_id();
   handle->host_context_id = host_context_id;
   handle->armed = armed;
+  handle->trusted_bootstrap_in_progress = true;
   // Both production and the explicitly named foreground diagnostic constructor
   // use structural isolation. Only production seals dynamic self-grant and
   // consumes authenticated endowments.
@@ -3970,6 +3971,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   }
 
   handle->bootstrap_in_progress = false;
+  handle->trusted_bootstrap_in_progress = false;
   registerRuntime(handle);
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
@@ -4091,9 +4093,7 @@ extern "C" int ex_hermes_eval(
     writeOutError("Hermes eval received invalid input");
     return 1;
   }
-  if (runtime->embedder_capability_state ==
-          EmbedderCapabilityState::Configuring ||
-      runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+  if (!exactRuntimeEnterUserExecution(runtime)) {
     writeOutError("Hermes embedder capability transaction is not finalized");
     return 1;
   }
@@ -4785,7 +4785,8 @@ extern "C" int32_t ex_hermes_begin_embedder_capabilities_v1(
   }
   if (runtime->embedder_capability_state !=
           EmbedderCapabilityState::LegacyAutoFinalize ||
-      runtime->exact_host_call_async_fn || exactGpuBindingInstalled(runtime)) {
+      runtime->user_execution_started || runtime->exact_host_call_async_fn ||
+      exactGpuBindingInstalled(runtime)) {
     return EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE;
   }
   runtime->embedder_capability_state = EmbedderCapabilityState::Configuring;
@@ -5362,6 +5363,11 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms) {
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   ExactRuntimeDriveGuard drive(runtime);
   if (!drive) return drive.status();
+  // Poll can invoke queued callbacks, nextTick, microtasks, and timers. During
+  // a construction transaction it must preserve those queues without exposing
+  // provisional capabilities; after any ordinary poll, begin() is permanently
+  // closed even if this particular turn happened to find no work.
+  if (!exactRuntimeEnterUserExecution(runtime)) return 0;
   return pollRuntime(runtime, now_ms);
 }
 

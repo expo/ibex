@@ -121,7 +121,7 @@
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
         },
         "operationIds": { "$ref": "#/$defs/exactGpuOperationSet" },
-        "topology": { "const": "isolated-per-logical-device-v1" }
+        "topology": { "const": "isolated-per-logical-v1" }
       },
       "additionalProperties": false
     },

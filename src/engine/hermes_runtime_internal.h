@@ -243,6 +243,14 @@ struct ExactHermesRuntime {
   // Only the runtime owner thread mutates this state.
   EmbedderCapabilityState embedder_capability_state{
       EmbedderCapabilityState::LegacyAutoFinalize};
+  // Trusted bootstrap scripts run before the handle is published to an
+  // embedder. They do not close the construction-only capability window.
+  bool trusted_bootstrap_in_progress{false};
+  // The explicit embedder-capability transaction is a construction-only
+  // operation. Once any externally driven user-code entry point has run, a
+  // later transaction cannot publish provisional capabilities into that realm.
+  // Owner-thread only, like embedder_capability_state.
+  bool user_execution_started{false};
   // Strict JSON [{locator,endowments}] projection copied from the immutable
   // armed Host context. Locator punctuation is data, never bootstrap syntax.
   std::string snapshot_endowments_json;
@@ -420,6 +428,22 @@ class ExactRuntimeDriveGuard {
   uint64_t nonce_{0};
   int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
+
+inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
+  if (!runtime || !runtime->runtime) {
+    return false;
+  }
+  if (runtime->trusted_bootstrap_in_progress) {
+    return true;
+  }
+  if (runtime->embedder_capability_state ==
+          EmbedderCapabilityState::Configuring ||
+      runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
+    return false;
+  }
+  runtime->user_execution_started = true;
+  return true;
+}
 
 struct NativeWebSocketCallbackContext {
   RuntimeCallbackTarget target;

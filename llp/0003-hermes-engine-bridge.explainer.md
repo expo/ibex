@@ -232,13 +232,14 @@ only the runtime pointer-plus-nonce identity, atomic lifecycle state, and
 bounded event metadata `[observed]` (`src/engine/hermes_runtime_gpu.cc`;
 [LLP 0002 §The optional Exact GPU service registration seam](./0002-host-embedding-abi.spec.md#the-optional-exact-gpu-service-registration-seam)).
 
-The mailbox moves `Installing -> Live -> Closing -> Detached`. The provider
+The mailbox moves `Installing -> Activating -> Live -> Closing -> Detached`. The provider
 may call the sink's plain-native `retain_client`/`release_client` ownership
 hooks during `open_realm`, and must retain before storing the sink/context
 beyond that call. It may not call `on_event` or publish an event-producing
-path until Ibex publishes `Live` and invokes the required one-way
-`activate_realm` hook; that invocation is the admission linearization point,
-so a conforming provider may callback synchronously from it. A live callback
+path until Ibex invokes the required one-way `activate_realm` hook. During
+`Activating`, only a synchronous callback on the runtime owner thread is
+admitted; service-thread callbacks are admitted after the hook returns and
+Ibex publishes `Live`. A live callback
 may never touch JSI on the service thread; this first checkpoint
 records/discards the event and publishes no JS surface. Runtime destruction marks the mailbox
 `Closing`, issues the nonblocking realm close, then marks it `Detached`, and

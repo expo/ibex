@@ -70,7 +70,7 @@ typedef enum ExactEmbedderCapabilitiesStatus {
 /// semantic service boundary, not the wgpu-native ABI. No WGPU object or raw
 /// physical provider handle crosses it.
 #define EXACT_GPU_SERVICE_ABI_VERSION_V1 UINT32_C(0x00010000)
-#define EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_DEVICE_V1 UINT32_C(1)
+#define EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_V1 UINT32_C(1)
 
 typedef enum ExactGpuProviderStatus {
     EXACT_GPU_PROVIDER_OK = 0,
@@ -217,9 +217,12 @@ ExactHermesRuntime* ex_hermes_create_diagnostic(void);
 /// armed-snapshot identity. Returns NULL on absence or mismatch.
 ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
 
-/// Begin an additive owner-thread capability-install transaction. Until a
-/// successful finalize, ex_hermes_eval refuses user evaluation. This call is
-/// valid only before any legacy auto-finalized Exact ingress is installed.
+/// Begin an additive owner-thread capability-install transaction. This is a
+/// construction-only call: it fails after any eval, event-loop poll, debugger
+/// evaluation, or native event dispatch has entered user code. Until a
+/// successful finalize, all of those user-code-driving entry points refuse or
+/// preserve queued work without executing it. The call is also invalid after
+/// any legacy auto-finalized Exact ingress is installed.
 int32_t ex_hermes_begin_embedder_capabilities_v1(ExactHermesRuntime* runtime);
 
 /// Authenticate the exact installed capability set, refresh the package
@@ -245,10 +248,10 @@ size_t ex_hermes_gpu_provider_descriptor_size_v1(void);
 /// release_client for plain-native mailbox ownership; retaining is required
 /// before storing the sink/context beyond the call. It must not invoke
 /// on_event or publish an event-producing path until Ibex calls the one-way
-/// activate_realm hook. That invocation is the callback-admission
-/// linearization point, so event callbacks may begin synchronously from the
-/// hook. Service calls must return promptly. An event callback before
-/// activation is a protocol error.
+/// activate_realm hook. During that hook only a synchronous callback on the
+/// runtime owner thread is admitted; service-thread delivery is admitted after
+/// the hook returns and Ibex publishes Live. Service calls must return
+/// promptly. Any earlier or competing callback is a protocol error.
 int32_t ex_hermes_set_gpu_provider_v1(
     ExactHermesRuntime* runtime,
     const ExactHermesGpuProviderDescriptorV1* descriptor);

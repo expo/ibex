@@ -349,8 +349,16 @@ extern "C" char* ex_hermes_debugger_eval(
 
   if (runtime->debugger_attached.load()) {
     debugger->triggerInterrupt_TS(
-        [debugger, expr, frame_index, result_holder, result_mutex, result_cv, result_ready](
+        [runtime, debugger, expr, frame_index, result_holder, result_mutex, result_cv, result_ready](
             facebook::hermes::HermesRuntime& rt) {
+          if (!exactRuntimeEnterUserExecution(runtime)) {
+            std::lock_guard<std::mutex> lock(*result_mutex);
+            *result_holder =
+                "{\"exceptionDetails\":{\"text\":\"Hermes embedder capability transaction is not finalized\"}}";
+            *result_ready = true;
+            result_cv->notify_one();
+            return;
+          }
           auto ok = debugger->evalWhilePaused(
               expr,
               frame_index,
@@ -413,7 +421,7 @@ extern "C" char* ex_hermes_debugger_eval(
 
   // Fallback: use runOnRuntimeThread for regular evaluation (not paused)
   auto json = runOnRuntimeThread(runtime, [expr](ExactHermesRuntime* handle) {
-    if (!handle || !handle->runtime) {
+    if (!exactRuntimeEnterUserExecution(handle)) {
       return std::string();
     }
     auto& rt = *handle->runtime;

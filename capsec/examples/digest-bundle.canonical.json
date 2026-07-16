@@ -265495,7 +265495,7 @@
                 "$ref": "#/$defs/exactGpuOperationSet"
               },
               "topology": {
-                "const": "isolated-per-logical-device-v1"
+                "const": "isolated-per-logical-v1"
               }
             },
             "additionalProperties": false

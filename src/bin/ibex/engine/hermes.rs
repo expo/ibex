@@ -324,6 +324,15 @@ extern "C" {
     ) -> i32;
     fn ex_hermes_free_string(value: *mut std::os::raw::c_char);
     fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_callback_backlog(runtime: *mut HermesRuntimeOpaque) -> u32;
+    #[cfg(test)]
+    fn ex_hermes_schedule_watchdog_heartbeat_for_generation(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        callback: extern "C" fn(*mut std::ffi::c_void),
+        context: *mut std::ffi::c_void,
+    );
     // Monotonic timer clock shared with the C++ scheduler (nowMs). See
     // current_time_ms() for why the Rust loop must not use its own clock.
     fn ex_hermes_now_ms() -> u64;
@@ -3840,7 +3849,7 @@ cp \"$input\" \"$out\"\n";
                     "operationSetDigest": operation_set_digest,
                     "semanticProgramDigest": semantic_program_digest,
                     "operationIds": [7, 11, 19],
-                    "topology": "isolated-per-logical-device-v1"
+                    "topology": "isolated-per-logical-v1"
                 });
                 value["protectedObjects"]
                     .as_array_mut()
@@ -4273,10 +4282,19 @@ cp \"$input\" \"$out\"\n";
         std::sync::atomic::AtomicUsize::new(0);
     static EXACT_ABI_PROBE_PAYLOAD_LEN: std::sync::atomic::AtomicUsize =
         std::sync::atomic::AtomicUsize::new(0);
+    static EMBEDDER_QUEUED_CALLBACK_CALLS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    extern "C" fn count_embedder_queued_callback(_context: *mut std::ffi::c_void) {
+        EMBEDDER_QUEUED_CALLBACK_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
 
     const EXACT_GPU_SERVICE_ABI_VERSION_V1: u32 = 0x0001_0000;
+    const EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE: i32 = -3;
+    #[cfg(feature = "webgpu-binding")]
+    const EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED: i32 = -4;
     #[cfg(any(feature = "capsec-conformance-observer", feature = "webgpu-binding"))]
-    const EXACT_GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_DEVICE_V1: u32 = 1;
+    const EXACT_GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_V1: u32 = 1;
     #[cfg(feature = "webgpu-binding")]
     const EXACT_GPU_EVENT_REALM_CLOSED: u32 = 4;
 
@@ -4375,7 +4393,7 @@ cp \"$input\" \"$out\"\n";
             };
             let receipt = sink.on_event.unwrap()(client_context, &event);
             fake_gpu_state().lock().unwrap().early_receipt = Some(receipt);
-        } else if mode == 2 || mode == 3 {
+        } else if mode == 2 || mode == 3 || mode == 4 {
             sink.retain_client.unwrap()(client_context);
             fake_gpu_state().lock().unwrap().retained_client = Some(RetainedGpuTestClient {
                 sink,
@@ -4392,28 +4410,37 @@ cp \"$input\" \"$out\"\n";
         let synchronous_client = {
             let mut state = fake_gpu_state().lock().unwrap();
             state.activate_calls += 1;
-            if state.mode == 3 {
+            if state.mode == 3 || state.mode == 4 {
                 Some(state.retained_client.unwrap())
             } else {
                 None
             }
         };
         if let Some(client) = synchronous_client {
-            let event = ExactGpuServiceEventV1 {
-                struct_size: std::mem::size_of::<ExactGpuServiceEventV1>() as u32,
-                abi_version: EXACT_GPU_SERVICE_ABI_VERSION_V1,
-                kind: EXACT_GPU_EVENT_REALM_CLOSED,
-                flags: 0,
-                realm_token: client.realm,
-                operation_id: 0,
-                completion_id: 0,
-                status: 0,
-                reserved: 0,
-                payload: std::ptr::null(),
-                payload_len: 0,
+            let competing_service_thread = fake_gpu_state().lock().unwrap().mode == 4;
+            let deliver = move || {
+                let event = ExactGpuServiceEventV1 {
+                    struct_size: std::mem::size_of::<ExactGpuServiceEventV1>() as u32,
+                    abi_version: EXACT_GPU_SERVICE_ABI_VERSION_V1,
+                    kind: EXACT_GPU_EVENT_REALM_CLOSED,
+                    flags: 0,
+                    realm_token: client.realm,
+                    operation_id: 0,
+                    completion_id: 0,
+                    status: 0,
+                    reserved: 0,
+                    payload: std::ptr::null(),
+                    payload_len: 0,
+                };
+                let receipt = client.sink.on_event.unwrap()(client.context as *mut _, &event);
+                client.sink.release_client.unwrap()(client.context as *mut _);
+                receipt
             };
-            let receipt = client.sink.on_event.unwrap()(client.context as *mut _, &event);
-            client.sink.release_client.unwrap()(client.context as *mut _);
+            let receipt = if competing_service_thread {
+                std::thread::spawn(deliver).join().unwrap()
+            } else {
+                deliver()
+            };
             let mut state = fake_gpu_state().lock().unwrap();
             state.activation_receipt = Some(receipt);
             state.retained_client = None;
@@ -4505,7 +4532,7 @@ cp \"$input\" \"$out\"\n";
             semantic_program_digest: digests[3],
             sorted_operation_ids: operations.as_ptr(),
             operation_id_count: operations.len(),
-            topology_id: EXACT_GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_DEVICE_V1,
+            topology_id: EXACT_GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_V1,
             reserved: 0,
             api,
         }
@@ -4619,13 +4646,68 @@ cp \"$input\" \"$out\"\n";
     ) {
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_embedder_transaction_rejects_begin_after_user_evaluation() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let engine = HermesEngine::new().unwrap();
+        assert_eq!(
+            engine.eval_immediate("1 + 1").await.unwrap().as_deref(),
+            Some("2")
+        );
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_begin_embedder_capabilities_v1(raw),
+                    EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE
+                );
+            })
+            .unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_embedder_transaction_preserves_queued_callbacks_until_finalize() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        EMBEDDER_QUEUED_CALLBACK_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                let nonce = ex_hermes_runtime_nonce(raw);
+                assert_ne!(nonce, 0);
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                ex_hermes_schedule_watchdog_heartbeat_for_generation(
+                    raw,
+                    nonce,
+                    count_embedder_queued_callback,
+                    std::ptr::null_mut(),
+                );
+                assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 0);
+                assert_eq!(
+                    EMBEDDER_QUEUED_CALLBACK_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+                    0
+                );
+                assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                assert_eq!(
+                    EMBEDDER_QUEUED_CALLBACK_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+                    1
+                );
+                assert_eq!(ex_hermes_callback_backlog(raw), 0);
+            })
+            .unwrap();
+    }
+
     #[cfg(not(feature = "webgpu-binding"))]
     #[tokio::test(flavor = "current_thread")]
     async fn gpu_registration_abi_is_stably_unsupported_when_feature_is_off() {
         let _lock = hermes_engine_test_lock().lock().await;
         let _reset = install_test_host_with_allow(&[]);
         let engine = HermesEngine::new().unwrap();
-        assert!(engine.runtime_bundle_installed().await.unwrap());
         let runtime = engine.ensure_runtime().await.unwrap();
         runtime
             .with_runtime(|raw| unsafe {
@@ -4659,7 +4741,6 @@ cp \"$input\" \"$out\"\n";
         let _reset = install_test_host_with_allow(&[]);
         reset_fake_gpu(0);
         let engine = HermesEngine::new().unwrap();
-        assert!(engine.runtime_bundle_installed().await.unwrap());
         let runtime = engine.ensure_runtime().await.unwrap();
         let operations = [7_u32];
         let api = fake_gpu_api();
@@ -4728,7 +4809,6 @@ cp \"$input\" \"$out\"\n";
         let _reset = install_test_host_with_allow(&[]);
         reset_fake_gpu(0);
         let engine = HermesEngine::new().unwrap();
-        assert!(engine.runtime_bundle_installed().await.unwrap());
         let runtime = engine.ensure_runtime().await.unwrap();
         let operations = [7_u32];
         let api = fake_gpu_api();
@@ -4768,7 +4848,6 @@ cp \"$input\" \"$out\"\n";
         let _reset = install_test_host_with_allow(&[]);
         reset_fake_gpu(3);
         let engine = HermesEngine::new().unwrap();
-        assert!(engine.runtime_bundle_installed().await.unwrap());
         let runtime = engine.ensure_runtime().await.unwrap();
         let operations = [7_u32];
         let api = fake_gpu_api();
@@ -4788,12 +4867,39 @@ cp \"$input\" \"$out\"\n";
 
     #[cfg(feature = "webgpu-binding")]
     #[tokio::test(flavor = "current_thread")]
+    async fn gpu_activation_rejects_competing_service_thread_callback() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(4);
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        let api = fake_gpu_api();
+        let descriptor = fake_gpu_descriptor(&api, &operations, test_gpu_digests());
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
+                assert_eq!(
+                    ex_hermes_finalize_embedder_capabilities_v1(raw),
+                    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED
+                );
+            })
+            .unwrap();
+
+        let state = fake_gpu_state().lock().unwrap();
+        assert_eq!(state.activate_calls, 1);
+        assert_eq!(state.activation_receipt, Some(-1));
+        assert_eq!(state.close_calls, 1);
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[tokio::test(flavor = "current_thread")]
     async fn gpu_registration_rejects_off_owner_calls_before_provider_interaction() {
         let _lock = hermes_engine_test_lock().lock().await;
         let _reset = install_test_host_with_allow(&[]);
         reset_fake_gpu(0);
         let engine = HermesEngine::new().unwrap();
-        assert!(engine.runtime_bundle_installed().await.unwrap());
         let runtime = engine.ensure_runtime().await.unwrap();
         runtime
             .with_runtime(|raw| unsafe {
@@ -4830,7 +4936,6 @@ cp \"$input\" \"$out\"\n";
         let _reset = install_test_host_with_allow(&[]);
         reset_fake_gpu(0);
         let engine = HermesEngine::new().unwrap();
-        assert!(engine.runtime_bundle_installed().await.unwrap());
         let runtime = engine.ensure_runtime().await.unwrap();
         let operations = [7_u32];
         let mut api = fake_gpu_api();
@@ -4881,7 +4986,6 @@ cp \"$input\" \"$out\"\n";
         let _reset = install_test_host_with_allow(&[]);
         reset_fake_gpu(1);
         let engine = HermesEngine::new().unwrap();
-        assert!(engine.runtime_bundle_installed().await.unwrap());
         let runtime = engine.ensure_runtime().await.unwrap();
         let operations = [7_u32];
         let api = fake_gpu_api();
@@ -4911,7 +5015,6 @@ cp \"$input\" \"$out\"\n";
         let _reset = install_test_host_with_allow(&[]);
         reset_fake_gpu(2);
         let engine = HermesEngine::new().unwrap();
-        assert!(engine.runtime_bundle_installed().await.unwrap());
         let runtime = engine.ensure_runtime().await.unwrap();
         let operations = [7_u32];
         let api = fake_gpu_api();
@@ -4974,7 +5077,7 @@ cp \"$input\" \"$out\"\n";
                 semantics.as_ptr(),
                 operation_ids.as_ptr(),
                 operation_ids.len(),
-                EXACT_GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_DEVICE_V1,
+                EXACT_GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_V1,
             )
         };
         assert_eq!(authorize(&wrong_operations), 0);

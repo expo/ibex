@@ -630,7 +630,7 @@ static int emit_module_event_impl(
     const uint32_t* node_id,
     const uint8_t* payload,
     size_t payload_len) {
-  if (!runtime || !runtime->runtime) return -1;
+  if (!exactRuntimeEnterUserExecution(runtime)) return -1;
 
   auto& rt = *runtime->runtime;
 
@@ -725,7 +725,7 @@ extern "C" int ex_hermes_dispatch_event(
     ExactHermesRuntime* runtime,
     uint32_t handler_id,
     const char* payload_json) {
-  if (!runtime || !runtime->runtime) return -1;
+  if (!exactRuntimeEnterUserExecution(runtime)) return -1;
 
   auto& rt = *runtime->runtime;
 

@@ -346,13 +346,14 @@ The service owns no Hermes or JSI value. `open_realm` receives a ref-counted
 plain-native client sink. It may call `retain_client`/`release_client` while
 opening, and it must retain the sink before storing the sink/context beyond
 that call, but it may neither call `on_event` nor publish an event-producing
-path yet. After a successful open, Ibex validates the returned identities,
-makes its mailbox live, and invokes the required one-way `activate_realm`
-hook. That invocation is the callback-admission linearization point: the
-service may deliver synchronously from the hook or later on a service thread.
-An event callback before activation is an unambiguous protocol violation;
-this explicit handshake avoids the otherwise uncloseable race between
-`open_realm` returning and Ibex marking the mailbox live. This foundation
+path yet. After a successful open, Ibex validates the returned identities and
+enters `Activating` immediately before invoking the required one-way
+`activate_realm` hook. `Activating` admits only a synchronous callback on the
+runtime owner thread; after the hook returns, Ibex publishes `Live` and admits
+service-thread delivery. An earlier callback, including a competing
+service-thread callback before the hook returns, is an unambiguous protocol
+violation. This explicit handshake closes the race between `open_realm`
+returning and asynchronous event admission. This foundation
 checkpoint records and discards those plain events only; it does not install
 `navigator.gpu`, `createImageBitmap`, or any other JavaScript API. Presence of
 the C ABI is therefore neither WebGPU support nor conformance evidence.
@@ -362,7 +363,8 @@ was the only package-visible native addition. Multi-capability embedders use an
 additive owner-thread transaction:
 
 1. `ex_hermes_begin_embedder_capabilities_v1` enters `Configuring` before user
-   evaluation.
+   evaluation. A runtime that has already entered eval, poll, debugger eval, or
+   native event dispatch cannot begin a transaction.
 2. The embedder installs the Exact operation ingress and any authenticated GPU
    service in either order. Setters publish only removable provisional state;
    GPU registration copies the function table and retains the service but does
@@ -373,7 +375,9 @@ additive owner-thread transaction:
    and seals the Exact method. Thus GPU-first and Exact-ingress-first
    installation cannot select different realm identities.
 
-`ex_hermes_eval` refuses while the transaction is `Configuring` or failed.
+Every user-code-driving entry point refuses while the transaction is
+`Configuring` or failed; poll preserves queued callbacks without executing
+them.
 Finalization failure rolls back the provisional Exact method, closes any opened
 GPU realm, and is terminal for that runtime. Existing Exact-only consumers that
 do not call `begin` retain the legacy single-setter auto-finalization behavior;

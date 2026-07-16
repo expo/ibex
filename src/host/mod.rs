@@ -423,7 +423,7 @@ impl Host {
             && &binding.semantic_program_digest == semantic_program_digest
             && binding.operation_ids == operations
             && topology_id == 1
-            && binding.topology == "isolated-per-logical-device-v1"
+            && binding.topology == "isolated-per-logical-v1"
     }
 
     /// The explicit construction transaction finalizes only when its installed
@@ -4217,7 +4217,7 @@ mod tests {
                 "operationSetDigest": operations,
                 "semanticProgramDigest": semantics,
                 "operationIds": [7, 11, 19],
-                "topology": "isolated-per-logical-device-v1"
+                "topology": "isolated-per-logical-v1"
             });
             value["protectedObjects"]
                 .as_array_mut()

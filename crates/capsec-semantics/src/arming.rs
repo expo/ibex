@@ -1204,7 +1204,7 @@ fn validate_exact_gpu_provider_binding(binding: &ExactGpuProviderBinding) -> Res
     {
         return refused("Exact GPU operation set is not a bounded sorted unique uint32 set");
     }
-    if binding.topology != "isolated-per-logical-device-v1" {
+    if binding.topology != "isolated-per-logical-v1" {
         return refused("Exact GPU provider topology is unsupported");
     }
     Ok(())
@@ -2050,7 +2050,7 @@ mod tests {
             "operationSetDigest": operation_set_digest,
             "semanticProgramDigest": semantic_program_digest,
             "operationIds": [7, 11, 19],
-            "topology": "isolated-per-logical-device-v1"
+            "topology": "isolated-per-logical-v1"
         });
         let object = serde_json::json!({
             "platform": "unix",
