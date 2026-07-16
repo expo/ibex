@@ -13,7 +13,7 @@ use thiserror::Error;
 use super::artifact::{
     ExportDescriptorV1, ModulePayloadV1, StaticEdgeV1, VerifiedModuleArtifactV1,
 };
-use super::identity::SourceId;
+use super::identity::{ResolutionKind, SourceId};
 use super::security::{
     AuthorizedGraphOperation, GraphAuthorityContext, GraphDecisionSet, GraphImportPolicy,
     GraphOperationKind, ModuleGraphAuthorizer,
@@ -86,7 +86,25 @@ impl GraphError {
 
 struct PlannedRecord<'artifact> {
     artifact: VerifiedModuleArtifactV1<'artifact>,
-    edges: BTreeMap<String, SourceId>,
+    edges: BTreeMap<GraphEdgeKey, SourceId>,
+}
+
+/// Exact authenticated lookup key for one authored dependency edge. The same
+/// spelling may resolve differently under ESM, dynamic-import, and CommonJS
+/// package conditions, so specifier text alone is not a graph identity.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GraphEdgeKey {
+    pub specifier: String,
+    pub resolution_kind: ResolutionKind,
+}
+
+impl GraphEdgeKey {
+    pub fn new(specifier: impl Into<String>, resolution_kind: ResolutionKind) -> Self {
+        Self {
+            specifier: specifier.into(),
+            resolution_kind,
+        }
+    }
 }
 
 /// Immutable link plan for one synchronous graph generation.
@@ -136,21 +154,44 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             ),
         >,
     ) -> Result<Self, GraphError> {
+        let records = records
+            .into_iter()
+            .map(|(artifact, edges)| {
+                let mut typed = BTreeMap::new();
+                for (specifier, target) in edges {
+                    let mut matched = false;
+                    for key in artifact_edge_keys(artifact) {
+                        if key.specifier == specifier {
+                            typed.insert(key, target.clone());
+                            matched = true;
+                        }
+                    }
+                    if !matched {
+                        typed.insert(
+                            GraphEdgeKey::new(specifier, ResolutionKind::DynamicImport),
+                            target,
+                        );
+                    }
+                }
+                (artifact, typed)
+            })
+            .collect::<Vec<_>>();
+        Self::new_typed(records)
+    }
+
+    pub fn new_typed(
+        records: impl IntoIterator<
+            Item = (
+                VerifiedModuleArtifactV1<'artifact>,
+                BTreeMap<GraphEdgeKey, SourceId>,
+            ),
+        >,
+    ) -> Result<Self, GraphError> {
         let mut planned = BTreeMap::new();
         for (artifact, edges) in records {
             let semantics = &artifact.artifact().semantics;
             let source_id = semantics.source_id.0.clone();
-            let expected: BTreeSet<_> = semantics
-                .static_edges
-                .iter()
-                .map(edge_specifier)
-                .chain(
-                    semantics
-                        .dynamic_edges
-                        .iter()
-                        .filter_map(|edge| edge.literal_specifier().map(str::to_owned)),
-                )
-                .collect();
+            let expected: BTreeSet<_> = artifact_edge_keys(artifact).collect();
             let observed: BTreeSet<_> = edges.keys().cloned().collect();
             let has_computed_dynamic_import = semantics
                 .dynamic_edges
@@ -158,6 +199,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 .any(|edge| matches!(edge, super::artifact::DynamicEdgeV1::Computed { .. }));
             let agrees = if has_computed_dynamic_import {
                 expected.is_subset(&observed)
+                    && observed
+                        .difference(&expected)
+                        .all(|key| key.resolution_kind == ResolutionKind::DynamicImport)
             } else {
                 expected == observed
             };
@@ -302,7 +346,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let mut bindings = Vec::new();
         for (specifier, attributes) in declared {
             bindings.push(DynamicImportBindingPlan {
-                target: self.edge_target(record, &specifier)?.clone(),
+                target: self
+                    .edge_target(record, &specifier, ResolutionKind::DynamicImport)?
+                    .clone(),
                 specifier,
                 attributes,
                 computed_candidate: false,
@@ -313,10 +359,12 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 .iter()
                 .map(|binding| binding.specifier.clone())
                 .collect();
-            for (specifier, target) in &record.edges {
-                if !literal_specifiers.contains(specifier) {
+            for (key, target) in &record.edges {
+                if key.resolution_kind == ResolutionKind::DynamicImport
+                    && !literal_specifiers.contains(&key.specifier)
+                {
                     bindings.push(DynamicImportBindingPlan {
-                        specifier: specifier.clone(),
+                        specifier: key.specifier.clone(),
                         target: target.clone(),
                         attributes: super::identity::ImportAttributes::default(),
                         computed_candidate: true,
@@ -345,7 +393,23 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         source_id: &SourceId,
         specifier: &str,
     ) -> Result<&SourceId, GraphError> {
-        self.edge_target(self.record(source_id)?, specifier)
+        self.edge_target(
+            self.record(source_id)?,
+            specifier,
+            ResolutionKind::EsmStatic,
+        )
+    }
+
+    pub fn commonjs_require_target(
+        &self,
+        source_id: &SourceId,
+        specifier: &str,
+    ) -> Result<&SourceId, GraphError> {
+        self.edge_target(
+            self.record(source_id)?,
+            specifier,
+            ResolutionKind::CommonJsRequire,
+        )
     }
 
     /// Collapse the entry closure into dependency-first SCCs and propagate
@@ -380,7 +444,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 let record = self.plan.record(source_id)?;
                 let mut dependencies = BTreeSet::new();
                 for edge in &record.artifact.artifact().semantics.static_edges {
-                    let target = self.plan.edge_target(record, &edge_specifier(edge))?;
+                    let target = self.plan.static_edge_target(record, edge)?;
                     dependencies.insert(target.clone());
                 }
                 for dependency in dependencies {
@@ -455,7 +519,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 contains_top_level_await |=
                     record.artifact.artifact().semantics.has_top_level_await;
                 for edge in &record.artifact.artifact().semantics.static_edges {
-                    let target = self.edge_target(record, &edge_specifier(edge))?;
+                    let target = self.static_edge_target(record, edge)?;
                     let dependency = record_scc[target];
                     if dependency != index {
                         dependencies.insert(dependency);
@@ -507,7 +571,13 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             }
             let record = self.record(&source_id)?;
             for edge in &record.artifact.artifact().semantics.static_edges {
-                let (specifier, attributes, kind) = match edge {
+                let (specifier, attributes, kind, resolution_kind) = match edge {
+                    StaticEdgeV1::CommonJsRequire { specifier } => (
+                        specifier,
+                        super::identity::ImportAttributes::default(),
+                        GraphOperationKind::LiteralRequire,
+                        ResolutionKind::CommonJsRequire,
+                    ),
                     StaticEdgeV1::SideEffect {
                         specifier,
                         attributes,
@@ -528,12 +598,13 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                         ..
                     } => (
                         specifier,
-                        attributes,
+                        attributes.clone(),
                         if attributes.asserts_json() {
                             GraphOperationKind::JsonLoad
                         } else {
                             GraphOperationKind::StaticImport
                         },
+                        ResolutionKind::EsmStatic,
                     ),
                     StaticEdgeV1::ReExportNamed {
                         specifier,
@@ -548,19 +619,24 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                         specifier,
                         attributes,
                         ..
-                    } => (specifier, attributes, GraphOperationKind::ReExport),
+                    } => (
+                        specifier,
+                        attributes.clone(),
+                        GraphOperationKind::ReExport,
+                        ResolutionKind::EsmStatic,
+                    ),
                 };
-                let target = self.edge_target(record, specifier.as_str())?.clone();
+                let target = self
+                    .edge_target(record, specifier.as_str(), resolution_kind)?
+                    .clone();
                 let decision = GraphDecisionSet::new(
                     kind,
                     context.clone(),
                     target,
                     specifier.as_str(),
-                    super::identity::ResolutionKind::EsmStatic,
-                    super::identity::ConditionSet::for_kind(
-                        super::identity::ResolutionKind::EsmStatic,
-                    ),
-                    attributes.clone(),
+                    resolution_kind,
+                    super::identity::ConditionSet::for_kind(resolution_kind),
+                    attributes,
                     None,
                     None,
                 )?;
@@ -679,11 +755,12 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                     ..
                 } => (specifier.as_str(), imported.as_str()),
                 StaticEdgeV1::SideEffect { .. }
+                | StaticEdgeV1::CommonJsRequire { .. }
                 | StaticEdgeV1::ReExportNamed { .. }
                 | StaticEdgeV1::ReExportStar { .. }
                 | StaticEdgeV1::ReExportNamespace { .. } => continue,
             };
-            let target_record = self.edge_target(record, specifier)?;
+            let target_record = self.edge_target(record, specifier, ResolutionKind::EsmStatic)?;
             let target = if imported == "*" {
                 ExportTarget {
                     record: target_record.clone(),
@@ -787,7 +864,8 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                     names.insert(exported.as_str().to_owned());
                 }
                 ExportDescriptorV1::Star { specifier } => {
-                    let target = self.edge_target(record, specifier.as_str())?;
+                    let target =
+                        self.edge_target(record, specifier.as_str(), ResolutionKind::EsmStatic)?;
                     let mut inherited = BTreeSet::new();
                     self.collect_export_names(target, visiting, &mut inherited)?;
                     inherited.remove("default");
@@ -825,7 +903,8 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                     specifier,
                     imported,
                 } if exported.as_str() == name => {
-                    let target = self.edge_target(record, specifier.as_str())?;
+                    let target =
+                        self.edge_target(record, specifier.as_str(), ResolutionKind::EsmStatic)?;
                     let result = self.resolve_export(target, imported.as_str(), visiting)?;
                     visiting.remove(&key);
                     return Ok(result);
@@ -834,7 +913,8 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                     exported,
                     specifier,
                 } if exported.as_str() == name => {
-                    let target = self.edge_target(record, specifier.as_str())?;
+                    let target =
+                        self.edge_target(record, specifier.as_str(), ResolutionKind::EsmStatic)?;
                     visiting.remove(&key);
                     return Ok(Resolution::Found(ExportTarget {
                         record: target.clone(),
@@ -854,7 +934,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             let ExportDescriptorV1::Star { specifier } = descriptor else {
                 continue;
             };
-            let target = self.edge_target(record, specifier.as_str())?;
+            let target = self.edge_target(record, specifier.as_str(), ResolutionKind::EsmStatic)?;
             match self.resolve_export(target, name, visiting)? {
                 Resolution::Found(candidate) => match &found {
                     None => found = Some(candidate),
@@ -894,7 +974,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let record = self.record(source_id)?;
         let mut seen_targets = BTreeSet::new();
         for edge in &record.artifact.artifact().semantics.static_edges {
-            let target = self.edge_target(record, &edge_specifier(edge))?;
+            let target = self.static_edge_target(record, edge)?;
             if seen_targets.insert(target.clone()) {
                 self.visit_for_evaluation(target, visiting, visited, order)?;
             }
@@ -920,7 +1000,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let record = self.record(source_id)?;
         let mut targets = BTreeSet::new();
         for edge in &record.artifact.artifact().semantics.static_edges {
-            targets.insert(self.edge_target(record, &edge_specifier(edge))?.clone());
+            targets.insert(self.static_edge_target(record, edge)?.clone());
         }
         let allowed = allowed_dynamic_specifiers.get(source_id);
         for (specifier, target) in self.dynamic_import_targets(source_id)? {
@@ -948,12 +1028,25 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         &self,
         record: &'a PlannedRecord<'artifact>,
         specifier: &str,
+        resolution_kind: ResolutionKind,
     ) -> Result<&'a SourceId, GraphError> {
-        record.edges.get(specifier).ok_or_else(|| {
-            GraphError::link(format!(
-                "static edge {specifier:?} has no authenticated target"
-            ))
-        })
+        record
+            .edges
+            .get(&GraphEdgeKey::new(specifier, resolution_kind))
+            .ok_or_else(|| {
+                GraphError::link(format!(
+                    "{resolution_kind:?} edge {specifier:?} has no authenticated target"
+                ))
+            })
+    }
+
+    fn static_edge_target<'a>(
+        &self,
+        record: &'a PlannedRecord<'artifact>,
+        edge: &StaticEdgeV1,
+    ) -> Result<&'a SourceId, GraphError> {
+        let key = static_edge_key(edge);
+        self.edge_target(record, &key.specifier, key.resolution_kind)
     }
 }
 
@@ -965,7 +1058,8 @@ enum Resolution {
 
 fn edge_specifier(edge: &StaticEdgeV1) -> String {
     match edge {
-        StaticEdgeV1::SideEffect { specifier, .. }
+        StaticEdgeV1::CommonJsRequire { specifier }
+        | StaticEdgeV1::SideEffect { specifier, .. }
         | StaticEdgeV1::Default { specifier, .. }
         | StaticEdgeV1::Namespace { specifier, .. }
         | StaticEdgeV1::Named { specifier, .. }
@@ -975,13 +1069,47 @@ fn edge_specifier(edge: &StaticEdgeV1) -> String {
     }
 }
 
+fn static_edge_key(edge: &StaticEdgeV1) -> GraphEdgeKey {
+    GraphEdgeKey::new(
+        edge_specifier(edge),
+        if matches!(edge, StaticEdgeV1::CommonJsRequire { .. }) {
+            ResolutionKind::CommonJsRequire
+        } else {
+            ResolutionKind::EsmStatic
+        },
+    )
+}
+
+fn artifact_edge_keys(
+    artifact: VerifiedModuleArtifactV1<'_>,
+) -> impl Iterator<Item = GraphEdgeKey> + '_ {
+    artifact
+        .artifact()
+        .semantics
+        .static_edges
+        .iter()
+        .map(static_edge_key)
+        .chain(
+            artifact
+                .artifact()
+                .semantics
+                .dynamic_edges
+                .iter()
+                .filter_map(|edge| {
+                    edge.literal_specifier().map(|specifier| {
+                        GraphEdgeKey::new(specifier, ResolutionKind::DynamicImport)
+                    })
+                }),
+        )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::module_loader::artifact::{
-        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, DynamicEdgeV1, ModuleArtifactV1,
-        ModulePayloadV1, ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1,
-        SourceMapV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+        digest_bytes, ArtifactAdmissionV1, CanonicalSourceId, CommonJsExportsV1, DynamicEdgeV1,
+        ModuleArtifactV1, ModulePayloadV1, ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1,
+        SourceGoalV1, SourceMapV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
     };
     use crate::module_loader::identity::ImportAttributes;
     use capsec_semantics::model::{Digest, NonEmptyString};
@@ -1112,6 +1240,32 @@ mod tests {
         let mut semantics = artifact.semantics;
         semantics.dynamic_edges = dynamic_edges;
         ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer).unwrap()
+    }
+
+    fn commonjs_artifact(
+        source_id: SourceId,
+        static_edges: Vec<StaticEdgeV1>,
+        dynamic_edges: Vec<DynamicEdgeV1>,
+    ) -> ModuleArtifactV1 {
+        let base = artifact(source_id, vec![], vec![], false);
+        let factory_source = match base.payload {
+            ModulePayloadV1::Inline { factory_source, .. } => factory_source,
+            ModulePayloadV1::Carrier { .. } => unreachable!(),
+        };
+        let mut semantics = base.semantics;
+        semantics.source_goal = SourceGoalV1::CommonJs;
+        semantics.static_edges = static_edges;
+        semantics.dynamic_edges = dynamic_edges;
+        semantics.commonjs_exports = Some(CommonJsExportsV1 {
+            detector: semantics.transform_fingerprint.commonjs_detector.clone(),
+            detector_version: semantics
+                .transform_fingerprint
+                .commonjs_detector_version
+                .clone(),
+            names: Vec::new(),
+            reexports: Vec::new(),
+        });
+        ModuleArtifactV1::new_inline(semantics, factory_source, base.producer).unwrap()
     }
 
     #[test]
@@ -1266,6 +1420,57 @@ mod tests {
         let error = plan.synchronous_evaluation_order(&entry_id).err().unwrap();
         assert_eq!(error.code, GraphErrorCode::RequireAsyncModule);
         assert!(error.to_string().starts_with("ERR_REQUIRE_ASYNC_MODULE:"));
+    }
+
+    #[test]
+    fn one_specifier_keeps_require_and_dynamic_targets_distinct() {
+        let entry_id = source("commonjs-entry");
+        let require_id = source("require-target");
+        let dynamic_id = source("dynamic-target");
+        let entry = commonjs_artifact(
+            entry_id.clone(),
+            vec![StaticEdgeV1::CommonJsRequire {
+                specifier: name("conditional-package"),
+            }],
+            vec![DynamicEdgeV1::Literal {
+                specifier: name("conditional-package"),
+                attributes: ImportAttributes::default(),
+            }],
+        );
+        let require_target = commonjs_artifact(require_id.clone(), vec![], vec![]);
+        let dynamic_target = artifact(dynamic_id.clone(), vec![], vec![], false);
+        let plan = SynchronousGraphPlan::new_typed([
+            (
+                verify(&entry),
+                BTreeMap::from([
+                    (
+                        GraphEdgeKey::new("conditional-package", ResolutionKind::CommonJsRequire),
+                        require_id.clone(),
+                    ),
+                    (
+                        GraphEdgeKey::new("conditional-package", ResolutionKind::DynamicImport),
+                        dynamic_id.clone(),
+                    ),
+                ]),
+            ),
+            (verify(&require_target), BTreeMap::new()),
+            (verify(&dynamic_target), BTreeMap::new()),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            plan.commonjs_require_target(&entry_id, "conditional-package")
+                .unwrap(),
+            &require_id
+        );
+        assert_eq!(
+            plan.dynamic_import_targets(&entry_id).unwrap(),
+            [("conditional-package".to_owned(), dynamic_id)]
+        );
+        assert_eq!(
+            plan.evaluation_order(&entry_id).unwrap(),
+            [require_id, entry_id]
+        );
     }
 
     #[test]

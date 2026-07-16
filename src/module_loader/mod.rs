@@ -8,6 +8,7 @@ pub mod artifact;
 pub mod carrier;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod commonjs;
+pub mod commonjs_lexer;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod generation;
 #[cfg(any(test, feature = "module-runner"))]

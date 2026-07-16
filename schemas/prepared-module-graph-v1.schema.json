@@ -95,12 +95,24 @@
         "sourceId": { "$ref": "#/$defs/sourceId" },
         "path": { "type": "string", "minLength": 1 },
         "bindings": {
-          "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/sourceId" }
+          "type": "array",
+          "items": { "$ref": "#/$defs/binding" }
         },
         "artifact": { "$ref": "module-artifact-v1.schema.json" },
         "carrierIndex": { "type": "integer", "minimum": 0 },
         "entryId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["specifier", "resolutionKind", "target"],
+      "properties": {
+        "specifier": { "type": "string", "minLength": 1 },
+        "resolutionKind": {
+          "enum": ["esm-static", "dynamic-import", "common-js-require"]
+        },
+        "target": { "$ref": "#/$defs/sourceId" }
       }
     },
     "carrier": {

@@ -68,6 +68,15 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "required": ["kind", "specifier"],
+          "properties": {
+            "kind": { "const": "common-js-require" },
+            "specifier": { "$ref": "#/$defs/nonEmpty" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "required": ["kind", "specifier", "attributes"],
           "properties": {
             "kind": { "const": "side-effect" },
@@ -224,6 +233,11 @@
         "detector": { "$ref": "#/$defs/nonEmpty" },
         "detectorVersion": { "$ref": "#/$defs/nonEmpty" },
         "names": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/nonEmpty" }
+        },
+        "reexports": {
           "type": "array",
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/nonEmpty" }

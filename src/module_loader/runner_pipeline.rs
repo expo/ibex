@@ -24,7 +24,7 @@ use super::carrier::{
     AdmittedPreparedCarrierV1, PreparedCarrierAdmissionV1, PreparedModuleCarrierV1,
     VerifiedPreparedCarrierEntryV1,
 };
-use super::graph::SynchronousGraphPlan;
+use super::graph::{GraphEdgeKey, SynchronousGraphPlan};
 use super::identity::{ResolutionKind, SourceId};
 use super::producer_spike::produce_module_artifact_v1;
 use super::ModuleKind;
@@ -58,10 +58,18 @@ struct PreparedGraphIndexV1 {
 struct PreparedGraphRecordIndexV1 {
     source_id: SourceId,
     path: String,
-    bindings: BTreeMap<String, SourceId>,
+    bindings: Vec<PreparedGraphBindingV1>,
     artifact: ModuleArtifactV1,
     carrier_index: usize,
     entry_id: NonEmptyString,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PreparedGraphBindingV1 {
+    specifier: String,
+    resolution_kind: ResolutionKind,
+    target: SourceId,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -74,7 +82,7 @@ struct PreparedGraphCarrierIndexV1 {
 struct SourceGraphRecordV1 {
     path: PathBuf,
     artifact: ModuleArtifactV1,
-    bindings: BTreeMap<String, SourceId>,
+    bindings: BTreeMap<GraphEdgeKey, SourceId>,
     prepared: Option<PreparedRecordV1>,
 }
 
@@ -101,7 +109,7 @@ impl SourceModuleGraphV1 {
     }
 
     pub fn plan(&self) -> Result<SynchronousGraphPlan<'_>> {
-        SynchronousGraphPlan::new(
+        SynchronousGraphPlan::new_typed(
             self.records
                 .iter()
                 .map(|(_, record)| {
@@ -325,9 +333,13 @@ pub fn build_authenticated_source_graph_v1(
             ));
         }
         let mut bindings = BTreeMap::new();
-        for (specifier, kind) in artifact_edge_requests(&artifact) {
-            let target =
-                crate::host::abi::resolve_module_for_runner(&specifier, Some(&path), None, kind)?;
+        for key in artifact_edge_requests(&artifact) {
+            let target = crate::host::abi::resolve_module_for_runner(
+                &key.specifier,
+                Some(&path),
+                None,
+                key.resolution_kind,
+            )?;
             let target_id = target
                 .source_id
                 .clone()
@@ -337,9 +349,9 @@ pub fn build_authenticated_source_graph_v1(
                     "ESM graph reaches CommonJS, JSON, or builtin interop",
                 ));
             }
-            if let Some(previous) = bindings.insert(specifier.clone(), target_id.clone()) {
+            if let Some(previous) = bindings.insert(key.clone(), target_id.clone()) {
                 if previous != target_id {
-                    bail!("one authored specifier resolved to two SourceIds");
+                    bail!("one typed authored edge resolved to two SourceIds");
                 }
             }
             queue.push_back(target);
@@ -482,7 +494,15 @@ pub fn publish_prepared_source_graph_v1(
                 Ok(PreparedGraphRecordIndexV1 {
                     source_id: source_id.clone(),
                     path: record.path.to_string_lossy().into_owned(),
-                    bindings: record.bindings.clone(),
+                    bindings: record
+                        .bindings
+                        .iter()
+                        .map(|(key, target)| PreparedGraphBindingV1 {
+                            specifier: key.specifier.clone(),
+                            resolution_kind: key.resolution_kind,
+                            target: target.clone(),
+                        })
+                        .collect(),
                     artifact,
                     carrier_index,
                     entry_id,
@@ -601,13 +621,24 @@ pub fn load_prepared_source_graph_v1(
             &indexed.source_id,
             &indexed.artifact.semantics.source_integrity,
         )?;
-        for (specifier, kind) in artifact_edge_requests(&indexed.artifact) {
-            let resolved =
-                crate::host::abi::resolve_module_for_runner(&specifier, Some(&path), None, kind)?;
+        let mut bindings = BTreeMap::new();
+        for binding in indexed.bindings {
+            let key = GraphEdgeKey::new(binding.specifier, binding.resolution_kind);
+            if bindings.insert(key, binding.target).is_some() {
+                bail!("prepared graph repeats a typed binding");
+            }
+        }
+        for key in artifact_edge_requests(&indexed.artifact) {
+            let resolved = crate::host::abi::resolve_module_for_runner(
+                &key.specifier,
+                Some(&path),
+                None,
+                key.resolution_kind,
+            )?;
             let observed = resolved
                 .source_id
                 .ok_or_else(|| anyhow!("prepared dependency resolution produced no SourceId"))?;
-            if indexed.bindings.get(&specifier) != Some(&observed) {
+            if bindings.get(&key) != Some(&observed) {
                 bail!("prepared graph binding disagrees with authenticated resolution");
             }
         }
@@ -638,7 +669,7 @@ pub fn load_prepared_source_graph_v1(
             SourceGraphRecordV1 {
                 path,
                 artifact: indexed.artifact,
-                bindings: indexed.bindings,
+                bindings,
                 prepared: Some(PreparedRecordV1 {
                     carrier,
                     entry_id: indexed.entry_id,
@@ -666,11 +697,12 @@ fn legacy(reason: impl Into<String>) -> SourceModuleGraphBuildV1 {
     })
 }
 
-fn artifact_edge_requests(artifact: &ModuleArtifactV1) -> Vec<(String, ResolutionKind)> {
+fn artifact_edge_requests(artifact: &ModuleArtifactV1) -> Vec<GraphEdgeKey> {
     let mut requests = Vec::new();
     for edge in &artifact.semantics.static_edges {
         let specifier = match edge {
-            StaticEdgeV1::SideEffect { specifier, .. }
+            StaticEdgeV1::CommonJsRequire { specifier }
+            | StaticEdgeV1::SideEffect { specifier, .. }
             | StaticEdgeV1::Default { specifier, .. }
             | StaticEdgeV1::Namespace { specifier, .. }
             | StaticEdgeV1::Named { specifier, .. }
@@ -678,13 +710,21 @@ fn artifact_edge_requests(artifact: &ModuleArtifactV1) -> Vec<(String, Resolutio
             | StaticEdgeV1::ReExportStar { specifier, .. }
             | StaticEdgeV1::ReExportNamespace { specifier, .. } => specifier,
         };
-        requests.push((specifier.as_str().to_owned(), ResolutionKind::EsmStatic));
+        requests.push(GraphEdgeKey::new(
+            specifier.as_str().to_owned(),
+            if matches!(edge, StaticEdgeV1::CommonJsRequire { .. }) {
+                ResolutionKind::CommonJsRequire
+            } else {
+                ResolutionKind::EsmStatic
+            },
+        ));
     }
     for edge in &artifact.semantics.dynamic_edges {
         match edge {
-            DynamicEdgeV1::Literal { specifier, .. } => {
-                requests.push((specifier.as_str().to_owned(), ResolutionKind::DynamicImport))
-            }
+            DynamicEdgeV1::Literal { specifier, .. } => requests.push(GraphEdgeKey::new(
+                specifier.as_str(),
+                ResolutionKind::DynamicImport,
+            )),
             DynamicEdgeV1::Computed { .. } => {}
         }
     }
@@ -694,6 +734,7 @@ fn artifact_edge_requests(artifact: &ModuleArtifactV1) -> Vec<(String, Resolutio
 fn artifact_has_import_attributes(artifact: &ModuleArtifactV1) -> bool {
     artifact.semantics.static_edges.iter().any(|edge| {
         let attributes = match edge {
+            StaticEdgeV1::CommonJsRequire { .. } => return false,
             StaticEdgeV1::SideEffect { attributes, .. }
             | StaticEdgeV1::Default { attributes, .. }
             | StaticEdgeV1::Namespace { attributes, .. }

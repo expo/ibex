@@ -13,15 +13,16 @@ use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Context, Result};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    AssignmentExpression, AssignmentTarget, Declaration, ExportDefaultDeclarationKind, Expression,
-    ForOfStatement, FunctionBody, IdentifierReference, ImportAttributeKey,
-    ImportDeclarationSpecifier, ImportExpression, ImportOrExportKind, MetaProperty, Program,
-    SimpleAssignmentTarget, Statement, UpdateExpression, VariableDeclarationKind, WithClause,
+    Argument, AssignmentExpression, AssignmentTarget, CallExpression, Declaration,
+    ExportDefaultDeclarationKind, Expression, ForOfStatement, FunctionBody, IdentifierReference,
+    ImportAttributeKey, ImportDeclarationSpecifier, ImportExpression, ImportOrExportKind,
+    MetaProperty, Program, SimpleAssignmentTarget, Statement, UpdateExpression,
+    VariableDeclarationKind, WithClause,
 };
 use oxc_ast_visit::{walk, Visit};
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_parser::Parser;
-use oxc_semantic::SemanticBuilder;
+use oxc_semantic::{IsGlobalReference, Scoping, SemanticBuilder};
 use oxc_sourcemap::{SourceMap, SourceMapBuilder};
 use oxc_span::{GetSpan, SourceType, Span};
 use oxc_transformer::{JsxOptions, JsxRuntime, Module, TransformOptions, Transformer};
@@ -30,10 +31,12 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::artifact::{
-    digest_bytes, source_integrity, CanonicalSourceId, DynamicEdgeV1, ExportDescriptorV1,
-    ModuleArtifactV1, ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1, SourceGoalV1,
-    SourceMapV1, StaticEdgeV1, TransformFingerprintV1, MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
+    digest_bytes, source_integrity, CanonicalSourceId, CommonJsExportsV1, DynamicEdgeV1,
+    ExportDescriptorV1, ModuleArtifactV1, ModuleSemanticsV1, ProducerIdentityV1, SourceDialectV1,
+    SourceGoalV1, SourceMapV1, StaticEdgeV1, TransformFingerprintV1,
+    MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
 };
+use super::commonjs_lexer::{lex_commonjs, CJS_MODULE_LEXER_VERSION};
 use super::identity::{ImportAttributes, SourceId};
 use capsec_semantics::model::{Digest as CapsecDigest, NonEmptyString};
 
@@ -62,6 +65,17 @@ pub fn module_artifact_transform_fingerprint_v1(
             "factory=declare-execute;source-map=v3-source-id;minify=false",
         ),
     })
+}
+
+fn commonjs_artifact_transform_fingerprint_v1(
+    hermes_target: &str,
+) -> Result<TransformFingerprintV1> {
+    let mut fingerprint = module_artifact_transform_fingerprint_v1(hermes_target)?;
+    fingerprint.typescript_jsx_options_digest =
+        source_integrity(b"typescript=strip;jsx=classic;module-goal=false;decorators=off")?;
+    fingerprint.output_options_digest =
+        source_integrity(b"factory=commonjs-wrapper;source-map=v3-source-id;minify=false")?;
+    Ok(fingerprint)
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,6 +248,56 @@ struct NestedRewriteVisitor {
     dynamic_edges: Vec<SpikeDynamicEdge>,
     function_depth: usize,
     hermes_compat_passes: BTreeSet<String>,
+}
+
+#[derive(Debug)]
+struct CommonJsDependencyVisitor<'s> {
+    scoping: &'s Scoping,
+    require_specifiers: BTreeSet<String>,
+    dynamic_edges: Vec<SpikeDynamicEdge>,
+    replacements: Vec<Replacement>,
+    computed_require_site: Option<u32>,
+}
+
+impl<'a> Visit<'a> for CommonJsDependencyVisitor<'_> {
+    fn visit_call_expression(&mut self, expression: &CallExpression<'a>) {
+        let is_wrapper_require = expression
+            .callee
+            .is_global_reference_name("require".into(), self.scoping);
+        if is_wrapper_require {
+            match expression.arguments.as_slice() {
+                [Argument::StringLiteral(specifier)] => {
+                    self.require_specifiers.insert(specifier.value.to_string());
+                }
+                _ => {
+                    self.computed_require_site
+                        .get_or_insert(expression.span.start);
+                }
+            };
+        }
+        walk::walk_call_expression(self, expression);
+    }
+
+    fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
+        let specifier = match &expression.source {
+            Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+            _ => None,
+        };
+        self.dynamic_edges.push(SpikeDynamicEdge {
+            kind: if specifier.is_some() {
+                "literal".into()
+            } else {
+                "computed".into()
+            },
+            specifier,
+            site: expression.span.start,
+            has_options: expression.options.is_some(),
+        });
+        self.replacements.push(Replacement {
+            span: expression.span,
+            text: "dynamicImport(__IBEX_IMPORT_ARGUMENTS__)".into(),
+        });
+    }
 }
 
 impl<'a> Visit<'a> for NestedRewriteVisitor {
@@ -796,6 +860,189 @@ pub fn produce_module_artifact_v1(
     )
 }
 
+/// Produce a script-goal CommonJS factory without invoking an ambient JS
+/// runtime. Literal require edges are authenticated separately from dynamic
+/// imports, and computed require remains an explicit bounded-fallback shape.
+pub fn produce_commonjs_artifact_v1(
+    source_id: SourceId,
+    source_name: &str,
+    source_path: &Path,
+    source: &str,
+    producer_binary_digest: CapsecDigest,
+    hermes_target: &str,
+) -> Result<ModuleArtifactV1> {
+    let intermediate = transform_with_oxc_goal(source_path, source, false)?;
+    let allocator = Allocator::default();
+    let parsed = Parser::new(
+        &allocator,
+        &intermediate.code,
+        SourceType::default().with_module(false),
+    )
+    .parse();
+    if !parsed.errors.is_empty() {
+        bail!(
+            "Oxc could not parse transformed CommonJS {}: {:?}",
+            source_name,
+            parsed.errors
+        );
+    }
+    let program = parsed.program;
+    let semantic = SemanticBuilder::new()
+        .with_check_syntax_error(true)
+        .build(&program);
+    if !semantic.errors.is_empty() {
+        bail!(
+            "Oxc semantics failed for transformed CommonJS {}: {:?}",
+            source_name,
+            semantic.errors
+        );
+    }
+    let mut visitor = CommonJsDependencyVisitor {
+        scoping: semantic.semantic.scoping(),
+        require_specifiers: BTreeSet::new(),
+        dynamic_edges: Vec::new(),
+        replacements: Vec::new(),
+        computed_require_site: None,
+    };
+    visitor.visit_program(&program);
+    if let Some(site) = visitor.computed_require_site {
+        bail!(
+            "computed CommonJS require at transformed byte offset {site} has no authenticated finite candidate table"
+        );
+    }
+    if visitor.dynamic_edges.iter().any(|edge| edge.has_options) {
+        bail!("dynamic import options are not yet representable in ModuleArtifact v1");
+    }
+
+    let detector = lex_commonjs(&intermediate.code)?;
+    visitor
+        .require_specifiers
+        .extend(detector.reexports.iter().cloned());
+    let static_edges = visitor
+        .require_specifiers
+        .into_iter()
+        .map(|specifier| {
+            Ok(StaticEdgeV1::CommonJsRequire {
+                specifier: non_empty(&specifier, "CommonJS require specifier")?,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    visitor.dynamic_edges.sort_by_key(|edge| edge.site);
+    let dynamic_edges = visitor
+        .dynamic_edges
+        .iter()
+        .enumerate()
+        .map(|(site, edge)| match edge.specifier.as_deref() {
+            Some(specifier) => Ok(DynamicEdgeV1::Literal {
+                specifier: non_empty(specifier, "dynamic import specifier")?,
+                attributes: ImportAttributes::default(),
+            }),
+            None => Ok(DynamicEdgeV1::Computed {
+                site: u32::try_from(site).context("too many dynamic-import sites")?,
+            }),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let rewritten = apply_replacements(
+        &intermediate.code,
+        Span::new(0, intermediate.code.len() as u32),
+        &visitor.replacements,
+    )?;
+    let prefix = "function (require, module, exports, __filename, __dirname, dynamicImport) {\n";
+    let suffix = "\n}\n";
+    let factory_source = format!("{prefix}{rewritten}{suffix}");
+    let line_origins = (0..intermediate.code.lines().count().max(1))
+        .map(|line| Some(line as u32))
+        .collect::<Vec<_>>();
+    let source_map_value = compose_factory_source_map(
+        source_name,
+        source,
+        &intermediate.map,
+        prefix.lines().count() as u32,
+        &line_origins,
+        &factory_source,
+    )?;
+    let source_map = source_map_v1(source_id.clone(), &source_map_value)?;
+    let dialect = source_dialect(source_path)?;
+    let fingerprint = commonjs_artifact_transform_fingerprint_v1(hermes_target)?;
+    let commonjs_exports = CommonJsExportsV1 {
+        detector: fingerprint.commonjs_detector.clone(),
+        detector_version: non_empty(CJS_MODULE_LEXER_VERSION, "CommonJS detector version")?,
+        names: detector
+            .exports
+            .iter()
+            .map(|name| non_empty(name, "CommonJS export name"))
+            .collect::<Result<Vec<_>>>()?,
+        reexports: detector
+            .reexports
+            .iter()
+            .map(|specifier| non_empty(specifier, "CommonJS reexport specifier"))
+            .collect::<Result<Vec<_>>>()?,
+    };
+    let factory_digest =
+        digest_bytes(MODULE_ARTIFACT_FACTORY_DOMAIN_V1, factory_source.as_bytes())?;
+    ModuleArtifactV1::new_inline(
+        ModuleSemanticsV1 {
+            source_id: CanonicalSourceId(source_id),
+            source_goal: SourceGoalV1::CommonJs,
+            dialect: Some(dialect),
+            source_integrity: source_integrity(source.as_bytes())?,
+            transform_fingerprint: fingerprint,
+            static_edges,
+            dynamic_edges,
+            export_descriptors: Vec::new(),
+            commonjs_exports: Some(commonjs_exports),
+            has_top_level_await: false,
+            factory_digest,
+            source_map,
+        },
+        factory_source,
+        ProducerIdentityV1::InProcess {
+            producer_id: NonEmptyString::new("ibex-runtime-oxc").map_err(anyhow::Error::msg)?,
+            producer_binary_digest,
+        },
+    )
+}
+
+fn source_dialect(path: &Path) -> Result<SourceDialectV1> {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("js")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "js" | "mjs" | "cjs" => Ok(SourceDialectV1::Js),
+        "jsx" => Ok(SourceDialectV1::Jsx),
+        "ts" | "mts" | "cts" => Ok(SourceDialectV1::Ts),
+        "tsx" => Ok(SourceDialectV1::Tsx),
+        other => bail!("unsupported producer source dialect {other:?}"),
+    }
+}
+
+fn source_map_v1(source_id: SourceId, value: &Value) -> Result<SourceMapV1> {
+    Ok(SourceMapV1 {
+        version: value["version"]
+            .as_u64()
+            .and_then(|version| u8::try_from(version).ok())
+            .ok_or_else(|| anyhow!("producer source map has no supported version"))?,
+        source_ids: vec![CanonicalSourceId(source_id)],
+        names: value["names"]
+            .as_array()
+            .ok_or_else(|| anyhow!("producer source map has no names array"))?
+            .iter()
+            .map(|name| {
+                name.as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| anyhow!("producer source-map name is not a string"))
+            })
+            .collect::<Result<Vec<_>>>()?,
+        mappings: value["mappings"]
+            .as_str()
+            .ok_or_else(|| anyhow!("producer source map has no mappings string"))?
+            .to_owned(),
+    })
+}
+
 fn non_empty(value: &str, label: &str) -> Result<NonEmptyString> {
     NonEmptyString::new(value).map_err(|error| anyhow!("invalid {label}: {error}"))
 }
@@ -990,6 +1237,14 @@ fn export_descriptor_v1(descriptor: &SpikeExportDescriptor) -> Result<ExportDesc
 }
 
 fn transform_with_oxc(path: &Path, source: &str) -> Result<IntermediateSource> {
+    transform_with_oxc_goal(path, source, true)
+}
+
+fn transform_with_oxc_goal(
+    path: &Path,
+    source: &str,
+    module_goal: bool,
+) -> Result<IntermediateSource> {
     let allocator = Allocator::default();
     // The producer contract is an ESM artifact regardless of whether the
     // resolved pathname ends in `.js`, `.mjs`, `.ts`, or `.tsx`. Leaving a
@@ -998,7 +1253,7 @@ fn transform_with_oxc(path: &Path, source: &str) -> Result<IntermediateSource> {
     // @ref LLP 0026#parse-once-never-infer-grammar-with-runtime-regular-expressions
     let source_type = SourceType::from_path(path)
         .unwrap_or_else(|_| SourceType::mjs())
-        .with_module(true);
+        .with_module(module_goal);
     let parsed = Parser::new(&allocator, source, source_type).parse();
     if !parsed.errors.is_empty() {
         bail!(
@@ -1416,6 +1671,7 @@ pub fn default_spike_manifest(repo_root: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::module_loader::artifact::ModulePayloadV1;
     use capsec_semantics::model::{PathComponent, Principal};
 
     #[test]
@@ -1569,5 +1825,77 @@ mod tests {
                 || factory.contains(".dynamicImport(\"./literal.mjs\")")
         );
         assert!(factory.contains(".dynamicImport(name)"));
+    }
+
+    #[test]
+    fn commonjs_adapter_uses_script_goal_typed_edges_and_pinned_detection() {
+        let source_id = SourceId::synthetic("fixture", "commonjs-entry").unwrap();
+        let source = r#"
+            const typed: number = 41;
+            exports.answer = typed + 1;
+            function shadowed(require: (name: string) => unknown) {
+                return require('./ignored.cjs');
+            }
+            module.exports = require('./reexport.cjs');
+            import('./async.mjs');
+        "#;
+        let artifact = produce_commonjs_artifact_v1(
+            source_id,
+            "entry.cts",
+            Path::new("entry.cts"),
+            source,
+            source_integrity(b"producer-binary").unwrap(),
+            "hermes-bytecode-96",
+        )
+        .unwrap();
+
+        assert_eq!(artifact.semantics.source_goal, SourceGoalV1::CommonJs);
+        assert_eq!(artifact.semantics.dialect, Some(SourceDialectV1::Ts));
+        assert_eq!(
+            artifact.semantics.static_edges,
+            [StaticEdgeV1::CommonJsRequire {
+                specifier: NonEmptyString::new("./reexport.cjs").unwrap(),
+            }]
+        );
+        assert_eq!(
+            artifact.semantics.dynamic_edges,
+            [DynamicEdgeV1::Literal {
+                specifier: NonEmptyString::new("./async.mjs").unwrap(),
+                attributes: ImportAttributes::default(),
+            }]
+        );
+        let detected = artifact.semantics.commonjs_exports.as_ref().unwrap();
+        assert_eq!(detected.detector_version.as_str(), CJS_MODULE_LEXER_VERSION);
+        assert_eq!(detected.names, [NonEmptyString::new("answer").unwrap()]);
+        assert_eq!(
+            detected.reexports,
+            [NonEmptyString::new("./reexport.cjs").unwrap()]
+        );
+        let ModulePayloadV1::Inline { factory_source, .. } = &artifact.payload else {
+            unreachable!()
+        };
+        assert!(factory_source.starts_with(
+            "function (require, module, exports, __filename, __dirname, dynamicImport)"
+        ));
+        assert!(!factory_source.contains("import('./async.mjs')"));
+        assert!(
+            factory_source.contains("dynamicImport('./async.mjs')")
+                || factory_source.contains("dynamicImport(\"./async.mjs\")")
+        );
+        assert!(!factory_source.contains(": number"));
+    }
+
+    #[test]
+    fn commonjs_adapter_rejects_computed_require_without_candidate_table() {
+        let error = produce_commonjs_artifact_v1(
+            SourceId::synthetic("fixture", "computed-require").unwrap(),
+            "entry.cjs",
+            Path::new("entry.cjs"),
+            "const name = './dep.cjs'; module.exports = require(name);",
+            source_integrity(b"producer-binary").unwrap(),
+            "hermes-bytecode-96",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("computed CommonJS require"));
     }
 }

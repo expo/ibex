@@ -161,6 +161,9 @@ fixtures. Any deliberate difference is a named expected divergence.
 
 CommonJS named exports use the pinned `cjs-module-lexer` behavior. Detected
 names are snapshots and do not update after later `module.exports` mutation.
+The detector's reexport specifiers are retained separately and must name typed
+CommonJS require edges so adapter-name traversal never performs an ambient
+resolution.
 The ESM adapter for an evicted throwing CommonJS record follows CommonJS cache
 algebra and may observe re-evaluation rather than ESM sticky failure.
 
@@ -171,6 +174,13 @@ current `module.exports`, including replacement before the recursive require.
 A throw evicts and invalidates the handle; successful completion permits one
 stable ESM adapter containing the two identity entries and detector-approved
 named snapshots.
+
+The artifact represents each statically detected literal `require` as a
+`common-js-require` static edge. It is resolved with CommonJS conditions and
+authorized as `LiteralRequire`; it is never collapsed with an ESM static or
+dynamic-import edge having the same authored specifier. Computed `require`
+sites require a finite authenticated candidate table or remain outside the
+native path.
 
 The CommonJS factory ABI is `(require, module, exports, __filename, __dirname,
 dynamicImport)`. `dynamicImport(specifier)` (also exposed as `require.import`

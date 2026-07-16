@@ -93,6 +93,10 @@ impl TransformFingerprintV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum StaticEdgeV1 {
+    /// A statically detected CommonJS `require("specifier")` call. This is a
+    /// distinct edge kind because package conditions, authorization coverage,
+    /// and cache identity differ from ESM static imports.
+    CommonJsRequire { specifier: NonEmptyString },
     SideEffect {
         specifier: NonEmptyString,
         attributes: ImportAttributes,
@@ -131,15 +135,16 @@ pub enum StaticEdgeV1 {
 }
 
 impl StaticEdgeV1 {
-    fn attributes(&self) -> &ImportAttributes {
+    fn attributes(&self) -> Option<&ImportAttributes> {
         match self {
+            Self::CommonJsRequire { .. } => None,
             Self::SideEffect { attributes, .. }
             | Self::Default { attributes, .. }
             | Self::Namespace { attributes, .. }
             | Self::Named { attributes, .. }
             | Self::ReExportNamed { attributes, .. }
             | Self::ReExportStar { attributes, .. }
-            | Self::ReExportNamespace { attributes, .. } => attributes,
+            | Self::ReExportNamespace { attributes, .. } => Some(attributes),
         }
     }
 }
@@ -192,6 +197,8 @@ pub struct CommonJsExportsV1 {
     pub detector: NonEmptyString,
     pub detector_version: NonEmptyString,
     pub names: Vec<NonEmptyString>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reexports: Vec<NonEmptyString>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -621,12 +628,34 @@ fn validate_semantics(semantics: &ModuleSemanticsV1) -> Result<()> {
     if semantics.has_top_level_await && semantics.source_goal != SourceGoalV1::Module {
         bail!("top-level await is only valid for Module source goal");
     }
-    if semantics.source_goal != SourceGoalV1::Module
-        && (!semantics.static_edges.is_empty()
-            || !semantics.dynamic_edges.is_empty()
-            || !semantics.export_descriptors.is_empty())
-    {
-        bail!("ESM edges/exports require Module source goal");
+    match semantics.source_goal {
+        SourceGoalV1::Module => {
+            if semantics
+                .static_edges
+                .iter()
+                .any(|edge| matches!(edge, StaticEdgeV1::CommonJsRequire { .. }))
+            {
+                bail!("CommonJS require edges require CommonJs source goal");
+            }
+        }
+        SourceGoalV1::CommonJs => {
+            if semantics
+                .static_edges
+                .iter()
+                .any(|edge| !matches!(edge, StaticEdgeV1::CommonJsRequire { .. }))
+                || !semantics.export_descriptors.is_empty()
+            {
+                bail!("ESM static edges/exports require Module source goal");
+            }
+        }
+        SourceGoalV1::Json | SourceGoalV1::Builtin => {
+            if !semantics.static_edges.is_empty()
+                || !semantics.dynamic_edges.is_empty()
+                || !semantics.export_descriptors.is_empty()
+            {
+                bail!("module edges/exports require an executable source goal");
+            }
+        }
     }
     match (&semantics.commonjs_exports, semantics.source_goal) {
         (Some(exports), SourceGoalV1::CommonJs) => {
@@ -639,13 +668,33 @@ fn validate_semantics(semantics: &ModuleSemanticsV1) -> Result<()> {
             if exports.names.windows(2).any(|pair| pair[0] >= pair[1]) {
                 bail!("CommonJS detected names must be sorted and unique");
             }
+            if exports.reexports.windows(2).any(|pair| pair[0] >= pair[1]) {
+                bail!("CommonJS reexports must be sorted and unique");
+            }
+            let require_specifiers = semantics
+                .static_edges
+                .iter()
+                .filter_map(|edge| match edge {
+                    StaticEdgeV1::CommonJsRequire { specifier } => Some(specifier),
+                    _ => None,
+                })
+                .collect::<BTreeSet<_>>();
+            if exports
+                .reexports
+                .iter()
+                .any(|specifier| !require_specifiers.contains(specifier))
+            {
+                bail!("CommonJS reexport lacks a matching require edge");
+            }
         }
         (None, SourceGoalV1::CommonJs) => bail!("CommonJS artifact lacks detector output"),
         (Some(_), _) => bail!("CommonJS detector output is invalid for this source goal"),
         (None, _) => {}
     }
     for edge in &semantics.static_edges {
-        ImportAttributes::new(edge.attributes().entries().clone())?;
+        if let Some(attributes) = edge.attributes() {
+            ImportAttributes::new(attributes.entries().clone())?;
+        }
     }
     let mut computed_sites = BTreeSet::new();
     for edge in &semantics.dynamic_edges {
@@ -1141,6 +1190,7 @@ mod tests {
                 detector: fingerprint().commonjs_detector,
                 detector_version: fingerprint().commonjs_detector_version,
                 names: vec![NonEmptyString::new("answer").unwrap()],
+                reexports: Vec::new(),
             });
             let semantics = ModuleSemanticsV1 {
                 source_id: CanonicalSourceId(source_id.clone()),
@@ -1176,5 +1226,43 @@ mod tests {
                 variant
             );
         }
+    }
+
+    #[test]
+    fn commonjs_require_edges_are_goal_typed_and_round_trip() {
+        let base = artifact();
+        let factory_source = match base.payload {
+            ModulePayloadV1::Inline { factory_source, .. } => factory_source,
+            ModulePayloadV1::Carrier { .. } => unreachable!(),
+        };
+        let mut semantics = base.semantics;
+        semantics.source_goal = SourceGoalV1::CommonJs;
+        semantics.static_edges = vec![StaticEdgeV1::CommonJsRequire {
+            specifier: NonEmptyString::new("conditional-package").unwrap(),
+        }];
+        semantics.export_descriptors.clear();
+        semantics.commonjs_exports = Some(CommonJsExportsV1 {
+            detector: semantics.transform_fingerprint.commonjs_detector.clone(),
+            detector_version: semantics
+                .transform_fingerprint
+                .commonjs_detector_version
+                .clone(),
+            names: vec![NonEmptyString::new("answer").unwrap()],
+            reexports: Vec::new(),
+        });
+        let commonjs =
+            ModuleArtifactV1::new_inline(semantics, factory_source, base.producer).unwrap();
+        let bytes = commonjs.encode_canonical().unwrap();
+        assert_eq!(
+            ModuleArtifactV1::decode_canonical(&bytes).unwrap(),
+            commonjs
+        );
+
+        let mut esm = artifact();
+        esm.semantics.static_edges = vec![StaticEdgeV1::CommonJsRequire {
+            specifier: NonEmptyString::new("conditional-package").unwrap(),
+        }];
+        esm.semantic_digest = semantics_digest(&esm.semantics).unwrap();
+        assert!(esm.encode_canonical().is_err());
     }
 }

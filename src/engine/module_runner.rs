@@ -1325,7 +1325,8 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             let mut dependencies = BTreeSet::new();
             for edge in &plan.artifact(source_id)?.artifact().semantics.static_edges {
                 let specifier = match edge {
-                    crate::module_loader::artifact::StaticEdgeV1::SideEffect {
+                    crate::module_loader::artifact::StaticEdgeV1::CommonJsRequire { specifier }
+                    | crate::module_loader::artifact::StaticEdgeV1::SideEffect {
                         specifier, ..
                     }
                     | crate::module_loader::artifact::StaticEdgeV1::Default { specifier, .. }
@@ -1807,6 +1808,7 @@ mod tests {
                     .iter()
                     .map(|name| NonEmptyString::new(*name).unwrap())
                     .collect(),
+                reexports: Vec::new(),
             }),
         )
     }

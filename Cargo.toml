@@ -67,6 +67,9 @@ async-trait = "0.1"
 # Base64 for source maps
 base64 = "0.22"
 sha2 = "0.10"
+# Pure-Rust host for the pinned cjs-module-lexer 2.1.0 WASM detector. Disable
+# WAT parsing because the checked-in authority is already compiled WASM.
+wasmi = { version = "0.46.0", default-features = false, features = ["std"] }
 
 # HTTP server host bridge
 hyper = { version = "1.1", features = ["server", "http1", "http2"] }
