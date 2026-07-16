@@ -755,6 +755,13 @@ const projectPathExactResource = (...components) => ({
     components: components.map((value) => ({ encoding: "utf8", value })),
   },
 });
+const projectPathTreeResource = (...components) => ({
+  kind: "path-tree",
+  path: {
+    root: "project",
+    components: components.map((value) => ({ encoding: "utf8", value })),
+  },
+});
 const nativeProjectMetadataTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -1295,6 +1302,170 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
     "__exactFsPathAsync",
     new Map([
       [
+        "mkdir",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("mkdir"),
+            literalArgument("target/ibex-capsec-fspathasync-mkdir"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: [
+            "native-op:__exactMkdir",
+          ],
+          expectedCleanup: "removed-created-directory",
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "discovery", "commit"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "discovery", "commit"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-mkdir",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathExactResource(
+                "target",
+                "ibex-capsec-fspathasync-mkdir",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
+        "mkdtemp",
+        Object.freeze({
+          actionIds: ["fs:list", "fs:write"],
+          arguments: [
+            literalArgument("mkdtemp"),
+            literalArgument("target/ibex-capsec-fspathasync-mkdtemp/"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          additionalAllowedCoverageObservedKeys: [
+            "native-op:__exactMkdir",
+          ],
+          expectedCleanup: "removed-created-directory",
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedObservedActionIds: {
+            malformed: ["fs:list", "fs:write"],
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "discovery", "commit"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "discovery", "commit"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "discovery",
+              "commit",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathTreeResource(
+                "target",
+                "ibex-capsec-fspathasync-mkdtemp",
+              ),
+            },
+            {
+              cap: "fs:write",
+              resource: projectPathTreeResource(
+                "target",
+                "ibex-capsec-fspathasync-mkdtemp",
+              ),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
+      [
         "readdir",
         Object.freeze({
           actionIds: ["fs:list"],
@@ -1800,13 +1971,15 @@ function nativePublicProbeForPlan({
     }
     additionalAllowedCoverageEdgeIds.push(additionalEdge.id);
   }
-  const expectedActionIds = adapterProbe
-    ? canonicalSet(
-        adapterProbe.cases
-          .filter((adapterCase) => expectedStages.includes(adapterCase.stage))
-          .flatMap((adapterCase) => adapterCase.actionIds),
-      )
-    : clone(plan.actionIds);
+  const expectedActionIds = template.expectedObservedActionIds?.[scenario]
+    ? clone(template.expectedObservedActionIds[scenario])
+    : adapterProbe
+      ? canonicalSet(
+          adapterProbe.cases
+            .filter((adapterCase) => expectedStages.includes(adapterCase.stage))
+            .flatMap((adapterCase) => adapterCase.actionIds),
+        )
+      : clone(plan.actionIds);
   return {
     unavailableReason: null,
     probe: {

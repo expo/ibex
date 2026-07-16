@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(298);
+    expect(nativePublicFixtures).toHaveLength(310);
     expect(
       nativePublicFixtures
         .filter(
@@ -619,6 +619,50 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedTypedDecisionCount).toBe(
         recipe.scenario === "deny" ? 1 : 4,
       );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("proves async directory creation through retained typed objects and owned cleanup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsPathAsync" &&
+        ["mkdir", "mkdtemp"].some((branch) =>
+          recipe.fixtureId.includes(`.logical.${branch}.`),
+        ),
+    );
+    expect(rows).toHaveLength(12);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation).toMatchObject({
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedCleanup: "removed-created-directory",
+        allowedCoverageEdgeIds: [
+          "surface.native.op.exactfspathasync.10cb78b",
+          "surface.native.op.exactmkdir.021eaz0",
+        ],
+      });
+      expect(invocation.expectedActionIds).toEqual(
+        recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.arguments).toHaveLength(6);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "discovery", "commit"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 4,
+      );
+      expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
+        "fs:list",
+        "fs:write",
+      ]);
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
     }

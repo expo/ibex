@@ -1091,7 +1091,7 @@ fn native_async_invocation_script(
         .iter()
         .all(|argument| matches!(argument, NativeProbeArgument::JsonLiteral { .. })));
     format!(
-        "(function(){{var slot={};var n={};delete globalThis[slot];function record(value){{globalThis[slot]=JSON.stringify(value);}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record({{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,cleanup:\"none\"}});return \"completed\";}}value.then(function(result){{record({{kind:\"return\",globalName:n,valueType:result===null?\"null\":typeof result,cleanup:\"none\"}});}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        "(function(){{var slot={};var n={};delete globalThis[slot];function record(value){{globalThis[slot]=JSON.stringify(value);}}function returned(value){{return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:\"none\"}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
         serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
         serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
         serde_json::to_string(arguments).expect("serialize async native arguments"),
@@ -1256,6 +1256,11 @@ fn validate_native_runtime_observation(
             {
                 Some("native-op:__exactRealpath")
             }
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if matches!(value.as_str(), Some("mkdir" | "mkdtemp")) =>
+            {
+                Some("native-op:__exactMkdir")
+            }
             _ => None,
         }
     } else {
@@ -1364,7 +1369,9 @@ fn validate_native_runtime_observation(
             assert!(
                 invocation_result["errorMessage"]
                     .as_str()
-                    .is_some_and(|message| message.contains("Permission denied")),
+                    .is_some_and(|message| message
+                        .to_ascii_lowercase()
+                        .contains("permission denied")),
                 "{}: denied public native invocation threw the wrong error: {invocation_result}",
                 recipe.fixture_id
             );
@@ -1592,6 +1599,37 @@ async fn execute_native_public_recipe(
         .map(|listener| listener.local_addr().unwrap().port());
     let setup_state = run_native_setup(engine, invocation, listener_port).await;
     let arguments = materialize_native_arguments(invocation, listener_port, &setup_state);
+    let fs_path_async_fixture = if invocation.global_name == "__exactFsPathAsync" {
+        match (
+            invocation.arguments.first(),
+            invocation.arguments.get(1),
+        ) {
+            (
+                Some(NativeProbeArgument::JsonLiteral { value: operation }),
+                Some(NativeProbeArgument::JsonLiteral { value: path }),
+            ) if matches!(operation.as_str(), Some("mkdir" | "mkdtemp")) => Some((
+                operation.as_str().unwrap().to_owned(),
+                path.as_str()
+                    .expect("filesystem fixture path must be a string")
+                    .to_owned(),
+            )),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some((operation, path)) = &fs_path_async_fixture {
+        assert!(
+            path.starts_with("target/ibex-capsec-fspathasync-"),
+            "filesystem fixture cleanup path escaped its owned target prefix"
+        );
+        if operation == "mkdir" {
+            let _ = std::fs::remove_dir(path);
+        } else {
+            std::fs::create_dir_all(path)
+                .expect("create owned mkdtemp fixture parent");
+        }
+    }
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
@@ -1626,8 +1664,30 @@ async fn execute_native_public_recipe(
     let encoded = result
         .expect("execute native public invocation in Hermes")
         .expect("native public invocation returned no result");
-    let invocation_result: serde_json::Value =
+    let mut invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
+    if let Some((operation, path)) = &fs_path_async_fixture {
+        if invocation_result["kind"] == "return" {
+            let created = if operation == "mkdir" {
+                path.as_str()
+            } else {
+                invocation_result["resultString"]
+                    .as_str()
+                    .expect("mkdtemp public result must identify its created directory")
+            };
+            assert!(
+                created.starts_with(path),
+                "created filesystem fixture escaped its owned cleanup prefix"
+            );
+            std::fs::remove_dir(created)
+                .expect("remove directory created by async filesystem fixture");
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-created-directory".into());
+        }
+        if operation == "mkdtemp" {
+            std::fs::remove_dir(path).expect("remove owned mkdtemp fixture parent");
+        }
+    }
     let typed_decisions = observed_typed_values(&session_id, typed);
     let validation = validate_native_runtime_observation(
         recipe,
