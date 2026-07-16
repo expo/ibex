@@ -250821,66 +250821,6 @@
       }
     },
     {
-      "id": "surface.native.op.originalpromise.01mfxkq",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.prototype.14wln5e",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.prototype"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.prototype.catch"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.prototype.finally"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.prototype.then.01yci6j",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.prototype.then"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.reject.1nmizxj",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.reject"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
       "id": "surface.native.op.stringbuffer.05y6skt",
       "classification": "non-capability",
       "surface": {

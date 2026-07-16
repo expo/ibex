@@ -250936,216 +250936,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.originalpromise.01mfxkq",
-      "observedKey": "native-op:__OriginalPromise",
-      "branchId": "surface.native.op.originalpromise.01mfxkq.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.01mfxkq.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.01mfxkq.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.prototype.14wln5e",
-      "observedKey": "native-op:__OriginalPromise.prototype",
-      "branchId": "surface.native.op.originalpromise.prototype.14wln5e.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.prototype.14wln5e.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.prototype"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.prototype"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.prototype.14wln5e.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-      "observedKey": "native-op:__OriginalPromise.prototype.catch",
-      "branchId": "surface.native.op.originalpromise.prototype.catch.0eezlaj.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.prototype.catch.0eezlaj.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.prototype.catch"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installNativeHandledPromiseTracking:globals:Promise.prototype.catch",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.catch",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installNativeHandledPromiseTracking:globals:Promise.prototype.catch",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.catch",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.prototype.catch"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installNativeHandledPromiseTracking:globals:Promise.prototype.catch",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.catch",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.prototype.catch.0eezlaj.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-      "observedKey": "native-op:__OriginalPromise.prototype.finally",
-      "branchId": "surface.native.op.originalpromise.prototype.finally.1b4v5zv.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.prototype.finally.1b4v5zv.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.prototype.finally"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installNativeHandledPromiseTracking:globals:Promise.prototype.finally",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.finally",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installNativeHandledPromiseTracking:globals:Promise.prototype.finally",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.finally",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.prototype.finally"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installNativeHandledPromiseTracking:globals:Promise.prototype.finally",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.finally",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.prototype.finally.1b4v5zv.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.prototype.then.01yci6j",
-      "observedKey": "native-op:__OriginalPromise.prototype.then",
-      "branchId": "surface.native.op.originalpromise.prototype.then.01yci6j.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.prototype.then.01yci6j.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.prototype.then"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installNativeHandledPromiseTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installNativeHandledPromiseTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.prototype.then"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installNativeHandledPromiseTracking:globals:Promise.prototype.then",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.prototype.then.01yci6j.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.reject.1nmizxj",
-      "observedKey": "native-op:__OriginalPromise.reject",
-      "branchId": "surface.native.op.originalpromise.reject.1nmizxj.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.reject.1nmizxj.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.reject"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.reject",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.reject",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.reject"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.reject",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.reject.1nmizxj.all.closed"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.stringbuffer.05y6skt",
       "observedKey": "native-op:__StringBuffer",
       "branchId": "surface.native.op.stringbuffer.05y6skt.default",
@@ -264400,12 +264190,6 @@
         "surface.native.op.inspector.debugger.get.script.source.008qeft",
         "surface.native.op.inspector.debugger.get.scripts.11hvbu6",
         "surface.native.op.inspector.debugger.next.event.026owqh",
-        "surface.native.op.originalpromise.01mfxkq",
-        "surface.native.op.originalpromise.prototype.14wln5e",
-        "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-        "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-        "surface.native.op.originalpromise.prototype.then.01yci6j",
-        "surface.native.op.originalpromise.reject.1nmizxj",
         "surface.startup.env.ex.disable.bytecode.sanity.check.06u9j5j",
         "surface.startup.env.ex.skip.startup.bootstrap.globals.1c5lfzg",
         "surface.startup.env.ex.skip.startup.compat.polyfills.1idjlwm",
@@ -264426,7 +264210,7 @@
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 474 observed surface edges."
+      "rationale": "Closed by 468 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -265408,44 +265192,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-Td0vXwAweTfImzuZl86rMv7jecVXgtfC1l1M6owcp04"
+      "rawContentDigest": "sha256-kEsvacispLO2WI3AfSmq4VW8MluSf-f_PQHou-LYkPI"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-wJw7B9SvbRNbRiad723fr8uD9U1H_fA0q9V6ee3pPds"
+      "rawContentDigest": "sha256-vg8m0_jnC7wNL5SyUi56_hmF4k6hSsKqsMUmMzRP1xA"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-52gkj4PthTsX_o3lLDYpvZR3wNVZf_ZqOoc8S8qUsCo"
+      "rawContentDigest": "sha256-Tjxg4pk3MWkJJbTWGxEXgOiDovjpAlf-si0YPdp9KSs"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-FyKnrIxWSGV_C4SssJ04dU73efSK4YRL0iMPvWZOmJM"
+      "rawContentDigest": "sha256-MDJxcrhlQ7DVWI0bV4Y3H1oJNST-EjVm5j2I3thogS0"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-kaRbNfjX11snjSGm5IqWkAQGc_E8S4_YZ09Jzz-wSOM"
+      "rawContentDigest": "sha256-We5o5r6jTzNTDnmnAaNCd-Y_eJONyIyxPrhtEB8986I"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-bFnLfCt9RprcwChhGF3NhHPKodtTdEotKCczBo9ZVm8"
+      "rawContentDigest": "sha256-S51IuJtVJXFJFt2DUya0KCviJncwnz_RqZdPffiLWNE"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-lpyjPvn4Bn164EQmLvJ9PVDkHOg0xeQPNBcjC6ksjak"
+      "rawContentDigest": "sha256-E_NBvn5LMopLKdisbj7yyUSXqefqNmn3DjUYnbBrGgw"
     }
   ],
   "counts": {
-    "observedReferences": 12787,
-    "logicalSurfaces": 7129,
-    "enforcementBranches": 7328,
-    "coverageEdges": 7129,
-    "targetCells": 7129
+    "observedReferences": 12773,
+    "logicalSurfaces": 7123,
+    "enforcementBranches": 7322,
+    "coverageEdges": 7123,
+    "targetCells": 7123
   }
 }

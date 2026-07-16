@@ -4541,14 +4541,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "write",
   ],
   "[[dynamic-table:native-global-name]]": [""],
-  __OriginalPromise: [
-    "",
-    "prototype",
-    "prototype.catch",
-    "prototype.finally",
-    "prototype.then",
-    "reject",
-  ],
   __dirname: [""],
   __exactAccessibilityChanged: [""],
   __exactAccessibilitySnapshot: [
