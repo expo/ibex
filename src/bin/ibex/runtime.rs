@@ -37,6 +37,18 @@ fn legacy_module_loader_window_is_open() -> bool {
 }
 
 #[cfg(feature = "module-runner")]
+// @ref LLP 0026#performance-and-platform-gates — native admission is exact
+// to the target tuples carrying matching evaluator and compartment artifacts.
+fn native_module_runner_target_is_advertised(os: &str, arch: &str) -> bool {
+    matches!((os, arch), ("macos", "aarch64") | ("linux", "x86_64"))
+}
+
+#[cfg(feature = "module-runner")]
+fn current_native_module_runner_target_is_advertised() -> bool {
+    native_module_runner_target_is_advertised(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+#[cfg(feature = "module-runner")]
 fn module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
     let executable = std::env::current_exe().context("locate module producer executable")?;
     let bytes = std::fs::read(&executable)
@@ -1435,6 +1447,21 @@ impl Runtime {
                 // armed snapshot. They retain the compatibility evaluator;
                 // production runner admission never manufactures authority
                 // from that weaker host.
+                (None, absolute_path.clone())
+            } else if !current_native_module_runner_target_is_advertised() {
+                if !legacy_module_loader_window_is_open() {
+                    anyhow::bail!(
+                        "native module runner is not advertised for {}-{} and the bounded legacy loader window is closed",
+                        std::env::consts::OS,
+                        std::env::consts::ARCH,
+                    );
+                }
+                eprintln!(
+                    "warning: native module runner is unadvertised for {}-{}; using compatibility loader through {}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                    LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR,
+                );
                 (None, absolute_path.clone())
             } else {
                 let producer_digest = module_producer_binary_digest()?;
@@ -7402,6 +7429,22 @@ mod tests {
         let selected = selected.unwrap();
         assert!(selected.starts_with(std::fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap()));
         assert!(!selected.starts_with(fake.path()));
+    }
+
+    #[cfg(feature = "module-runner")]
+    #[test]
+    fn native_module_runner_has_a_nonempty_exact_target_advertisement() {
+        assert!(native_module_runner_target_is_advertised(
+            "macos", "aarch64"
+        ));
+        assert!(native_module_runner_target_is_advertised("linux", "x86_64"));
+        assert!(!native_module_runner_target_is_advertised(
+            "windows", "x86_64"
+        ));
+        assert!(!native_module_runner_target_is_advertised(
+            "macos", "x86_64"
+        ));
+        assert!(!native_module_runner_target_is_advertised("ios", "aarch64"));
     }
 
     #[test]

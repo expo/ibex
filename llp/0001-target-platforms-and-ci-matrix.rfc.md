@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Crypto, CI
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
+**Revised:** 2026-07-15 (ENG-25066 advertises the native module runner on exact macOS arm64 and Linux x64 targets while retaining Windows as an explicit compatibility-only row until a matching patched Hermes artifact exists); 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
 
 ## Summary
@@ -188,10 +188,15 @@ have landed `[observed]` (`.github/workflows/ci.yml`;
 `.github/workflows/compartment-conformance.yml`).
 
 The module-runner workflow separately installs one patched Hermes artifact
-bundle per job so its JSI headers, link library, and CLI share an identity. It
-runs the native ESM/CommonJS record and pure graph corpora on macOS arm64 and
-Linux x64, and runs the canonical plus frozen Test262 producer corpus through
-the bundled Hermes CLI on macOS `[observed]`
+bundle per advertised job so its JSI headers, link library, and CLI share an
+identity. It runs the native ESM/CommonJS record and pure graph corpora on
+macOS arm64 and Linux x64, and runs the canonical plus frozen Test262 producer
+corpus through the bundled Hermes CLI on macOS. Windows remains visible: it
+builds both feature profiles, runs the platform-neutral graph corpus, and emits
+an explicit unavailability artifact because the published Windows Hermes
+package lacks the patched evaluator and compartment binder. The runtime keeps
+that exact target on the bounded compatibility loader rather than attempting
+an unauthenticated or mixed-engine native path `[observed]`
 (`.github/workflows/module-loader-baselines.yml`).
 
 ## 5. Sequencing

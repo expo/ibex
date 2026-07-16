@@ -5,6 +5,7 @@
     {
       "id": "macos-arm64",
       "runner": "macos-14",
+      "nativeRunnerAdvertised": true,
       "runtimeEvidence": "tests/fixtures/module-semantics/performance-macos-arm64.json",
       "collectionWorkflow": ".github/workflows/module-loader-baselines.yml",
       "status": "provisional",
@@ -13,6 +14,7 @@
     {
       "id": "linux-x64",
       "runner": "ubuntu-latest",
+      "nativeRunnerAdvertised": true,
       "runtimeEvidence": null,
       "collectionWorkflow": ".github/workflows/module-loader-baselines.yml",
       "status": "pending-ci",
@@ -21,10 +23,11 @@
     {
       "id": "windows-x64",
       "runner": "windows-2025",
+      "nativeRunnerAdvertised": false,
       "runtimeEvidence": null,
       "collectionWorkflow": ".github/workflows/module-loader-baselines.yml",
-      "status": "pending-ci",
-      "note": "The hosted workflow now installs the pinned Windows Hermes package and collects both compatibility-loader and authenticated native-runner metrics; the row remains pending until that artifact is received."
+      "status": "compatibility-only",
+      "note": "The published Windows Hermes package lacks the patched native evaluator and compartment binder, so CI records an explicit unavailability artifact and keeps the bounded compatibility loader active."
     }
   ]
 }

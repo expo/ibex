@@ -56,6 +56,7 @@ fn unsupported_module_runner_shape(reason: impl Into<String>) -> anyhow::Error {
     .into()
 }
 
+#[cfg(any(test, feature = "module-runner"))]
 pub(crate) fn unsupported_module_runner_reason(error: &anyhow::Error) -> Option<&str> {
     error
         .downcast_ref::<UnsupportedModuleRunnerShape>()

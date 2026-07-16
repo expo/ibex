@@ -4645,59 +4645,136 @@ mod tests {
         let prepared_cache =
             publish_prepared_source_graph_v1(&initial, &artifact_dir, deployment.clone()).unwrap();
 
-        let mut source_samples = Vec::with_capacity(samples);
-        for sample in 0..samples {
-            let started = Instant::now();
-            let graph = match build_authenticated_source_graph_v1(
-                &entry,
-                producer.clone(),
-                "hermes-performance",
-            )
-            .unwrap()
-            {
-                SourceModuleGraphBuildV1::Native(graph) => graph,
-                SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
-                    panic!(
-                        "source sample required legacy loader: {}",
-                        requirement.reason
-                    )
-                }
-            };
-            let (configs, contexts) = graph.native_execution_inputs((sample + 1) as u64).unwrap();
-            source_samples.push((
-                graph,
-                started.elapsed().as_secs_f64() * 1000.0,
-                configs,
-                contexts,
-            ));
-        }
-        let mut prepared_samples = Vec::with_capacity(samples);
-        for sample in 0..samples {
-            let started = Instant::now();
-            let graph =
-                load_prepared_source_graph_v1(&prepared_cache, &producer, &deployment).unwrap();
-            let generation = samples + sample + 1;
-            let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
-            prepared_samples.push((
-                graph,
-                started.elapsed().as_secs_f64() * 1000.0,
-                configs,
-                contexts,
-            ));
-        }
+        let collect_source_samples = |generation_offset: usize| {
+            let mut collected = Vec::with_capacity(samples);
+            for sample in 0..samples {
+                let started = Instant::now();
+                let graph = match build_authenticated_source_graph_v1(
+                    &entry,
+                    producer.clone(),
+                    "hermes-performance",
+                )
+                .unwrap()
+                {
+                    SourceModuleGraphBuildV1::Native(graph) => graph,
+                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                        panic!(
+                            "source sample required legacy loader: {}",
+                            requirement.reason
+                        )
+                    }
+                };
+                let generation = generation_offset + sample + 1;
+                let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
+                collected.push((
+                    graph,
+                    started.elapsed().as_secs_f64() * 1000.0,
+                    configs,
+                    contexts,
+                ));
+            }
+            collected
+        };
+        let collect_prepared_samples = |generation_offset: usize| {
+            let mut collected = Vec::with_capacity(samples);
+            for sample in 0..samples {
+                let started = Instant::now();
+                let graph =
+                    load_prepared_source_graph_v1(&prepared_cache, &producer, &deployment).unwrap();
+                let generation = generation_offset + sample + 1;
+                let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
+                collected.push((
+                    graph,
+                    started.elapsed().as_secs_f64() * 1000.0,
+                    configs,
+                    contexts,
+                ));
+            }
+            collected
+        };
+        let source_cold_samples = collect_source_samples(0);
+        let source_warm_samples = collect_source_samples(samples);
+        let prepared_cold_samples = collect_prepared_samples(samples * 2);
+        let prepared_warm_samples = collect_prepared_samples(samples * 3);
         crate::host::abi::install_host(crate::host::Host::strict());
 
         unsafe {
+            let mut runtime_startup_ms = Vec::with_capacity(samples * 2 + 1);
+            let mut source_cold_ms = Vec::with_capacity(samples);
+            let mut prepared_cold_ms = Vec::with_capacity(samples);
+
+            for (graph, acquisition_ms, configs, contexts) in source_cold_samples {
+                let started = Instant::now();
+                let raw = ex_hermes_create_diagnostic();
+                assert!(!raw.is_null());
+                runtime_startup_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+                let nonce = ex_hermes_runtime_nonce(raw);
+                let runtime =
+                    NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+                let plan = graph.plan().unwrap();
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let mut native = NativeSynchronousGraph::link_authorized(
+                    &runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &contexts,
+                )
+                .unwrap();
+                native.evaluate().unwrap();
+                assert_eq!(
+                    native.namespace_json(graph.entry()).unwrap(),
+                    r#"{"result":40}"#
+                );
+                drop(native);
+                source_cold_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+                drop(runtime);
+                ex_hermes_destroy(raw);
+            }
+
+            for (graph, acquisition_ms, configs, contexts) in prepared_cold_samples {
+                let started = Instant::now();
+                let raw = ex_hermes_create_diagnostic();
+                assert!(!raw.is_null());
+                runtime_startup_ms.push(started.elapsed().as_secs_f64() * 1000.0);
+                let nonce = ex_hermes_runtime_nonce(raw);
+                let runtime =
+                    NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+                let plan = graph.plan().unwrap();
+                let entries = graph.prepared_entries().unwrap().unwrap();
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let mut native = NativeSynchronousGraph::link_authorized_prepared(
+                    &runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &contexts,
+                    &entries,
+                )
+                .unwrap();
+                native.evaluate().unwrap();
+                assert_eq!(
+                    native.namespace_json(graph.entry()).unwrap(),
+                    r#"{"result":40}"#
+                );
+                drop(native);
+                prepared_cold_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+                drop(runtime);
+                ex_hermes_destroy(raw);
+            }
+
             let runtime_started = Instant::now();
             let raw = ex_hermes_create_diagnostic();
             assert!(!raw.is_null());
-            let runtime_startup_ms = runtime_started.elapsed().as_secs_f64() * 1000.0;
+            runtime_startup_ms.push(runtime_started.elapsed().as_secs_f64() * 1000.0);
             let nonce = ex_hermes_runtime_nonce(raw);
             let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
-            let mut source_ms = Vec::with_capacity(samples);
-            let mut prepared_ms = Vec::with_capacity(samples);
+            let mut source_warm_ms = Vec::with_capacity(samples);
+            let mut prepared_warm_ms = Vec::with_capacity(samples);
 
-            for (graph, acquisition_ms, configs, contexts) in source_samples {
+            for (graph, acquisition_ms, configs, contexts) in source_warm_samples {
                 let started = Instant::now();
                 let plan = graph.plan().unwrap();
                 let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
@@ -4716,10 +4793,10 @@ mod tests {
                     r#"{"result":40}"#
                 );
                 drop(native);
-                source_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+                source_warm_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
             }
 
-            for (graph, acquisition_ms, configs, contexts) in prepared_samples {
+            for (graph, acquisition_ms, configs, contexts) in prepared_warm_samples {
                 let started = Instant::now();
                 let plan = graph.plan().unwrap();
                 let entries = graph.prepared_entries().unwrap().unwrap();
@@ -4740,7 +4817,7 @@ mod tests {
                     r#"{"result":40}"#
                 );
                 drop(native);
-                prepared_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+                prepared_warm_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
             }
 
             drop(runtime);
@@ -4749,15 +4826,15 @@ mod tests {
                 "schema": "ibex/module-runner-performance-baseline/1",
                 "platform": { "os": std::env::consts::OS, "arch": std::env::consts::ARCH },
                 "dependencyModules": DEPENDENCY_MODULES,
-                "runtimeStartupMs": runtime_startup_ms,
+                "runtimeStartup": summarize(&runtime_startup_ms),
                 "profiles": {
                     "authenticatedSource": {
-                        "coldMs": source_ms[0],
-                        "warm": summarize(&source_ms[1..]),
+                        "cold": summarize(&source_cold_ms),
+                        "warm": summarize(&source_warm_ms),
                     },
                     "authenticatedPrepared": {
-                        "coldMs": prepared_ms[0],
-                        "warm": summarize(&prepared_ms[1..]),
+                        "cold": summarize(&prepared_cold_ms),
+                        "warm": summarize(&prepared_warm_ms),
                     },
                 },
             });

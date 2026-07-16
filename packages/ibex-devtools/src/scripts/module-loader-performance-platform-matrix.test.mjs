@@ -19,7 +19,15 @@ test('desktop loader-performance matrix cannot hide missing native evidence', ()
     matrix.targets.map((target) => target.id),
     ['macos-arm64', 'linux-x64', 'windows-x64'],
   );
+  assert.deepEqual(
+    matrix.targets
+      .filter((target) => target.nativeRunnerAdvertised)
+      .map((target) => target.id),
+    ['macos-arm64', 'linux-x64'],
+    'the native module runner requires a non-empty exact advertised-target list',
+  );
   for (const target of matrix.targets) {
+    assert.equal(typeof target.nativeRunnerAdvertised, 'boolean');
     assert.ok(target.note.length > 40, `${target.id} needs an honest status note`);
     if (target.collectionWorkflow) {
       assert.ok(

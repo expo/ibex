@@ -19,6 +19,8 @@ on:
       - "llp/0026-esm-module-runner.rfc.md"
       - "llp/0027-module-artifact-and-interop.spec.md"
       - "packages/ibex-devtools/src/scripts/benchmark-module-loader-baseline.mjs"
+      - "packages/ibex-devtools/src/scripts/check-module-runner-performance.mjs"
+      - "packages/ibex-devtools/src/scripts/check-module-runner-performance.test.mjs"
       - "packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs"
       - "packages/ibex-devtools/src/scripts/transforms.mjs"
       - "include/exact_runtime.h"
@@ -95,7 +97,7 @@ jobs:
           choco install strawberryperl --yes --no-progress
           "C:\Strawberry\perl\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Run native ESM and CommonJS record corpus
+      - name: Check module-runner build feature matrix
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -104,6 +106,11 @@ jobs:
           fi
           cargo check --all-targets
           cargo check --all-targets --no-default-features
+
+      - name: Run advertised native ESM and CommonJS record corpus
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
           scripts/run-tests.sh --scope lib --features module-runner \
             engine::module_runner::tests -- --test-threads=1
           scripts/run-tests.sh --scope lib --features module-runner \
@@ -111,6 +118,16 @@ jobs:
           scripts/run-tests.sh --scope lib --features module-runner \
             host::tests::authenticated_source_graph_round_trips_through_prepared_cache \
             -- --test-threads=1
+
+      - name: Verify Windows remains an explicit unadvertised native target
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          scripts/run-tests.sh --scope lib --features module-runner \
+            module_loader::graph::tests
+          cargo test --bin ibex --features module-runner \
+            runtime::tests::native_module_runner_has_a_nonempty_exact_target_advertisement \
+            -- --exact
 
       - name: Run canonical and Test262 producer corpus on Hermes
         if: runner.os == 'macOS'
@@ -203,12 +220,23 @@ jobs:
             --expect-arch "${{ matrix.arch }}" \
             --write "$RUNNER_TEMP/default-${{ matrix.report }}.json"
 
-          IBEX_MODULE_RUNNER_PERF_OUTPUT="$RUNNER_TEMP/native-${{ matrix.report }}.json" \
-          IBEX_MODULE_RUNNER_PERF_SAMPLES=5 \
-          CARGO_TARGET_DIR="$RUNNER_TEMP/module-loader-default-target" \
-            cargo test --release --lib \
-              host::tests::module_runner_performance_baseline -- \
-              --ignored --exact --nocapture
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({schema:"ibex/module-runner-unavailability/1",platform:{os:"windows",arch:"x86_64"},status:"unadvertised",reason:"The published Windows Hermes package lacks the patched native module evaluator and compartment binder; the bounded compatibility loader remains active."}, null, 2) + "\n")' \
+              "$RUNNER_TEMP/native-${{ matrix.report }}.json"
+          else
+            IBEX_MODULE_RUNNER_PERF_OUTPUT="$RUNNER_TEMP/native-${{ matrix.report }}.json" \
+            IBEX_MODULE_RUNNER_PERF_SAMPLES=5 \
+            CARGO_TARGET_DIR="$RUNNER_TEMP/module-loader-default-target" \
+              cargo test --release --lib \
+                host::tests::module_runner_performance_baseline -- \
+                --ignored --exact --nocapture
+          fi
+
+          node packages/ibex-devtools/src/scripts/check-module-runner-performance.mjs \
+            --legacy "$RUNNER_TEMP/${{ matrix.report }}.json" \
+            --current "$RUNNER_TEMP/default-${{ matrix.report }}.json" \
+            --native "$RUNNER_TEMP/native-${{ matrix.report }}.json" \
+            --write "$RUNNER_TEMP/gate-${{ matrix.report }}.json"
 
       - name: Upload baseline evidence
         uses: actions/upload-artifact@v4
@@ -218,5 +246,6 @@ jobs:
             ${{ runner.temp }}/${{ matrix.report }}.json
             ${{ runner.temp }}/default-${{ matrix.report }}.json
             ${{ runner.temp }}/native-${{ matrix.report }}.json
+            ${{ runner.temp }}/gate-${{ matrix.report }}.json
           if-no-files-found: error
           retention-days: 30
