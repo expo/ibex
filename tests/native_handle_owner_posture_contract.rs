@@ -379,10 +379,10 @@ fn retained_http_response_owner_check_is_captured_and_revocation_safe() {
     ));
     assert_eq!(
         http_js
-            .matches("ownerStamp: _httpNetOwnerHost ? _httpNetOwnerHost('new') : null")
+            .matches("_httpNetOwnerHost('new')")
             .count(),
         2,
-        "both ServerResponse and http.Server need construction-time owner identity"
+        "ServerResponse and http.Server each need a fresh-owner construction path"
     );
     assert!(http_js.contains("_httpNetOwnerHost('assert', state.ownerStamp)"));
     assert!(http_js.contains("_httpOwnerHost(state.serverId) !== true"));
