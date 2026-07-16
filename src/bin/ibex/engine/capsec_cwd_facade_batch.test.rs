@@ -352,7 +352,7 @@ module.exports = { marker: 'v2', executions: globalThis.__memoV2Executions };"#,
     let attacker_for_snapshot = attacker.clone();
     let allowed_locator_for_snapshot = allowed_locator.clone();
     let denied_locator_for_snapshot = denied_locator.clone();
-    let (host, digest) = build_armed_test_host_custom(
+    let (fixture_host, digest) = build_armed_test_host_custom(
         Some(&root),
         false,
         true,
@@ -405,8 +405,22 @@ module.exports = { marker: 'v2', executions: globalThis.__memoV2Executions };"#,
                 .as_array_mut()
                 .unwrap()
                 .extend([allowed_locator_binding, denied_locator_binding]);
+            snapshot["rootBindings"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|binding| binding["logicalRoot"] != "absolute");
         },
     );
+    let host = unsafe {
+        crate::host::Host::new_armed_for_test_with_package_sources(
+            crate::host::HostConfig {
+                mode: crate::host::SecurityMode::Enforce,
+                ..Default::default()
+            },
+            fixture_host.armed_snapshot().unwrap().clone(),
+        )
+    }
+    .expect("package memo fixture must authenticate every package source object");
     host.resolve_module_meta_for_principal(
         "./node_modules/shared/index.js",
         Some(&root.join(".ibex-cwd-resolution-base.js")),

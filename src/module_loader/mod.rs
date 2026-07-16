@@ -1231,6 +1231,7 @@ impl ModuleLoader {
         &self,
         specifier: &str,
         referrer: Option<&Path>,
+        preflighted_requested_path: Option<&Path>,
         inputs: &AuthenticatedResolverInputs,
     ) -> Result<ResolvedModule> {
         let specifier = specifier.trim();
@@ -1248,7 +1249,12 @@ impl ModuleLoader {
             return Err(anyhow!("Unsupported node builtin: {}", specifier));
         }
 
-        let base_dir = authenticated_resolver_base_dir(inputs, referrer)?;
+        let base_dir = authenticated_resolver_base_dir(
+            inputs,
+            referrer,
+            specifier,
+            preflighted_requested_path,
+        )?;
         let resolver = ResolverGeneric::new_with_file_system(
             inputs.file_system(),
             authenticated_module_resolve_options(true),
@@ -2240,11 +2246,57 @@ impl ModuleLoader {
 fn authenticated_resolver_base_dir(
     inputs: &AuthenticatedResolverInputs,
     referrer: Option<&Path>,
+    specifier: &str,
+    preflighted_requested_path: Option<&Path>,
 ) -> Result<PathBuf> {
     let Some(referrer) = referrer else {
         return Ok(inputs.boundary_root().to_path_buf());
     };
-    let referrer = inputs.normalize_in_boundary(referrer)?;
+    let lexical_referrer = lexical_absolute_path_for_resolver(referrer)
+        .context("authenticated resolver referrer is not an absolute normalized path")?;
+    let referrer = match inputs.normalize_in_boundary(&lexical_referrer) {
+        Ok(referrer) => referrer,
+        Err(error)
+            if error.kind() == io::ErrorKind::PermissionDenied
+                && !lexical_referrer.starts_with(inputs.boundary_root()) =>
+        {
+            let Some(requested_path) = preflighted_requested_path else {
+                return Err(error)
+                    .context("authenticated resolver referrer is outside its boundary");
+            };
+            let path_specifier = specifier.starts_with("./")
+                || specifier.starts_with("../")
+                || Path::new(specifier).is_absolute();
+            if !path_specifier {
+                return Err(error)
+                    .context("authenticated resolver referrer is outside its boundary");
+            }
+            let requested_path = inputs
+                .normalize_in_boundary(requested_path)
+                .context("preflighted resolver target is outside its authenticated boundary")?;
+            let base_dir = lexical_referrer
+                .parent()
+                .ok_or_else(|| anyhow!("authenticated resolver referrer has no parent"))?;
+            let recomputed = if Path::new(specifier).is_absolute() {
+                lexical_absolute_path_for_resolver(Path::new(specifier))
+            } else {
+                lexical_absolute_path_for_resolver(&base_dir.join(specifier))
+            }
+            .context("preflighted resolver request is not an absolute normalized path")?;
+            anyhow::ensure!(
+                recomputed == requested_path,
+                "resolver request differs from its preflighted target"
+            );
+            // @ref LLP 0023#22-authorization-identity-is-caller-relative —
+            // the outside caller spelling is inert after exact preflight;
+            // every OXC filesystem access remains descriptor-bounded to the
+            // authenticated target package below.
+            return Ok(base_dir.to_path_buf());
+        }
+        Err(error) => {
+            return Err(error).context("authenticated resolver referrer is unavailable");
+        }
+    };
     let file_system = inputs.file_system();
     let base_dir = match file_system.metadata(&referrer) {
         Ok(metadata) if metadata.is_dir() => referrer,
@@ -4417,7 +4469,7 @@ fn build_builtin_registry(
 /// spelling. This makes the native resolver agree with the VFS file-URL path
 /// parser and, consequently, makes all decorations converge on one SourceId.
 /// @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
-fn strip_file_module_decorations(specifier: &str) -> &str {
+pub(crate) fn strip_file_module_decorations(specifier: &str) -> &str {
     let bytes = specifier.as_bytes();
     let windows_drive = bytes.len() >= 3
         && bytes[0].is_ascii_alphabetic()
@@ -5047,7 +5099,7 @@ mod tests {
         let loader = test_loader();
 
         let local = loader
-            .resolve_meta_authenticated("./local-link.js", Some(&entry), &inputs)
+            .resolve_meta_authenticated("./local-link.js", Some(&entry), None, &inputs)
             .expect("same-principal in-bound symlink must remain resolvable");
         assert_eq!(
             local.path.as_deref(),
@@ -5055,12 +5107,118 @@ mod tests {
         );
 
         let error = loader
-            .resolve_meta_authenticated("./foreign-link.js", Some(&entry), &inputs)
+            .resolve_meta_authenticated("./foreign-link.js", Some(&entry), None, &inputs)
             .expect_err("symlink into a denied foreign package subtree must be refused");
         assert!(
             error.to_string().contains("Failed to resolve module"),
             "unexpected denied-subtree refusal: {error:#}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_outside_referrer_bridge_requires_one_exact_preflighted_path() {
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        let package = project.join("node_modules/shared");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(package.join("index.js"), "module.exports = 'shared';\n").unwrap();
+        std::fs::write(package.join("other.js"), "module.exports = 'other';\n").unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let package = project.join("node_modules/shared");
+        let target = package.join("index.js");
+        let other = package.join("other.js");
+        let outside_referrer = project.join(".ibex-session-static-import.mjs");
+        let inputs = AuthenticatedResolverInputs::new(
+            package.clone(),
+            &test_object_identity(&package),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            authenticated_resolver_base_dir(
+                &inputs,
+                Some(&outside_referrer),
+                "./node_modules/shared/index.js",
+                Some(&target),
+            )
+            .unwrap(),
+            project
+        );
+        let resolved = test_loader()
+            .resolve_meta_authenticated(
+                "./node_modules/shared/index.js?cache=one#fragment",
+                Some(&outside_referrer),
+                Some(&target),
+                &inputs,
+            )
+            .expect("the exact preflighted target must resolve through the inert caller spelling");
+        assert_eq!(resolved.path.as_deref(), Some(target.as_path()));
+
+        let missing = authenticated_resolver_base_dir(
+            &inputs,
+            Some(&outside_referrer),
+            "./node_modules/shared/index.js",
+            None,
+        )
+        .expect_err("an outside referrer without a preflighted target must be refused");
+        assert!(missing.to_string().contains("outside its boundary"));
+
+        let mismatch = authenticated_resolver_base_dir(
+            &inputs,
+            Some(&outside_referrer),
+            "./node_modules/shared/index.js",
+            Some(&other),
+        )
+        .expect_err("a different in-boundary target must not satisfy exact preflight");
+        assert!(mismatch
+            .to_string()
+            .contains("differs from its preflighted target"));
+
+        let bare = authenticated_resolver_base_dir(
+            &inputs,
+            Some(&outside_referrer),
+            "shared",
+            Some(&target),
+        )
+        .expect_err("a bare spelling must use its authenticated package binding path");
+        assert!(bare.to_string().contains("outside its boundary"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_outside_referrer_bridge_does_not_mask_a_denied_subtree() {
+        let sandbox = tempdir().unwrap();
+        let project = sandbox.path().join("project");
+        let denied = project.join("node_modules/denied");
+        std::fs::create_dir_all(&denied).unwrap();
+        std::fs::write(project.join("allowed.js"), "module.exports = true;\n").unwrap();
+        std::fs::write(denied.join("entry.js"), "module.exports = false;\n").unwrap();
+
+        let project = std::fs::canonicalize(project).unwrap();
+        let denied = project.join("node_modules/denied");
+        let target = project.join("allowed.js");
+        let inputs = AuthenticatedResolverInputs::new(
+            project.clone(),
+            &test_object_identity(&project),
+            BTreeMap::new(),
+            BTreeSet::new(),
+            BTreeSet::from([denied.clone()]),
+        )
+        .unwrap();
+
+        let error = authenticated_resolver_base_dir(
+            &inputs,
+            Some(&denied.join("entry.js")),
+            "../../allowed.js",
+            Some(&target),
+        )
+        .expect_err("an in-boundary denied referrer must remain denied");
+        assert!(error.to_string().contains("unavailable"));
     }
 
     #[cfg(unix)]
@@ -5093,7 +5251,7 @@ mod tests {
         .unwrap();
 
         let error = test_loader()
-            .resolve_meta_authenticated("./alias/pkg/index.js", Some(&entry), &inputs)
+            .resolve_meta_authenticated("./alias/pkg/index.js", Some(&entry), None, &inputs)
             .expect_err("the symlink target plus pending tail must be checked before entering pkg");
         assert!(
             error.to_string().contains("Failed to resolve module"),
@@ -5165,7 +5323,7 @@ mod tests {
         );
 
         let imported = loader
-            .resolve_meta_authenticated("#inside", Some(&entry), &inputs)
+            .resolve_meta_authenticated("#inside", Some(&entry), None, &inputs)
             .unwrap();
         assert_eq!(
             imported.path.as_deref(),
@@ -5175,7 +5333,7 @@ mod tests {
 
         let synthetic_referrer = project.join(".ibex-session-static-import.mjs");
         let from_synthetic_referrer = loader
-            .resolve_meta_authenticated("./src/inside.js", Some(&synthetic_referrer), &inputs)
+            .resolve_meta_authenticated("./src/inside.js", Some(&synthetic_referrer), None, &inputs)
             .expect("the bounded resolver must accept the session's file-like synthetic referrer");
         assert_eq!(
             from_synthetic_referrer.path.as_deref(),
@@ -5183,7 +5341,7 @@ mod tests {
         );
 
         let exported = loader
-            .resolve_meta_authenticated("pkg", Some(&entry), &inputs)
+            .resolve_meta_authenticated("pkg", Some(&entry), None, &inputs)
             .unwrap();
         assert_eq!(exported.path.as_deref(), Some(captured_target.as_path()));
         assert_eq!(exported.kind, ModuleKind::Esm);
@@ -5222,7 +5380,7 @@ mod tests {
         )
         .unwrap();
         let error = test_loader()
-            .resolve_meta_authenticated("./escape.js", Some(&entry), &inputs)
+            .resolve_meta_authenticated("./escape.js", Some(&entry), None, &inputs)
             .expect_err("an outside symlink target must not resolve");
         assert!(
             error.to_string().contains("Failed to resolve module"),
@@ -5270,7 +5428,7 @@ mod tests {
         )
         .unwrap();
         let error = test_loader()
-            .resolve_meta_authenticated("node-path-only", Some(&entry), &inputs)
+            .resolve_meta_authenticated("node-path-only", Some(&entry), None, &inputs)
             .expect_err("an ambient package outside the authenticated boundary must be invisible");
         assert!(
             error.to_string().contains("Failed to resolve module"),

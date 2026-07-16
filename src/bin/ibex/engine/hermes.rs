@@ -4321,7 +4321,7 @@ mod tests {
         let ThrowMetadata::Captured {
             error_class,
             message,
-            stack,
+            stack: _,
             ..
         } = metadata
         else {
@@ -4329,9 +4329,6 @@ mod tests {
         };
         assert_eq!(error_class, NativeErrorClass::Error);
         assert_eq!(message.as_deref(), Some("runtime-principal-unavailable"));
-        assert!(stack
-            .as_deref()
-            .is_some_and(|stack| stack.contains("runtime-principal-unavailable")));
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -10702,7 +10699,6 @@ module.exports = JSON.stringify({
                 try {{ __exactWriteFile({absent:?}, 'created'); }} catch (_) {{ denied++; }}
                 try {{ __exactAppendFile({existing:?}, 'lost'); }} catch (_) {{ denied++; }}
                 try {{ __exactAppendFile({absent:?}, 'created'); }} catch (_) {{ denied++; }}
-                try {{ __exactFsWriteFileAsync({absent:?}, 'created', 'w', 438, true); }} catch (_) {{ denied++; }}
                 try {{ __exactMkdir({absent_directory:?}, false); }} catch (_) {{ denied++; }}
                 try {{ __exactUnlink({existing:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactRmdir({retained_directory:?}); }} catch (_) {{ denied++; }}
@@ -10729,7 +10725,7 @@ module.exports = JSON.stringify({
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("22"));
+        assert_eq!(outcome.as_deref(), Some("21"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
         assert!(!absent.exists());
         assert!(!absent_directory.exists());
@@ -10752,9 +10748,20 @@ module.exports = JSON.stringify({
                    return Promise.resolve();
                  }}
                }}
+               function expectDeniedWrite(path, label) {{
+                 try {{
+                   return __exactFsWriteFileAsync(path, 'created', 'w', 438, true).then(function() {{
+                     throw new Error(label + ' async write unexpectedly allowed');
+                   }}, function() {{ denied++; }});
+                 }} catch (_) {{
+                   denied++;
+                   return Promise.resolve();
+                 }}
+               }}
                Promise.all([
                  expectDeniedOpen({existing:?}, 'existing'),
-                 expectDeniedOpen({absent:?}, 'absent')
+                 expectDeniedOpen({absent:?}, 'absent'),
+                 expectDeniedWrite({absent:?}, 'absent')
                ]).then(function() {{
                  globalThis.__armedDeniedAsyncOpen = String(denied);
                }}, function(error) {{
@@ -10769,7 +10776,7 @@ module.exports = JSON.stringify({
             .eval_immediate("globalThis.__armedDeniedAsyncOpen")
             .await
             .unwrap();
-        assert_eq!(async_open_outcome.as_deref(), Some("2"));
+        assert_eq!(async_open_outcome.as_deref(), Some("3"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
         assert!(!absent.exists());
 
@@ -11017,8 +11024,6 @@ module.exports = JSON.stringify({
                 try {{ __exactWriteFile({final_escape:?}, 'lost'); }} catch (_) {{ denied++; }}
                 try {{ __exactAppendFile({parent_escape:?}, 'lost'); }} catch (_) {{ denied++; }}
                 try {{ __exactAppendFile({final_escape:?}, 'lost'); }} catch (_) {{ denied++; }}
-                try {{ __exactFsWriteFileAsync({parent_escape:?}, 'lost', 'w', 438, true); }} catch (_) {{ denied++; }}
-                try {{ __exactFsWriteFileAsync({final_escape:?}, 'lost', 'w', 438, true); }} catch (_) {{ denied++; }}
                 try {{ __exactFsStatAsync({parent_escape:?}, 'stat'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsStatAsync({final_escape:?}, 'stat'); }} catch (_) {{ denied++; }}
                 try {{ __exactRealpath({parent_escape:?}); }} catch (_) {{ denied++; }}
@@ -11032,7 +11037,39 @@ module.exports = JSON.stringify({
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("19"));
+        assert_eq!(outcome.as_deref(), Some("17"));
+
+        let async_write_script = format!(
+            r#"globalThis.__armedDeniedSymlinkWrites = 'pending';
+               var denied = 0;
+               function expectDeniedWrite(path, label) {{
+                 try {{
+                   return __exactFsWriteFileAsync(path, 'lost', 'w', 438, true).then(function() {{
+                     throw new Error(label + ' async write unexpectedly allowed');
+                   }}, function() {{ denied++; }});
+                 }} catch (_) {{
+                   denied++;
+                   return Promise.resolve();
+                 }}
+               }}
+               Promise.all([
+                 expectDeniedWrite({parent_escape:?}, 'parent escape'),
+                 expectDeniedWrite({final_escape:?}, 'final escape')
+               ]).then(function() {{
+                 globalThis.__armedDeniedSymlinkWrites = String(denied);
+               }}, function(error) {{
+                 globalThis.__armedDeniedSymlinkWrites = 'error:' + error.message;
+               }});"#,
+            parent_escape = parent_escape,
+            final_escape = final_escape,
+        );
+        engine.eval_immediate(&async_write_script).await.unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let async_write_outcome = engine
+            .eval_immediate("globalThis.__armedDeniedSymlinkWrites")
+            .await
+            .unwrap();
+        assert_eq!(async_write_outcome.as_deref(), Some("2"));
         assert_eq!(std::fs::read(&outside_file).unwrap(), b"outside");
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);

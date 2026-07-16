@@ -707,6 +707,25 @@ impl Host {
         )
     }
 
+    /// Observer fixtures that exercise authenticated package execution need
+    /// the same immutable source inventory as production arming while still
+    /// supplying the synthetic complete target-cell map above.
+    /// @ref LLP 0023#42-authenticated-package-source-is-immutable
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    #[doc(hidden)]
+    pub unsafe fn new_armed_for_test_with_package_sources(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        let authenticated_package_sources = validate_snapshot_root_bindings(&armed_snapshot)?;
+        Self::new_armed_with_target_cells(
+            config,
+            armed_snapshot,
+            complete_test_target_cells(),
+            authenticated_package_sources,
+        )
+    }
+
     fn target_cell(&self, edge: &str) -> capsec_semantics::decision::TargetCellDisposition {
         self.target_cells
             .get(edge)
@@ -4710,9 +4729,14 @@ impl Host {
                 ArmedModuleResolution::BoundPackage { name, root } => self
                     .module_loader
                     .resolve_meta_from_authenticated_bound_package(specifier, name, root, &inputs),
-                ArmedModuleResolution::Generic { .. } => self
-                    .module_loader
-                    .resolve_meta_authenticated(specifier, referrer, &inputs),
+                ArmedModuleResolution::Generic { requested_path, .. } => {
+                    self.module_loader.resolve_meta_authenticated(
+                        specifier,
+                        referrer,
+                        requested_path.as_deref(),
+                        &inputs,
+                    )
+                }
             };
             let probes = inputs.uncaptured_package_manifest_probes()?;
             if probes.is_empty() {
@@ -4738,6 +4762,7 @@ impl Host {
         if self.unarmed_closed {
             anyhow::bail!("unarmed host cannot resolve executable modules");
         }
+        let specifier = crate::module_loader::strip_file_module_decorations(specifier.trim());
         let armed_resolution = if let Some(snapshot) = self.armed_snapshot.as_deref() {
             let root_principal = self
                 .typed_imports
