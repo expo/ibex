@@ -1169,7 +1169,7 @@ var socket = tls.connect({{
   out.cipher = socket.getCipher().name;
   out.getSession = socket.getSession();
   out.reused = socket.isSessionReused();
-  socket.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+  socket.write('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
 }});
 socket.on('data', function () {{}});
 socket.on('end', function () {{ console.log(JSON.stringify(out)); process.exit(0); }});
