@@ -77331,23 +77331,6 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
-      "edgeId": "surface.native.op.exactuveofvalue.0l8d7x9",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactuveofvalue.0l8d7x9.default"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
       "edgeId": "surface.native.op.exactverifysync.0lsqcbn",
       "target": {
         "triple": "aarch64-apple-darwin",

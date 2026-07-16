@@ -208568,16 +208568,6 @@
       }
     },
     {
-      "id": "surface.native.op.exactuveofvalue.0l8d7x9",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactUvEOFValue"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
       "id": "surface.native.op.exactverifysync.0lsqcbn",
       "classification": "non-capability",
       "surface": {

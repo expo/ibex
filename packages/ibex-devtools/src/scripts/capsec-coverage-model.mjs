@@ -4624,7 +4624,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactStreamWrapState: [""],
   __exactSyncTrackedIpcListenersAfterDispatch: [""],
   __exactUnhandledRejectionHandler: [""],
-  __exactUvEOFValue: [""],
   __exactWebStreamsPolyfillLoaded: [""],
   __exactWindowNotifyMediaChange: [""],
   __exactWindowNotifyResize: [""],

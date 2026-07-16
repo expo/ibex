@@ -2007,9 +2007,6 @@
         };
       }
       if (name === 'uv') {
-        if (typeof globalThis === 'object' && globalThis.__exactUvEOFValue === undefined) {
-          globalThis.__exactUvEOFValue = -4095;
-        }
         return {
           UV_EACCES: -13,
             UV_EBADF: -9,

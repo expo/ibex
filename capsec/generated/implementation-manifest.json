@@ -165907,37 +165907,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactuveofvalue.0l8d7x9",
-      "observedKey": "native-op:__exactUvEOFValue",
-      "branchId": "surface.native.op.exactuveofvalue.0l8d7x9.default",
-      "enforcementBranchId": "surface.native.op.exactuveofvalue.0l8d7x9.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactUvEOFValue"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactUvEOFValue"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactUvEOFValue"
-        ],
-        "terminalObservedKey": "native-op:__exactUvEOFValue"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/module-loader.js#__exactUvEOFValue"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactuveofvalue.0l8d7x9.default.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactverifysync.0lsqcbn",
       "observedKey": "native-op:__exactVerifySync",
       "branchId": "surface.native.op.exactverifysync.0lsqcbn.default",
@@ -264780,44 +264749,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-kMucidxOU2vh8V1V7jDlwiWCUqidXnT3wqOgQBL2zTA"
+      "rawContentDigest": "sha256-FcO-GETfA12MPW3LIlhFxx_CX2XJhjb67jiuvbtZutc"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-2TWY9rhvt7jHcMSYMtnKWjA0r07AJ9Ej7X46raTHZF8"
+      "rawContentDigest": "sha256-28-tcNCsYtdYJEpOLAgKZgjFp9InBVZN8RczLkaDOwc"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-FDEw9wRiA5PbiPXGBVX2NaS4XodIG-saJRDtGv3Z7OY"
+      "rawContentDigest": "sha256-7mn_N8yjMXjkgS_5CNcZclH2WDdi8eFeKd8P5rrVyOs"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-kPVZ3IKK16f18_MQNleqgjH8zm7rPLXkYo1EqSSAau8"
+      "rawContentDigest": "sha256-qvelmKfD2ESosmHvdZ2i6izDSzFQwAv7R55brOFUf78"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-OP0dTRujbv7yCjGRdqF7VCAoho4fS3x4gXBHkYyof8M"
+      "rawContentDigest": "sha256-ZoHYJCITjFt-fONUemqrG64j3j4nARvLe7ccmNLf-vE"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-L8CaTRxsY-ViVzGI9Pc7Jcrw4My4poMhmyY7ZhqIau8"
+      "rawContentDigest": "sha256-xEdQHpaD-jDPKsFzcoJW89sTzz4cn0r7EkaxQ8phSIU"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-a4c3NEA5RXDHpwAVP8s3Vr4XAzm-3dCMJulYH-zDiWY"
+      "rawContentDigest": "sha256-SerBWQiv-wCaLXcH8sKBB9g3r03zCdsImxK9qxGOdE8"
     }
   ],
   "counts": {
-    "observedReferences": 12760,
-    "logicalSurfaces": 7110,
-    "enforcementBranches": 7309,
-    "coverageEdges": 7110,
-    "targetCells": 7110
+    "observedReferences": 12759,
+    "logicalSurfaces": 7109,
+    "enforcementBranches": 7308,
+    "coverageEdges": 7109,
+    "targetCells": 7109
   }
 }
