@@ -155851,37 +155851,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb",
-      "observedKey": "native-op:__exactHasDecompressionUnhandledFilter",
-      "branchId": "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb.all",
-      "enforcementBranchId": "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactHasDecompressionUnhandledFilter"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/compression/DecompressionStream.ts#installTrailingDataUnhandledFilter:globals:__exactHasDecompressionUnhandledFilter"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/compression/DecompressionStream.ts#installTrailingDataUnhandledFilter:globals:__exactHasDecompressionUnhandledFilter"
-        ],
-        "terminalObservedKey": "native-op:__exactHasDecompressionUnhandledFilter"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/compression/DecompressionStream.ts#installTrailingDataUnhandledFilter:globals:__exactHasDecompressionUnhandledFilter"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb.all.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exacthashraw.13kx1ex",
       "observedKey": "native-op:__exactHashRaw",
       "branchId": "surface.native.op.exacthashraw.13kx1ex.default",
@@ -264842,44 +264811,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-_M4BDl5XoCg1rDq29e0k8MySYEv24xKr3izgqq9_Uuo"
+      "rawContentDigest": "sha256-VL6OPCKiKN3jZyxEvbm-g0ObGqmf4evUwGqXdFKsTgQ"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-pcieR4sZiBS4UOc4cjCSRK1azRQbkWVmME7537wvHl8"
+      "rawContentDigest": "sha256-38VIjZfMxjbxEMOVuhNjzRlbV7wMebjN9-F9_8jhJiQ"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-TS0s9jXpfBusoHltZPZ_c6BOnSrrZHAyIEbr5fXlYcQ"
+      "rawContentDigest": "sha256-aM2uTtQDGe0zmtfXGCyL5gZS-xp-S_C7aAELtereeVw"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-PXoE9HPV72lX5SY1pa5_Q0zn-NP0-HEo5lsQ8JhU5Yk"
+      "rawContentDigest": "sha256-3b7oEgm-wGaHAzQfwdM-86DhdMaKg4VFojIcm2TVEEQ"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-dnuEGH6gihq5FFATlQPXgtfoORicser3Geh_lKspWws"
+      "rawContentDigest": "sha256-qpKDibo1F6zQkJ5yc2G5_VKJch1H9jeakPqi3utd5Ic"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-J-7E_qFn-uii1BE0aGKtjL4feMLm-UkyjXV1KL9R3ao"
+      "rawContentDigest": "sha256-r2kIIfS-SnCsIVU8EtuFqqVXUuQ1DzF73zK57uENXNM"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-euAccv3zUa3g7Y8N5hZ0p7hST5doxbHzeojlMT19KRA"
+      "rawContentDigest": "sha256-gZwE41i7kpmUB6dglh2ZzHXhDtP3WVKwoywMklmzM1E"
     }
   ],
   "counts": {
-    "observedReferences": 12762,
-    "logicalSurfaces": 7112,
-    "enforcementBranches": 7311,
-    "coverageEdges": 7112,
-    "targetCells": 7112
+    "observedReferences": 12761,
+    "logicalSurfaces": 7111,
+    "enforcementBranches": 7310,
+    "coverageEdges": 7111,
+    "targetCells": 7111
   }
 }

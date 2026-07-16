@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(390);
+    expect(nativePublicFixtures).toHaveLength(389);
     expect(
       nativePublicFixtures
         .filter(
@@ -127,7 +127,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(207);
+    ).toHaveLength(206);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>

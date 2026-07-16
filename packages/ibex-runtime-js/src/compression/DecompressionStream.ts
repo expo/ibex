@@ -7,9 +7,11 @@
 
 const g = globalThis as any;
 const trailingDataErrorSymbol = Symbol.for("__exact.decompression.trailing-data-error");
+// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — installation state stays private to the runtime module
+let hasDecompressionUnhandledFilter = false;
 
 function installTrailingDataUnhandledFilter(): void {
-  if (g.__exactHasDecompressionUnhandledFilter) {
+  if (hasDecompressionUnhandledFilter) {
     return;
   }
 
@@ -17,7 +19,7 @@ function installTrailingDataUnhandledFilter(): void {
     return;
   }
 
-  g.__exactHasDecompressionUnhandledFilter = true;
+  hasDecompressionUnhandledFilter = true;
   g.addEventListener("unhandledrejection", (event: any) => {
     if (event && event.reason && event.reason[trailingDataErrorSymbol]) {
       if (typeof event.preventDefault === "function") {
@@ -36,7 +38,7 @@ function installTrailingDataUnhandledFilter(): void {
 installTrailingDataUnhandledFilter();
 // Retry via microtask in case addEventListener wasn't available at module load time.
 // Use queueMicrotask (no timer ID, doesn't keep event loop alive) instead of setTimeout.
-if (!g.__exactHasDecompressionUnhandledFilter) {
+if (!hasDecompressionUnhandledFilter) {
   if (typeof g.queueMicrotask === "function") {
     g.queueMicrotask(installTrailingDataUnhandledFilter);
   } else if (typeof g.setTimeout === "function") {

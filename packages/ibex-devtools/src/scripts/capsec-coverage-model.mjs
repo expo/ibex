@@ -4577,7 +4577,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactDebugModuleSources: ["", "length"],
   __exactEnsureFilesystemModule: [""],
   __exactEntryFileConsumed: [""],
-  __exactHasDecompressionUnhandledFilter: [""],
   __exactHostNavigator: ["", "[[dynamic-table:host-navigator-properties]]"],
   __exactInstallAsyncIpcListenerPatch: [""],
   __exactInstallProcessIpcBootstrap: [""],
