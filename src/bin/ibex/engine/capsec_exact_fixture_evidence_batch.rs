@@ -94,7 +94,12 @@ fn expected_exact_mechanism(recipe: &serde_json::Value) -> &'static str {
         | "host-abi:ex_hermes_resolve_exact_host_call" => "exact-host-call-round-trip",
         "host-abi:ex_hermes_set_exact_host_call_async" => "exact-endowment-install",
         "host-abi:ex_host_authorize_exact_endowment" => "exact-endowment-authorize",
-        "host-abi:ex_host_prepare_armed_embedder_artifacts" => {
+        "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts" => {
+            "exact-gpu-artifact-prepare-round-trip"
+        }
+        "host-abi:ex_host_build_exact_armed_embedder_artifacts"
+        | "host-abi:ex_host_prepare_armed_embedder_artifacts"
+        | "host-abi:ex_host_prepare_exact_armed_embedder_artifacts" => {
             "exact-artifact-prepare-round-trip"
         }
         "native-op:global:exact.invokeHostAsync" => "exact-unendowed-operation",
@@ -129,7 +134,10 @@ fn exact_recipes(catalog: &serde_json::Value) -> Vec<serde_json::Value> {
                         | "host-abi:ex_hermes_resolve_exact_host_call"
                         | "host-abi:ex_hermes_set_exact_host_call_async"
                         | "host-abi:ex_host_authorize_exact_endowment"
+                        | "host-abi:ex_host_build_exact_armed_embedder_artifacts"
+                        | "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts"
                         | "host-abi:ex_host_prepare_armed_embedder_artifacts"
+                        | "host-abi:ex_host_prepare_exact_armed_embedder_artifacts"
                         | "native-op:global:exact.invokeHostAsync"
                 )
             )
@@ -139,8 +147,8 @@ fn exact_recipes(catalog: &serde_json::Value) -> Vec<serde_json::Value> {
     recipes.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     assert_eq!(
         recipes.len(),
-        7,
-        "Exact fixture pilot must contain seven recipes"
+        10,
+        "Exact fixture pilot must contain ten recipes"
     );
     for recipe in &recipes {
         assert_eq!(recipe["status"], "fully-executable");
@@ -238,7 +246,7 @@ fn validate_binding(
         .as_array()
         .expect("Exact fixture binding has no plans")
         .clone();
-    assert_eq!(plans.len(), 7);
+    assert_eq!(plans.len(), 10);
     (execution_binding, binding_digest, plans)
 }
 

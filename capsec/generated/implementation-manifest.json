@@ -117666,6 +117666,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p",
+      "observedKey": "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts",
+      "branchId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_gpu_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_build_exact_gpu_armed_embedder_artifacts"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_build_exact_gpu_armed_embedder_artifacts"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p.default.non-capability",
+        "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.check.capability.1h17wl4",
       "observedKey": "host-abi:ex_host_check_capability",
       "branchId": "surface.host.abi.ex.host.check.capability.1h17wl4.default",
@@ -266441,44 +266475,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-uefIPvDfLCCVkD3t2KBXYx2zSB2GGbHFhARZPO3YGjU"
+      "rawContentDigest": "sha256-gqvBZ4ubrbjI1lrjiUqfdi8AfkvgzDOBbElbCh4RnbE"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-9zt4qb-cqBtmSCb3amaY2TUPJbR9rEfjCQz0ARAIbw4"
+      "rawContentDigest": "sha256-a5nMd1Aao2XCF2bWdmwX-AJhJ7bVOIOpx43hDlu_FB8"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-6O4n7woJBVdB2t5EeGAGnt-7Eb28IOkuVZoO2vUpc1E"
+      "rawContentDigest": "sha256-J2J92q7DxZuwFfs2iyxmm8MBttu1TtYkjzl-VxOMQBU"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-aKvKsKSYV-JFF_ZcNZ_lmzyQB2f-L8u-DVeoQIL0KSk"
+      "rawContentDigest": "sha256--ENjWFZjFbm0Urn6dIKH2V9oervfSGZg9DpxS0Mq-4Y"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-MtGXF_SoHTr5O0Hv1j3tvqh8la1MDKYg_djWDkCyi2g"
+      "rawContentDigest": "sha256-DXjYtOKaX4KrebzcoJzQ8jYOlZTQrYBJetSPngsCGVw"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-4d1hoM1l2lKiC3P68_43mE6oNnVCwO_KhP7nkLxXYbg"
+      "rawContentDigest": "sha256-L06U16-s5plmII2feMHgJDdzBNC7Dc3JvWRH1pKQn70"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-_5e149H-3UQ5MNT_aCNZt7gcxnmPSOScpx-0HzVfaUI"
+      "rawContentDigest": "sha256-gsZYG_IaGccIW1C60TTg_XkM5cBTIXxRcVolAvcAiZs"
     }
   ],
   "counts": {
-    "observedReferences": 12838,
-    "logicalSurfaces": 7159,
-    "enforcementBranches": 7358,
-    "coverageEdges": 7159,
-    "targetCells": 7159
+    "observedReferences": 12839,
+    "logicalSurfaces": 7160,
+    "enforcementBranches": 7359,
+    "coverageEdges": 7160,
+    "targetCells": 7160
   }
 }

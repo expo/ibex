@@ -519,6 +519,66 @@ pub unsafe extern "C" fn ex_host_build_exact_armed_embedder_artifacts(
         .unwrap_or(std::ptr::null_mut())
 }
 
+/// Build a complete target-local Exact artifact pair with the authenticated
+/// optional GPU provider binding and its independently protected WebGPU
+/// profile. All byte inputs are copied or consumed synchronously.
+///
+/// # Safety
+///
+/// Each non-null pointer must reference its declared byte length for this call.
+/// The project-root bytes are UTF-8 and need not be NUL terminated.
+/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — the
+/// provider identity and profile are bound into the armed pair before runtime
+/// construction can install the optional service.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_build_exact_gpu_armed_embedder_artifacts(
+    project_root_utf8: *const u8,
+    project_root_utf8_len: usize,
+    operation_manifest: *const u8,
+    operation_manifest_len: usize,
+    gpu_provider_binding: *const u8,
+    gpu_provider_binding_len: usize,
+    webgpu_profile: *const u8,
+    webgpu_profile_len: usize,
+) -> *mut c_char {
+    let result = if project_root_utf8.is_null()
+        || project_root_utf8_len == 0
+        || operation_manifest.is_null()
+        || operation_manifest_len == 0
+        || gpu_provider_binding.is_null()
+        || gpu_provider_binding_len == 0
+        || webgpu_profile.is_null()
+        || webgpu_profile_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "Exact project root, operation manifest, GPU provider binding, and WebGPU profile are required"
+        ))
+    } else {
+        let root_bytes =
+            unsafe { std::slice::from_raw_parts(project_root_utf8, project_root_utf8_len) };
+        let root = std::str::from_utf8(root_bytes)
+            .map(std::path::Path::new)
+            .map_err(|error| anyhow::anyhow!("Exact project root is not UTF-8: {error}"));
+        let manifest =
+            unsafe { std::slice::from_raw_parts(operation_manifest, operation_manifest_len) };
+        let binding =
+            unsafe { std::slice::from_raw_parts(gpu_provider_binding, gpu_provider_binding_len) };
+        let profile = unsafe { std::slice::from_raw_parts(webgpu_profile, webgpu_profile_len) };
+        root.and_then(|root| {
+            super::embedder_artifacts::build_exact_gpu_embedder_artifacts(
+                root, manifest, binding, profile,
+            )
+        })
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     let active = ACTIVE_HOST_CONTEXT.with(Cell::get);
     if active != 0 {
@@ -5661,5 +5721,23 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Exact project root and operation manifest are required"));
+
+        let gpu_build_envelope = take_json(unsafe {
+            ex_host_build_exact_gpu_armed_embedder_artifacts(
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+                ptr::null(),
+                0,
+            )
+        });
+        assert_eq!(gpu_build_envelope["ok"], false);
+        assert!(gpu_build_envelope["error"]
+            .as_str()
+            .unwrap()
+            .contains("GPU provider binding, and WebGPU profile are required"));
     }
 }

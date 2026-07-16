@@ -3681,11 +3681,18 @@ uint64_t exactAllocateRuntimeNonce() {
 }
 
 static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
-  if (handle == nullptr || !handle->runtime) return false;
+  if (handle == nullptr || !handle->runtime) {
+    ex_host_console_log(1, "Armed startup posture refused: runtime is unavailable");
+    return false;
+  }
 #ifndef EXACT_HAVE_FRAME_ATTRIBUTION
+  ex_host_console_log(1, "Armed startup posture refused: frame attribution is unavailable");
   return false;
 #else
-  if (handle->attribution_runtime == nullptr) return false;
+  if (handle->attribution_runtime == nullptr) {
+    ex_host_console_log(1, "Armed startup posture refused: attribution runtime is unavailable");
+    return false;
+  }
 #endif
   try {
     auto& rt = *handle->runtime;
@@ -3722,9 +3729,22 @@ static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
     bool sealed = std::all_of(
         std::begin(kSealedGlobals), std::end(kSealedGlobals),
         [&rt](const char* name) { return !rt.global().hasProperty(rt, name); });
-    return locked.isBool() && locked.getBool() && compartments.isObject() &&
+    bool valid = locked.isBool() && locked.getBool() && compartments.isObject() &&
         require.isObject() && require.asObject(rt).isFunction(rt) && tamed && sealed;
+    if (!valid) {
+      std::string detail =
+          "Armed startup posture refused: locked=" +
+          std::to_string(locked.isBool() && locked.getBool()) +
+          " compartments=" + std::to_string(compartments.isObject()) +
+          " require=" + std::to_string(
+              require.isObject() && require.asObject(rt).isFunction(rt)) +
+          " functionTamed=" + std::to_string(tamed) +
+          " sealed=" + std::to_string(sealed);
+      ex_host_console_log(1, detail.c_str());
+    }
+    return valid;
   } catch (...) {
+    ex_host_console_log(1, "Armed startup posture refused: inspection threw");
     return false;
   }
 }
@@ -3814,6 +3834,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   handle->structural_lockdown = true;
   handle->runtime_nonce = exactAllocateRuntimeNonce();
   if (handle->runtime_nonce == 0) {
+    ex_host_console_log(1, "Armed startup refused: runtime nonce unavailable");
     delete handle;
     return nullptr;
   }
@@ -3954,6 +3975,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     return nullptr;
   }
   if (!compartmentRegistryInstalled) {
+    ex_host_console_log(1, "Armed startup refused: compartment registry unavailable");
     TRACE_END(compartment_registry);
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
@@ -3966,6 +3988,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     // Verify the armed posture after that final seal, while retaining full
     // partial-runtime cleanup for every refusal.
     // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    ex_host_console_log(1, "Armed startup refused: runtime posture verification failed");
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }

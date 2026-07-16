@@ -4393,7 +4393,7 @@ cp \"$input\" \"$out\"\n";
             };
             let receipt = sink.on_event.unwrap()(client_context, &event);
             fake_gpu_state().lock().unwrap().early_receipt = Some(receipt);
-        } else if mode == 2 || mode == 3 || mode == 4 {
+        } else if matches!(mode, 2..=5) {
             sink.retain_client.unwrap()(client_context);
             fake_gpu_state().lock().unwrap().retained_client = Some(RetainedGpuTestClient {
                 sink,
@@ -4410,20 +4410,21 @@ cp \"$input\" \"$out\"\n";
         let synchronous_client = {
             let mut state = fake_gpu_state().lock().unwrap();
             state.activate_calls += 1;
-            if state.mode == 3 || state.mode == 4 {
+            if matches!(state.mode, 3..=5) {
                 Some(state.retained_client.unwrap())
             } else {
                 None
             }
         };
         if let Some(client) = synchronous_client {
-            let competing_service_thread = fake_gpu_state().lock().unwrap().mode == 4;
+            let mode = fake_gpu_state().lock().unwrap().mode;
+            let competing_service_thread = mode == 4;
             let deliver = move || {
                 let event = ExactGpuServiceEventV1 {
                     struct_size: std::mem::size_of::<ExactGpuServiceEventV1>() as u32,
                     abi_version: EXACT_GPU_SERVICE_ABI_VERSION_V1,
                     kind: EXACT_GPU_EVENT_REALM_CLOSED,
-                    flags: 0,
+                    flags: u32::from(mode == 5),
                     realm_token: client.realm,
                     operation_id: 0,
                     completion_id: 0,
@@ -4545,29 +4546,38 @@ cp \"$input\" \"$out\"\n";
 
     #[cfg(feature = "webgpu-binding")]
     fn deliver_late_gpu_event_and_release() -> i32 {
+        deliver_retained_gpu_events_and_release(&[0])[0]
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    fn deliver_retained_gpu_events_and_release(flags: &[u32]) -> Vec<i32> {
         let retained = fake_gpu_state()
             .lock()
             .unwrap()
             .retained_client
             .take()
             .expect("fake service retained its client");
-        let event = ExactGpuServiceEventV1 {
-            struct_size: std::mem::size_of::<ExactGpuServiceEventV1>() as u32,
-            abi_version: EXACT_GPU_SERVICE_ABI_VERSION_V1,
-            kind: EXACT_GPU_EVENT_REALM_CLOSED,
-            flags: 0,
-            realm_token: retained.realm,
-            operation_id: 0,
-            completion_id: 0,
-            status: 0,
-            reserved: 0,
-            payload: std::ptr::null(),
-            payload_len: 0,
-        };
-        let receipt =
-            retained.sink.on_event.unwrap()(retained.context as *mut std::ffi::c_void, &event);
+        let receipts = flags
+            .iter()
+            .map(|flags| {
+                let event = ExactGpuServiceEventV1 {
+                    struct_size: std::mem::size_of::<ExactGpuServiceEventV1>() as u32,
+                    abi_version: EXACT_GPU_SERVICE_ABI_VERSION_V1,
+                    kind: EXACT_GPU_EVENT_REALM_CLOSED,
+                    flags: *flags,
+                    realm_token: retained.realm,
+                    operation_id: 0,
+                    completion_id: 0,
+                    status: 0,
+                    reserved: 0,
+                    payload: std::ptr::null(),
+                    payload_len: 0,
+                };
+                retained.sink.on_event.unwrap()(retained.context as *mut std::ffi::c_void, &event)
+            })
+            .collect();
         retained.sink.release_client.unwrap()(retained.context as *mut std::ffi::c_void);
-        receipt
+        receipts
     }
 
     extern "C" fn abi_probe_sync_host_call(
@@ -4891,6 +4901,60 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(state.activate_calls, 1);
         assert_eq!(state.activation_receipt, Some(-1));
         assert_eq!(state.close_calls, 1);
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_activation_malformed_callback_poisoning_blocks_live_transition() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(5);
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        let api = fake_gpu_api();
+        let descriptor = fake_gpu_descriptor(&api, &operations, test_gpu_digests());
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
+                assert_eq!(
+                    ex_hermes_finalize_embedder_capabilities_v1(raw),
+                    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED
+                );
+            })
+            .unwrap();
+
+        let state = fake_gpu_state().lock().unwrap();
+        assert_eq!(state.activate_calls, 1);
+        assert_eq!(state.activation_receipt, Some(-1));
+        assert_eq!(state.close_calls, 1);
+    }
+
+    #[cfg(feature = "webgpu-binding")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_live_malformed_callback_poisoning_is_sticky() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(2);
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        let api = fake_gpu_api();
+        let descriptor = fake_gpu_descriptor(&api, &operations, test_gpu_digests());
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+            })
+            .unwrap();
+
+        assert_eq!(
+            deliver_retained_gpu_events_and_release(&[1, 0]),
+            vec![-1, -1],
+            "a malformed live event must poison the mailbox for later events"
+        );
     }
 
     #[cfg(feature = "webgpu-binding")]

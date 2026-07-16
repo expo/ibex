@@ -3917,7 +3917,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(125);
+    ).toHaveLength(126);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);

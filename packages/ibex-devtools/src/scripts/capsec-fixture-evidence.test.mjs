@@ -91,6 +91,34 @@ function exactRuntimeObservation(recipe) {
           "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA",
       },
     };
+  } else if (mechanism === "exact-gpu-artifact-prepare-round-trip") {
+    result = {
+      kind: "callback-security-invariant",
+      scenario: "non-capability",
+      outcome: "passed",
+      checks: {
+        executionMechanism: mechanism,
+        artifactPrepared: true,
+        artifactSchema: "ibex/armed-embedder-artifacts/1",
+        nonceFreshened: true,
+        digestRebound: true,
+        sourceDigest: `sha256-${"L".repeat(43)}`,
+        preparedDigest: `sha256-${"M".repeat(43)}`,
+        preparedPairAuthenticated: true,
+        descriptorAuthenticated: true,
+        profileProtected: true,
+        profileArtifactContentAuthenticated: true,
+        protectedArtifactCount: 6,
+        profileId: "fixture-v1",
+        profileDigest: `sha256-${"H".repeat(43)}`,
+        profileArtifactDigest: `sha256-${"H".repeat(43)}`,
+        webgpuCVocabularyDigest: `sha256-${"I".repeat(43)}`,
+        operationSetDigest: `sha256-${"J".repeat(43)}`,
+        semanticProgramDigest: `sha256-${"K".repeat(43)}`,
+        operationIds: [101, 207],
+        topology: "isolated-per-logical-v1",
+      },
+    };
   } else if (mechanism === "exact-artifact-prepare-round-trip") {
     result = {
       kind: "callback-security-invariant",
@@ -244,14 +272,14 @@ describe("Exact fixture-evidence pilot", () => {
     };
   }, 60_000);
 
-  test("accepts exactly nine independently bound runtime observations", () => {
+  test("accepts exactly ten independently bound runtime observations", () => {
     expect(() =>
       validateExactFixtureEvidenceArtifact(artifact, context),
     ).not.toThrow();
-    expect(artifact.executions).toHaveLength(9);
+    expect(artifact.executions).toHaveLength(10);
   });
 
-  test("credits exactly nine actual fixtures and keeps promotion closed", () => {
+  test("credits exactly ten actual fixtures and keeps promotion closed", () => {
     const report = buildConformanceReport({
       coverage: context.coverage,
       implementation: context.implementation,
@@ -264,12 +292,12 @@ describe("Exact fixture-evidence pilot", () => {
     });
     expect(report.status).toBe("incomplete");
     expect(report.summary).toMatchObject({
-      cells: 7_152,
+      cells: 7_160,
       conformantCells: 1,
-      incompleteCells: 7_151,
-      requiredFixtures: 23_166,
-      passedFixtures: 9,
-      missingFixtures: 23_157,
+      incompleteCells: 7_159,
+      requiredFixtures: 23_186,
+      passedFixtures: 10,
+      missingFixtures: 23_176,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(/incomplete/u);

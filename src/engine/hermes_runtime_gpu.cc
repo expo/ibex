@@ -115,6 +115,16 @@ int32_t receiveGpuEvent(
     return EXACT_GPU_CLIENT_EVENT_DISCARDED;
   }
   if (!validGpuEvent(event)) {
+    // A malformed event is a trust-boundary failure, not an isolated rejected
+    // call. Poison the mailbox while it is still in the phase we observed so
+    // activation cannot subsequently publish Live and later callbacks cannot
+    // be accepted from a provider that already violated the ABI contract.
+    auto expected = phase;
+    mailbox->phase.compare_exchange_strong(
+        expected,
+        GpuMailboxPhase::ProtocolViolation,
+        std::memory_order_acq_rel,
+        std::memory_order_acquire);
     return EXACT_GPU_CLIENT_EVENT_PROTOCOL_VIOLATION;
   }
   if (!runtimeIsAlive(mailbox->target) ||

@@ -1172,7 +1172,10 @@ fn validate_exact_embedder_binding(binding: &ExactEmbedderBinding) -> Result<()>
     Ok(())
 }
 
-fn validate_exact_gpu_provider_binding(binding: &ExactGpuProviderBinding) -> Result<()> {
+/// Validate the complete identity carried by Exact's optional GPU provider
+/// binding. Artifact producers use the same validator before materializing the
+/// profile that armed-snapshot ingestion uses before accepting it.
+pub fn validate_exact_gpu_provider_binding(binding: &ExactGpuProviderBinding) -> Result<()> {
     if binding.schema != "exact/webgpu-provider/1" {
         return refused("Exact GPU provider binding schema is unsupported");
     }

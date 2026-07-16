@@ -950,6 +950,24 @@ char* ex_host_build_exact_armed_embedder_artifacts(
     const uint8_t* operation_manifest,
     size_t operation_manifest_len);
 
+/// Build the target-local Exact artifact pair with a strict
+/// `exact/webgpu-provider/1` binding and the exact WebGPU profile bytes named
+/// by its `profileDigest`. The profile becomes an independently authenticated
+/// `exact-webgpu-profile` protected artifact. All byte strings are consumed
+/// synchronously and need not be NUL terminated. It returns the same heap-owned
+/// JSON envelope as the non-GPU builder; release it with `ex_host_free_string`.
+/// This does not advertise a target; `ex_host_install_armed` retains the
+/// report-derived gate.
+char* ex_host_build_exact_gpu_armed_embedder_artifacts(
+    const uint8_t* project_root_utf8,
+    size_t project_root_utf8_len,
+    const uint8_t* operation_manifest,
+    size_t operation_manifest_len,
+    const uint8_t* gpu_provider_binding,
+    size_t gpu_provider_binding_len,
+    const uint8_t* webgpu_profile,
+    size_t webgpu_profile_len);
+
 /// Release a heap-owned string returned by the host ABI.
 void ex_host_free_string(char* value);
 

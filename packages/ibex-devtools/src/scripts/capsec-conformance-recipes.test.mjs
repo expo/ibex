@@ -335,7 +335,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_894);
+    expect(callbackRecipes).toHaveLength(2_907);
     expect(
       Object.fromEntries(
         [
@@ -357,9 +357,9 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 554,
       "principal-restore": 554,
       "snapshot-mismatch-deny": 554,
-      "cannot-widen-authority": 335,
-      "post-lockdown-invariant": 335,
-      "non-capability": 8,
+      "cannot-widen-authority": 341,
+      "post-lockdown-invariant": 341,
+      "non-capability": 9,
     });
     for (const terminalObservedKey of [
       "native-op:__ibexCompartmentBaselineFinalized",
@@ -477,6 +477,10 @@ describe("exact-target CapSec executable recipes", () => {
       [
         "host-abi:ex_host_build_exact_armed_embedder_artifacts",
         "exact-artifact-prepare-round-trip",
+      ],
+      [
+        "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts",
+        "exact-gpu-artifact-prepare-round-trip",
       ],
       [
         "host-abi:ex_host_prepare_armed_embedder_artifacts",
