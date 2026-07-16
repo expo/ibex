@@ -158815,448 +158815,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactmemorydebugstate.1cmr92m",
-      "observedKey": "native-op:__exactMemoryDebugState",
-      "branchId": "surface.native.op.exactmemorydebugstate.1cmr92m.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.1cmr92m.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.1cmr92m.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp",
-      "observedKey": "native-op:__exactMemoryDebugState.lastLoggedHeapUsed",
-      "branchId": "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.lastLoggedHeapUsed"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.lastLoggedHeapUsed",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.lastLoggedHeapUsed"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.lastLoggedHeapUsed",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.lastLoggedHeapUsed"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.lastLoggedHeapUsed"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.lastLoggedHeapUsed",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.lastLoggedHeapUsed"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva",
-      "observedKey": "native-op:__exactMemoryDebugState.nextSampleId",
-      "branchId": "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.nextSampleId"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.nextSampleId",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.nextSampleId"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.nextSampleId",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.nextSampleId"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.nextSampleId"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.nextSampleId",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.nextSampleId"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.1i8ok66",
-      "observedKey": "native-op:__exactMemoryDebugState.options",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.1i8ok66.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.1i8ok66.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.options",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.options",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.options",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.1i8ok66.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l",
-      "observedKey": "native-op:__exactMemoryDebugState.options.includeExpensive",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.includeExpensive"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeExpensive"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeExpensive"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.includeExpensive"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeExpensive"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t",
-      "observedKey": "native-op:__exactMemoryDebugState.options.includeGCStats",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.includeGCStats"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeGCStats"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeGCStats"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.includeGCStats"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeGCStats"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh",
-      "observedKey": "native-op:__exactMemoryDebugState.options.intervalMs",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.intervalMs"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.intervalMs"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.intervalMs"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.intervalMs"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.intervalMs"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5",
-      "observedKey": "native-op:__exactMemoryDebugState.options.logEvery",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.logEvery"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logEvery"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logEvery"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.logEvery"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logEvery"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3",
-      "observedKey": "native-op:__exactMemoryDebugState.options.logOnGrowthBytes",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.logOnGrowthBytes"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logOnGrowthBytes"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logOnGrowthBytes"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.logOnGrowthBytes"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logOnGrowthBytes"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9",
-      "observedKey": "native-op:__exactMemoryDebugState.options.maxSamples",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.maxSamples"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.maxSamples"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.maxSamples"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.maxSamples"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.maxSamples"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx",
-      "observedKey": "native-op:__exactMemoryDebugState.sampleCount",
-      "branchId": "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.sampleCount"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.sampleCount",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.sampleCount"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.sampleCount",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.sampleCount"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.sampleCount"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.sampleCount",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.sampleCount"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.samples.1tlcn6r",
-      "observedKey": "native-op:__exactMemoryDebugState.samples",
-      "branchId": "surface.native.op.exactmemorydebugstate.samples.1tlcn6r.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.samples.1tlcn6r.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.samples"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.samples",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.samples"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.samples",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.samples"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.samples"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.samples",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.samples"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.samples.1tlcn6r.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.timer.1it6pzl",
-      "observedKey": "native-op:__exactMemoryDebugState.timer",
-      "branchId": "surface.native.op.exactmemorydebugstate.timer.1it6pzl.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.timer.1it6pzl.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.timer"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.timer",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.timer"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.timer",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.timer"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.timer"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.timer",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.timer"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.timer.1it6pzl.default.closed"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactmkdir.021eaz0",
       "observedKey": "native-op:__exactMkdir",
       "branchId": "surface.native.op.exactmkdir.021eaz0.default",
@@ -264739,19 +264297,6 @@
         "surface.native.op.exactmemorydebug.state.0e8548q",
         "surface.native.op.exactmemorydebug.stop.0q48uq1",
         "surface.native.op.exactmemorydebug.summary.12l4jxz",
-        "surface.native.op.exactmemorydebugstate.1cmr92m",
-        "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp",
-        "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva",
-        "surface.native.op.exactmemorydebugstate.options.1i8ok66",
-        "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l",
-        "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t",
-        "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh",
-        "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5",
-        "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3",
-        "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9",
-        "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx",
-        "surface.native.op.exactmemorydebugstate.samples.1tlcn6r",
-        "surface.native.op.exactmemorydebugstate.timer.1it6pzl",
         "surface.native.op.exactrequire.1drfx1s",
         "surface.native.op.exactsignalnamesmap.14b2x87",
         "surface.native.op.exactsignalnumbersmap.07bwgwd",
@@ -264881,7 +264426,7 @@
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 487 observed surface edges."
+      "rationale": "Closed by 474 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -265863,44 +265408,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256--pIgzjvPm5_eR4f9l2Qmp9nhuGiHS5LnTouwR-9fbVE"
+      "rawContentDigest": "sha256-Td0vXwAweTfImzuZl86rMv7jecVXgtfC1l1M6owcp04"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-da_iHzL_Cwc6T7CEX3VQ6Ykkd9EXllZ-4IYW-nvgVpU"
+      "rawContentDigest": "sha256-wJw7B9SvbRNbRiad723fr8uD9U1H_fA0q9V6ee3pPds"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-Qbc-nrRt4WdWZEjgdEMFqfQnef9HdV5SG1O32cITfAo"
+      "rawContentDigest": "sha256-52gkj4PthTsX_o3lLDYpvZR3wNVZf_ZqOoc8S8qUsCo"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-FEg5sh8wc_llKN0sgILr0myRTbWxCxeFaQCcMvixXA8"
+      "rawContentDigest": "sha256-FyKnrIxWSGV_C4SssJ04dU73efSK4YRL0iMPvWZOmJM"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-z7wiFb56y70CnEJH_IDDWuO8B8x3oOApTieU12LPLp4"
+      "rawContentDigest": "sha256-kaRbNfjX11snjSGm5IqWkAQGc_E8S4_YZ09Jzz-wSOM"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-hdXq59D8uhqD5STkoKYJBjyTTCx6aC7DGL1JrGeTkZc"
+      "rawContentDigest": "sha256-bFnLfCt9RprcwChhGF3NhHPKodtTdEotKCczBo9ZVm8"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256--N1swLrP3fBThpvCoA8Pn9BXJahO_-MKb0wYl5NI_yU"
+      "rawContentDigest": "sha256-lpyjPvn4Bn164EQmLvJ9PVDkHOg0xeQPNBcjC6ksjak"
     }
   ],
   "counts": {
-    "observedReferences": 12813,
-    "logicalSurfaces": 7142,
-    "enforcementBranches": 7341,
-    "coverageEdges": 7142,
-    "targetCells": 7142
+    "observedReferences": 12787,
+    "logicalSurfaces": 7129,
+    "enforcementBranches": 7328,
+    "coverageEdges": 7129,
+    "targetCells": 7129
   }
 }

@@ -2704,18 +2704,17 @@
     if (g.__exactMemoryDebug && typeof g.__exactMemoryDebug.snapshot === 'function') {
       return;
     }
-    var state = g.__exactMemoryDebugState;
-    if (!state || typeof state !== 'object') {
-      state = {
-        timer: null,
-        samples: [],
-        nextSampleId: 0,
-        options: null,
-        sampleCount: 0,
-        lastLoggedHeapUsed: 0
-      };
-      g.__exactMemoryDebugState = state;
-    }
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces —
+    // diagnostic implementation state is captured by the deliberate public
+    // API and is not itself installed as a mutable global object.
+    var state = {
+      timer: null,
+      samples: [],
+      nextSampleId: 0,
+      options: null,
+      sampleCount: 0,
+      lastLoggedHeapUsed: 0
+    };
 
     function pushSample(sample, maxSamples) {
       state.nextSampleId += 1;

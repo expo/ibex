@@ -84,6 +84,11 @@ import { Buffer as ExactBuffer } from "./node/Buffer";
 import { window as exactWindow, MediaQueryList, MediaQueryListEvent } from "./window";
 import { process as exactProcess } from "./node/process";
 
+// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces —
+// diagnostic implementation state stays inside the runtime module; only the
+// deliberate __exactMemoryDebug API is installed on the global object.
+let sharedMemoryDebugState: any;
+
 function createGlobalBufferConstructor(BufferCtor: typeof ExactBuffer): typeof ExactBuffer {
   function Buffer(value?: unknown, encodingOrOffset?: unknown, length?: number): unknown {
     if (typeof value === 'number') {
@@ -676,8 +681,8 @@ export function installGlobals(): void {
     );
   };
 
-  if (!g.__exactMemoryDebugState || typeof g.__exactMemoryDebugState !== 'object') {
-    g.__exactMemoryDebugState = {
+  if (!sharedMemoryDebugState) {
+    sharedMemoryDebugState = {
       timer: null,
       samples: [],
       nextSampleId: 0,
@@ -687,7 +692,7 @@ export function installGlobals(): void {
     };
   }
 
-  const exactMemoryDebugState = g.__exactMemoryDebugState;
+  const exactMemoryDebugState = sharedMemoryDebugState;
   const exactStopMemorySampler = () => {
     if (exactMemoryDebugState.timer != null) {
       clearInterval(exactMemoryDebugState.timer);
