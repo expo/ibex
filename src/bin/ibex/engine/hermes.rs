@@ -4414,10 +4414,13 @@ mod tests {
     /// expected-value fixture: the output-shape executor binds it to the exact
     /// loaded engine identity independently.
     /// @ref LLP 0024#9-asynchronous-failures
+    /// @ref LLP 0025#11-delegated-obligations — async failure evidence is read
+    /// only after its authenticated work publications have been consumed.
     #[cfg(feature = "capsec-conformance-observer")]
     async fn loaded_engine_safe_throw_metadata_observation(
         engine: &HermesEngine,
         host: &crate::host::Host,
+        publications: &mut AuthenticatedPublicationTracker,
     ) -> Value {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
         use ibex_runtime::engine::evaluation::SubmissionSequence;
@@ -4460,23 +4463,32 @@ Promise.resolve().then(function capsecSafeThrowMetadataFixture() {
             .expect("construct safe-throw fixture request");
         let source_label = request.source_label().as_str().to_owned();
 
-        let AuthenticatedEvaluation::Value { receipt, .. } = engine
-            .evaluate_authenticated(&session, request)
-            .await
-            .expect("evaluate safe-throw fixture")
+        let evaluation = engine.evaluate_authenticated(&session, request).await;
+        publications
+            .drain(engine, "safe-throw authenticated evaluation")
+            .expect("drain safe-throw evaluation publications");
+        let AuthenticatedEvaluation::Value { receipt, .. } =
+            evaluation.expect("evaluate safe-throw fixture")
         else {
             panic!("safe-throw fixture did not settle normally")
         };
-        engine
+        let release = engine
             .release_undisplayed_value(
                 receipt.expect("safe-throw fixture value must retain a receipt"),
             )
-            .await
-            .expect("release safe-throw fixture result");
-        engine
-            .drive_ready_tasks()
-            .await
-            .expect("drain safe-throw fixture Promise job");
+            .await;
+        publications
+            .drain(engine, "safe-throw authenticated value release")
+            .expect("drain safe-throw value-release publications");
+        release.expect("release safe-throw fixture result");
+        let drive = engine.drive_ready_tasks().await;
+        publications
+            .drain(engine, "safe-throw Promise-job drive")
+            .expect("drain safe-throw Promise-job publications");
+        publications
+            .require_no_due_schedules("safe-throw Promise-job drive")
+            .expect("safe-throw Promise job left a due timer");
+        drive.expect("drain safe-throw fixture Promise job");
 
         let failures = engine
             .take_authenticated_async_failures()

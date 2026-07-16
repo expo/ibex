@@ -72,6 +72,15 @@ const ADAPTER_SCENARIOS = new Set([
   "wrong-principal",
 ]);
 
+const RATIONALE_ONLY_CALLBACK_SCENARIOS = new Set([
+  "attribution-missing-deny",
+  "generation-recheck",
+  "principal-restore",
+  "snapshot-mismatch-deny",
+  "cannot-widen-authority",
+  "post-lockdown-invariant",
+]);
+
 const ROOT_PRINCIPAL = Object.freeze({
   kind: "root",
   identity: "project-root",
@@ -2016,18 +2025,27 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
       coverageByEdge,
     });
+    const rationaleOnlyCallbackScenario =
+      RATIONALE_ONLY_CALLBACK_SCENARIOS.has(scenario);
+    // These fixtures require the bound carrier's exact callback/control
+    // mechanism. A generic native read/call probe must not fill the gap after
+    // the exact callback author declines the row.
+    // @ref LLP 0016#weak-points-and-biggest-risks — attribution is secured
+    // per channel, not by a structural chokepoint shared by every carrier.
     const authoredPublicSurfaceProbes = callbackInvariantProbe
       ? [callbackInvariantProbe]
-      : [
-          nativePublicSurface.probe ? null : targetAbsenceProbe,
-          closedPublicSurfaceProbe,
-          startupPublicSurfaceProbe,
-          startupEnvironmentPublicSurfaceProbe,
-          effectBuiltinPublicSurfaceProbe,
-          nonCapabilityBuiltinPublicSurfaceProbe,
-          conditionalHostAbiProbe,
-          nativePublicSurface.probe,
-        ].filter((probe) => probe !== null);
+      : rationaleOnlyCallbackScenario
+        ? []
+        : [
+            nativePublicSurface.probe ? null : targetAbsenceProbe,
+            closedPublicSurfaceProbe,
+            startupPublicSurfaceProbe,
+            startupEnvironmentPublicSurfaceProbe,
+            effectBuiltinPublicSurfaceProbe,
+            nonCapabilityBuiltinPublicSurfaceProbe,
+            conditionalHostAbiProbe,
+            nativePublicSurface.probe,
+          ].filter((probe) => probe !== null);
     if (authoredPublicSurfaceProbes.length > 1) {
       throw new Error(
         `${plan.fixtureId}: multiple public probe authors claimed one fixture`,

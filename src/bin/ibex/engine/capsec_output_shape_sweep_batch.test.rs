@@ -4,7 +4,7 @@
 
 use super::*;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::io::Write;
 
 mod global_callable_batch {
@@ -823,8 +823,8 @@ async fn loaded_descriptor_results(
             .as_deref(),
         Some("output-shape-descriptor-sweep-started")
     );
-    engine
-        .drive_event_loop()
+    sweep
+        .drive_event_loop(engine, "output-shape descriptor sweep")
         .await
         .expect("settle output-shape descriptor sweep");
     let encoded = sweep
@@ -904,14 +904,24 @@ fn authored_builtin_invocation_script(row: &Value) -> String {
     )
 }
 
-async fn authored_builtin_quiescence(engine: &HermesEngine) -> std::result::Result<(), String> {
-    tokio::time::timeout(
+async fn authored_builtin_quiescence(
+    engine: &HermesEngine,
+    sweep: &mut AuthenticatedSweep,
+) -> std::result::Result<(), String> {
+    let completion = tokio::time::timeout(
         std::time::Duration::from_millis(AUTHORED_BUILTIN_TIMEOUT_MS),
         engine.drive_event_loop(),
     )
-    .await
-    .map_err(|_| "event loop did not reach the authored one-second bound".to_owned())?
-    .map_err(|error| format!("event-loop completion failed: {error:#}"))
+    .await;
+    // Drain even on timeout/failure and before reading observer evidence.
+    // @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION
+    // makes the bounded publication stream part of authenticated control.
+    sweep
+        .drain_publications(engine, "authored output-shape event-loop drive")
+        .map_err(|error| format!("event-loop publication drain failed: {error:#}"))?;
+    completion
+        .map_err(|_| "event loop did not reach the authored one-second bound".to_owned())?
+        .map_err(|error| format!("event-loop completion failed: {error:#}"))
 }
 
 async fn authored_builtin_results(
@@ -942,7 +952,7 @@ async fn authored_builtin_results(
             .await
         {
             Ok(Some(marker)) if marker == "ibex-capsec-builtin-preloaded" => {
-                authored_builtin_quiescence(engine).await
+                authored_builtin_quiescence(engine, sweep).await
             }
             Ok(value) => Err(format!("module preload returned {value:?}")),
             Err(error) => Err(format!("module preload failed: {error:#}")),
@@ -978,7 +988,7 @@ async fn authored_builtin_results(
         let execution = sweep
             .eval_string(engine, &authored_builtin_invocation_script(row))
             .await;
-        let quiescence = authored_builtin_quiescence(engine).await;
+        let quiescence = authored_builtin_quiescence(engine, sweep).await;
         let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
         if !legacy.is_empty() || !typed.is_empty() {
             unexercisable.push(authored_builtin_unexercisable(
@@ -1246,7 +1256,7 @@ async fn global_accessor_results(
         let execution = sweep
             .eval_string(engine, &global_accessor_invocation_script(row))
             .await;
-        let quiescence = authored_builtin_quiescence(engine).await;
+        let quiescence = authored_builtin_quiescence(engine, sweep).await;
         let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
         let typed = serde_json::to_value(typed)
             .expect("serialize typed global accessor capability decisions");
@@ -1437,8 +1447,8 @@ async fn loaded_structured_results(
             .as_deref(),
         Some("output-shape-structured-sweep-started")
     );
-    engine
-        .drive_event_loop()
+    sweep
+        .drive_event_loop(engine, "output-shape loaded-realm sweep")
         .await
         .expect("settle output-shape loaded-realm sweep");
     let encoded = sweep
@@ -1463,8 +1473,7 @@ async fn loaded_structured_results(
 struct AuthenticatedSweep {
     session: ibex_runtime::engine::evaluation::ArmedSessionToken,
     sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
-    active_work_units: BTreeMap<u64, AuthenticatedWorkUnitEvent>,
-    due_schedules: BTreeSet<u64>,
+    publications: AuthenticatedPublicationTracker,
 }
 
 impl AuthenticatedSweep {
@@ -1477,8 +1486,7 @@ impl AuthenticatedSweep {
         Self {
             session,
             sequence,
-            active_work_units: BTreeMap::new(),
-            due_schedules: BTreeSet::new(),
+            publications: AuthenticatedPublicationTracker::default(),
         }
     }
 
@@ -1489,7 +1497,7 @@ impl AuthenticatedSweep {
     ) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
-        self.drain_publications(engine)?;
+        self.drain_publications(engine, "output-shape source before evaluation")?;
         let request = self
             .sequence
             .mint_repl(LogicalPath {
@@ -1500,10 +1508,9 @@ impl AuthenticatedSweep {
             .authorize_inline()
             .bind_bytes(source.as_bytes().to_vec())
             .into_request()?;
-        let evaluation = engine
-            .evaluate_authenticated(&self.session, request)
-            .await
-            .unwrap_or_else(|error| {
+        let evaluation = engine.evaluate_authenticated(&self.session, request).await;
+        self.drain_publications(engine, "output-shape source after evaluation")?;
+        let evaluation = evaluation.unwrap_or_else(|error| {
                 let source_suffix = source
                     .chars()
                     .rev()
@@ -1516,16 +1523,16 @@ impl AuthenticatedSweep {
                     "authenticated output-shape evaluator failed before producing a source outcome: {error:#}; source suffix: {source_suffix}"
                 )
             });
-        self.drain_publications(engine)?;
         match evaluation {
             AuthenticatedEvaluation::Empty => Ok(None),
             AuthenticatedEvaluation::Value { display, receipt } => {
-                engine
+                let release = engine
                     .release_undisplayed_value(
                         receipt.expect("authenticated sweep value must retain a receipt"),
                     )
-                    .await?;
-                self.drain_publications(engine)?;
+                    .await;
+                self.drain_publications(engine, "output-shape value release")?;
+                release?;
                 anyhow::ensure!(
                     display.kind == AuthenticatedDisplayKind::String,
                     "authenticated output-shape sweep returned {:?}, expected a string",
@@ -1545,104 +1552,28 @@ impl AuthenticatedSweep {
         }
     }
 
-    fn drain_publications(&mut self, engine: &HermesEngine) -> anyhow::Result<()> {
-        while let Some(event) = engine.next_authenticated_work_unit()? {
-            match event.phase {
-                AuthenticatedWorkUnitPhase::Due => {
-                    anyhow::ensure!(
-                        event.kind == AuthenticatedWorkUnitKind::Timer
-                            && event.target_id == 0
-                            && event.scheduling_id != 0,
-                        "output-shape source published malformed Due identities"
-                    );
-                    anyhow::ensure!(
-                        self.due_schedules.insert(event.scheduling_id),
-                        "output-shape source published duplicate Due for scheduling identity {}",
-                        event.scheduling_id
-                    );
-                }
-                AuthenticatedWorkUnitPhase::Undue => {
-                    anyhow::ensure!(
-                        event.kind == AuthenticatedWorkUnitKind::Timer
-                            && event.target_id == 0
-                            && event.scheduling_id != 0,
-                        "output-shape source published malformed Undue identities"
-                    );
-                    anyhow::ensure!(
-                        self.due_schedules.remove(&event.scheduling_id),
-                        "output-shape source published Undue for unknown scheduling identity {}",
-                        event.scheduling_id
-                    );
-                }
-                AuthenticatedWorkUnitPhase::Begin => {
-                    if event.kind == AuthenticatedWorkUnitKind::Timer && event.scheduling_id != 0 {
-                        self.due_schedules.remove(&event.scheduling_id);
-                    }
-                    anyhow::ensure!(
-                        self.active_work_units
-                            .insert(event.target_id, event)
-                            .is_none(),
-                        "output-shape source published duplicate Begin for target {}",
-                        event.target_id
-                    );
-                }
-                AuthenticatedWorkUnitPhase::Suspended => {
-                    let begin = self
-                        .active_work_units
-                        .get(&event.target_id)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "output-shape source suspended target {} without Begin",
-                                event.target_id
-                            )
-                        })?;
-                    anyhow::ensure!(
-                        begin.kind == event.kind && begin.scheduling_id == event.scheduling_id,
-                        "output-shape source changed target {} identity at suspension",
-                        event.target_id
-                    );
-                }
-                AuthenticatedWorkUnitPhase::End => {
-                    let begin =
-                        self.active_work_units
-                            .remove(&event.target_id)
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "output-shape source ended target {} without Begin",
-                                    event.target_id
-                                )
-                            })?;
-                    anyhow::ensure!(
-                        begin.kind == event.kind && begin.scheduling_id == event.scheduling_id,
-                        "output-shape source changed target {} identity between Begin and End",
-                        event.target_id
-                    );
-                }
-            }
-        }
-        anyhow::ensure!(
-            self.active_work_units.is_empty(),
-            "output-shape source left {} work unit(s) without End",
-            self.active_work_units.len()
-        );
-        if let Some(event) = engine.next_authenticated_cancellation()? {
-            anyhow::bail!(
-                "output-shape source published unexpected cancellation for target {}: {:?}",
-                event.target_id,
-                event.resolution
-            );
-        }
-        Ok(())
+    fn drain_publications(
+        &mut self,
+        engine: &HermesEngine,
+        context: &str,
+    ) -> anyhow::Result<()> {
+        self.publications.drain(engine, context)
+    }
+
+    async fn drive_event_loop(
+        &mut self,
+        engine: &HermesEngine,
+        context: &str,
+    ) -> anyhow::Result<()> {
+        let completion = engine.drive_event_loop().await;
+        self.publications.drain(engine, context)?;
+        completion
     }
 
     fn finish(&mut self, engine: &HermesEngine) -> anyhow::Result<()> {
-        self.drain_publications(engine)?;
-        anyhow::ensure!(
-            self.due_schedules.is_empty(),
-            "output-shape source finished with ready timer scheduling identities {:?}",
-            self.due_schedules
-        );
-        Ok(())
+        let context = "output-shape source batch completion";
+        self.publications.drain(engine, context)?;
+        self.publications.require_no_due_schedules(context)
     }
 }
 
@@ -1694,10 +1625,19 @@ async fn decode_authenticated_record(
     engine: &HermesEngine,
     session: &ibex_runtime::engine::evaluation::ArmedSessionToken,
     request: SourceRequest,
+    publications: &mut AuthenticatedPublicationTracker,
 ) -> Value {
-    let evaluation = engine
-        .evaluate_authenticated(session, request)
-        .await
+    // Source-mode executors are controllers too: every authenticated boundary
+    // must consume the bounded publication stream, including its error path.
+    // @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION
+    publications
+        .drain(engine, "output-shape file source before evaluation")
+        .expect("drain output-shape file publications before evaluation");
+    let evaluation = engine.evaluate_authenticated(session, request).await;
+    publications
+        .drain(engine, "output-shape file source after evaluation")
+        .expect("drain output-shape file publications after evaluation");
+    let evaluation = evaluation
         .expect("evaluate authenticated output-shape fixture");
     let AuthenticatedEvaluation::Value { display, receipt } = evaluation else {
         panic!("authenticated output-shape fixture returned no value: {evaluation:?}");
@@ -1707,9 +1647,13 @@ async fn decode_authenticated_record(
         .expect("authenticated output-shape fixture display must be a JSON string");
     let record = serde_json::from_str(&encoded)
         .expect("authenticated output-shape fixture returned invalid JSON");
-    engine
+    let release = engine
         .release_undisplayed_value(receipt.expect("authenticated fixture must retain a receipt"))
-        .await
+        .await;
+    publications
+        .drain(engine, "output-shape file source value release")
+        .expect("drain output-shape file publications after value release");
+    release
         .expect("release authenticated output-shape fixture value");
     record
 }
@@ -1718,6 +1662,7 @@ async fn authenticated_file_record(
     engine: &HermesEngine,
     host: &crate::host::Host,
     entry_identity: &str,
+    publications: &mut AuthenticatedPublicationTracker,
 ) -> Value {
     let vfs = host
         .virtual_file_system()
@@ -1744,10 +1689,12 @@ async fn authenticated_file_record(
         .into_capsule()
         .into_request()
         .expect("construct output-shape file request");
-    let record = decode_authenticated_record(engine, &session, request).await;
-    engine
-        .drive_authenticated_program_to_quiescence()
-        .await
+    let record = decode_authenticated_record(engine, &session, request, publications).await;
+    let completion = engine.drive_authenticated_program_to_quiescence().await;
+    publications
+        .drain(engine, "output-shape file source event-loop drive")
+        .expect("drain output-shape file publications after event-loop drive");
+    completion
         .expect("drain output-shape file program");
     vfs.close();
     record
@@ -1758,6 +1705,7 @@ async fn evaluate_authenticated_inline(
     host: &crate::host::Host,
     mode: &str,
     source: &[u8],
+    publications: &mut AuthenticatedPublicationTracker,
 ) -> anyhow::Result<AuthenticatedEvaluation> {
     use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
@@ -1778,24 +1726,35 @@ async fn evaluate_authenticated_inline(
         .authorize_inline()
         .bind_bytes(source.to_vec())
         .into_request()?;
-    engine.evaluate_authenticated(&session, request).await
+    publications.drain(
+        engine,
+        &format!("output-shape {mode} source before evaluation"),
+    )?;
+    let evaluation = engine.evaluate_authenticated(&session, request).await;
+    publications.drain(
+        engine,
+        &format!("output-shape {mode} source after evaluation"),
+    )?;
+    evaluation
 }
 
 async fn authenticated_inline_record(
     engine: &HermesEngine,
     host: &crate::host::Host,
     mode: &str,
+    publications: &mut AuthenticatedPublicationTracker,
 ) -> Value {
     let source = if mode == "program-stdin" {
         AUTHENTICATED_MODULE_INLINE_RECORD_SCRIPT
     } else {
         AUTHENTICATED_SCRIPT_INLINE_RECORD_SCRIPT
     };
-    let evaluation = evaluate_authenticated_inline(engine, host, mode, source.as_bytes())
-        .await
-        .unwrap_or_else(|error| {
-            panic!("evaluate authenticated output-shape {mode} inline record: {error:#}")
-        });
+    let evaluation =
+        evaluate_authenticated_inline(engine, host, mode, source.as_bytes(), publications)
+            .await
+            .unwrap_or_else(|error| {
+                panic!("evaluate authenticated output-shape {mode} inline record: {error:#}")
+            });
     let AuthenticatedEvaluation::Value { display, receipt } = evaluation else {
         panic!("authenticated output-shape inline record returned no value: {evaluation:?}");
     };
@@ -1804,11 +1763,18 @@ async fn authenticated_inline_record(
         .expect("authenticated output-shape inline display must be a JSON string");
     let record = serde_json::from_str(&encoded)
         .expect("authenticated output-shape inline record returned invalid JSON");
-    engine
+    let release = engine
         .release_undisplayed_value(
             receipt.expect("authenticated inline record must retain a receipt"),
         )
-        .await
+        .await;
+    publications
+        .drain(
+            engine,
+            &format!("output-shape {mode} source value release"),
+        )
+        .expect("drain authenticated output-shape inline value publications");
+    release
         .expect("release authenticated output-shape inline record");
     record
 }
@@ -1817,10 +1783,12 @@ async fn authenticated_script_import_meta_refusal(
     engine: &HermesEngine,
     host: &crate::host::Host,
     mode: &str,
+    publications: &mut AuthenticatedPublicationTracker,
 ) -> Value {
-    let error = evaluate_authenticated_inline(engine, host, mode, b"import.meta.url")
-        .await
-        .expect_err("authenticated session script unexpectedly admitted import.meta");
+    let error =
+        evaluate_authenticated_inline(engine, host, mode, b"import.meta.url", publications)
+            .await
+            .expect_err("authenticated session script unexpectedly admitted import.meta");
     let reason = format!("{error:#}");
     assert_eq!(
         reason,
@@ -3020,23 +2988,46 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
                 .expect("attest authenticated output-shape mode engine"),
             identity_before
         );
+        let mut mode_publications = AuthenticatedPublicationTracker::default();
         if mode.ends_with("-import-meta-refusal") {
-            let reason =
-                authenticated_script_import_meta_refusal(&mode_engine, &mode_host, source_mode)
-                    .await;
+            let reason = authenticated_script_import_meta_refusal(
+                &mode_engine,
+                &mode_host,
+                source_mode,
+                &mut mode_publications,
+            )
+            .await;
             assert!(authenticated_import_meta_refusals
                 .insert(source_mode.to_owned(), reason)
                 .is_none());
-            drop(mode_engine);
-            drop(reset);
-            continue;
-        }
-        let record = if entry_kind == "file" {
-            authenticated_file_record(&mode_engine, &mode_host, entry_identity).await
         } else {
-            authenticated_inline_record(&mode_engine, &mode_host, source_mode).await
-        };
-        authenticated_records.insert(mode.to_owned(), record);
+            let record = if entry_kind == "file" {
+                authenticated_file_record(
+                    &mode_engine,
+                    &mode_host,
+                    entry_identity,
+                    &mut mode_publications,
+                )
+                .await
+            } else {
+                authenticated_inline_record(
+                    &mode_engine,
+                    &mode_host,
+                    source_mode,
+                    &mut mode_publications,
+                )
+                .await
+            };
+            authenticated_records.insert(mode.to_owned(), record);
+        }
+        let finish_context = format!("output-shape {mode} source-mode completion");
+        mode_publications
+            .drain(&mode_engine, &finish_context)
+            .expect("drain final output-shape source-mode publications");
+        mode_publications
+            .require_no_due_schedules(&finish_context)
+            .expect("finish output-shape source mode without due timers");
+        drop(mode_publications);
         drop(mode_engine);
         drop(reset);
     }
@@ -3130,12 +3121,28 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
                 .expect("attest safe-throw-metadata output-shape engine"),
             identity_before
         );
-        let observation =
-            loaded_engine_safe_throw_metadata_observation(&safe_engine, &safe_host).await;
+        let mut safe_publications = AuthenticatedPublicationTracker::default();
+        safe_publications
+            .drain(&safe_engine, "safe-throw metadata before execution")
+            .expect("drain safe-throw publications before execution");
+        let observation = loaded_engine_safe_throw_metadata_observation(
+            &safe_engine,
+            &safe_host,
+            &mut safe_publications,
+        )
+        .await;
+        let finish_context = "safe-throw metadata execution completion";
+        safe_publications
+            .drain(&safe_engine, finish_context)
+            .expect("drain safe-throw publications after execution");
+        safe_publications
+            .require_no_due_schedules(finish_context)
+            .expect("finish safe-throw execution without due timers");
         let results = safe_throw_metadata_rows
             .iter()
             .map(|row| return_record_result(row, raw_json_value(observation.clone())))
             .collect::<Vec<_>>();
+        drop(safe_publications);
         drop(safe_engine);
         drop(reset);
         results

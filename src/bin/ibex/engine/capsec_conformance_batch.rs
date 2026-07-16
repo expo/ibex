@@ -826,17 +826,22 @@ struct NativeSetupState {
 
 /// Test-only armed engine facade for source-derived native-global probes.
 /// Setup and observed invocation source are separate submissions, but both
-/// consume the installed Host's single authenticated session ordinal stream.
+/// consume the installed Host's single authenticated session ordinal stream
+/// and the engine's bounded native publication stream.
 /// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+/// @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION requires
+/// every authenticated unit to reach a controller with paired identities.
 struct AuthenticatedNativeEngine {
     host: crate::host::Host,
     engine: HermesEngine,
+    publications: AuthenticatedPublicationTracker,
 }
 
 impl AuthenticatedNativeEngine {
-    async fn eval_immediate(&self, source: &str) -> anyhow::Result<Option<String>> {
+    async fn eval_immediate(&mut self, source: &str) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
+        self.drain_publications("before authenticated native-public evaluation")?;
         let session = self.host.mint_armed_session_token()?;
         let mut sequence =
             ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
@@ -850,7 +855,7 @@ impl AuthenticatedNativeEngine {
             .bind_bytes(source.as_bytes().to_vec())
             .into_request()?;
         let ordinal = request.submission_ordinal();
-        match self
+        let evaluation = self
             .engine
             .evaluate_authenticated(&session, request)
             .await
@@ -858,16 +863,34 @@ impl AuthenticatedNativeEngine {
                 anyhow::anyhow!(
                     "authenticated native-public submission {ordinal} failed: {error:#}"
                 )
-            })? {
+            });
+        let publications =
+            self.drain_publications("after authenticated native-public evaluation");
+        let evaluation = match (evaluation, publications) {
+            (Err(evaluation_error), Err(publication_error)) => anyhow::bail!(
+                "authenticated native-public submission {ordinal} failed ({evaluation_error:#}) and its publication stream failed ({publication_error:#})"
+            ),
+            (Err(error), Ok(())) | (Ok(_), Err(error)) => return Err(error),
+            (Ok(evaluation), Ok(())) => evaluation,
+        };
+        match evaluation {
             AuthenticatedEvaluation::Empty => Ok(None),
             AuthenticatedEvaluation::Value { display, receipt } => {
-                self.engine
-                    .release_undisplayed_value(receipt.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "authenticated native-public submission {ordinal} lost its value receipt"
-                        )
-                    })?)
-                    .await?;
+                let release = match receipt {
+                    Some(receipt) => self.engine.release_undisplayed_value(receipt).await,
+                    None => Err(anyhow::anyhow!(
+                        "authenticated native-public submission {ordinal} lost its value receipt"
+                    )),
+                };
+                let publications =
+                    self.drain_publications("after authenticated native-public value release");
+                match (release, publications) {
+                    (Err(release_error), Err(publication_error)) => anyhow::bail!(
+                        "authenticated native-public submission {ordinal} failed to release its value ({release_error:#}) and its publication stream failed ({publication_error:#})"
+                    ),
+                    (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
+                    (Ok(()), Ok(())) => {}
+                }
                 match display.kind {
                     AuthenticatedDisplayKind::Undefined => Ok(None),
                     AuthenticatedDisplayKind::String => serde_json::from_str(&display.text)
@@ -891,10 +914,28 @@ impl AuthenticatedNativeEngine {
             ),
         }
     }
+
+    fn drain_publications(&mut self, context: &str) -> anyhow::Result<()> {
+        self.publications.drain(&self.engine, context)
+    }
+
+    fn finish(&mut self) -> anyhow::Result<()> {
+        let publications = self.drain_publications("authenticated native-public engine finish");
+        let due = self
+            .publications
+            .require_no_due_schedules("authenticated native-public engine finish");
+        match (publications, due) {
+            (Err(publication_error), Err(due_error)) => anyhow::bail!(
+                "authenticated native-public engine publication stream failed ({publication_error:#}) and retained due schedules ({due_error:#})"
+            ),
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+        }
+    }
 }
 
 async fn run_native_setup(
-    engine: &AuthenticatedNativeEngine,
+    engine: &mut AuthenticatedNativeEngine,
     invocation: &NativePublicInvocation,
     listener_port: Option<u16>,
 ) -> NativeSetupState {
@@ -1664,7 +1705,7 @@ fn validate_native_runtime_observation(
 }
 
 async fn execute_native_public_recipe(
-    engine: &AuthenticatedNativeEngine,
+    engine: &mut AuthenticatedNativeEngine,
     recipe: &Recipe,
     coverage_terminals: &BTreeMap<String, String>,
     supplied_listener: Option<std::net::TcpListener>,
@@ -2061,17 +2102,23 @@ async fn capsec_public_native_recipe_batch() {
                 .load_runtime()
                 .await
                 .expect("load runtime in isolated native public recipe engine");
-            let engine = AuthenticatedNativeEngine { host, engine };
-            executions.push(
-                execute_native_public_recipe(
-                    &engine,
-                    recipe,
-                    &coverage_terminals,
-                    listener,
-                    &identity_before.binary_digest,
-                )
-                .await,
-            );
+            let mut engine = AuthenticatedNativeEngine {
+                host,
+                engine,
+                publications: AuthenticatedPublicationTracker::default(),
+            };
+            let execution = execute_native_public_recipe(
+                &mut engine,
+                recipe,
+                &coverage_terminals,
+                listener,
+                &identity_before.binary_digest,
+            )
+            .await;
+            engine
+                .finish()
+                .expect("finish authenticated native-public publications");
+            executions.push(execution);
         } else {
             assert!(probe.invocation.host_abi().is_some());
             let (host, snapshot_digest) =

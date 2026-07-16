@@ -265,21 +265,30 @@ fn completion_verification_script(token: &str) -> String {
     )
 }
 
-async fn drive_to_quiescence(engine: &HermesEngine) -> std::result::Result<(), String> {
-    tokio::time::timeout(
+async fn drive_to_quiescence(
+    sweep: &mut AuthenticatedBuiltinSweep,
+    engine: &HermesEngine,
+) -> std::result::Result<(), String> {
+    let completion = tokio::time::timeout(
         std::time::Duration::from_millis(TIMEOUT_MILLISECONDS),
         engine.drive_event_loop(),
     )
-    .await
-    .map_err(|_| "event loop did not reach the authored one-second bound".to_owned())?
-    .map_err(|error| format!("event-loop completion failed: {error:#}"))
+    .await;
+    // Draining is part of controlling authenticated work, including when the
+    // drive itself times out or fails, and must precede observer evidence.
+    // @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION
+    sweep
+        .drain_publications(engine, "builtin output event-loop drive")
+        .map_err(|error| format!("event-loop publication drain failed: {error:#}"))?;
+    completion
+        .map_err(|_| "event loop did not reach the authored one-second bound".to_owned())?
+        .map_err(|error| format!("event-loop completion failed: {error:#}"))
 }
 
 struct AuthenticatedBuiltinSweep {
     session: ibex_runtime::engine::evaluation::ArmedSessionToken,
     sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
-    active_work_units: BTreeMap<u64, AuthenticatedWorkUnitEvent>,
-    due_schedules: BTreeSet<u64>,
+    publications: AuthenticatedPublicationTracker,
 }
 
 impl AuthenticatedBuiltinSweep {
@@ -292,8 +301,7 @@ impl AuthenticatedBuiltinSweep {
         Self {
             session,
             sequence,
-            active_work_units: BTreeMap::new(),
-            due_schedules: BTreeSet::new(),
+            publications: AuthenticatedPublicationTracker::default(),
         }
     }
 
@@ -304,7 +312,7 @@ impl AuthenticatedBuiltinSweep {
     ) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
-        self.drain_publications(engine)?;
+        self.drain_publications(engine, "builtin output source before evaluation")?;
         let request = self
             .sequence
             .mint_repl(LogicalPath {
@@ -315,22 +323,21 @@ impl AuthenticatedBuiltinSweep {
             .authorize_inline()
             .bind_bytes(source.as_bytes().to_vec())
             .into_request()?;
-        let evaluation = engine
-            .evaluate_authenticated(&self.session, request)
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!("authenticated builtin-output evaluation failed: {error:#}")
-            })?;
-        self.drain_publications(engine)?;
+        let evaluation = engine.evaluate_authenticated(&self.session, request).await;
+        self.drain_publications(engine, "builtin output source after evaluation")?;
+        let evaluation = evaluation.map_err(|error| {
+            anyhow::anyhow!("authenticated builtin-output evaluation failed: {error:#}")
+        })?;
         match evaluation {
             AuthenticatedEvaluation::Empty => Ok(None),
             AuthenticatedEvaluation::Value { display, receipt } => {
-                engine
+                let release = engine
                     .release_undisplayed_value(
                         receipt.expect("builtin-output value must retain a receipt"),
                     )
-                    .await?;
-                self.drain_publications(engine)?;
+                    .await;
+                self.drain_publications(engine, "builtin output value release")?;
+                release?;
                 anyhow::ensure!(
                     display.kind == AuthenticatedDisplayKind::String,
                     "authenticated builtin-output source returned {:?}, expected string",
@@ -350,102 +357,18 @@ impl AuthenticatedBuiltinSweep {
         }
     }
 
-    fn drain_publications(&mut self, engine: &HermesEngine) -> anyhow::Result<()> {
-        while let Some(event) = engine.next_authenticated_work_unit()? {
-            match event.phase {
-                AuthenticatedWorkUnitPhase::Due => {
-                    anyhow::ensure!(
-                        event.kind == AuthenticatedWorkUnitKind::Timer
-                            && event.target_id == 0
-                            && event.scheduling_id != 0,
-                        "builtin-output source published malformed Due identities"
-                    );
-                    anyhow::ensure!(
-                        self.due_schedules.insert(event.scheduling_id),
-                        "builtin-output source duplicated Due {}",
-                        event.scheduling_id
-                    );
-                }
-                AuthenticatedWorkUnitPhase::Undue => {
-                    anyhow::ensure!(
-                        event.kind == AuthenticatedWorkUnitKind::Timer
-                            && event.target_id == 0
-                            && event.scheduling_id != 0,
-                        "builtin-output source published malformed Undue identities"
-                    );
-                    anyhow::ensure!(
-                        self.due_schedules.remove(&event.scheduling_id),
-                        "builtin-output source published unknown Undue {}",
-                        event.scheduling_id
-                    );
-                }
-                AuthenticatedWorkUnitPhase::Begin => {
-                    if event.kind == AuthenticatedWorkUnitKind::Timer && event.scheduling_id != 0 {
-                        self.due_schedules.remove(&event.scheduling_id);
-                    }
-                    let target_id = event.target_id;
-                    anyhow::ensure!(
-                        self.active_work_units.insert(target_id, event).is_none(),
-                        "builtin-output source duplicated Begin {target_id}"
-                    );
-                }
-                AuthenticatedWorkUnitPhase::Suspended => {
-                    let begin = self
-                        .active_work_units
-                        .get(&event.target_id)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "builtin-output source suspended {} without Begin",
-                                event.target_id
-                            )
-                        })?;
-                    anyhow::ensure!(
-                        begin.kind == event.kind && begin.scheduling_id == event.scheduling_id,
-                        "builtin-output source changed suspended identity {}",
-                        event.target_id
-                    );
-                }
-                AuthenticatedWorkUnitPhase::End => {
-                    let begin =
-                        self.active_work_units
-                            .remove(&event.target_id)
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "builtin-output source ended {} without Begin",
-                                    event.target_id
-                                )
-                            })?;
-                    anyhow::ensure!(
-                        begin.kind == event.kind && begin.scheduling_id == event.scheduling_id,
-                        "builtin-output source changed ended identity {}",
-                        event.target_id
-                    );
-                }
-            }
-        }
-        anyhow::ensure!(
-            self.active_work_units.is_empty(),
-            "builtin-output source left {} active work units",
-            self.active_work_units.len()
-        );
-        if let Some(event) = engine.next_authenticated_cancellation()? {
-            anyhow::bail!(
-                "builtin-output source published unexpected cancellation for {}: {:?}",
-                event.target_id,
-                event.resolution
-            );
-        }
-        Ok(())
+    fn drain_publications(
+        &mut self,
+        engine: &HermesEngine,
+        context: &str,
+    ) -> anyhow::Result<()> {
+        self.publications.drain(engine, context)
     }
 
     fn finish(&mut self, engine: &HermesEngine) -> anyhow::Result<()> {
-        self.drain_publications(engine)?;
-        anyhow::ensure!(
-            self.due_schedules.is_empty(),
-            "builtin-output source retained due timer schedules {:?}",
-            self.due_schedules
-        );
-        Ok(())
+        let context = "builtin output source batch completion";
+        self.publications.drain(engine, context)?;
+        self.publications.require_no_due_schedules(context)
     }
 }
 
@@ -527,7 +450,7 @@ async fn execute_loaded_rows(
             .await
         {
             Ok(Some(marker)) if marker == "ibex-capsec-builtin-output-preloaded" => {
-                drive_to_quiescence(&engine).await
+                drive_to_quiescence(&mut sweep, &engine).await
             }
             Ok(value) => Err(format!("module preload returned {value:?}")),
             Err(error) => Err(format!("module preload failed: {error:#}")),
@@ -566,7 +489,7 @@ async fn execute_loaded_rows(
             continue;
         }
         let execution = sweep.eval_string(&engine, &invocation_script(row)).await;
-        let quiescence = drive_to_quiescence(&engine).await;
+        let quiescence = drive_to_quiescence(&mut sweep, &engine).await;
         let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
         let typed_observations =
             serde_json::to_value(&typed).expect("serialize builtin output typed observations");

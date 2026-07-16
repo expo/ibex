@@ -348,26 +348,42 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
-  test("source-binds every callback and authority-control invariant", () => {
+  test("authors only exact callback mechanisms and residualizes rationale-only carriers", () => {
     const callbackRecipes = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_982);
+    expect(callbackRecipes).toHaveLength(6);
+    expect(
+      callbackRecipes.every(
+        (recipe) =>
+          recipe.scenario === "non-capability" &&
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.kind === "public-surface-invocation" &&
+          recipe.publicSurfaceProbe.surfaceObservedKey ===
+            recipe.terminalObservedKey,
+      ),
+    ).toBe(true);
+
+    const rationaleScenarios = [
+      "attribution-missing-deny",
+      "generation-recheck",
+      "principal-restore",
+      "snapshot-mismatch-deny",
+      "cannot-widen-authority",
+      "post-lockdown-invariant",
+    ];
+    const rationaleOnly = recipes.recipes.filter((recipe) =>
+      rationaleScenarios.includes(recipe.scenario),
+    );
+    expect(rationaleOnly).toHaveLength(2_976);
     expect(
       Object.fromEntries(
-        [
-          "attribution-missing-deny",
-          "generation-recheck",
-          "principal-restore",
-          "snapshot-mismatch-deny",
-          "cannot-widen-authority",
-          "post-lockdown-invariant",
-          "non-capability",
-        ].map((scenario) => [
+        rationaleScenarios.map((scenario) => [
           scenario,
-          callbackRecipes.filter((recipe) => recipe.scenario === scenario)
+          rationaleOnly.filter((recipe) => recipe.scenario === scenario)
             .length,
         ]),
       ),
@@ -378,138 +394,28 @@ describe("exact-target CapSec executable recipes", () => {
       "snapshot-mismatch-deny": 556,
       "cannot-widen-authority": 376,
       "post-lockdown-invariant": 376,
-      "non-capability": 6,
     });
-    for (const terminalObservedKey of [
-      "native-op:__exactOnRejectionHandled",
-      "native-op:__exactOnUnhandledRejection",
-    ]) {
-      expect(
-        callbackRecipes
-          .filter(
-            (recipe) => recipe.terminalObservedKey === terminalObservedKey,
-          )
-          .map((recipe) => recipe.scenario)
-          .sort(),
-      ).toEqual([
-        "attribution-missing-deny",
-        "generation-recheck",
-        "principal-restore",
-        "snapshot-mismatch-deny",
-      ]);
-    }
     expect(
-      callbackRecipes
-        .filter(
-          (recipe) =>
-            recipe.terminalObservedKey ===
-            "host-abi:ex_hermes_structured_session_bind",
-        )
-        .map((recipe) => recipe.scenario)
-        .sort(),
-    ).toEqual(["cannot-widen-authority", "post-lockdown-invariant"]);
-    expect(
-      callbackRecipes
-        .filter(
-          (recipe) =>
-            recipe.terminalObservedKey ===
-            "host-abi:ex_host_authorize_typed_listen_stack",
-        )
-        .map((recipe) => recipe.scenario)
-        .sort(),
-    ).toEqual(["cannot-widen-authority", "post-lockdown-invariant"]);
-    for (const terminalObservedKey of [
-      "native-op:__ibexCompartmentBaselineFinalized",
-      "native-op:__ibexCompartmentRegistryReady",
-      "native-op:__ibexRefreshCompartmentBaseline",
-      "startup:install-route:ex_hermes_create_impl:installCompartmentRegistry",
-      "startup:installer:installCompartmentRegistry",
-    ]) {
-      expect(
-        callbackRecipes
-          .filter((recipe) => recipe.terminalObservedKey === terminalObservedKey)
-          .map((recipe) => recipe.scenario)
-          .sort(),
-      ).toEqual(["cannot-widen-authority", "post-lockdown-invariant"]);
-    }
-    expect(
-      callbackRecipes.every(
+      rationaleOnly.every(
         (recipe) =>
-          recipe.status === "fully-executable" &&
-          recipe.residualReasons.length === 0 &&
-          recipe.publicSurfaceProbe.surfaceObservedKey ===
-            recipe.terminalObservedKey,
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes(
+            `callback-invariant-${recipe.scenario}-probe-not-authored`,
+          ),
       ),
     ).toBe(true);
-    const snapshot = callbackRecipes.find(
-      (recipe) => recipe.scenario === "snapshot-mismatch-deny",
+    const arbitraryCarrier = rationaleOnly.find(
+      (recipe) =>
+        recipe.terminalObservedKey ===
+          "host-abi:ex_hermes_structured_session_bind" &&
+        recipe.scenario === "cannot-widen-authority",
     );
-    expect(snapshot.publicSurfaceProbe).toMatchObject({
-      kind: "public-surface-invocation",
-      command: [
-        "cargo",
-        "test",
-        "--bin",
-        "ibex",
-        "--features",
-        "capsec-conformance-observer",
-        "capsec_public_callback_invariant_batch",
-        "--",
-        "--test-threads=1",
-      ],
-      invocation: {
-        kind: "callback-security-invariant",
-        expectedResult: "invariant-passed",
-        expectedTypedDecisionCount: 0,
-        expectedTypedStages: [],
-        expectedTypedOutcomes: [],
-        expectedTypedReasons: [],
-        allowedCoverageEdgeIds: [],
-        expectedActionIds: [],
-        sourceDescriptor: {
-          kind: "callback-security-invariant",
-          scenario: "snapshot-mismatch-deny",
-          rationaleId: "callback-attribution-carrier",
-          executionMechanism: "cross-snapshot-public-handle-reattenuation",
-          auxiliaryDecisionEdgeId: null,
-        },
-      },
+    expect(arbitraryCarrier).toMatchObject({
+      status: "unresolved",
+      publicSurfaceProbe: null,
     });
-    expect(snapshot.publicSurfaceProbe.invocation.sourceDescriptorDigest).toMatch(
-      /^sha256-/u,
-    );
-    const generation = callbackRecipes.find(
-      (recipe) => recipe.scenario === "generation-recheck",
-    );
-    expect(generation.publicSurfaceProbe.invocation).toMatchObject({
-      expectedTypedDecisionCount: 3,
-      expectedTypedStages: ["requested", "commit", "requested"],
-      expectedTypedOutcomes: ["allow", "allow", "deny"],
-      expectedTypedReasons: [
-        "dynamic-session",
-        "dynamic-session",
-        "missing-authority",
-      ],
-      allowedCoverageEdgeIds: [
-        "surface.native.op.exactgetenv.0k6bv7a",
-      ],
-      expectedActionIds: ["env:read"],
-    });
-    const control = callbackRecipes.find(
-      (recipe) => recipe.scenario === "post-lockdown-invariant",
-    );
-    expect(control.publicSurfaceProbe.invocation).toMatchObject({
-      expectedTypedDecisionCount: 0,
-      expectedTypedStages: [],
-      expectedTypedOutcomes: [],
-      expectedTypedReasons: [],
-      allowedCoverageEdgeIds: [],
-      expectedActionIds: [],
-      sourceDescriptor: {
-        rationaleId: "authority-control-plane",
-        auxiliaryDecisionEdgeId: null,
-      },
-    });
+
     const exactMechanisms = new Map([
       [
         "callback:exact-host-call-async-resolve",
@@ -557,6 +463,7 @@ describe("exact-target CapSec executable recipes", () => {
             expectedActionIds: [],
             sourceDescriptor: {
               scenario: "non-capability",
+              proofScope: "source-bound-exact-mechanism",
               surfaceObservedKey: recipe.terminalObservedKey,
               executionMechanism: exactMechanisms.get(
                 recipe.terminalObservedKey,

@@ -690,6 +690,9 @@ async fn invoke_source(
         }
         other => panic!("unsupported startup environment result {other}"),
     }
+    evaluator
+        .finish(engine, "startup environment public source")
+        .expect("finish authenticated startup environment publications");
     (result, legacy.len(), typed)
 }
 
@@ -1147,9 +1150,13 @@ fn build_two_package_overlay_host(
 /// closed submission adapter as production REPL source; the test never
 /// reopens Hermes' sealed bare evaluator.
 /// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+/// @ref LLP 0025#11-delegated-obligations — the harness consumes every
+/// authenticated work-unit, timer, and cancellation publication before the
+/// supervised engine is discarded.
 struct AuthenticatedStartupEvaluator {
     session: ibex_runtime::engine::evaluation::ArmedSessionToken,
     sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
+    publications: AuthenticatedPublicationTracker,
 }
 
 impl AuthenticatedStartupEvaluator {
@@ -1159,7 +1166,11 @@ impl AuthenticatedStartupEvaluator {
             .expect("mint authenticated startup session");
         let sequence = ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
             .expect("create authenticated startup submission sequence");
-        Self { session, sequence }
+        Self {
+            session,
+            sequence,
+            publications: AuthenticatedPublicationTracker::default(),
+        }
     }
 
     async fn eval_string(
@@ -1169,6 +1180,8 @@ impl AuthenticatedStartupEvaluator {
     ) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
+        let context = "authenticated startup source";
+        self.publications.drain(engine, context)?;
         let request = self
             .sequence
             .mint_repl(LogicalPath {
@@ -1180,7 +1193,7 @@ impl AuthenticatedStartupEvaluator {
             .bind_bytes(source.as_bytes().to_vec())
             .into_request()?;
         let ordinal = request.submission_ordinal();
-        match engine
+        let evaluation = engine
             .evaluate_authenticated(&self.session, request)
             .await
             .with_context(|| {
@@ -1188,15 +1201,24 @@ impl AuthenticatedStartupEvaluator {
                     "evaluate authenticated startup submission {ordinal} ({})",
                     source.chars().take(80).collect::<String>()
                 )
-            })?
-        {
+            });
+        let publications = self.publications.drain(engine, context);
+        let evaluation = evaluation?;
+        publications?;
+        match evaluation {
             AuthenticatedEvaluation::Empty => Ok(None),
             AuthenticatedEvaluation::Value { display, receipt } => {
-                engine
+                let release = engine
                     .release_undisplayed_value(
                         receipt.expect("startup value must retain a receipt"),
                     )
-                    .await?;
+                    .await
+                    .context("release authenticated startup value");
+                let publications = self
+                    .publications
+                    .drain(engine, "authenticated startup value release");
+                release?;
+                publications?;
                 anyhow::ensure!(
                     display.kind == AuthenticatedDisplayKind::String,
                     "authenticated startup evaluation returned {:?}, expected a string",
@@ -1216,6 +1238,27 @@ impl AuthenticatedStartupEvaluator {
                 )
             }
         }
+    }
+
+    async fn drive_event_loop(
+        &mut self,
+        engine: &HermesEngine,
+        context: &str,
+    ) -> anyhow::Result<()> {
+        self.publications.drain(engine, context)?;
+        let drive = engine
+            .drive_event_loop()
+            .await
+            .with_context(|| format!("drive {context} to quiescence"));
+        let publications = self.publications.drain(engine, context);
+        drive?;
+        publications?;
+        Ok(())
+    }
+
+    fn finish(&mut self, engine: &HermesEngine, context: &str) -> anyhow::Result<()> {
+        self.publications.drain(engine, context)?;
+        self.publications.require_no_due_schedules(context)
     }
 }
 
@@ -1466,8 +1509,8 @@ require('env-alpha').scheduleAsync({:?}, 'async-alpha', function(result) {{
             .as_deref(),
         Some("scheduled")
     );
-    engine
-        .drive_event_loop()
+    overlay
+        .drive_event_loop(&engine, "package-owned environment mutation")
         .await
         .expect("drive package-owned environment mutation");
     let async_result = eval_overlay_json(
@@ -1616,6 +1659,9 @@ require('env-alpha').scheduleAsync({:?}, 'async-alpha', function(result) {{
         &["requested", "commit"],
     );
 
+    overlay
+        .finish(&engine, "principal-overlay first runtime")
+        .expect("finish first principal-overlay runtime publications");
     drop(overlay);
     drop(engine);
     assert_ne!(
@@ -1663,6 +1709,9 @@ require('env-alpha').scheduleAsync({:?}, 'async-alpha', function(result) {{
     assert_eq!(cleared["betaKeys"], serde_json::json!([]));
     assert_eq!(cleared["identity"], true);
     assert_eq!(cleared["rawSetterType"], "undefined");
+    fresh_overlay
+        .finish(&fresh, "principal-overlay fresh runtime")
+        .expect("finish fresh principal-overlay runtime publications");
 
     let identity_after = HermesEngine::loaded_engine_identity()
         .expect("attest loaded Hermes after principal-overlay test");

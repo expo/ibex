@@ -927,6 +927,7 @@ function completeCallbackCatalog() {
   const recipe = catalog.recipes[0];
   const sourceDescriptor = {
     kind: "callback-security-invariant",
+    proofScope: "source-bound-rationale-invariant",
     scenario: "generation-recheck",
     rationaleId: "callback-attribution-carrier",
     surfaceObservedKey: "native-op:__exactCallbackCarrier",
@@ -999,6 +1000,7 @@ function completeExactCallbackCatalog() {
   ];
   const sourceDescriptor = {
     kind: "callback-security-invariant",
+    proofScope: "source-bound-exact-mechanism",
     scenario: "non-capability",
     rationaleId: "callback-attribution-carrier",
     surfaceObservedKey,
@@ -2152,92 +2154,18 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove bounded cleanup/);
   });
 
-  test("accepts callback invariants only with exact typed outcomes and reasons", () => {
+  test("rejects rationale-only callback checks as public fixture evidence", () => {
     const catalog = completeCallbackCatalog();
     const recipe = catalog.recipes[0];
     const observed = callbackRuntimeObservation(recipe);
-    const execution = buildPublicFixtureEvidence({
-      recipe,
-      engineBinaryDigest: engine.binaryDigest,
-      runtimeObservation: observed,
-      coverage,
-    });
-    expect(execution.evidence.terminalObservedKey).toBe(
-      recipe.publicSurfaceProbe.surfaceObservedKey,
-    );
-
-    const wrongReason = structuredClone(observed);
-    wrongReason.typedDecisions[2].evidence.evidence[0].reason =
-      "dynamic-session";
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: wrongReason,
-        coverage,
-      }),
-    ).toThrow(/typed reason disagrees/);
-
-    const wrongCheck = structuredClone(observed);
-    wrongCheck.invocation.result.checks.scheduledDecisionRechecked = false;
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: wrongCheck,
-        coverage,
-      }),
-    ).toThrow(/did not prove a post-revocation decision recheck/);
-
-    const legacy = structuredClone(observed);
-    legacy.legacyObservationCount = 1;
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: legacy,
-        coverage,
-      }),
-    ).toThrow(/malformed runtime public observation/);
-
-    const wrongAuxiliary = structuredClone(recipe);
-    wrongAuxiliary.publicSurfaceProbe.invocation.allowedCoverageEdgeIds = [
-      "edge.terminal",
-    ];
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe: wrongAuxiliary,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: observed,
-        coverage,
-      }),
-    ).toThrow(/auxiliary decision is not coverage-bound/);
-
-    const wrongAuxiliaryAction = structuredClone(recipe);
-    wrongAuxiliaryAction.publicSurfaceProbe.invocation.expectedActionIds = [
-      "fs:read",
-    ];
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe: wrongAuxiliaryAction,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: observed,
-        coverage,
-      }),
-    ).toThrow(/auxiliary decision is not coverage-bound/);
-
-    const driftedCoverage = structuredClone(coverage);
-    driftedCoverage.edges.find(
-      (edge) => edge.id === "edge.callback-terminal",
-    ).effects[0].cap = "fs:read";
     expect(() =>
       buildPublicFixtureEvidence({
         recipe,
         engineBinaryDigest: engine.binaryDigest,
         runtimeObservation: observed,
-        coverage: driftedCoverage,
+        coverage,
       }),
-    ).toThrow(/auxiliary decision is not coverage-bound/);
+    ).toThrow(/callback invariant runtime invocation descriptor drift/);
   });
 
   test("accepts Exact non-capability evidence only from its bound ABI lifecycle", () => {
@@ -2252,6 +2180,21 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).not.toThrow();
+
+    const wrongScope = structuredClone(recipe);
+    wrongScope.publicSurfaceProbe.invocation.sourceDescriptor.proofScope =
+      "terminal-body-entry";
+    wrongScope.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(wrongScope.publicSurfaceProbe.invocation.sourceDescriptor);
+    const wrongScopeObservation = exactCallbackRuntimeObservation(wrongScope);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongScope,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongScopeObservation,
+        coverage,
+      }),
+    ).toThrow(/callback invariant runtime invocation descriptor drift/);
 
     const wrongMechanism = structuredClone(recipe);
     wrongMechanism.publicSurfaceProbe.invocation.sourceDescriptor.executionMechanism =
@@ -2404,9 +2347,9 @@ describe("CapSec public-surface promotion evidence", () => {
   });
 
   test("rejects hand-labeled callback terminals", () => {
-    const catalog = completeCallbackCatalog();
+    const catalog = completeExactCallbackCatalog();
     const recipe = catalog.recipes[0];
-    const observed = callbackRuntimeObservation(recipe);
+    const observed = exactCallbackRuntimeObservation(recipe);
     observed.invocation.surfaceObservedKey = "native-op:__exactHandLabel";
     expect(() =>
       buildPublicFixtureEvidence({

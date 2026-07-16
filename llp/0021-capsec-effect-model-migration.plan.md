@@ -5,6 +5,11 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-16 (ENG-24578 residualizes 2,976 rationale-only
+callback/control-plane rows because a generic invariant run cannot prove an
+arbitrary carrier's selected branch; it retains six exact embedder-mechanism
+executions and requires every authenticated work-unit publication to be
+consumed before teardown.)
 **Revised:** 2026-07-15 (ENG-24578 residualizes raw resolver-output rows:
 the resolver bridges are bootstrap-private and sealed before authenticated
 project-source ingress, so unarmed or pre-bootstrap bare evaluation cannot
@@ -559,9 +564,9 @@ an already-built pair against the checked registry, loaded engine, package
 graph/root objects, and protected artifacts, then replaces its construction
 nonce and digest; it cannot advertise a target. The package-side producer and
 normal Exact artifact publication, Apple/Windows conformance reports, and
-target advertisements remain incomplete. The refreshed catalog has 23,361
-required fixtures, 4,591 fully executable recipes, and 18,770 unresolved
-fixtures, so the existing Apple matrix remains unsupported;
+target advertisements remain incomplete. The refreshed catalog has 23,658
+required fixtures, 1,663 fully executable recipes, 11,530 adapter-executable
+recipes, and 21,995 unresolved fixtures, so the existing Apple matrix remains unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
 
@@ -1188,20 +1193,26 @@ decision and its exact structured evidence from one evaluation; bounded
 history receives a clone of that same record and is no longer queried to build
 the response.
 
-Implementation update (2026-07-12): exact source-bound public conformance now
-executes six callback/control-plane invariants against the loaded armed Hermes
-engine through production `process.env` and public authority-control operations:
+Implementation update (2026-07-16): a diagnostic harness executes six
+callback/control-plane invariants against the loaded armed Hermes engine through
+production `process.env` and public authority-control operations:
 missing attribution denies, scheduled decisions recheck authority after
 generation changes, callback principals restore after delivery, bearer handles
 cannot cross snapshot identities, public grant requests cannot widen the static
 ceiling, and lockdown remains structurally immutable. A feature-gated one-shot
 observer records only the actual principal and runtime nonce; it cannot evaluate
 or authorize an operation, and the harness deletes its global before the public
-invariant operation runs. The 2,836 applicable non-capability fixtures carry
-runtime-derived results, exact structured typed outcomes/reasons where an
-auxiliary decision is required, and zero legacy observations. This closes those
-recipe obligations without advertising a target; target promotion remains gated
-on the complete exact-target execution report.
+invariant operation runs. These six generic invariant runs are suite-prerequisite
+diagnostics only. Async attribution remains channel-by-channel rather than
+structurally forced through one chokepoint (LLP 0016 §W2), so a rationale ID and
+static source reference do not prove that an arbitrary carrier entered its body
+or used the checked mechanism. The 2,976 carrier-specific invariant recipes
+therefore remain residual pending exact carrier execution or an independently
+proved carrier-to-mechanism relation with its own non-terminal evidence contract.
+Only six Exact embedder rows currently have source-bound exact-mechanism public
+executions; those carry runtime-derived lifecycle results and zero legacy
+observations. No diagnostic run may manufacture a `terminalObservedKey` or close
+an enforcement-branch fixture for a carrier it did not execute.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 

@@ -125,9 +125,12 @@ struct ScenarioExecution {
 /// the Host caches the exact session token and its ordinal state.
 /// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry —
 /// armed project source enters only through authenticated session submission.
+/// @ref LLP 0025#11-delegated-obligations — every authenticated callback work
+/// unit is paired and delivered to the evidence controller before teardown.
 struct AuthenticatedCallbackEngine {
     host: crate::host::Host,
     engine: HermesEngine,
+    publications: std::sync::Mutex<AuthenticatedPublicationTracker>,
 }
 
 impl std::ops::Deref for AuthenticatedCallbackEngine {
@@ -139,9 +142,24 @@ impl std::ops::Deref for AuthenticatedCallbackEngine {
 }
 
 impl AuthenticatedCallbackEngine {
+    fn drain_publications(&self, context: &str) -> anyhow::Result<()> {
+        self.publications
+            .lock()
+            .map_err(|_| anyhow::anyhow!("{context} publication tracker mutex was poisoned"))?
+            .drain(&self.engine, context)
+    }
+
+    fn require_no_due_schedules(&self, context: &str) -> anyhow::Result<()> {
+        self.publications
+            .lock()
+            .map_err(|_| anyhow::anyhow!("{context} publication tracker mutex was poisoned"))?
+            .require_no_due_schedules(context)
+    }
+
     async fn eval_immediate(&self, source: &str) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
+        self.drain_publications("before authenticated callback evaluation")?;
         let session = self.host.mint_armed_session_token()?;
         let mut sequence =
             ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
@@ -163,17 +181,25 @@ impl AuthenticatedCallbackEngine {
                 anyhow::anyhow!(
                     "authenticated callback submission {ordinal} failed: {error:#}"
                 )
-            })?;
+            });
+        let publications = self.drain_publications("after authenticated callback evaluation");
+        let evaluation = evaluation?;
+        publications?;
         match evaluation {
             AuthenticatedEvaluation::Empty => Ok(None),
             AuthenticatedEvaluation::Value { display, receipt } => {
-                self.engine
+                let release = self
+                    .engine
                     .release_undisplayed_value(receipt.ok_or_else(|| {
                         anyhow::anyhow!(
                             "authenticated callback submission {ordinal} lost its value receipt"
                         )
                     })?)
-                    .await?;
+                    .await;
+                let publications =
+                    self.drain_publications("after authenticated callback value release");
+                release?;
+                publications?;
                 match display.kind {
                     AuthenticatedDisplayKind::Undefined => Ok(None),
                     AuthenticatedDisplayKind::String => serde_json::from_str(&display.text)
@@ -195,6 +221,30 @@ impl AuthenticatedCallbackEngine {
             AuthenticatedEvaluation::Lifecycle(code) => anyhow::bail!(
                 "authenticated callback submission {ordinal} exited with lifecycle code {code}"
             ),
+        }
+    }
+
+    async fn drive_event_loop(&self) -> anyhow::Result<()> {
+        self.drain_publications("before authenticated callback event-loop drive")?;
+        let drive = self.engine.drive_event_loop().await;
+        let publications =
+            self.drain_publications("after authenticated callback event-loop drive");
+        drive?;
+        publications?;
+        self.require_no_due_schedules("authenticated callback event-loop drive")
+    }
+
+    fn finish(&self) -> anyhow::Result<()> {
+        self.drain_publications("authenticated callback engine finish")?;
+        self.require_no_due_schedules("authenticated callback engine finish")
+    }
+}
+
+impl Drop for AuthenticatedCallbackEngine {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            self.finish()
+                .expect("authenticated callback engine must finish every publication");
         }
     }
 }
@@ -401,6 +451,7 @@ fn validate_recipe_source_binding(
     let (rationale, mechanism, stages, outcomes, reasons) =
         expected_invariant(&recipe.scenario, &probe.surface_observed_key);
     assert_eq!(recipe.classification, "non-capability");
+    assert_eq!(recipe.scenario, "non-capability");
     assert!(recipe.action_ids.is_empty());
     assert_eq!(recipe.edge_ids.len(), 1);
     assert_eq!(recipe.implementation_branch_ids.len(), 1);
@@ -457,6 +508,10 @@ fn validate_recipe_source_binding(
         invocation.source_descriptor_digest
     );
     assert_eq!(descriptor["kind"], "callback-security-invariant");
+    assert_eq!(
+        descriptor["proofScope"],
+        "source-bound-exact-mechanism"
+    );
     assert_eq!(descriptor["scenario"], recipe.scenario);
     assert_eq!(descriptor["rationaleId"], rationale);
     assert_eq!(descriptor["executionMechanism"], mechanism);
@@ -1452,6 +1507,7 @@ async fn armed_engine(
     let engine = AuthenticatedCallbackEngine {
         host: host.clone(),
         engine,
+        publications: std::sync::Mutex::new(AuthenticatedPublicationTracker::default()),
     };
     assert_eq!(
         engine
@@ -2461,13 +2517,8 @@ async fn capsec_public_callback_invariant_batch() {
             .entry(recipe.scenario.as_str())
             .or_insert(0usize) += 1;
     }
-    assert_eq!(recipes.len(), 2_858);
-    assert_eq!(by_scenario.get("attribution-missing-deny"), Some(&554));
-    assert_eq!(by_scenario.get("generation-recheck"), Some(&554));
-    assert_eq!(by_scenario.get("principal-restore"), Some(&554));
-    assert_eq!(by_scenario.get("snapshot-mismatch-deny"), Some(&554));
-    assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&318));
-    assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&318));
+    assert_eq!(recipes.len(), 6);
+    assert_eq!(by_scenario.len(), 1);
     assert_eq!(by_scenario.get("non-capability"), Some(&6));
     let (branches, edges) = checked_registry_rows();
     for recipe in &recipes {

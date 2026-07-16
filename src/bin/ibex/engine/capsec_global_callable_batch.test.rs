@@ -70,14 +70,26 @@ fn invocation_script(row: &Value) -> String {
     )
 }
 
-async fn drive_to_quiescence(engine: &HermesEngine) -> Result<(), String> {
-    tokio::time::timeout(
+async fn drive_to_quiescence(
+    engine: &HermesEngine,
+    sweep: &mut AuthenticatedSweep,
+) -> Result<(), String> {
+    let completion = tokio::time::timeout(
         std::time::Duration::from_millis(TIMEOUT_MILLISECONDS),
         engine.drive_event_loop(),
     )
-    .await
+    .await;
+    // Consume the authenticated callback publications before observer evidence
+    // is read, including timeout and engine-error paths.
+    // @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION
+    let publications = sweep
+        .drain_publications(engine, "global callable event-loop drive")
+        .map_err(|error| format!("event-loop publication drain failed: {error:#}"));
+    let completion = completion
     .map_err(|_| "event loop did not reach the authored one-second bound".to_owned())?
-    .map_err(|error| format!("event-loop completion failed: {error:#}"))
+    .map_err(|error| format!("event-loop completion failed: {error:#}"));
+    completion?;
+    publications
 }
 
 fn source_completion_result(row: &Value, raw: Value) -> Value {
@@ -372,7 +384,7 @@ pub(super) async fn results(
         }
 
         let execution = sweep.eval_string(engine, &invocation_script(row)).await;
-        let quiescence = drive_to_quiescence(engine).await;
+        let quiescence = drive_to_quiescence(engine, sweep).await;
         let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
         let typed = serde_json::to_value(typed)
             .expect("serialize typed global callable capability decisions");

@@ -1176,62 +1176,66 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.kind !== "callback-security-invariant" ||
       invocation.surfaceKind !== authored.surfaceKind ||
       invocation.surfaceName !== authored.surfaceName ||
-      invocation.scenario !== authored.scenario
+      invocation.scenario !== authored.scenario ||
+      recipe.publicSurfaceProbe.kind !== "public-surface-invocation" ||
+      authored.scenario !== "non-capability" ||
+      authored.sourceDescriptor?.proofScope !==
+        "source-bound-exact-mechanism"
     ) {
       throw new Error(
         `${recipe.fixtureId}: callback invariant runtime invocation descriptor drift`,
       );
     }
-    if (authored.scenario === "non-capability") {
-      const expected = EXACT_EMBEDDER_NON_CAPABILITY_SURFACES.get(
-        recipe.publicSurfaceProbe.surfaceObservedKey,
+    const expected = EXACT_EMBEDDER_NON_CAPABILITY_SURFACES.get(
+      recipe.publicSurfaceProbe.surfaceObservedKey,
+    );
+    const descriptor = authored.sourceDescriptor;
+    exactKeys(
+      descriptor,
+      [
+        "kind",
+        "proofScope",
+        "scenario",
+        "rationaleId",
+        "surfaceObservedKey",
+        "edgeId",
+        "branchId",
+        "sourceRefs",
+        "coverageEdge",
+        "implementationBranch",
+        "liveSurface",
+        "executionMechanism",
+        "auxiliaryDecisionEdgeId",
+      ],
+      `${recipe.fixtureId}: Exact non-capability source descriptor`,
+    );
+    if (
+      recipe.classification !== "non-capability" ||
+      expected === undefined ||
+      descriptor.kind !== "callback-security-invariant" ||
+      descriptor.proofScope !== "source-bound-exact-mechanism" ||
+      descriptor.scenario !== "non-capability" ||
+      descriptor.rationaleId !== expected[0] ||
+      descriptor.executionMechanism !== expected[1] ||
+      descriptor.surfaceObservedKey !==
+        recipe.publicSurfaceProbe.surfaceObservedKey ||
+      descriptor.edgeId !== recipe.edgeIds[0] ||
+      descriptor.branchId !== recipe.implementationBranchIds[0] ||
+      descriptor.auxiliaryDecisionEdgeId !== null ||
+      descriptor.coverageEdge?.id !== recipe.edgeIds[0] ||
+      descriptor.implementationBranch?.branchId !==
+        recipe.implementationBranchIds[0] ||
+      descriptor.liveSurface?.observedKey !==
+        recipe.publicSurfaceProbe.surfaceObservedKey ||
+      !Array.isArray(descriptor.sourceRefs) ||
+      descriptor.sourceRefs.length === 0 ||
+      !descriptor.sourceRefs.some((sourceRef) =>
+        descriptor.liveSurface?.sourceRefs?.includes(sourceRef),
+      )
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: Exact non-capability invocation is not source-bound`,
       );
-      const descriptor = authored.sourceDescriptor;
-      exactKeys(
-        descriptor,
-        [
-          "kind",
-          "scenario",
-          "rationaleId",
-          "surfaceObservedKey",
-          "edgeId",
-          "branchId",
-          "sourceRefs",
-          "coverageEdge",
-          "implementationBranch",
-          "liveSurface",
-          "executionMechanism",
-          "auxiliaryDecisionEdgeId",
-        ],
-        `${recipe.fixtureId}: Exact non-capability source descriptor`,
-      );
-      if (
-        recipe.classification !== "non-capability" ||
-        expected === undefined ||
-        descriptor.kind !== "callback-security-invariant" ||
-        descriptor.scenario !== "non-capability" ||
-        descriptor.rationaleId !== expected[0] ||
-        descriptor.executionMechanism !== expected[1] ||
-        descriptor.surfaceObservedKey !==
-          recipe.publicSurfaceProbe.surfaceObservedKey ||
-        descriptor.edgeId !== recipe.edgeIds[0] ||
-        descriptor.branchId !== recipe.implementationBranchIds[0] ||
-        descriptor.auxiliaryDecisionEdgeId !== null ||
-        descriptor.coverageEdge?.id !== recipe.edgeIds[0] ||
-        descriptor.implementationBranch?.branchId !==
-          recipe.implementationBranchIds[0] ||
-        descriptor.liveSurface?.observedKey !==
-          recipe.publicSurfaceProbe.surfaceObservedKey ||
-        !Array.isArray(descriptor.sourceRefs) ||
-        descriptor.sourceRefs.length === 0 ||
-        !descriptor.sourceRefs.some((sourceRef) =>
-          descriptor.liveSurface?.sourceRefs?.includes(sourceRef),
-        )
-      ) {
-        throw new Error(
-          `${recipe.fixtureId}: Exact non-capability invocation is not source-bound`,
-        );
-      }
     }
   } else {
     throw new Error(

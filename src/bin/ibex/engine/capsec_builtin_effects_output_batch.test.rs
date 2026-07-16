@@ -136,14 +136,25 @@ fn completion_verification_script(token: &str) -> String {
     )
 }
 
-async fn drive_to_quiescence(engine: &HermesEngine) -> Result<(), String> {
-    tokio::time::timeout(
+async fn drive_to_quiescence(
+    sweep: &mut AuthenticatedEffectsSweep,
+    engine: &HermesEngine,
+) -> Result<(), String> {
+    let completion = tokio::time::timeout(
         std::time::Duration::from_millis(TIMEOUT_MILLISECONDS),
         engine.drive_event_loop(),
     )
-    .await
-    .map_err(|_| "event loop did not reach the authored one-second bound".to_owned())?
-    .map_err(|error| format!("event-loop completion failed: {error:#}"))
+    .await;
+    // A failed or timed-out drive can still have published completed work.
+    // Consume it before any observer evidence is read or another row begins.
+    // @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION
+    // makes publication consumption part of the authenticated controller.
+    sweep
+        .drain_publications(engine, "builtin effects event-loop drive")
+        .map_err(|error| format!("event-loop publication drain failed: {error:#}"))?;
+    completion
+        .map_err(|_| "event loop did not reach the authored one-second bound".to_owned())?
+        .map_err(|error| format!("event-loop completion failed: {error:#}"))
 }
 
 async fn take_completion_record(
@@ -179,9 +190,9 @@ async fn cleanup_live_fixture(
         .await
         .map_err(|error| format!("filesystem fixture cleanup evaluation failed: {error:#}"))?
         .ok_or_else(|| "filesystem fixture cleanup returned no result".to_owned())?;
+    drive_to_quiescence(sweep, engine).await?;
     let result = serde_json::from_str::<Value>(&encoded)
         .map_err(|error| format!("filesystem fixture cleanup returned invalid JSON: {error}"))?;
-    drive_to_quiescence(engine).await?;
     if result["kind"] != "fixture-cleanup-completion" || !result["errorCode"].is_null() {
         return Err(format!("filesystem fixture cleanup failed: {result}"));
     }
@@ -194,8 +205,7 @@ async fn cleanup_live_fixture(
 struct AuthenticatedEffectsSweep {
     session: ibex_runtime::engine::evaluation::ArmedSessionToken,
     sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
-    active_work_units: BTreeMap<u64, AuthenticatedWorkUnitEvent>,
-    due_schedules: BTreeSet<u64>,
+    publications: AuthenticatedPublicationTracker,
 }
 
 impl AuthenticatedEffectsSweep {
@@ -205,8 +215,7 @@ impl AuthenticatedEffectsSweep {
         Ok(Self {
             session,
             sequence,
-            active_work_units: BTreeMap::new(),
-            due_schedules: BTreeSet::new(),
+            publications: AuthenticatedPublicationTracker::default(),
         })
     }
 
@@ -217,7 +226,7 @@ impl AuthenticatedEffectsSweep {
     ) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
-        self.drain_publications(engine)?;
+        self.drain_publications(engine, "builtin effects source before evaluation")?;
         let request = self
             .sequence
             .mint_repl(LogicalPath {
@@ -228,17 +237,17 @@ impl AuthenticatedEffectsSweep {
             .authorize_inline()
             .bind_bytes(source.as_bytes().to_vec())
             .into_request()?;
-        let evaluation = engine
-            .evaluate_authenticated(&self.session, request)
-            .await?;
-        self.drain_publications(engine)?;
+        let evaluation = engine.evaluate_authenticated(&self.session, request).await;
+        self.drain_publications(engine, "builtin effects source after evaluation")?;
+        let evaluation = evaluation?;
         match evaluation {
             AuthenticatedEvaluation::Empty => Ok(None),
             AuthenticatedEvaluation::Value { display, receipt } => {
-                engine
+                let release = engine
                     .release_undisplayed_value(receipt.expect("value must retain a receipt"))
-                    .await?;
-                self.drain_publications(engine)?;
+                    .await;
+                self.drain_publications(engine, "builtin effects value release")?;
+                release?;
                 anyhow::ensure!(
                     display.kind == AuthenticatedDisplayKind::String,
                     "builtin effects source returned {:?}, expected string",
@@ -258,86 +267,18 @@ impl AuthenticatedEffectsSweep {
         }
     }
 
-    fn drain_publications(&mut self, engine: &HermesEngine) -> anyhow::Result<()> {
-        while let Some(event) = engine.next_authenticated_work_unit()? {
-            match event.phase {
-                AuthenticatedWorkUnitPhase::Due => {
-                    anyhow::ensure!(
-                        event.kind == AuthenticatedWorkUnitKind::Timer
-                            && event.target_id == 0
-                            && event.scheduling_id != 0,
-                        "malformed Due identities"
-                    );
-                    anyhow::ensure!(
-                        self.due_schedules.insert(event.scheduling_id),
-                        "duplicated Due {}",
-                        event.scheduling_id
-                    );
-                }
-                AuthenticatedWorkUnitPhase::Undue => {
-                    anyhow::ensure!(
-                        event.kind == AuthenticatedWorkUnitKind::Timer
-                            && event.target_id == 0
-                            && event.scheduling_id != 0,
-                        "malformed Undue identities"
-                    );
-                    anyhow::ensure!(
-                        self.due_schedules.remove(&event.scheduling_id),
-                        "unknown Undue {}",
-                        event.scheduling_id
-                    );
-                }
-                AuthenticatedWorkUnitPhase::Begin => {
-                    if event.kind == AuthenticatedWorkUnitKind::Timer && event.scheduling_id != 0 {
-                        self.due_schedules.remove(&event.scheduling_id);
-                    }
-                    anyhow::ensure!(
-                        self.active_work_units
-                            .insert(event.target_id, event)
-                            .is_none(),
-                        "duplicated Begin"
-                    );
-                }
-                AuthenticatedWorkUnitPhase::Suspended => {
-                    let begin = self
-                        .active_work_units
-                        .get(&event.target_id)
-                        .ok_or_else(|| anyhow::anyhow!("Suspended without Begin"))?;
-                    anyhow::ensure!(
-                        begin.kind == event.kind && begin.scheduling_id == event.scheduling_id,
-                        "changed suspended identity"
-                    );
-                }
-                AuthenticatedWorkUnitPhase::End => {
-                    let begin = self
-                        .active_work_units
-                        .remove(&event.target_id)
-                        .ok_or_else(|| anyhow::anyhow!("End without Begin"))?;
-                    anyhow::ensure!(
-                        begin.kind == event.kind && begin.scheduling_id == event.scheduling_id,
-                        "changed ended identity"
-                    );
-                }
-            }
-        }
-        anyhow::ensure!(
-            self.active_work_units.is_empty(),
-            "active work units remain"
-        );
-        if let Some(event) = engine.next_authenticated_cancellation()? {
-            anyhow::bail!("unexpected cancellation for {}", event.target_id);
-        }
-        Ok(())
+    fn drain_publications(
+        &mut self,
+        engine: &HermesEngine,
+        context: &str,
+    ) -> anyhow::Result<()> {
+        self.publications.drain(engine, context)
     }
 
     fn finish(&mut self, engine: &HermesEngine) -> anyhow::Result<()> {
-        self.drain_publications(engine)?;
-        anyhow::ensure!(
-            self.due_schedules.is_empty(),
-            "retained due schedules {:?}",
-            self.due_schedules
-        );
-        Ok(())
+        let context = "builtin effects source batch completion";
+        self.publications.drain(engine, context)?;
+        self.publications.require_no_due_schedules(context)
     }
 }
 
@@ -1119,7 +1060,7 @@ async fn execute_family(
             .await;
         let reason = match preload {
             Ok(Some(marker)) if marker == "ibex-builtin-effects-preloaded" => {
-                drive_to_quiescence(&engine).await.err()
+                drive_to_quiescence(&mut sweep, &engine).await.err()
             }
             Ok(value) => Some(format!("module preload returned {value:?}")),
             Err(error) => Some(format!("module preload failed: {error:#}")),
@@ -1147,7 +1088,7 @@ async fn execute_family(
     } else {
         Err("Host refused positive-control observer".to_owned())
     };
-    let control_quiescence = drive_to_quiescence(&engine).await;
+    let control_quiescence = drive_to_quiescence(&mut sweep, &engine).await;
     let (control_legacy, control_typed) =
         ibex_runtime::host::abi::take_installed_conformance_observations();
     let control_typed = serde_json::to_value(control_typed)?;
@@ -1261,7 +1202,7 @@ async fn execute_family(
                 continue;
             }
             let setup_execution = sweep.eval_string(&engine, &setup_script).await;
-            let setup_quiescence = drive_to_quiescence(&engine).await;
+            let setup_quiescence = drive_to_quiescence(&mut sweep, &engine).await;
             let (setup_legacy, setup_typed) =
                 ibex_runtime::host::abi::take_installed_conformance_observations();
             let setup_typed = serde_json::to_value(setup_typed)?;
@@ -1341,7 +1282,7 @@ async fn execute_family(
             continue;
         }
         let execution = sweep.eval_string(&engine, &invocation_script(row)).await;
-        let quiescence = drive_to_quiescence(&engine).await;
+        let quiescence = drive_to_quiescence(&mut sweep, &engine).await;
         let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
         let typed = serde_json::to_value(typed)?;
         let fixture_cleanup = cleanup_live_fixture(row, &mut sweep, &engine).await;

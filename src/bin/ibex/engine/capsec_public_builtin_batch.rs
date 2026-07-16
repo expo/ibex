@@ -88,17 +88,22 @@ struct PublicBatchArtifact {
 
 /// Test-only armed engine facade. Public builtin source must enter through an
 /// authenticated submission even though this harness preserves the compact
-/// `eval_immediate` call shape used to separate preload from observation.
+/// `eval_immediate` call shape used to separate preload from observation. The
+/// facade also consumes the engine's bounded native publication stream.
 /// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+/// @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION requires
+/// every authenticated unit to reach a controller with paired identities.
 struct AuthenticatedBuiltinEngine {
     host: crate::host::Host,
     engine: HermesEngine,
+    publications: AuthenticatedPublicationTracker,
 }
 
 impl AuthenticatedBuiltinEngine {
-    async fn eval_immediate(&self, source: &str) -> anyhow::Result<Option<String>> {
+    async fn eval_immediate(&mut self, source: &str) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
+        self.drain_publications("before authenticated effect-builtin evaluation")?;
         let session = self.host.mint_armed_session_token()?;
         let mut sequence =
             ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
@@ -112,7 +117,7 @@ impl AuthenticatedBuiltinEngine {
             .bind_bytes(source.as_bytes().to_vec())
             .into_request()?;
         let ordinal = request.submission_ordinal();
-        match self
+        let evaluation = self
             .engine
             .evaluate_authenticated(&session, request)
             .await
@@ -120,16 +125,34 @@ impl AuthenticatedBuiltinEngine {
                 anyhow::anyhow!(
                     "authenticated effect-builtin submission {ordinal} failed: {error:#}"
                 )
-            })? {
+            });
+        let publications =
+            self.drain_publications("after authenticated effect-builtin evaluation");
+        let evaluation = match (evaluation, publications) {
+            (Err(evaluation_error), Err(publication_error)) => anyhow::bail!(
+                "authenticated effect-builtin submission {ordinal} failed ({evaluation_error:#}) and its publication stream failed ({publication_error:#})"
+            ),
+            (Err(error), Ok(())) | (Ok(_), Err(error)) => return Err(error),
+            (Ok(evaluation), Ok(())) => evaluation,
+        };
+        match evaluation {
             AuthenticatedEvaluation::Empty => Ok(None),
             AuthenticatedEvaluation::Value { display, receipt } => {
-                self.engine
-                    .release_undisplayed_value(receipt.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "authenticated effect-builtin submission {ordinal} lost its value receipt"
-                        )
-                    })?)
-                    .await?;
+                let release = match receipt {
+                    Some(receipt) => self.engine.release_undisplayed_value(receipt).await,
+                    None => Err(anyhow::anyhow!(
+                        "authenticated effect-builtin submission {ordinal} lost its value receipt"
+                    )),
+                };
+                let publications =
+                    self.drain_publications("after authenticated effect-builtin value release");
+                match (release, publications) {
+                    (Err(release_error), Err(publication_error)) => anyhow::bail!(
+                        "authenticated effect-builtin submission {ordinal} failed to release its value ({release_error:#}) and its publication stream failed ({publication_error:#})"
+                    ),
+                    (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
+                    (Ok(()), Ok(())) => {}
+                }
                 match display.kind {
                     AuthenticatedDisplayKind::Undefined => Ok(None),
                     AuthenticatedDisplayKind::String => serde_json::from_str(&display.text)
@@ -151,6 +174,24 @@ impl AuthenticatedBuiltinEngine {
             AuthenticatedEvaluation::Lifecycle(code) => anyhow::bail!(
                 "authenticated effect-builtin submission {ordinal} exited with lifecycle code {code}"
             ),
+        }
+    }
+
+    fn drain_publications(&mut self, context: &str) -> anyhow::Result<()> {
+        self.publications.drain(&self.engine, context)
+    }
+
+    fn finish(&mut self) -> anyhow::Result<()> {
+        let publications = self.drain_publications("authenticated effect-builtin engine finish");
+        let due = self
+            .publications
+            .require_no_due_schedules("authenticated effect-builtin engine finish");
+        match (publications, due) {
+            (Err(publication_error), Err(due_error)) => anyhow::bail!(
+                "authenticated effect-builtin engine publication stream failed ({publication_error:#}) and retained due schedules ({due_error:#})"
+            ),
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
         }
     }
 }
@@ -606,7 +647,7 @@ fn validate_observation(
 }
 
 async fn execute_recipe(
-    engine: &AuthenticatedBuiltinEngine,
+    engine: &mut AuthenticatedBuiltinEngine,
     recipe: &Recipe,
     arguments: &[serde_json::Value],
     terminal_by_edge: &BTreeMap<String, String>,
@@ -755,15 +796,23 @@ async fn execute_isolated_recipe(
         .load_runtime()
         .await
         .expect("load exact public builtin runtime");
-    let engine = AuthenticatedBuiltinEngine { host, engine };
-    execute_recipe(
-        &engine,
+    let mut engine = AuthenticatedBuiltinEngine {
+        host,
+        engine,
+        publications: AuthenticatedPublicationTracker::default(),
+    };
+    let execution = execute_recipe(
+        &mut engine,
         recipe,
         &prepared.arguments,
         terminal_by_edge,
         engine_binary_digest,
     )
-    .await
+    .await;
+    engine
+        .finish()
+        .expect("finish authenticated effect-builtin publications");
+    execution
 }
 
 #[cfg(test)]
