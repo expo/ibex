@@ -1601,6 +1601,71 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
           setup: [],
         }),
       ],
+      [
+        "statfs",
+        Object.freeze({
+          actionIds: ["fs:list"],
+          arguments: [
+            literalArgument("statfs"),
+            literalArgument("Cargo.toml"),
+            literalArgument(null),
+            literalArgument(0),
+            literalArgument(0),
+            literalArgument(0),
+          ],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          expectedDecisionCounts: {
+            allow: 4,
+            "branch-selection": 4,
+            deny: 1,
+            malformed: 4,
+            "missing-attribution": 4,
+            "wrong-principal": 4,
+          },
+          expectedResults: {
+            allow: "return",
+            "branch-selection": "return",
+            deny: "permission-denied",
+            malformed: "return",
+            "missing-attribution": "return",
+            "wrong-principal": "return",
+          },
+          expectedStages: {
+            allow: ["requested", "discovery", "repeat", "repeat"],
+            "branch-selection": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+            deny: ["requested"],
+            malformed: ["requested", "discovery", "repeat", "repeat"],
+            "missing-attribution": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+            "wrong-principal": [
+              "requested",
+              "discovery",
+              "repeat",
+              "repeat",
+            ],
+          },
+          requiredFloor: [
+            {
+              cap: "fs:list",
+              resource: projectPathExactResource("Cargo.toml"),
+            },
+          ],
+          requiredSourceArity: 6,
+          setup: [],
+        }),
+      ],
     ]),
   ],
 ]);

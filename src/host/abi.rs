@@ -1556,6 +1556,10 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
             "surface.native.op.exactfsstatasync.0b0hr8s",
         ),
         12 => ("fs-mkdir", "surface.native.op.exactmkdir.021eaz0"),
+        13 => (
+            "fs-path-async",
+            "surface.native.op.exactfspathasync.10cb78b",
+        ),
         _ => return -1,
     };
     let follow_mode = if matches!(surface, 10 | 11) {

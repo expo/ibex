@@ -2138,6 +2138,42 @@ static FsAsyncResult fsStatfsPathWork(const std::string& path) {
   return fsAsyncString(oss.str());
 }
 
+static FsAsyncResult fsStatfsArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& target) {
+  constexpr uint32_t kFsPathAsyncSurface = 13;
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 5, kFsPathAsyncSurface, *parent, *target,
+          0, 0, nullptr) != 1) {
+    return fsAsyncError(EACCES, "statfs", path);
+  }
+#if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
+  struct statfs buf;
+  if (::fstatfs(*target, &buf) != 0) {
+    return fsAsyncError(errno, "statfs", path);
+  }
+  uint64_t type = static_cast<uint64_t>(buf.f_type);
+#else
+  struct statvfs buf;
+  if (::fstatvfs(*target, &buf) != 0) {
+    return fsAsyncError(errno, "statfs", path);
+  }
+  uint64_t type = 0;
+#endif
+  std::ostringstream oss;
+  oss << "{"
+      << "\"type\":" << type << ","
+      << "\"bsize\":" << buf.f_bsize << ","
+      << "\"blocks\":" << static_cast<uint64_t>(buf.f_blocks) << ","
+      << "\"bfree\":" << static_cast<uint64_t>(buf.f_bfree) << ","
+      << "\"bavail\":" << static_cast<uint64_t>(buf.f_bavail) << ","
+      << "\"files\":" << static_cast<uint64_t>(buf.f_files) << ","
+      << "\"ffree\":" << static_cast<uint64_t>(buf.f_ffree) << "}";
+  return fsAsyncString(oss.str());
+}
+
 static FsAsyncResult fsPathOpWork(
     const std::string& op,
     const std::string& a,
@@ -4916,6 +4952,18 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               [principal, path = a, parent = std::move(descriptors.parent),
                target = std::move(descriptors.target)]() {
                 return fsRealpathArmedWork(principal, path, parent, target);
+              });
+        }
+        if (ex_host_is_armed() == 1 && op == "statfs") {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Bind filesystem metadata to the retained object before dispatch and recheck that same descriptor on the worker.
+          constexpr uint32_t kFsPathAsyncSurface = 13;
+          auto descriptors = openArmedListTarget(
+              runtime, a, kFsPathAsyncSurface, metadataOpenFlags(), "");
+          return startFsAsync(
+              handle, runtime,
+              [principal, path = a, parent = std::move(descriptors.parent),
+               target = std::move(descriptors.target)]() {
+                return fsStatfsArmedWork(principal, path, parent, target);
               });
         }
         if (ex_host_is_armed() == 1 && op == "mkdtemp") {
