@@ -57,6 +57,20 @@ describe("Android Java bridge inventory", () => {
       "java:dev.ibex.runtime.IbexNetworking.fetch",
       "jni:dev.ibex.runtime.IbexNetworking.nativeComplete",
     ]);
+    expect(
+      rows.find((row) => row.name.endsWith(".Provider.acquire")).metadata
+        .javaSignature,
+    ).toEqual({
+      parameters: [{ kind: "aggregate", type: "String" }],
+      returnType: { kind: "aggregate", type: "String" },
+    });
+    expect(
+      rows.find((row) => row.name.endsWith(".nativeComplete")).metadata
+        .javaSignature,
+    ).toEqual({
+      parameters: [{ kind: "scalar", type: "int" }],
+      returnType: { kind: "void", type: "void" },
+    });
   });
 
   test("discovers the live public, provider, and JNI routes", () => {

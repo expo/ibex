@@ -10,7 +10,10 @@ import {
   outputExecutionContextsForRows,
   outputShapeCatalogKeyDigest,
 } from "./capsec-output-dispositions.mjs";
-import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
+import {
+  CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+  discoverRepositorySurfaces,
+} from "./capsec-surface-inventory.mjs";
 import {
   OUTPUT_SHAPE_SWEEP_EXECUTOR,
   buildOutputShapeSweepArtifactFromExecutorBatch,
@@ -19,10 +22,12 @@ import {
   buildVerifiedOutputDispositionEvidence,
   outputShapeProbeKindForCatalogRow,
   outputShapeSourceDescriptorDigest,
+  normalizeExecutorObservation,
   sealOutputShapeSweepArtifact,
   validateOutputShapeSweepArtifact,
   validateOutputShapeSweepPlan,
 } from "./capsec-output-shape-sweep.mjs";
+import { NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND } from "./capsec-native-freeze-output-templates.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
@@ -399,6 +404,291 @@ function executorBatch(value = fixture()) {
 }
 
 describe("output-shape-sweep-v2 evidence contract", () => {
+  test("normalizes private native path markers only in authenticated Host-ABI context", () => {
+    const raw = {
+      kind: "return",
+      rawValueShape: "string",
+      value: "private-native-path",
+      errorCode: null,
+    };
+    const privateHostKey = key(
+      "surface.host.abi.private.path.0000000",
+      "out:path",
+      "host-abi",
+      "host.private-native-call-initialized",
+    );
+    expect(normalizeExecutorObservation(privateHostKey, raw)).toEqual({
+      outcome: "return",
+      normalizedValue: "private-native-path",
+    });
+
+    for (const changed of [
+      { ...privateHostKey, sourceKind: "native-op" },
+      {
+        ...privateHostKey,
+        contextId: "javascript.package-property-read-loaded",
+      },
+    ]) {
+      expect(() => normalizeExecutorObservation(changed, raw)).toThrow(
+        /private native path marker outside authenticated Host-ABI context/,
+      );
+    }
+  });
+
+  test("normalizes legacy Host readdir results only from non-empty basename arrays", () => {
+    const readdirKey = key(
+      "surface.host.abi.ex-host-fs-readdir.0000000",
+      "array-items",
+      "host-abi",
+      "host.private-native-call-initialized",
+    );
+    readdirKey.alias = "ex_host_fs_readdir[]";
+    readdirKey.returnVariant = "success";
+    const raw = (value) => ({
+      kind: "return",
+      rawValueShape: "array",
+      value,
+      errorCode: null,
+    });
+
+    expect(
+      normalizeExecutorObservation(readdirKey, raw(["alpha", "beta.txt"])),
+    ).toEqual({
+      outcome: "return",
+      normalizedValue: "array:virtual-basename",
+    });
+    for (const value of [
+      [],
+      [""],
+      ["."],
+      [".."],
+      ["nested/name"],
+      ["nested\\name"],
+      ["ok", 1],
+    ]) {
+      expect(() => normalizeExecutorObservation(readdirKey, raw(value))).toThrow(
+        /cannot prove item shape|not basenames|non-string/,
+      );
+    }
+  });
+
+  test("routes both native freeze sentinels through exact loaded-Hermes identity proofs", async () => {
+    const repository = await repositorySweepFixture();
+    const names = new Set(["__exactDeepFreeze", "__exactNativeFreeze"]);
+    const edges = repository.coverage.edges.filter((edge) =>
+      names.has(edge.surface.name),
+    );
+    const surfaceIds = new Set(edges.map((edge) => edge.id));
+    const catalog = v2Catalog(
+      repository.catalog.rows.filter((row) =>
+        surfaceIds.has(row.key.surfaceId),
+      ),
+    );
+    const coverage = { edges };
+    const surfaces = repository.surfaces.filter((surface) =>
+      names.has(surface.name),
+    );
+    const { target } = repository;
+    const probes = buildOutputShapeSweepProbes({
+      catalog,
+      coverage,
+      surfaces,
+      target,
+    });
+    const freeze = probes.filter(
+      (row) =>
+        row.probe.sourceDescriptor?.kind ===
+        NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
+    );
+    expect(freeze).toHaveLength(4);
+    expect(
+      freeze.map((row) => [row.key.alias, row.key.mode]),
+    ).toEqual(
+      expect.arrayContaining(
+        ["__exactDeepFreeze", "__exactNativeFreeze"].flatMap((alias) =>
+          ["primitive-sentinel", "object-sentinel"].map((mode) => [
+            alias,
+            mode,
+          ]),
+        ),
+      ),
+    );
+    for (const row of freeze) {
+      const invocation = row.probe.sourceDescriptor.invocation;
+      expect(row.probe).toMatchObject({
+        kind: "loaded-engine-return-record",
+        recordPath: ["[[return]]"],
+      });
+      expect(invocation.operation).toMatchObject({
+        kind: "native-freeze-argument-identity",
+        identityCheck: "strict-equality",
+      });
+      expect(
+        invocation.sourceDescriptor.implementationSourceRefs.every(
+          (sourceRef) =>
+            sourceRef.startsWith(
+              `${invocation.sourceDescriptor.implementationPath}#region:`,
+            ),
+        ),
+      ).toBe(true);
+    }
+    expect(JSON.stringify(freeze)).not.toContain("normalizedValue");
+    expect(JSON.stringify(freeze)).not.toContain("expectedResult");
+
+    const bindings = {
+      sourceRevision: "a".repeat(40),
+      sourceTreeDigest: digest("D"),
+      engine: fixture().bindings.engine,
+    };
+    const plan = buildOutputShapeSweepPlan({ catalog, probes, ...bindings });
+    expect(plan.rows).toHaveLength(catalog.rows.length);
+    const batch = {
+      outputShapeExecutorBatchSchema:
+        "ibex/capsec-output-shape-executor-batch/2",
+      profile: "ibex/capsec/1",
+      executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
+      sourceRevision: plan.sourceRevision,
+      sourceTreeDigest: plan.sourceTreeDigest,
+      catalogKeyDigest: plan.catalogKeyDigest,
+      sweepPlanDigest: plan.sweepPlanDigest,
+      loadedEngineIdentity: structuredClone(bindings.engine),
+      compiledRegistrarIds: structuredClone(plan.surfaceAccountIds),
+      results: plan.rows.map((row) => ({
+        key: structuredClone(row.key),
+        proof: {
+          kind: "loaded-engine-return-record",
+          fixtureId: row.probe.fixtureId,
+          sourceDescriptorDigest: row.probe.sourceDescriptorDigest,
+          recordPath: structuredClone(row.probe.recordPath),
+          rawValueShape: "argument-identity",
+        },
+        raw: {
+          kind: "return",
+          rawValueShape: "argument-identity",
+          value: "same-as-argument-0",
+          errorCode: null,
+        },
+      })),
+      unexercisable: [],
+    };
+    expect(
+      buildOutputShapeSweepArtifactFromExecutorBatch({ plan, batch })
+        .observations,
+    ).toEqual(
+      expect.arrayContaining(
+        plan.rows.map((row) =>
+          expect.objectContaining({
+            key: row.key,
+            observation: {
+              outcome: "return",
+              normalizedValue: "same-as-argument-0",
+            },
+          }),
+        ),
+      ),
+    );
+
+    const wrongSentinel = structuredClone(probes);
+    const wrongSentinelRoute = wrongSentinel.find(
+      (row) =>
+        row.probe.sourceDescriptor?.kind ===
+        NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
+    );
+    wrongSentinelRoute.probe.sourceDescriptor.invocation.operation.sentinelId =
+      "primitive-number-0";
+    wrongSentinelRoute.probe.sourceDescriptorDigest =
+      outputShapeSourceDescriptorDigest(
+        wrongSentinelRoute.probe.sourceDescriptor,
+      );
+    expect(() =>
+      buildOutputShapeSweepPlan({
+        catalog,
+        probes: wrongSentinel,
+        ...bindings,
+      }),
+    ).toThrow(/invalid native freeze invocation/);
+
+    const wrongPatch = structuredClone(probes);
+    const wrongPatchRoute = wrongPatch.find(
+      (row) =>
+        row.probe.sourceDescriptor?.kind ===
+        NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
+    );
+    const invocation = wrongPatchRoute.probe.sourceDescriptor.invocation;
+    invocation.sourceDescriptor.implementationSourceRefs[0] =
+      "patches/hermes/wrong.patch#region:wrong..wrong#tokens:wrong";
+    invocation.sourceDescriptor.implementationSourceRefs.sort();
+    invocation.sourceDescriptorDigest = outputShapeSourceDescriptorDigest(
+      invocation.sourceDescriptor,
+    );
+    wrongPatchRoute.probe.sourceDescriptorDigest =
+      outputShapeSourceDescriptorDigest(
+        wrongPatchRoute.probe.sourceDescriptor,
+      );
+    expect(() =>
+      buildOutputShapeSweepPlan({
+        catalog,
+        probes: wrongPatch,
+        ...bindings,
+      }),
+    ).toThrow(/invalid native freeze invocation/);
+
+    const genericRoute = structuredClone(probes);
+    const genericRouteVictim = genericRoute.find(
+      (row) =>
+        row.probe.sourceDescriptor?.kind ===
+        NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
+    );
+    genericRouteVictim.probe.sourceDescriptor = {
+      kind: "structured-output",
+    };
+    genericRouteVictim.probe.sourceDescriptorDigest =
+      outputShapeSourceDescriptorDigest(
+        genericRouteVictim.probe.sourceDescriptor,
+      );
+    expect(() =>
+      buildOutputShapeSweepPlan({
+        catalog,
+        probes: genericRoute,
+        ...bindings,
+      }),
+    ).toThrow(/native freeze identity requires its exact authored route/);
+  }, 30_000);
+
+  test("normalizes only source-proven native freeze argument identity", () => {
+    const freezeKey = {
+      surfaceId: "surface.native.op.exact.deep.freeze.test",
+      output: "[[return]]",
+      alias: "__exactDeepFreeze",
+      mode: "object-sentinel",
+      sourceKind: "native-op",
+      returnVariant: "same-as-argument-0",
+      contextId: "runtime.bootstrap-native-call-loaded",
+    };
+    const raw = {
+      kind: "return",
+      rawValueShape: "argument-identity",
+      value: "same-as-argument-0",
+      errorCode: null,
+    };
+    expect(normalizeExecutorObservation(freezeKey, raw)).toEqual({
+      outcome: "return",
+      normalizedValue: "same-as-argument-0",
+    });
+    expect(() =>
+      normalizeExecutorObservation(
+        { ...freezeKey, alias: "__exactNotFreeze" },
+        raw,
+      ),
+    ).toThrow(/not bound to an exact native freeze route/);
+    expect(() =>
+      normalizeExecutorObservation(freezeKey, {
+        ...raw,
+        value: "expected-value-echo",
+      }),
+    ).toThrow(/not bound to an exact native freeze route/);
+  });
+
   test("routes and exactly validates the complete builtin-effects tranche", async () => {
     const { catalog, coverage, surfaces, target } =
       await repositorySweepFixture();
@@ -723,6 +1013,104 @@ describe("output-shape-sweep-v2 evidence contract", () => {
     });
   });
 
+  test("routes exact callback slots as explicit residual output probes", () => {
+    const outputKey = {
+      surfaceId: "surface.callback.signal.delivery.0000006",
+      output: "callback:process-listener/0",
+      alias: "signal-delivery",
+      mode: "all",
+      sourceKind: "callback",
+      returnVariant: "signal-name",
+      contextId: "javascript.package-callback-loaded",
+    };
+    const outputSourceRef =
+      "src/engine/bootstrap/stream-enhance.js#__exactDispatchPendingSignals";
+    const contract = {
+      direction: "native-to-javascript",
+      returnVariant: "signal-name",
+      role: "payload",
+      selector: "callback:process-listener/0",
+      sourceRefs: [outputSourceRef],
+      valueShape: "string",
+    };
+    const catalog = v2Catalog([
+      {
+        key: outputKey,
+        discovery: {
+          kind: "source-inventory-surface",
+          observedKeys: ["callback:signal-delivery"],
+          sourceRefs: [outputSourceRef],
+        },
+      },
+    ]);
+    const coverage = {
+      edges: [
+        {
+          id: outputKey.surfaceId,
+          surface: { kind: "callback", name: "signal-delivery" },
+        },
+      ],
+    };
+    const surfaces = [
+      {
+        kind: "callback",
+        name: "signal-delivery",
+        observedKey: "callback:signal-delivery",
+        sourceRefs: [
+          outputSourceRef,
+          "src/engine/hermes_runtime_crypto.cc#signalWatcherThreadMain",
+        ],
+        metadata: {
+          callbackOutputContractSchema: CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+          callbackOutputContracts: [contract],
+        },
+      },
+    ];
+    expect(
+      outputShapeProbeKindForCatalogRow(catalog.rows[0], surfaces[0]),
+    ).toBe("loaded-engine-descriptor");
+    const probe = buildOutputShapeSweepProbes({
+      catalog,
+      coverage,
+      surfaces,
+    })[0].probe;
+    expect(probe).toMatchObject({
+      kind: "loaded-engine-descriptor",
+      sourceDescriptor: {
+        kind: "callback-output",
+        surfaceName: "signal-delivery",
+        callbackOutputContractSchema: CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+        selectedOutput: contract,
+        sourceRefs: [outputSourceRef],
+        exercise: {
+          kind: "unexercisable",
+          reasonCode: "callback-output-has-no-bound-live-fixture",
+        },
+      },
+    });
+
+    const malformedSurfaces = structuredClone(surfaces);
+    malformedSurfaces[0].metadata.callbackOutputContracts[0].valueShape =
+      "no-arguments";
+    expect(() =>
+      buildOutputShapeSweepProbes({
+        catalog,
+        coverage,
+        surfaces: malformedSurfaces,
+      }),
+    ).toThrow(/callback output contract does not match catalog discovery/);
+
+    const missingSurfaces = structuredClone(surfaces);
+    missingSurfaces[0].metadata.callbackOutputContracts = [];
+    expect(() =>
+      buildOutputShapeSweepProbes({
+        catalog,
+        coverage,
+        surfaces: missingSurfaces,
+      }),
+    ).toThrow(/callback output contract selection is not exact/);
+  });
+
   test("does not substitute a callable descriptor for readFileSync output", () => {
     const outputKey = {
       surfaceId: "surface.builtin.node.fs.read.file.sync.0000006",
@@ -992,7 +1380,7 @@ describe("output-shape-sweep-v2 evidence contract", () => {
     const rows = definitions.map((definition) => ({
       key: {
         surfaceId: definition.id,
-        output: "[[return]]",
+        output: "[[value]]",
         alias: definition.name,
         mode: "all",
         sourceKind: "native-op",
@@ -1026,7 +1414,9 @@ describe("output-shape-sweep-v2 evidence contract", () => {
       observedKey: `native-op:${definition.name}`,
       sourceRefs: [`src/test.js#${definition.globalName}`],
       metadata: {
+        sourceKey: "shared_runtime",
         surfaceType: "global-api",
+        publicReadAccessSourceProven: false,
         valueShape: "accessor",
         globalName: definition.globalName,
         memberName: definition.memberName,

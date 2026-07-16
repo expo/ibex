@@ -11,6 +11,10 @@ mod global_callable_batch {
     include!("capsec_global_callable_batch.test.rs");
 }
 
+mod native_freeze_batch {
+    include!("capsec_native_freeze_output_batch.test.rs");
+}
+
 const EXECUTOR: &str = "ibex-public-surface-harness/output-shape-sweep-v2";
 const BATCH_SCHEMA: &str = "ibex/capsec-output-shape-executor-batch/2";
 const AUTHORED_BUILTIN_HARNESS: &str = include_str!("capsec_public_noncap_builtin_invocation.js");
@@ -2932,6 +2936,14 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         })
         .cloned()
         .collect::<Vec<_>>();
+    let native_freeze_rows = rows
+        .iter()
+        .filter(|row| {
+            row["probe"]["kind"] == "loaded-engine-return-record"
+                && native_freeze_batch::is_surface(row)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     let closed_control_rows = rows
         .iter()
         .filter(|row| {
@@ -2960,6 +2972,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         .chain(&authored_builtin_rows)
         .chain(&global_accessor_rows)
         .chain(&global_callable_rows)
+        .chain(&native_freeze_rows)
         .chain(&closed_control_rows)
         .chain(&builtin_noncap_closed_rows)
         .chain(&builtin_effects_rows)
@@ -2980,6 +2993,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
             + authored_builtin_rows.len()
             + global_accessor_rows.len()
             + global_callable_rows.len()
+            + native_freeze_rows.len()
             + closed_control_rows.len()
             + builtin_noncap_closed_rows.len()
             + builtin_effects_rows.len(),
@@ -3058,6 +3072,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
     let _reset = HostResetGuard;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
         .expect("create exact output-shape Hermes runtime");
+    let native_freeze_results = native_freeze_batch::results(&engine, &native_freeze_rows).await;
     let armed_resolver_results = immediate_structured_results(
         &engine,
         &armed_resolver_rows,
@@ -3347,6 +3362,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         .chain(authored_builtin_observations)
         .chain(global_accessor_observations)
         .chain(global_callable_observations)
+        .chain(native_freeze_results)
         .chain(closed_control_observations)
         .chain(builtin_noncap_closed_observations)
         .chain(builtin_effects_observations)

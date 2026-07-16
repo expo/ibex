@@ -14,8 +14,7 @@ import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
 
-const TARGET_ABSENCE_INVOCATION =
-  "ibex/capsec-target-absence-invocation/1";
+const TARGET_ABSENCE_INVOCATION = "ibex/capsec-target-absence-invocation/1";
 const NATIVE_GLOBAL_INVOCATION = "ibex/capsec-native-global-invocation/1";
 
 const taggedDigest = (value) =>
@@ -43,8 +42,14 @@ function exactStrings(actual, expected, label) {
 function validateCommonRecipe(recipe, edge, target, label) {
   const probe = recipe.publicSurfaceProbe;
   const invocation = probe.invocation;
-  requireCondition(recipe.status === "fully-executable", `${label}: not executable`);
-  requireCondition(recipe.scenario === "absent", `${label}: not an absent scenario`);
+  requireCondition(
+    recipe.status === "fully-executable",
+    `${label}: not executable`,
+  );
+  requireCondition(
+    recipe.scenario === "absent",
+    `${label}: not an absent scenario`,
+  );
   exactStrings(recipe.edgeIds, [edge.id], `${label}.edgeIds`);
   requireCondition(
     recipe.expectedObservation?.kind === "target-absence" &&
@@ -66,7 +71,9 @@ function validateCommonRecipe(recipe, edge, target, label) {
       invocation.expectedTypedStages.length === 0,
     `${label}: invocation does not prove a decision-free absent result`,
   );
-  const expectedSourceDescriptorDigest = taggedDigest(invocation.sourceDescriptor);
+  const expectedSourceDescriptorDigest = taggedDigest(
+    invocation.sourceDescriptor,
+  );
   requireCondition(
     typeof invocation.sourceDescriptorDigest === "string" &&
       invocation.sourceDescriptorDigest === expectedSourceDescriptorDigest,
@@ -111,6 +118,22 @@ function validateDedicatedTargetAbsence(invocation, edge, target, label) {
       ),
     `${label}: dedicated absence source binding is incomplete`,
   );
+  const publicOutputAccess = descriptor.sourceMetadata?.publicOutputAccess;
+  if (publicOutputAccess !== undefined) {
+    const probeMode = descriptor.probeMode;
+    const probedAlias =
+      probeMode?.kind === "runtime-global-property"
+        ? [probeMode.globalName, probeMode.memberName]
+            .filter((part) => part !== null && part !== undefined)
+            .join(".")
+        : null;
+    requireCondition(
+      edge.surface.kind === "native-op" &&
+        publicOutputAccess?.kind === "property-read" &&
+        publicOutputAccess.alias === probedAlias,
+      `${label}: public property-read output binding does not match the absence probe`,
+    );
+  }
 }
 
 function validateNativeGlobalAbsence(invocation, edge, label) {
@@ -147,7 +170,10 @@ export function authoredTargetAbsenceOutputBindings({
     Array.isArray(recipeCatalog?.recipes),
     "recipe catalog has no recipes",
   );
-  requireCondition(Array.isArray(coverage?.edges), "coverage registry has no edges");
+  requireCondition(
+    Array.isArray(coverage?.edges),
+    "coverage registry has no edges",
+  );
 
   const edges = new Map(coverage.edges.map((edge) => [edge.id, edge]));
   const catalogRows = new Map();
@@ -189,13 +215,26 @@ export function authoredTargetAbsenceOutputBindings({
       `${label}: expected exactly one output-catalog row, got ${matchingRows.length}`,
     );
     const row = matchingRows[0];
+    const propertyProbe =
+      invocation.invocationSchema === TARGET_ABSENCE_INVOCATION &&
+      edge.surface.kind === "native-op" &&
+      invocation.sourceDescriptor?.sourceMetadata?.publicOutputAccess?.kind ===
+        "property-read"
+        ? invocation.sourceDescriptor.probeMode
+        : null;
+    const expectedOutput = propertyProbe ? "[[value]]" : "[[return]]";
+    const expectedAlias = propertyProbe
+      ? [propertyProbe.globalName, propertyProbe.memberName]
+          .filter((part) => part !== null && part !== undefined)
+          .join(".")
+      : edge.surface.name;
     requireCondition(
-      row.key.output === "[[return]]" &&
-        row.key.alias === edge.surface.name &&
+      row.key.output === expectedOutput &&
+        row.key.alias === expectedAlias &&
         row.key.mode === "all" &&
         row.key.sourceKind === edge.surface.kind &&
         row.key.returnVariant === "default",
-      `${label}: output key does not name the exact surface return`,
+      `${label}: output key does not name the exact probed surface value`,
     );
     requireCondition(
       row.discovery?.kind === "source-inventory-surface" &&

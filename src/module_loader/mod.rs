@@ -14,7 +14,6 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::ffi::OsStr;
-#[cfg(unix)]
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;

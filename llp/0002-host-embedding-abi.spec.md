@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-14 (source-derived ABI output signatures, roles, selectors, buffer pairs, and ownership); 2026-07-14 (Hermes-safe Error metadata and poll-checkpoint Promise rejection publication complete asynchronous-failure ABI v1, including schedule-time job provenance and top-level-await de-duplication); 2026-07-14 (owner-thread structured asynchronous-failure publication ABI v1 with rooted values, authenticated schedule-time attribution, and explicit bounded loss); 2026-07-14 (structured-evaluation result ABI v2 adds owned, length-bearing source-position records while keeping unimplemented safe-throw/source-position capability bits off); 2026-07-13 (bounded any-thread work-unit publication ABI, including timer due/undue scheduling identities); 2026-07-13 (structured-session import plan v2 carries the authenticated entry SourceId used by the private module cache); 2026-07-13 (normative structured-evaluation result ABI v1, migration rules, and the lowered-session extension's versioned static-import plan); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-14 (named aggregate/member output schemas and direction-exact nested callback contracts close ABI output membership); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment); 2026-07-14 (source-derived ABI output signatures, roles, selectors, buffer pairs, ownership, Java/JNI declaration reconciliation, and opaque input-handle accounting); 2026-07-14 (Hermes-safe Error metadata and poll-checkpoint Promise rejection publication complete asynchronous-failure ABI v1, including schedule-time job provenance and top-level-await de-duplication); 2026-07-14 (owner-thread structured asynchronous-failure publication ABI v1 with rooted values, authenticated schedule-time attribution, and explicit bounded loss); 2026-07-14 (structured-evaluation result ABI v2 adds owned, length-bearing source-position records while keeping unimplemented safe-throw/source-position capability bits off); 2026-07-14 (source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (bounded any-thread work-unit publication ABI, including timer due/undue scheduling identities); 2026-07-13 (structured-session import plan v2 carries the authenticated entry SourceId used by the private module cache); 2026-07-13 (normative structured-evaluation result ABI v1, migration rules, and the lowered-session extension's versioned static-import plan); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -306,11 +306,59 @@ versioned and fail-closed but is not added to LLP 0000's narrow five-function
 consumer contract; promoting it to that semver-major list would require an LLP
 0000 amendment.
 
+### Restricted-worklet SharedValue access
+
+The optional UI-worklet embedding surface no longer exports or retains a raw
+pointer to Exact's SharedValue storage. The embedder installs
+`ExWorkletSharedValueReadCallback` and
+`ExWorkletSharedValueWriteCallback` with
+`ex_worklet_bind_shared_value_accessors`; every access carries the typed
+`(slot, generation, epoch)` identity and any nonzero host verdict is a defined
+stale/no-op `[observed]`
+(`include/exact_runtime.h`; `src/engine/hermes_runtime_worklet.cc`). The
+callbacks execute synchronously on the restricted runtime's owning UI thread;
+they must not enter the app runtime or block on another domain. This is an
+optional convenience surface, not part of the five-function semver-major
+contract above.
+
+### Restricted-worklet typed Motion ABI
+
+The optional M6 embedding surface admits one explicit artifact format:
+`EX_WORKLET_INSTALL_SOURCE_UTF8`. `ex_worklet_install_typed` evaluates a
+function expression with an install-time vector of finite f32/boolean captures
+or complete SharedValue identities and returns a stable content+capture hash;
+same-generation reinstallation reuses the resident function `[observed]`
+(`include/exact_runtime.h`; `src/engine/hermes_runtime_worklet.cc`). Unknown
+formats and capture kinds fail closed. The source decision belongs to Exact's
+LLP 0099/0297 contract; Ibex keeps the format discriminant explicit so adding
+HBC later is an additive, testable ABI choice rather than byte sniffing.
+
+`ex_worklet_invoke_typed` accepts at most 16 caller-owned f32 inputs and 16
+caller-owned output slots. Worklet code writes output with
+`worklet.output(index, value)` and can enqueue at most eight finite f32
+arguments with `worklet.runOnJS(callbackIdentity, ...args)`. The successful
+host path allocates no strings, JSON, or result container. Scheduled calls sit
+in a fixed 256-record ring; overflow drops the oldest record and increments the
+read-and-clear diagnostic counter. Each record carries stable source identity,
+per-source sequence, and runtime generation `[observed]` (same sources).
+
+The embedder drains those records into caller-owned storage, then calls
+`ex_hermes_dispatch_worklet_calls` only on the app runtime's owning thread.
+Compatibility JSON batches use `ex_hermes_dispatch_worklet_json_batch`. Both
+look for app-installed dispatcher functions and return the standard defined
+no-op result when absent. `ex_hermes_dispatch_motion_rated_publish` similarly
+forwards one fixed, finite eight-value sample to the app-installed rated
+publication dispatcher; pacing and lifecycle fencing remain embedder policy.
+These are optional convenience surfaces, not additions to the five-function
+semver-major contract.
+
+### Capability-security ABI inventory
+
 LLP 0021 adds a source-derived security inventory across the public ABI
 families: the Rust/native `ex_host_*` callbacks, the `ex_hermes_*` embedding
 surface, the `ex_worklet_*` surface, and the Android Java/JNI bridge. The
-current generator finds 141 `ex_host_*`, 65 `ex_hermes_*`, 10 `ex_worklet_*`,
-one `ex_android_*`, 39 Java, and 8 JNI surfaces (264 total). It groups source
+current generator finds 143 `ex_host_*`, 70 `ex_hermes_*`, 15 `ex_worklet_*`,
+one `ex_android_*`, 39 Java, and 8 JNI surfaces (276 total). It groups source
 definitions by target variant, including weak/default stubs, rather than
 maintaining a copied symbol list `[observed]`
 (`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`).
@@ -320,19 +368,29 @@ contract for every definition. A non-void return creates the real
 `[[return]]` output slot; a void return does not create a synthetic slot.
 Const pointers are borrowed inputs, scalar parameters are inputs, and mutable
 pointers remain unknown unless their signature or a strict `@abi-output`
-annotation proves an output/inout role and ownership. Buffer/length pairs,
-callback payloads, output selectors, and release functions are explicit. This
-produces 149 membership-complete output-bearing surface accounts, 25
-structural-only void/all-input accounts, and 90 unresolved accounts. The 149
-complete output-bearing accounts expand to 180 catalog selectors (143 returns,
-18 out parameters, and 19 callback payloads). Fifty-one unresolved accounts
-already have 57 known channels but also retain an ambiguous parameter or
-callback role that could hide another output slot, so those known channels do
-not make the account complete. The other 39 unresolved accounts have no proven
-slot. Thirty-five output-bearing accounts have membership-complete pointer
-slots whose ownership still blocks safe execution. Runtime observations of a
-pointer or aggregate value do not promote such a row while ownership remains
-unbound. Executor fixture
+annotation proves an output/inout role and ownership. Nominal runtime/file
+handles and callback-context pointers are borrowed inputs (destroy/free/close
+entries are callee-consuming inputs), while the Java declaration is the source
+of output membership and must agree with any bound JNI descriptor.
+Buffer/length pairs, callback payloads, output selectors, and release functions
+are explicit. Named C aggregate layouts expand only source-annotated members
+actually written by a definition; nested owned bytes, value handles, and source
+position arrays retain distinct member aliases and release/length metadata.
+The result init/dispose helpers expose only the direct members they clear and
+do not fabricate element payloads for the reset `positions` collection.
+Callback registrations bind their complete nested signatures, including the
+native-to-embedder payload direction and the embedder-to-native return/out
+direction. Only native-to-embedder payloads are catalog outputs. The deprecated
+raw-pointer watchdog registration remains structural because its implementation
+provably never invokes the callback.
+
+This produces 226 membership-complete output-bearing surface accounts and 50
+structural-only accounts, with no unresolved membership accounts. The 226
+output-bearing accounts expand to 417 catalog selectors (208 returns, 150 out
+members, and 59 callback payloads). Fifty-one output-bearing accounts have
+membership-complete pointer slots whose ownership still blocks safe execution.
+Runtime observations of a pointer or aggregate value do not promote such a row
+while ownership remains unbound. Executor fixture
 coverage is evidence for a selected row, never the authority for whether the
 row exists `[observed]` (`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`).
 Those rows are classification and fixture obligations, not a conformance claim;
@@ -372,6 +430,83 @@ generic bridge as unavailable rather than granting fallback authority
 `[observed]` (`src/engine/hermes_runtime.cc`;
 `packages/ibex-runtime-js/src/camera/index.ts`;
 `packages/ibex-runtime-js/src/core/accessibility.ts`).
+
+### The Exact embedder ingress
+
+Exact app and agent isolates use a dedicated binary channel rather than the
+diagnostic string bridge. The native host calls
+`ex_hermes_set_exact_host_call_async` once with an explicit context kind and a
+strictly increasing set of nonzero 32-bit operation IDs plus the tagged digest
+of Exact's operation manifest. In an armed runtime, the snapshot must carry an
+`exact/host-operation-endowments/1` binding and protect the manifest as the
+conditional `exact-operation-manifest` artifact. Ibex compares the manifest
+digest, context kind, and complete canonical ID set against that authenticated
+binding before storing native callback state, mutating JSI, or finalizing the
+package baseline. A generic armed snapshot without the binding, a mismatched
+digest, and narrowed or widened endowments all return `-8` before publication.
+The runtime then
+exposes only
+`exact.invokeHostAsync(operationId, ArrayBuffer | ArrayBufferView) ->
+Promise<Uint8Array>`.
+Operation names and JSON envelopes do not cross Ibex's boundary, and a JS
+caller cannot ask for an operation absent from its immutable endowment set.
+Ibex creates one stable lowercase `exact` object before the package baseline is
+captured. Successful installation defines `invokeHostAsync` as non-writable and
+non-configurable on that shared object and, when the compartment finalizer is
+still pending, completes that one-shot finalization in the same owner-thread
+setter call. The finalizer hook is then deleted, so package code cannot refresh
+or substitute the baseline. A failed refresh leaves no replaceable method.
+The setter rejects malformed or duplicate/reordered endowments and rejects any
+attempt to replace a successful installation `[observed]`
+(`capsec/schema/armed-snapshot.schema.json`; `include/exact_runtime.h`;
+`src/engine/hermes_runtime.cc`; `src/host/abi.rs`).
+Because installation creates and publishes JSI values, the setter is an
+owner-runtime-thread operation. An off-owner call returns `-7` before reading
+or mutating JSI or publishing any endowment `[observed]`
+(`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+The source inventory nevertheless classifies the JS invocation as closed
+`ipc:channel` until the native set and its app/agent context are authenticated
+by the armed artifact; the existence of a caller-selected allowlist is not
+conformance evidence.
+
+`ex_hermes_resolve_exact_host_call` is the only completion route for this
+channel. Its call IDs are runtime-generation-scoped, single-use capabilities;
+unknown, stale, replayed, and already-completed IDs are ignored. Completion
+copies binary bytes onto the runtime thread through the ordinary native-worker
+pin and callback queue. This route is valid for armed runtimes and does not
+make either generic `__hostCall` global reachable again.
+
+The channel is bounded to 1,024 pending calls and 16 MiB in either direction.
+The native callback runs inline on the runtime owner thread, borrows its input
+bytes only for that invocation, and must return promptly. Its callback and
+opaque context live until runtime destruction; the embedder cancels outstanding
+native work at destruction and never resolves using a destroyed runtime
+pointer. Malformed/oversized completions consume and reject the call rather
+than stranding its Promise.
+
+The context model is deliberately closed:
+
+- an **app** runtime receives the exact app operation-ID set authenticated by
+  its armed artifact (or selected by its explicitly diagnostic host);
+- an **agent** runtime receives the separately authenticated agent operation-ID
+  set;
+- a **UI worklet** cannot install this ingress at all. Its complete endowment
+  remains the typed SharedValue/Motion ABI described above.
+
+The native callback remains part of the trusted embedder. Exact owns the
+operation registry, payload schemas, and the narrower app/agent sets. Ibex now
+authenticates their opaque manifest digest and numeric projection; the normal
+Ibex-to-Exact packaging path must supply that protected binding before an Exact
+target may advertise. The
+existence of this ABI by itself is not target-conformance evidence and does not
+relax the unsupported-target refusal.
+
+These three new symbols (`ex_hermes_set_exact_host_call_async`, its resolver,
+and `ex_host_prepare_armed_embedder_artifacts`) are a public, provisional
+extension for the pinned Exact consumer, not an expansion of LLP 0000's five-
+function semver-major minimum. Until this Draft spec is accepted, a breaking
+change requires an atomic Ibex commit plus Exact submodule/consumer update; it
+must never silently preserve an older ambient bridge.
 
 ## The Rust host surface
 

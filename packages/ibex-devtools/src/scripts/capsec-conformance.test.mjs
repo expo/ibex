@@ -5,6 +5,7 @@ import {
   executionBindingDigest,
   fixtureExecutionPlan,
   fixtureCatalogForTarget,
+  selectCandidateTarget,
   validateConformanceReportSemantics,
 } from "./capsec-conformance.mjs";
 import crypto from "node:crypto";
@@ -104,6 +105,28 @@ const pass = {
 };
 
 describe("capsec target conformance", () => {
+  test("selects one declared target explicitly once the matrix has multiple candidates", () => {
+    const windowsTarget = {
+      triple: "x86_64-pc-windows-msvc",
+      features: ["native-lockdown"],
+    };
+    const rules = {
+      initialProfile: { candidateTargets: [target, windowsTarget] },
+    };
+    expect(selectCandidateTarget(rules, windowsTarget.triple)).toEqual(
+      windowsTarget,
+    );
+    expect(() => selectCandidateTarget(rules)).toThrow(/--target is required/);
+    expect(() => selectCandidateTarget(rules, "unknown-target")).toThrow(
+      /exactly one declared candidate/,
+    );
+    expect(
+      selectCandidateTarget({
+        initialProfile: { candidateTargets: [target] },
+      }),
+    ).toEqual(target);
+  });
+
   test("binds each fixture only to the selected branch that owns it", () => {
     const multiBranchImplementation = {
       surfaces: [

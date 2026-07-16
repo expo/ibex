@@ -59,6 +59,7 @@ import { EventSource } from "./eventsource";
 import { FileReader } from "./filereader";
 import { navigator } from "./navigator";
 import { localStorage, sessionStorage } from "./storage";
+import { captureAndroidStorageRoot, resolveNativeStorageRoot } from "./storage/native-root";
 import { CacheStorage } from "./cache";
 import { ClipboardItem } from "./clipboard";
 import { performance as perfInstance, PerformanceObserver, PerformanceEntry, PerformanceMark, PerformanceMeasure, setNativePerformanceModule } from "./performance";
@@ -165,25 +166,6 @@ let _fsModuleInitialized = false;
 
 const WEB_STORAGE_QUOTA_BYTES = 10 * 1024 * 1024;
 
-function trimTrailingSlash(path: string): string {
-  return path.replace(/\/+$/, '') || '/';
-}
-
-function getNativeStorageRoot(g: any): string {
-  const androidFilesDir = g.__exactAndroidStoragePaths?.filesDir;
-  if (typeof androidFilesDir === 'string' && androidFilesDir.length > 0) {
-    return trimTrailingSlash(androidFilesDir);
-  }
-
-  const env = g.process?.env;
-  const envFilesDir = env?.EXACT_ANDROID_FILES_DIR ?? env?.HOME;
-  if (typeof envFilesDir === 'string' && envFilesDir.length > 0) {
-    return trimTrailingSlash(envFilesDir);
-  }
-
-  return '/tmp';
-}
-
 function ensureStorageDirectory(g: any, directory: string): void {
   try {
     if (typeof g.__exactMkdir !== 'function' && typeof g.__exactEnsureFs === 'function') {
@@ -203,6 +185,18 @@ function installSQLiteStorageModule(g: any): boolean {
     return false;
   }
 
+  const storageRoot = resolveNativeStorageRoot(
+    g,
+    captureAndroidStorageRoot(g),
+  );
+  if (storageRoot === null) {
+    // Armed Android runtimes publish an empty native projection. Persistent
+    // Web Storage stays unavailable instead of falling through to raw seeded
+    // HOME/EXACT_ANDROID_FILES_DIR values or the host `/tmp` namespace.
+    // @ref LLP 0023#6-path-bearing-observables
+    return false;
+  }
+
   let db: Database | null = null;
 
   const ensureDb = (): Database => {
@@ -215,7 +209,7 @@ function installSQLiteStorageModule(g: any): boolean {
     }
 
     // @ref LLP 0008#android-backend-matrix — Android localStorage persists under app filesDir.
-    const directory = `${getNativeStorageRoot(g)}/.ibex`;
+    const directory = `${storageRoot}/.ibex`;
     ensureStorageDirectory(g, directory);
     db = new Database(`${directory}/web-storage.sqlite`, {
       create: true,

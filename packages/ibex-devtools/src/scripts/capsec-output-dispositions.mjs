@@ -17,11 +17,16 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import {
+  CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+  deriveHostAbiOutputCatalogAccount,
+} from "./capsec-surface-inventory.mjs";
 
 export const OUTPUT_DISPOSITIONS = Object.freeze([
   "absent",
   "closed",
   "non-path",
+  "private-native-path",
   "refused",
   "reserved-constant",
   "synthetic-source-id",
@@ -271,15 +276,213 @@ export function outputShapeCatalogKeyDigest(rows) {
 function sourceAssertion(repoRoot, assertion, label) {
   const filePath = path.join(repoRoot, assertion.path);
   const source = fs.readFileSync(filePath, "utf8");
+  let assertedSource = source;
+  let regionRef = "";
+  if (assertion.region) {
+    const start = source.indexOf(assertion.region.start);
+    const duplicateStart = source.indexOf(assertion.region.start, start + 1);
+    const end = source.indexOf(assertion.region.end, start);
+    if (start < 0 || duplicateStart >= 0 || end < start) {
+      throw new Error(
+        `${label}: ${assertion.path} lacks one exact asserted source region`,
+      );
+    }
+    assertedSource = source.slice(start, end + assertion.region.end.length);
+    regionRef = `#region:${assertion.region.start}..${assertion.region.end}`;
+  }
   for (const token of assertion.tokens) {
-    if (!source.includes(token)) {
+    if (!assertedSource.includes(token)) {
       throw new Error(
         `${label}: ${assertion.path} lacks token ${JSON.stringify(token)}`,
       );
     }
   }
-  return `${assertion.path}#tokens:${assertion.tokens.join("+")}`;
+  return `${assertion.path}${regionRef}#tokens:${assertion.tokens.join("+")}`;
 }
+
+// These inventory entries are implementation/control tokens rather than
+// values. Keep that decision source-pinned here: a spelling match by itself is
+// not enough to demote a newly value-bearing native surface to structural.
+// @ref LLP 0023#6-path-bearing-observables — total output accounting permits a
+// structural account only when the source proves that no value slot belongs to
+// the inventoried operation.
+const SOURCE_ASSERTED_STRUCTURAL_CONTRACTS = Object.freeze([
+  ...[
+    ["__exact", "'__exact'"],
+    ["__ibex", "'__ibex'"],
+  ].map(([surfaceName, prefixLiteral]) =>
+    Object.freeze({
+      surfaceName,
+      reasonCode: "reserved-native-prefix-literal",
+      assertions: [
+        {
+          path: "src/engine/hermes_runtime.cc",
+          region: {
+            start: "function startsWithRawPrefix(name, prefix)",
+            end: "return POWERFUL_SET[name] === true && !isEndowed(pkg, name);",
+          },
+          tokens: [
+            "function startsWithRawPrefix(name, prefix)",
+            `startsWithRawPrefix(name, ${prefixLiteral})`,
+            "Raw host primitives (__exact* / __ibex*) must never be reachable",
+          ],
+        },
+      ],
+    }),
+  ),
+  Object.freeze({
+    surfaceName: "__exactHttpWaitExecutor",
+    reasonCode: "promise-executor-control",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime_http.cc",
+        region: {
+          start: 'PropNameID::forAscii(runtime, "__exactHttpWaitExecutor")',
+          end: 'rt.global().setProperty(rt, "__exactHttpWait", std::move(httpWaitFn));',
+        },
+        tokens: [
+          'PropNameID::forAscii(runtime, "__exactHttpWaitExecutor")',
+          "struct WaitTask",
+          "static WaitWorkerPool* workerPool = new WaitWorkerPool();",
+          "return facebook::jsi::Value::undefined();",
+          "return promiseCtor.callAsConstructor(runtime, executor);",
+        ],
+      },
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "__exactHttpAwaitWritableExecutor",
+    reasonCode: "promise-executor-control",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime_http.cc",
+        region: {
+          start:
+            'PropNameID::forAscii(runtime, "__exactHttpAwaitWritableExecutor")',
+          end: 'rt.global().setProperty(rt, "__exactHttpAwaitWritable", std::move(httpAwaitWritableFn));',
+        },
+        tokens: [
+          'PropNameID::forAscii(runtime, "__exactHttpAwaitWritableExecutor")',
+          "struct WritableTask",
+          "static WritableWorkerPool* writablePool = new WritableWorkerPool();",
+          "return facebook::jsi::Value::undefined();",
+          "return promiseCtor.callAsConstructor(runtime, executor);",
+        ],
+      },
+    ],
+  }),
+  Object.freeze({
+    surfaceName:
+      "__exactGeneratedImportGrantKeys.[[dynamic-table:call-result-354b628423c4-properties]]",
+    reasonCode: "private-root-dynamic-descendant",
+    assertions: [
+      {
+        path: "src/engine/bootstrap/import-grant-keys.generated.js",
+        region: {
+          start: "(function installGeneratedImportGrantKeys(globalObject) {",
+          end: "})(globalThis);",
+        },
+        tokens: [
+          'Object.defineProperty(globalObject, "__exactGeneratedImportGrantKeys", {',
+          "value: Object.freeze(",
+          "enumerable: false",
+          "configurable: true",
+        ],
+      },
+      {
+        path: "src/engine/bootstrap/module-loader.js",
+        region: {
+          start:
+            "var __reservedImportGrantKeys = Array.isArray(g.__exactGeneratedImportGrantKeys)",
+          end: "try { delete g.__exactGeneratedImportGrantKeys; } catch (_generatedKeyCleanupError) {}",
+        },
+        tokens: [
+          "? g.__exactGeneratedImportGrantKeys",
+          ": Object.freeze([])",
+          "delete g.__exactGeneratedImportGrantKeys",
+        ],
+      },
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "global:localStorage.persistence",
+    reasonCode: "semantic-effect-marker-no-value-slot",
+    assertions: [
+      {
+        path: "src/engine/bootstrap/web-storage.js",
+        region: {
+          start: "function StorageImpl(persistent) {",
+          end: "globalThis.sessionStorage = new StorageImpl(false);",
+        },
+        tokens: [
+          "this._persistent = persistent",
+          "if (this._persistent) _save(this._data)",
+          "globalThis.localStorage = new StorageImpl(true)",
+          "globalThis.sessionStorage = new StorageImpl(false)",
+        ],
+      },
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "inspector.cdp-listener",
+    reasonCode: "inspector-listener-control-plane",
+    assertions: [
+      {
+        path: "src/bin/ibex/cdp/mod.rs",
+        region: {
+          start: "pub fn start_server(",
+          end: "let permit = match connection_slots.clone().try_acquire_owned() {",
+        },
+        tokens: [
+          "pub fn start_server(",
+          "socket.bind(&addr.into())",
+          "socket.listen(128)?",
+          "async fn run_server(",
+          "accept = listener.accept() =>",
+        ],
+      },
+    ],
+  }),
+  ...[
+    [
+      "inspector.debugger-pause",
+      "ex_hermes_debugger_pause",
+      "debugger.triggerAsyncPause(",
+      'extern "C" void ex_hermes_debugger_resume(',
+    ],
+    [
+      "inspector.debugger-remove-breakpoint",
+      "ex_hermes_debugger_remove_breakpoint",
+      "debugger.deleteBreakpoint(breakpoint_id);",
+      'extern "C" void ex_hermes_debugger_pause(',
+    ],
+    [
+      "inspector.debugger-resume",
+      "ex_hermes_debugger_resume",
+      "debugger->resumeFromPaused(cmd)",
+      'extern "C" char* ex_hermes_debugger_next_event(',
+    ],
+  ].map(([surfaceName, symbol, operationToken, nextSignature]) =>
+    Object.freeze({
+      surfaceName,
+      reasonCode: "debugger-void-control",
+      assertions: [
+        {
+          path: "src/engine/hermes_runtime_debugger.cc",
+          region: {
+            start: `extern "C" void ${symbol}(`,
+            end: nextSignature,
+          },
+          tokens: [`extern "C" void ${symbol}(`, operationToken],
+        },
+        {
+          path: "src/engine/hermes_runtime_platform_windows.cc",
+          tokens: [`extern "C" void ${symbol}(`],
+        },
+      ],
+    }),
+  ),
+]);
 
 function shape(
   output,
@@ -476,6 +679,40 @@ const VFS_HOST_ABI_NAMES = Object.freeze([
   "ex_host_vfs_unbind_runtime",
 ]);
 
+const LEGACY_HOST_PATH_OUTPUT_NAMES = Object.freeze([
+  "ex_host_fs_mkdir_recursive_result",
+  "ex_host_fs_mkdtemp",
+  "ex_host_fs_realpath",
+]);
+
+// These compatibility symbols return physical spellings only when the Host is
+// unarmed. Their armed behavior is a source-pinned EPERM refusal before lookup,
+// randomness, or mutation, so one all/default row would conflate incompatible
+// value classes.
+// @ref LLP 0023#6-path-bearing-observables
+export function legacyHostPathOutputShapes(surfaceName) {
+  if (!LEGACY_HOST_PATH_OUTPUT_NAMES.includes(surfaceName)) {
+    throw new Error(`unknown legacy Host path output ${surfaceName}`);
+  }
+  return [
+    shape("[[return]]", surfaceName, {
+      mode: "unarmed",
+      sourceKind: "host-abi",
+      returnVariant: "success",
+    }),
+    shape("[[return]]", surfaceName, {
+      mode: "unarmed",
+      sourceKind: "host-abi",
+      returnVariant: "error",
+    }),
+    shape("[[return]]", surfaceName, {
+      mode: "armed",
+      sourceKind: "host-abi",
+      returnVariant: "refused",
+    }),
+  ];
+}
+
 // @ref LLP 0023#6-path-bearing-observables — the VFS callbacks remain native
 // private, while their separately typed virtual outputs are cataloged so a
 // future JavaScript projection cannot silently inherit a backing path.
@@ -519,6 +756,23 @@ export function vfsHostAbiShapes(surfaceName) {
 // from an export descriptor alone. They intentionally contain no disposition
 // or expected value. Each recipe is asserted against the named source bytes;
 // the separately committed policy owns every classification decision.
+const TAMED_EVALUATOR_MARKER_ALIASES = Object.freeze([
+  "globalThis.Function.__ibexTamed",
+  "globalThis.eval.__ibexTamed",
+  "Object.getPrototypeOf(function*(){}).constructor.__ibexTamed",
+  "Object.getPrototypeOf(async function(){}).constructor.__ibexTamed",
+]);
+
+function sameAsArgumentZeroShapes(surfaceName) {
+  return ["primitive-sentinel", "object-sentinel"].map((mode) =>
+    shape("[[return]]", surfaceName, {
+      mode,
+      sourceKind: "native-op",
+      returnVariant: "same-as-argument-0",
+    }),
+  );
+}
+
 const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
   Object.freeze({
     surfaceName: "global:process.argv",
@@ -946,6 +1200,43 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
       shapes: vfsHostAbiShapes(surfaceName),
     }),
   ),
+  ...LEGACY_HOST_PATH_OUTPUT_NAMES.map((surfaceName) =>
+    Object.freeze({
+      surfaceName,
+      assertions: [
+        {
+          path: "src/host/abi.rs",
+          tokens: [
+            surfaceName,
+            "refuse_armed_legacy_path_output",
+            "set_fs_error_code(libc::EPERM)",
+          ],
+        },
+      ],
+      shapes: legacyHostPathOutputShapes(surfaceName),
+      replaceDefault: true,
+    }),
+  ),
+  Object.freeze({
+    surfaceName: "ex_host_fs_readdir",
+    assertions: [
+      {
+        path: "src/host/abi.rs",
+        tokens: [
+          "ex_host_fs_readdir",
+          "std::fs::read_dir",
+          "file_name().to_string_lossy().to_string()",
+          "serde_json::to_string(&names)",
+        ],
+      },
+    ],
+    shapes: [
+      shape("array-items", "ex_host_fs_readdir[]", {
+        sourceKind: "host-abi",
+        returnVariant: "success",
+      }),
+    ],
+  }),
   Object.freeze({
     surfaceName: "export:node_fs:readlink",
     assertions: [
@@ -1104,6 +1395,599 @@ const STRUCTURED_OUTPUT_RECIPES = Object.freeze([
     ],
     shapes: [shape("field:path", "WriteStream.path")],
   }),
+  // These globals are JavaScript receivers for native delivery. Their
+  // callback arguments cross into JavaScript and are output channels; each
+  // C++ call site discards the JavaScript callback's return value, so no
+  // `[[return]]` row belongs to the five delivery surfaces below.
+  Object.freeze({
+    surfaceName: "__exactDispatchEvent",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime_ios.cc",
+        region: {
+          start: 'extern "C" int ex_hermes_dispatch_event(',
+          end: "// =============================================================================",
+        },
+        tokens: [
+          'getProperty(rt, "__exactDispatchEvent")',
+          "parseJsonValue(rt, payload_json)",
+          "facebook::jsi::Value(static_cast<double>(handler_id))",
+          "std::move(payload)",
+          "return 0;",
+        ],
+      },
+    ],
+    shapes: [
+      shape("callback:dispatch/0", "__exactDispatchEvent.handlerId", {
+        mode: "json-payload",
+        sourceKind: "native-op",
+        returnVariant: "number",
+      }),
+      shape("callback:dispatch/1", "__exactDispatchEvent.payload", {
+        mode: "json-payload",
+        sourceKind: "native-op",
+        returnVariant: "json-value",
+      }),
+      shape("callback:dispatch/1", "__exactDispatchEvent.payload", {
+        mode: "empty-payload",
+        sourceKind: "native-op",
+        returnVariant: "undefined",
+      }),
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "__exactModuleEvent",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime_ios.cc",
+        region: {
+          start: "static int emit_module_event_impl(",
+          end: "// Emit a module event to JS (for native -> JS events)",
+        },
+        tokens: [
+          'getProperty(rt, "__exactModuleEvent")',
+          "facebook::jsi::String::createFromUtf8(rt, module_name)",
+          "facebook::jsi::String::createFromUtf8(rt, event_name)",
+          "facebook::jsi::Value(static_cast<double>(*node_id))",
+          'getPropertyAsFunction(rt, "Uint8Array")',
+          "std::move(payloadArray)",
+          "handler.call(rt, std::move(moduleStr), std::move(eventStr));",
+        ],
+      },
+      {
+        path: "src/engine/hermes_runtime_ios.cc",
+        region: {
+          start: 'extern "C" int ex_hermes_emit_module_event(',
+          end: 'extern "C" int ex_hermes_dispatch_event(',
+        },
+        tokens: [
+          'extern "C" int ex_hermes_emit_module_event(',
+          'extern "C" int ex_hermes_emit_module_view_event(',
+          "nullptr,",
+          "&node_id,",
+          "payload_len);",
+        ],
+      },
+    ],
+    shapes: [
+      ...["module-payload", "module-empty"].flatMap((mode) => [
+        shape("callback:module-event/0", "__exactModuleEvent.moduleName", {
+          mode,
+          sourceKind: "native-op",
+          returnVariant: "string",
+        }),
+        shape("callback:module-event/1", "__exactModuleEvent.eventName", {
+          mode,
+          sourceKind: "native-op",
+          returnVariant: "string",
+        }),
+        shape("callback:module-event/2", "__exactModuleEvent.payload", {
+          mode,
+          sourceKind: "native-op",
+          returnVariant:
+            mode === "module-payload" ? "uint8-array" : "absent",
+        }),
+      ]),
+      ...["view-payload", "view-empty"].flatMap((mode) => [
+        shape(
+          "callback:module-view-event/0",
+          "__exactModuleEvent.moduleName",
+          {
+            mode,
+            sourceKind: "native-op",
+            returnVariant: "string",
+          },
+        ),
+        shape(
+          "callback:module-view-event/1",
+          "__exactModuleEvent.eventName",
+          {
+            mode,
+            sourceKind: "native-op",
+            returnVariant: "string",
+          },
+        ),
+        shape("callback:module-view-event/2", "__exactModuleEvent.nodeId", {
+          mode,
+          sourceKind: "native-op",
+          returnVariant: "number",
+        }),
+        shape("callback:module-view-event/3", "__exactModuleEvent.payload", {
+          mode,
+          sourceKind: "native-op",
+          returnVariant: mode === "view-payload" ? "uint8-array" : "absent",
+        }),
+      ]),
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "__exactRunOnJS",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime_worklet.cc",
+        region: {
+          start: 'extern "C" int ex_hermes_dispatch_worklet_calls(',
+          end: 'extern "C" int ex_hermes_dispatch_worklet_json_batch(',
+        },
+        tokens: [
+          'getProperty(rt, "__exactRunOnJS")',
+          '"sourceIdentity"',
+          '"sourceSequence"',
+          '"generation"',
+          "Value(static_cast<double>(call.callback_identity))",
+          "Value(static_cast<double>(call.arguments[argument_index]))",
+          "(void)dispatcher.call(",
+          "(*out_delivered)++;",
+        ],
+      },
+      {
+        path: "src/engine/mod.rs",
+        tokens: [
+          "fn motion_worklet_typed_abi_captures_and_run_on_js_are_bounded()",
+          "globalThis.__exactRunOnJS=function(id,meta,a,b)",
+          "ex_hermes_dispatch_worklet_calls(",
+          "assert_eq!(delivered, 256)",
+          "__runOnJSSeen.length",
+        ],
+      },
+    ],
+    shapes: [
+      shape("callback:run-on-js/0", "__exactRunOnJS.callbackIdentity", {
+        mode: "bounded-batch",
+        sourceKind: "native-op",
+        returnVariant: "number",
+      }),
+      shape("callback:run-on-js/1", "__exactRunOnJS.metadata", {
+        mode: "bounded-batch",
+        sourceKind: "native-op",
+        returnVariant: "metadata-object",
+      }),
+      ...["sourceIdentity", "sourceSequence", "generation"].map((field) =>
+        shape(`callback:run-on-js/1.${field}`, `__exactRunOnJS.${field}`, {
+          mode: "bounded-batch",
+          sourceKind: "native-op",
+          returnVariant: "u64-decimal-string",
+        }),
+      ),
+      shape(
+        "callback:run-on-js/arguments[]",
+        "__exactRunOnJS.arguments[]",
+        {
+          mode: "bounded-batch",
+          sourceKind: "native-op",
+          returnVariant: "finite-number",
+        },
+      ),
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "__exactScheduleOnAppRuntime",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime_worklet.cc",
+        region: {
+          start: 'extern "C" int ex_hermes_dispatch_worklet_json_batch(',
+          end: 'extern "C" int ex_hermes_dispatch_motion_rated_publish(',
+        },
+        tokens: [
+          'getProperty(rt, "__exactScheduleOnAppRuntime")',
+          "parseJsonValue(rt, encoded.c_str())",
+          "(void)dispatcher.call(",
+          "rt, std::move(batch), static_cast<double>(generation)",
+          "return EX_WORKLET_OK;",
+        ],
+      },
+      {
+        path: "src/engine/mod.rs",
+        tokens: [
+          "fn schedule_on_app_runtime_json_dispatches_on_app_runtime()",
+          "globalThis.__exactScheduleOnAppRuntime=function(batch,generation)",
+          "ex_hermes_dispatch_worklet_json_batch(",
+          "JSON.stringify(__scheduled)",
+          "refreshBadge",
+        ],
+      },
+    ],
+    shapes: [
+      shape(
+        "callback:schedule-on-app-runtime/0",
+        "__exactScheduleOnAppRuntime.batch",
+        {
+          mode: "json-batch",
+          sourceKind: "native-op",
+          returnVariant: "array",
+        },
+      ),
+      shape(
+        "callback:schedule-on-app-runtime/0[].name",
+        "__exactScheduleOnAppRuntime.batch[].name",
+        {
+          mode: "json-batch",
+          sourceKind: "native-op",
+          returnVariant: "string",
+        },
+      ),
+      shape(
+        "callback:schedule-on-app-runtime/0[].args",
+        "__exactScheduleOnAppRuntime.batch[].args",
+        {
+          mode: "json-batch",
+          sourceKind: "native-op",
+          returnVariant: "json-value",
+        },
+      ),
+      shape(
+        "callback:schedule-on-app-runtime/1",
+        "__exactScheduleOnAppRuntime.generation",
+        {
+          mode: "json-batch",
+          sourceKind: "native-op",
+          returnVariant: "number",
+        },
+      ),
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "__exactMotionRatedPublish",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime_worklet.cc",
+        tokens: [
+          'extern "C" int ex_hermes_dispatch_motion_rated_publish(',
+          'getProperty(rt, "__exactMotionRatedPublish")',
+          "values.setValueAtIndex(",
+          '"dirtyGeneration"',
+          '"sampleTimeNs"',
+          'metadata.setProperty(rt, "heartbeat"',
+          'metadata.setProperty(rt, "programmatic"',
+          "std::to_string(sample->channel_identity)",
+          "std::move(values)",
+          "std::move(metadata)",
+          "(void)dispatcher.call(",
+        ],
+      },
+      {
+        path: "src/engine/mod.rs",
+        tokens: [
+          "fn motion_rated_publish_dispatches_fixed_sample_on_app_runtime()",
+          "globalThis.__exactMotionRatedPublish=function(id,values,metadata)",
+          "ex_hermes_dispatch_motion_rated_publish(app, &sample)",
+          "JSON.stringify(__rated)",
+          "dirtyGeneration",
+          "sampleTimeNs",
+        ],
+      },
+    ],
+    shapes: [
+      shape(
+        "callback:motion-rated-publish/0",
+        "__exactMotionRatedPublish.channelIdentity",
+        {
+          mode: "fixed-sample",
+          sourceKind: "native-op",
+          returnVariant: "u64-decimal-string",
+        },
+      ),
+      shape(
+        "callback:motion-rated-publish/1",
+        "__exactMotionRatedPublish.values",
+        {
+          mode: "fixed-sample",
+          sourceKind: "native-op",
+          returnVariant: "array",
+        },
+      ),
+      shape(
+        "callback:motion-rated-publish/1[]",
+        "__exactMotionRatedPublish.values[]",
+        {
+          mode: "fixed-sample",
+          sourceKind: "native-op",
+          returnVariant: "finite-number",
+        },
+      ),
+      shape(
+        "callback:motion-rated-publish/2",
+        "__exactMotionRatedPublish.metadata",
+        {
+          mode: "fixed-sample",
+          sourceKind: "native-op",
+          returnVariant: "metadata-object",
+        },
+      ),
+      ...["dirtyGeneration", "sampleTimeNs"].map((field) =>
+        shape(
+          `callback:motion-rated-publish/2.${field}`,
+          `__exactMotionRatedPublish.${field}`,
+          {
+            mode: "fixed-sample",
+            sourceKind: "native-op",
+            returnVariant: "u64-decimal-string",
+          },
+        ),
+      ),
+      ...["heartbeat", "programmatic"].map((field) =>
+        shape(
+          `callback:motion-rated-publish/2.${field}`,
+          `__exactMotionRatedPublish.${field}`,
+          {
+            mode: "fixed-sample",
+            sourceKind: "native-op",
+            returnVariant: "boolean",
+          },
+        ),
+      ),
+    ],
+  }),
+  // The ephemeral test observer is the converse case: its zero-argument call
+  // returns a source-authored context record, then rejects every second call.
+  Object.freeze({
+    surfaceName: "__ibexCapsecContextObserver_",
+    contextId: "javascript.package-call-loaded",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime.cc",
+        region: {
+          start:
+            'extern "C" int ibex_test_install_capsec_context_observer(',
+          end: "#endif",
+        },
+        tokens: [
+          'constexpr const char* kPrefix = "__ibexCapsecContextObserver_"',
+          "runtime->armed",
+          "runtime->restricted",
+          "CapSec context observer takes no arguments",
+          "CapSec context observer is single-use",
+          '"principalId"',
+          '"runtimeNonce"',
+          '"u64:" + std::to_string(currentPrincipalId())',
+          '"u64:" + std::to_string(runtime->runtime_nonce)',
+          "return context;",
+        ],
+      },
+      {
+        path: "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs",
+        tokens: [
+          "install_capsec_context_test_observer()",
+          "var observer = globalThis",
+          "var removed = delete globalThis",
+          "typeof observer !== 'function'",
+          "context: observer()",
+        ],
+      },
+    ],
+    shapes: [
+      shape("[[return]]", "__ibexCapsecContextObserver_.context", {
+        mode: "ephemeral-one-shot",
+        sourceKind: "native-op",
+        returnVariant: "context-record",
+      }),
+      shape("field:principalId", "__ibexCapsecContextObserver_.principalId", {
+        mode: "ephemeral-one-shot",
+        sourceKind: "native-op",
+        returnVariant: "u64-tagged-string",
+      }),
+      shape("field:runtimeNonce", "__ibexCapsecContextObserver_.runtimeNonce", {
+        mode: "ephemeral-one-shot",
+        sourceKind: "native-op",
+        returnVariant: "u64-tagged-string",
+      }),
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "__exactCancel",
+    contextId: "javascript.package-call-loaded",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime_fetch.cc",
+        region: {
+          start: 'PropNameID::forAscii(runtime, "__exactCancel")',
+          end: 'promise.setProperty(runtime, "__exactCancel", std::move(cancelFn));',
+        },
+        tokens: [
+          'PropNameID::forAscii(runtime, "__exactCancel")',
+          "native_fetch_cancel(requestId, handle->runtime_nonce);",
+          "return facebook::jsi::Value::undefined();",
+          'promise.setProperty(runtime, "__exactCancel", std::move(cancelFn));',
+        ],
+      },
+      {
+        path: "packages/ibex-runtime-js/src/fetch/fetch.ts",
+        tokens: [
+          "type CancelableNativeResponsePromise",
+          "__exactCancel?: () => void;",
+          "typeof nativeFetchPromise.__exactCancel === 'function'",
+          "cancelRequest = nativeCancel;",
+        ],
+      },
+    ],
+    shapes: [
+      shape("[[return]]", "nativeFetchPromise.__exactCancel", {
+        sourceKind: "native-op",
+        returnVariant: "undefined",
+      }),
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "__exactNativeFreeze",
+    contextId: "runtime.bootstrap-native-call-loaded",
+    assertions: [
+      {
+        path: "patches/hermes/0005-native-compartment-refinements.patch",
+        region: {
+          start:
+            "CallResult<HermesValue> exactNativeFreeze(void *, Runtime &runtime)",
+          end: "return args.getArg(0);",
+        },
+        tokens: [
+          "Handle<JSObject> obj = args.dyncastArg<JSObject>(0);",
+          "JSObject::freeze(obj, runtime)",
+          "return args.getArg(0);",
+        ],
+      },
+      {
+        path: "patches/hermes/0005-native-compartment-refinements.patch",
+        region: {
+          start: 'runtime, createASCIIRef("__exactNativeFreeze")',
+          end: "exactNativeFreeze,",
+        },
+        tokens: [
+          'runtime, createASCIIRef("__exactNativeFreeze")',
+          "exactNativeFreeze,",
+        ],
+      },
+    ],
+    shapes: sameAsArgumentZeroShapes("__exactNativeFreeze"),
+  }),
+  Object.freeze({
+    surfaceName: "__exactDeepFreeze",
+    contextId: "runtime.bootstrap-native-call-loaded",
+    assertions: [
+      {
+        path: "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch",
+        region: {
+          start:
+            "CallResult<HermesValue> exactDeepFreeze(void *, Runtime &runtime)",
+          end: "return args.getArg(0);",
+        },
+        tokens: [
+          "Handle<JSObject> obj = args.dyncastArg<JSObject>(0);",
+          "exactDeepFreezeGraph(runtime, obj)",
+          "return args.getArg(0);",
+        ],
+      },
+      {
+        path: "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch",
+        region: {
+          start: 'runtime, createASCIIRef("__exactDeepFreeze")',
+          end: "exactDeepFreeze,",
+        },
+        tokens: [
+          'runtime, createASCIIRef("__exactDeepFreeze")',
+          "exactDeepFreeze,",
+        ],
+      },
+    ],
+    shapes: sameAsArgumentZeroShapes("__exactDeepFreeze"),
+  }),
+  Object.freeze({
+    surfaceName: "__exactSetCompartmentFor",
+    contextId: "runtime.bootstrap-native-call-loaded",
+    assertions: [
+      {
+        path: "patches/hermes/0004-native-compartment-globals.patch",
+        tokens: [
+          "CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime)",
+          "domain->setCompartmentGlobal(runtime, obj);",
+          "return HermesValue::encodeUndefinedValue();",
+          'createASCIIRef("__exactSetCompartmentFor")',
+        ],
+      },
+      {
+        path: "src/engine/bootstrap/module-loader.js",
+        tokens: [
+          "var __privSetCompartmentFor",
+          "g.__exactSetCompartmentFor",
+          "the loader is its only caller",
+          "__privSetCompartmentFor(fn, compartment);",
+        ],
+      },
+      {
+        path: "src/engine/hermes_runtime.cc",
+        tokens: [
+          "'__exactCheckImport', '__exactSetCompartmentFor'",
+          "delete g[hatches[j]]",
+        ],
+      },
+    ],
+    shapes: [
+      shape("[[return]]", "__privSetCompartmentFor", {
+        sourceKind: "native-op",
+        returnVariant: "undefined",
+      }),
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "__ibexLockedDown",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime.cc",
+        region: {
+          start: "// @ref LLP 0013#mechanism-1 — Lockdown.",
+          end: 'handle->runtime->evaluateJavaScript(buffer, "<lockdown>");',
+        },
+        tokens: [
+          "if (handle->structural_lockdown) {",
+          "if (g.__ibexLockedDown) return;",
+          "defineProp(g, '__ibexLockedDown', { value: true",
+        ],
+      },
+    ],
+    shapes: [
+      shape("[[value]]", "globalThis.__ibexLockedDown", {
+        mode: "lockdown",
+        sourceKind: "native-op",
+        returnVariant: "true",
+      }),
+      shape("[[value]]", "globalThis.__ibexLockedDown", {
+        mode: "no-lockdown",
+        sourceKind: "native-op",
+        returnVariant: "absent",
+      }),
+    ],
+  }),
+  Object.freeze({
+    surfaceName: "__ibexTamed",
+    assertions: [
+      {
+        path: "src/engine/hermes_runtime.cc",
+        region: {
+          start: "// @ref LLP 0013#mechanism-1 — Lockdown.",
+          end: 'handle->runtime->evaluateJavaScript(buffer, "<lockdown>");',
+        },
+        tokens: [
+          "if (handle->structural_lockdown) {",
+          "tamedEvaluator.__ibexTamed = true;",
+          "var tamedFunction = tameCtor(Function.prototype, 'Function');",
+          "tameCtor(getProto(function*(){}), 'GeneratorFunction')",
+          "tameCtor(getProto(async function(){}), 'AsyncFunction')",
+          "var tamedEval = makeTamed('eval');",
+        ],
+      },
+    ],
+    shapes: TAMED_EVALUATOR_MARKER_ALIASES.flatMap((alias) => [
+      shape("[[value]]", alias, {
+        mode: "lockdown",
+        sourceKind: "native-op",
+        returnVariant: "true",
+      }),
+      shape("[[value]]", alias, {
+        mode: "no-lockdown",
+        sourceKind: "native-op",
+        returnVariant: "absent",
+      }),
+    ]),
+  }),
   Object.freeze({
     surfaceName: "global:Exact.file",
     assertions: [
@@ -1169,6 +2053,12 @@ function sourceSurfaceMap(surfaces) {
   return byObservedKey;
 }
 
+const SHARED_RUNTIME_GLOBAL_VALUE_SHAPES = new Set([
+  "accessor",
+  "callable",
+  "data",
+]);
+
 function genericOutputContract(surface) {
   const metadata = surface.metadata ?? {};
   if (surface.kind === "builtin" && metadata.importReachability === "public") {
@@ -1192,6 +2082,45 @@ function genericOutputContract(surface) {
     metadata.surfaceType === "global-api" &&
     metadata.publicReadAccessSourceProven === true
   ) {
+    const publicOutputAccess = metadata.publicOutputAccess;
+    let alias;
+    if (publicOutputAccess !== undefined) {
+      exactKeys(
+        publicOutputAccess,
+        ["alias", "kind"],
+        `${surface.observedKey}.publicOutputAccess`,
+      );
+      const expectedAlias =
+        metadata.memberName === null || metadata.memberName === undefined
+          ? metadata.globalName
+          : `${metadata.globalName}.${metadata.memberName}`;
+      if (
+        publicOutputAccess.kind !== "property-read" ||
+        publicOutputAccess.alias !== expectedAlias ||
+        metadata.exportName !== expectedAlias ||
+        metadata.valueShape === "callable"
+      ) {
+        throw new Error(
+          `${surface.observedKey}: malformed source-bound public output access`,
+        );
+      }
+      alias = publicOutputAccess.alias;
+    }
+    return metadata.valueShape === "callable"
+      ? { output: "[[return]]", outputKind: "public-invocation" }
+      : {
+          output: "[[value]]",
+          outputKind: "public-property-read",
+          ...(alias === undefined ? {} : { alias }),
+        };
+  }
+  if (
+    surface.kind === "native-op" &&
+    metadata.surfaceType === "global-api" &&
+    metadata.sourceKey === "shared_runtime" &&
+    metadata.publicReadAccessSourceProven !== true &&
+    SHARED_RUNTIME_GLOBAL_VALUE_SHAPES.has(metadata.valueShape)
+  ) {
     return metadata.valueShape === "callable"
       ? { output: "[[return]]", outputKind: "public-invocation" }
       : { output: "[[value]]", outputKind: "public-property-read" };
@@ -1199,8 +2128,102 @@ function genericOutputContract(surface) {
   return null;
 }
 
-function structuralReasonCode(surface) {
+const CALLBACK_OUTPUT_DIRECTIONS = new Set([
+  "javascript-to-native",
+  "native-to-javascript",
+]);
+const CALLBACK_OUTPUT_ROLES = new Set(["error", "payload", "return"]);
+const CALLBACK_OUTPUT_VALUE_SHAPES = new Set([
+  "array-buffer",
+  "boolean",
+  "bytes",
+  "error",
+  "float32x4",
+  "json-string",
+  "json-value",
+  "null",
+  "number",
+  "object",
+  "string",
+  "uint8-array",
+  "undefined",
+]);
+
+function callbackOutputContracts(surface) {
   const metadata = surface.metadata ?? {};
+  const schema = metadata.callbackOutputContractSchema;
+  const contracts = metadata.callbackOutputContracts;
+  if (schema === undefined && contracts === undefined) return [];
+  if (
+    surface.kind !== "callback" ||
+    schema !== CALLBACK_OUTPUT_CONTRACT_SCHEMA ||
+    !Array.isArray(contracts) ||
+    contracts.length === 0
+  ) {
+    throw new Error(
+      `${surface.observedKey}: malformed callback output contract metadata`,
+    );
+  }
+  const sourceEvidence = new Set(surface.sourceRefs ?? []);
+  const keys = new Set();
+  return contracts.map((contract, index) => {
+    const label = `${surface.observedKey}.callbackOutputContracts[${index}]`;
+    exactKeys(
+      contract,
+      [
+        "direction",
+        "returnVariant",
+        "role",
+        "selector",
+        "sourceRefs",
+        "valueShape",
+      ],
+      label,
+    );
+    if (
+      typeof contract.selector !== "string" ||
+      !/^callback:[A-Za-z_$][A-Za-z0-9_$-]*\/(?:[0-9]+|return)$/u.test(
+        contract.selector,
+      ) ||
+      typeof contract.returnVariant !== "string" ||
+      !/^[a-z][a-z0-9-]*$/u.test(contract.returnVariant) ||
+      !CALLBACK_OUTPUT_DIRECTIONS.has(contract.direction) ||
+      !CALLBACK_OUTPUT_ROLES.has(contract.role) ||
+      !CALLBACK_OUTPUT_VALUE_SHAPES.has(contract.valueShape) ||
+      !Array.isArray(contract.sourceRefs) ||
+      contract.sourceRefs.length === 0 ||
+      contract.sourceRefs.some(
+        (sourceRef) =>
+          typeof sourceRef !== "string" ||
+          sourceRef.length === 0 ||
+          !sourceEvidence.has(sourceRef),
+      ) ||
+      canonicalJson(contract.sourceRefs) !==
+        canonicalJson([...new Set(contract.sourceRefs)].sort(compareText))
+    ) {
+      throw new Error(`${label}: malformed callback output contract`);
+    }
+    const key = `${contract.selector}\0${contract.returnVariant}`;
+    if (keys.has(key)) {
+      throw new Error(
+        `${surface.observedKey}: duplicate callback output ${contract.selector}:${contract.returnVariant}`,
+      );
+    }
+    keys.add(key);
+    return structuredClone(contract);
+  });
+}
+
+function structuralReasonCode(surface, sourceAssertedContract) {
+  const metadata = surface.metadata ?? {};
+  if (sourceAssertedContract) {
+    if (surface.kind !== "native-op") {
+      throw new Error(
+        `${surface.observedKey}: source-asserted native structural contract has the wrong surface kind`,
+      );
+    }
+    return sourceAssertedContract.reasonCode;
+  }
   if (
     surface.kind === "builtin" &&
     metadata.importReachability === "bootstrap-internal"
@@ -1215,6 +2238,18 @@ function structuralReasonCode(surface) {
     metadata.surfaceType === "native-network-backend"
   ) {
     return "native-network-backend";
+  }
+  if (
+    surface.kind === "callback" &&
+    metadata.evidenceType === "push-runtime-callback-producer"
+  ) {
+    return "callback-producer-provenance";
+  }
+  if (
+    surface.kind === "callback" &&
+    metadata.callbackOutputBoundary === "none"
+  ) {
+    return "callback-control-plane";
   }
   return null;
 }
@@ -1232,23 +2267,64 @@ function unresolvedReasonCode(surface) {
   return "output-contract-missing";
 }
 
-function surfaceAccount({ edge, surface, implementation, recipeSurfaceIds }) {
+function surfaceAccount({
+  edge,
+  surface,
+  implementation,
+  recipeSurfaceIds,
+  sourceAssertedStructuralContract,
+}) {
+  if (surface.kind === "host-abi") {
+    const signatureAccount = deriveHostAbiOutputCatalogAccount(surface);
+    const membershipComplete =
+      signatureAccount.status === "output-bearing" &&
+      signatureAccount.membershipUnresolved.length === 0;
+    const signatureRefs = (surface.metadata?.outputContracts ?? []).map(
+      (contract) => contract.sourceRef,
+    );
+    const sourceRefs = [
+      ...new Set(signatureRefs.length > 0 ? signatureRefs : surface.sourceRefs),
+    ].sort(compareText);
+    if (sourceRefs.length === 0) {
+      throw new Error(
+        `output catalog account ${edge.id} has no host ABI signature evidence`,
+      );
+    }
+    return {
+      surfaceId: edge.id,
+      status: signatureAccount.status,
+      reasonCode: signatureAccount.reasonCode,
+      sourceRefs,
+      outputKinds: membershipComplete
+        ? signatureAccount.outputChannels.map((channel) => channel.selector)
+        : [],
+    };
+  }
+  const callbackContracts = callbackOutputContracts(surface);
   const generic = genericOutputContract(surface);
   const structured = recipeSurfaceIds.has(edge.id);
   const outputKinds = [
+    ...callbackContracts.map((contract) => `callback-${contract.role}`),
     ...(generic ? [generic.outputKind] : []),
     ...(structured ? ["structured-output"] : []),
-  ].sort(compareText);
+  ];
+  const canonicalOutputKinds = [...new Set(outputKinds)].sort(compareText);
   const structuralReason =
-    generic || structured ? null : structuralReasonCode(surface);
+    callbackContracts.length > 0 || generic || structured
+      ? null
+      : structuralReasonCode(surface, sourceAssertedStructuralContract);
   const status =
-    generic || structured
+    callbackContracts.length > 0 || generic || structured
       ? "output-bearing"
       : structuralReason
         ? "structural-only"
         : "unresolved";
   const sourceRefs = [
-    ...new Set([...(surface.sourceRefs ?? []), ...implementation.sourceRefs]),
+    ...new Set([
+      ...(surface.sourceRefs ?? []),
+      ...implementation.sourceRefs,
+      ...(sourceAssertedStructuralContract?.sourceRefs ?? []),
+    ]),
   ].sort(compareText);
   if (sourceRefs.length === 0) {
     throw new Error(`output catalog account ${edge.id} has no source evidence`);
@@ -1258,14 +2334,16 @@ function surfaceAccount({ edge, surface, implementation, recipeSurfaceIds }) {
     status,
     reasonCode:
       status === "output-bearing"
-        ? structured && !generic
-          ? "source-asserted-structured-output"
-          : "source-derived-public-output"
+        ? callbackContracts.length > 0
+          ? "source-derived-callback-output"
+          : structured && !generic
+            ? "source-asserted-structured-output"
+            : "source-derived-public-output"
         : status === "structural-only"
           ? structuralReason
           : unresolvedReasonCode(surface),
     sourceRefs,
-    outputKinds,
+    outputKinds: canonicalOutputKinds,
   };
 }
 
@@ -1417,6 +2495,40 @@ export function buildOutputShapeCatalog({
   }
   const implementationByEdge = implementationEvidenceByEdge(implementationRows);
   const sourcesByObservedKey = sourceSurfaceMap(surfaces);
+  const sourceAssertedStructuralContracts = new Map();
+  for (const [
+    contractIndex,
+    contract,
+  ] of SOURCE_ASSERTED_STRUCTURAL_CONTRACTS.entries()) {
+    const edges = edgeByName.get(contract.surfaceName) ?? [];
+    if (edges.length !== 1) {
+      throw new Error(
+        `source-asserted structural contract ${contractIndex}: expected one ${contract.surfaceName} surface, got ${edges.length}`,
+      );
+    }
+    const edge = edges[0];
+    const sourceSurface = sourcesByObservedKey.get(
+      `${edge.surface.kind}:${edge.surface.name}`,
+    );
+    if (!sourceSurface || sourceSurface.kind !== "native-op") {
+      throw new Error(
+        `source-asserted structural contract ${contractIndex}: missing native-op source surface ${contract.surfaceName}`,
+      );
+    }
+    const sourceRefs = contract.assertions
+      .map((assertion, assertionIndex) =>
+        sourceAssertion(
+          repoRoot,
+          assertion,
+          `source-asserted structural contract ${contractIndex} assertion ${assertionIndex}`,
+        ),
+      )
+      .sort(compareText);
+    sourceAssertedStructuralContracts.set(edge.id, {
+      reasonCode: contract.reasonCode,
+      sourceRefs,
+    });
+  }
   const replacementIds = new Set();
   const recipeSurfaceIds = new Set();
   const recipeRows = [];
@@ -1459,7 +2571,9 @@ export function buildOutputShapeCatalog({
       recipeRows.push({
         key: {
           ...partialKey,
-          contextId: defaultContextIdForCatalogRow(partialKey, sourceSurface),
+          contextId:
+            recipe.contextId ??
+            defaultContextIdForCatalogRow(partialKey, sourceSurface),
         },
         discovery: {
           kind: "source-asserted-structured-output",
@@ -1470,41 +2584,93 @@ export function buildOutputShapeCatalog({
     }
   }
 
-  const baselineRows = coverage.edges
-    .filter((edge) => {
-      const sourceSurface = sourcesByObservedKey.get(
-        `${edge.surface.kind}:${edge.surface.name}`,
+  const baselineRows = coverage.edges.flatMap((edge) => {
+    const sourceSurface = sourcesByObservedKey.get(
+      `${edge.surface.kind}:${edge.surface.name}`,
+    );
+    if (!sourceSurface) {
+      throw new Error(
+        `output catalog surface ${edge.id} lacks source inventory metadata`,
       );
-      if (!sourceSurface) {
-        throw new Error(
-          `output catalog surface ${edge.id} lacks source inventory metadata`,
-        );
+    }
+    const implementation = implementationByEdge.get(edge.id);
+    if (!implementation) {
+      throw new Error(
+        `output catalog surface ${edge.id} lacks source inventory evidence`,
+      );
+    }
+
+    if (sourceSurface.kind === "host-abi") {
+      if (replacementIds.has(edge.id)) return [];
+      const signatureAccount = deriveHostAbiOutputCatalogAccount(sourceSurface);
+      if (
+        signatureAccount.status !== "output-bearing" ||
+        signatureAccount.membershipUnresolved.length > 0
+      ) {
+        return [];
       }
-      return (
-        genericOutputContract(sourceSurface) !== null &&
-        !replacementIds.has(edge.id)
-      );
-    })
-    .map((edge) => {
-      const implementation = implementationByEdge.get(edge.id);
-      if (!implementation) {
-        throw new Error(
-          `output catalog surface ${edge.id} lacks source inventory evidence`,
-        );
-      }
-      const sourceSurface = sourcesByObservedKey.get(
-        `${edge.surface.kind}:${edge.surface.name}`,
-      );
-      const outputContract = genericOutputContract(sourceSurface);
-      const partialKey = {
-        surfaceId: edge.id,
-        output: outputContract.output,
-        alias: edge.surface.name,
-        mode: "all",
-        sourceKind: edge.surface.kind,
-        returnVariant: "default",
-      };
-      return {
+      return signatureAccount.outputChannels.map((channel) => {
+        const partialKey = {
+          surfaceId: edge.id,
+          output: channel.selector,
+          alias: edge.surface.name,
+          mode: "all",
+          sourceKind: "host-abi",
+          returnVariant: "default",
+        };
+        return {
+          key: {
+            ...partialKey,
+            contextId: defaultContextIdForCatalogRow(partialKey, sourceSurface),
+          },
+          discovery: {
+            kind: "source-inventory-surface",
+            observedKeys: [sourceSurface.observedKey],
+            sourceRefs: [...channel.sourceRefs],
+          },
+          requiredValueProof: "live-value-observation",
+        };
+      });
+    }
+
+    const callbackContracts = callbackOutputContracts(sourceSurface);
+    if (callbackContracts.length > 0) {
+      return callbackContracts.map((contract) => {
+        const partialKey = {
+          surfaceId: edge.id,
+          output: contract.selector,
+          alias: edge.surface.name,
+          mode: "all",
+          sourceKind: "callback",
+          returnVariant: contract.returnVariant,
+        };
+        return {
+          key: {
+            ...partialKey,
+            contextId: defaultContextIdForCatalogRow(partialKey, sourceSurface),
+          },
+          discovery: {
+            kind: "source-inventory-surface",
+            observedKeys: [...implementation.observedKeys].sort(compareText),
+            sourceRefs: [...contract.sourceRefs],
+          },
+          requiredValueProof: "live-value-observation",
+        };
+      });
+    }
+
+    const outputContract = genericOutputContract(sourceSurface);
+    if (outputContract === null || replacementIds.has(edge.id)) return [];
+    const partialKey = {
+      surfaceId: edge.id,
+      output: outputContract.output,
+      alias: outputContract.alias ?? edge.surface.name,
+      mode: "all",
+      sourceKind: edge.surface.kind,
+      returnVariant: "default",
+    };
+    return [
+      {
         key: {
           ...partialKey,
           contextId: defaultContextIdForCatalogRow(partialKey, sourceSurface),
@@ -1515,8 +2681,9 @@ export function buildOutputShapeCatalog({
           sourceRefs: [...implementation.sourceRefs].sort(compareText),
         },
         requiredValueProof: "live-value-observation",
-      };
-    });
+      },
+    ];
+  });
   const rows = sortRows([...baselineRows, ...recipeRows]);
   assertUniqueRows(rows, "output shape catalog rows");
   const surfaceAccounts = coverage.edges
@@ -1540,6 +2707,9 @@ export function buildOutputShapeCatalog({
         surface: sourceSurface,
         implementation,
         recipeSurfaceIds,
+        sourceAssertedStructuralContract: sourceAssertedStructuralContracts.get(
+          edge.id,
+        ),
       });
     })
     .sort((left, right) => compareText(left.surfaceId, right.surfaceId));
@@ -1677,6 +2847,53 @@ function validateOutputShapeCatalogDocument(catalog, evidence) {
   return accountCounts;
 }
 
+function validateReviewedDispositionOverride(row, index) {
+  const label = `output disposition policy override ${index}`;
+  exactKeys(row, ["key", "disposition", "expectation", "rationale"], label);
+  canonicalOutputDispositionKey(row.key, `${label}.key`);
+  if (!OUTPUT_DISPOSITIONS.includes(row.disposition)) {
+    throw new Error(`${label}.disposition: unknown output disposition`);
+  }
+  if (typeof row.rationale !== "string" || row.rationale.length === 0) {
+    throw new Error(`${label}.rationale: expected non-empty string`);
+  }
+  exactKeys(
+    row.expectation,
+    ["outcome", "normalizedValue"],
+    `${label}.expectation`,
+  );
+  if (
+    !new Set(["absent", "return", "throw", "typed-return"]).has(
+      row.expectation.outcome,
+    ) ||
+    typeof row.expectation.normalizedValue !== "string" ||
+    row.expectation.normalizedValue.length === 0
+  ) {
+    throw new Error(`${label}.expectation: malformed normalized observation`);
+  }
+
+  const privateNativeMarker = "private-native-path";
+  if (row.disposition === privateNativeMarker) {
+    if (
+      row.key.sourceKind !== "host-abi" ||
+      row.key.contextId !== "host.private-native-call-initialized" ||
+      canonicalJson(row.expectation) !==
+        canonicalJson({
+          outcome: "return",
+          normalizedValue: privateNativeMarker,
+        })
+    ) {
+      throw new Error(
+        `${label}: private-native-path requires an authenticated Host-ABI return marker`,
+      );
+    }
+  } else if (row.expectation.normalizedValue === privateNativeMarker) {
+    throw new Error(
+      `${label}: private-native-path marker requires the matching disposition`,
+    );
+  }
+}
+
 function buildDispositionRows(catalog, policy) {
   if (
     policy?.outputDispositionPolicySchema !==
@@ -1695,6 +2912,7 @@ function buildDispositionRows(catalog, policy) {
       "output disposition policy default must be explicit non-path",
     );
   }
+  policy.overrides.forEach(validateReviewedDispositionOverride);
   assertUniqueRows(policy.overrides, "output disposition policy overrides");
   const overrides = new Map(
     policy.overrides.map((row) => [

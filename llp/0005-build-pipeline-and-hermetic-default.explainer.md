@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
+**Revised:** 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -123,6 +123,13 @@ JS source. An error thrown by the *program* must propagate as-is: unlike the
 side-effect-free bootstrap, the entry's side effects (stdout, writes, network)
 have already happened by the time the error surfaces, so a fallback re-run
 would perform them all twice (ENG-23484).
+
+When that run-time compiler is asked for a source map it passes
+`-output-source-map` as a boolean flag. `hermesc` derives the staged map name as
+`<-out>.map`; Ibex rewrites and digest-binds that generated file, then atomically
+publishes it to the caller's requested map path. Passing that requested path as
+the next argument is invalid because Hermes parses it as an additional input
+(ENG-24851).
 
 The per-file exception is `web-streams-polyfill.js`: it is optional startup
 code, installed only when `EX_WEB_STREAMS_POLYFILL=1`, and Hermes 0.11-era

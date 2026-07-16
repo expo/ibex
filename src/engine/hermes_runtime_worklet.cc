@@ -15,8 +15,8 @@
 //                                      async-only escape to Context 3)
 //   - measure(nodeId)               -> host callback against the main-side
 //                                      presenter snapshot (never the kernel)
-//   - __svGet(slot) / __svSet(slot, v) + worklet.sharedValue(slot)
-//                                   -> atomic f32 slots in a host-bound slab
+//   - __svGet(slot, generation, epoch) / __svSet(..., value)
+//                                   -> host-validating typed SharedValues
 //   - worklet.{clamp, lerp}         -> frozen stdlib prelude
 //
 // Threading contract: exactly one owner thread (the creator). All
@@ -25,15 +25,24 @@
 // a worklet whose generation is stale — or whose generation's install has
 // not yet arrived — is a defined no-op (EX_WORKLET_NOOP).
 
+#include "../../include/exact_runtime.h"
 #include "hermes_runtime_internal.h"
 
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
+using facebook::jsi::Array;
 using facebook::jsi::Function;
 using facebook::jsi::Object;
 using facebook::jsi::PropNameID;
@@ -50,20 +59,42 @@ namespace {
 
 struct WorkletEntry {
   uint64_t generation = 0;
+  uint64_t identity = 0;
+  uint64_t fingerprint_hi = 0;
+  uint64_t source_sequence = 0;
   std::shared_ptr<Function> fn;
+  struct Capture {
+    uint32_t kind = 0;
+    float scalar = 0.0f;
+    ExWorkletSharedValueHandle shared_value{};
+    float shadow = 0.0f;
+    bool has_shadow = false;
+  };
+  std::vector<Capture> captures;
 };
 
 struct WorkletState {
   uint64_t generation = 0;
   std::unordered_map<std::string, WorkletEntry> worklets;
+  std::unordered_map<uint64_t, WorkletEntry> typed_worklets;
   // Both deques store fully JSON-encoded strings so draining is pure
   // concatenation (no re-escaping).
   std::deque<std::string> logs;
   std::deque<std::string> scheduled;
-  std::atomic<uint32_t>* shared_values = nullptr;
-  size_t shared_value_count = 0;
+  std::array<ExWorkletScheduledCall, EX_WORKLET_TYPED_QUEUE_CAPACITY> typed_scheduled{};
+  uint32_t typed_scheduled_head = 0;
+  uint32_t typed_scheduled_count = 0;
+  uint64_t scheduled_drops = 0;
+  ExWorkletInstallMetrics install_metrics{};
+  ExWorkletSharedValueReadCallback shared_value_read = nullptr;
+  ExWorkletSharedValueWriteCallback shared_value_write = nullptr;
+  void* shared_value_context = nullptr;
   int (*measure_callback)(uint32_t node_id, float* out_frame4, void* ctx) = nullptr;
   void* measure_context = nullptr;
+  WorkletEntry* current_entry = nullptr;
+  float* current_outputs = nullptr;
+  uint32_t current_output_capacity = 0;
+  uint32_t current_output_count = 0;
 };
 
 constexpr size_t kWorkletQueueCap = 1024;
@@ -87,11 +118,132 @@ char* mallocString(const std::string& text) {
   return heap;
 }
 
-void pushCapped(std::deque<std::string>& queue, std::string entry) {
+void pushCapped(
+    WorkletState* state,
+    std::deque<std::string>& queue,
+    std::string entry,
+    bool count_scheduled_drop) {
   if (queue.size() >= kWorkletQueueCap) {
     queue.pop_front();
+    if (count_scheduled_drop) {
+      state->scheduled_drops++;
+    }
   }
   queue.push_back(std::move(entry));
+}
+
+void pushTypedScheduled(WorkletState* state, const ExWorkletScheduledCall& call) {
+  if (state->typed_scheduled_count == EX_WORKLET_TYPED_QUEUE_CAPACITY) {
+    state->typed_scheduled_head =
+        (state->typed_scheduled_head + 1) % EX_WORKLET_TYPED_QUEUE_CAPACITY;
+    state->typed_scheduled_count--;
+    state->scheduled_drops++;
+  }
+  const uint32_t tail =
+      (state->typed_scheduled_head + state->typed_scheduled_count) %
+      EX_WORKLET_TYPED_QUEUE_CAPACITY;
+  state->typed_scheduled[tail] = call;
+  state->typed_scheduled_count++;
+}
+
+uint64_t hashBytes(uint64_t hash, const uint8_t* bytes, size_t count) {
+  constexpr uint64_t kPrime = 1099511628211ULL;
+  for (size_t index = 0; index < count; index++) {
+    hash ^= bytes[index];
+    hash *= kPrime;
+  }
+  return hash;
+}
+
+uint64_t hashU32(uint64_t hash, uint32_t value) {
+  uint8_t bytes[4] = {
+      static_cast<uint8_t>(value),
+      static_cast<uint8_t>(value >> 8),
+      static_cast<uint8_t>(value >> 16),
+      static_cast<uint8_t>(value >> 24),
+  };
+  return hashBytes(hash, bytes, sizeof(bytes));
+}
+
+std::pair<uint64_t, uint64_t> workletFingerprint(
+    const uint8_t* artifact,
+    size_t artifact_len,
+    const ExWorkletCapture* captures,
+    uint32_t capture_count) {
+  uint64_t low = hashBytes(1469598103934665603ULL, artifact, artifact_len);
+  uint64_t high = hashBytes(7809847782465536322ULL, artifact, artifact_len);
+  low = hashU32(low, capture_count);
+  high = hashU32(high, capture_count ^ 0x9e3779b9U);
+  for (uint32_t index = 0; index < capture_count; index++) {
+    const auto& capture = captures[index];
+    const uint32_t scalar_bits = [&]() {
+      uint32_t bits = 0;
+      static_assert(sizeof(bits) == sizeof(capture.scalar));
+      memcpy(&bits, &capture.scalar, sizeof(bits));
+      return bits;
+    }();
+    for (uint32_t value : {
+             capture.kind,
+             scalar_bits,
+             capture.shared_value.slot,
+             capture.shared_value.generation,
+             capture.shared_value.epoch,
+         }) {
+      low = hashU32(low, value);
+      high = hashU32(high, value ^ 0xa5a5a5a5U);
+    }
+  }
+  // Identity zero is reserved as "no current typed worklet".
+  if (low == 0) {
+    low = 1;
+  }
+  return {low, high};
+}
+
+class CurrentInvocationScope {
+ public:
+  CurrentInvocationScope(
+      WorkletState* state,
+      WorkletEntry* entry,
+      float* outputs = nullptr,
+      uint32_t output_capacity = 0)
+      : state_(state),
+        previous_entry_(state->current_entry),
+        previous_outputs_(state->current_outputs),
+        previous_output_capacity_(state->current_output_capacity),
+        previous_output_count_(state->current_output_count) {
+    state_->current_entry = entry;
+    state_->current_outputs = outputs;
+    state_->current_output_capacity = output_capacity;
+    state_->current_output_count = 0;
+  }
+
+  ~CurrentInvocationScope() {
+    state_->current_entry = previous_entry_;
+    state_->current_outputs = previous_outputs_;
+    state_->current_output_capacity = previous_output_capacity_;
+    state_->current_output_count = previous_output_count_;
+  }
+
+ private:
+  WorkletState* state_;
+  WorkletEntry* previous_entry_;
+  float* previous_outputs_;
+  uint32_t previous_output_capacity_;
+  uint32_t previous_output_count_;
+};
+
+bool readU32(const Value& value, uint32_t* out) {
+  if (!out || !value.isNumber()) {
+    return false;
+  }
+  double number = value.asNumber();
+  if (!std::isfinite(number) || number < 0.0 ||
+      number > static_cast<double>(UINT32_MAX) || std::trunc(number) != number) {
+    return false;
+  }
+  *out = static_cast<uint32_t>(number);
+  return true;
 }
 
 char* drainJsonArray(std::deque<std::string>& queue) {
@@ -110,18 +262,6 @@ char* drainJsonArray(std::deque<std::string>& queue) {
   out += "]";
   queue.clear();
   return mallocString(out);
-}
-
-float bitsToFloat(uint32_t bits) {
-  float value;
-  memcpy(&value, &bits, sizeof(value));
-  return value;
-}
-
-uint32_t floatToBits(float value) {
-  uint32_t bits;
-  memcpy(&bits, &value, sizeof(bits));
-  return bits;
 }
 
 void installWorkletGlobals(ExactHermesRuntime* handle) {
@@ -145,7 +285,7 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
             }
             line += "]";
             if (auto* state = stateFor(handle)) {
-              pushCapped(state->logs, std::move(line));
+              pushCapped(state, state->logs, std::move(line), false);
             }
             return Value::undefined();
           }));
@@ -167,11 +307,184 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
             entry += stringifyValue(rt, args[0]);
             entry += ",\"args\":";
             entry += count > 1 ? stringifyValue(rt, args[1]) : "null";
+            if (auto* state = stateFor(handle); state && state->current_entry) {
+              const uint64_t sequence = ++state->current_entry->source_sequence;
+              entry += ",\"sourceIdentity\":\"";
+              entry += std::to_string(state->current_entry->identity);
+              entry += "\",\"sourceSequence\":";
+              entry += std::to_string(sequence);
+              entry += ",\"generation\":";
+              entry += std::to_string(state->current_entry->generation);
+            }
             entry += "}";
             if (auto* state = stateFor(handle)) {
-              pushCapped(state->scheduled, std::move(entry));
+              pushCapped(state, state->scheduled, std::move(entry), true);
             }
             return Value::undefined();
+          }));
+
+  // Fixed-slot math worklet primitives. The public frozen `worklet` object
+  // below forwards to these host functions; the private names keep capture
+  // and output state out of ordinary app code.
+  rt.global().setProperty(
+      rt,
+      "__workletCapture",
+      Function::createFromHostFunction(
+          rt,
+          PropNameID::forAscii(rt, "__workletCapture"),
+          1,
+          [handle](Runtime&, const Value&, const Value* args, size_t count) -> Value {
+            auto* state = stateFor(handle);
+            uint32_t index = 0;
+            if (!state || !state->current_entry || count < 1 ||
+                !readU32(args[0], &index) ||
+                index >= state->current_entry->captures.size()) {
+              return Value::undefined();
+            }
+            const auto& capture = state->current_entry->captures[index];
+            if (capture.kind == EX_WORKLET_CAPTURE_F32) {
+              return Value(static_cast<double>(capture.scalar));
+            }
+            if (capture.kind == EX_WORKLET_CAPTURE_BOOL) {
+              return Value(capture.scalar != 0.0f);
+            }
+            return Value::undefined();
+          }));
+
+  rt.global().setProperty(
+      rt,
+      "__workletCaptureGet",
+      Function::createFromHostFunction(
+          rt,
+          PropNameID::forAscii(rt, "__workletCaptureGet"),
+          1,
+          [handle](Runtime&, const Value&, const Value* args, size_t count) -> Value {
+            auto* state = stateFor(handle);
+            uint32_t index = 0;
+            if (!state || !state->current_entry || count < 1 ||
+                !readU32(args[0], &index) ||
+                index >= state->current_entry->captures.size()) {
+              return Value::undefined();
+            }
+            auto& capture = state->current_entry->captures[index];
+            if (capture.kind != EX_WORKLET_CAPTURE_SHARED_VALUE ||
+                !state->shared_value_read) {
+              return Value::undefined();
+            }
+            float value = 0.0f;
+            if (state->shared_value_read(
+                    capture.shared_value,
+                    &value,
+                    state->shared_value_context) == 0 &&
+                std::isfinite(value)) {
+              capture.shadow = value;
+              capture.has_shadow = true;
+              return Value(static_cast<double>(value));
+            }
+            return capture.has_shadow ? Value(static_cast<double>(capture.shadow))
+                                      : Value::undefined();
+          }));
+
+  rt.global().setProperty(
+      rt,
+      "__workletCaptureSet",
+      Function::createFromHostFunction(
+          rt,
+          PropNameID::forAscii(rt, "__workletCaptureSet"),
+          2,
+          [handle](Runtime&, const Value&, const Value* args, size_t count) -> Value {
+            auto* state = stateFor(handle);
+            uint32_t index = 0;
+            if (!state || !state->current_entry || count < 2 ||
+                !readU32(args[0], &index) ||
+                index >= state->current_entry->captures.size() ||
+                !args[1].isNumber()) {
+              return Value(false);
+            }
+            auto& capture = state->current_entry->captures[index];
+            const double number = args[1].asNumber();
+            if (capture.kind != EX_WORKLET_CAPTURE_SHARED_VALUE ||
+                !state->shared_value_write || !std::isfinite(number) ||
+                number < -static_cast<double>(std::numeric_limits<float>::max()) ||
+                number > static_cast<double>(std::numeric_limits<float>::max())) {
+              return Value(false);
+            }
+            const float value = static_cast<float>(number);
+            if (state->shared_value_write(
+                    capture.shared_value,
+                    value,
+                    state->shared_value_context) != 0) {
+              return Value(false);
+            }
+            capture.shadow = value;
+            capture.has_shadow = true;
+            return Value(true);
+          }));
+
+  rt.global().setProperty(
+      rt,
+      "__workletOutput",
+      Function::createFromHostFunction(
+          rt,
+          PropNameID::forAscii(rt, "__workletOutput"),
+          2,
+          [handle](Runtime&, const Value&, const Value* args, size_t count) -> Value {
+            auto* state = stateFor(handle);
+            uint32_t index = 0;
+            if (!state || !state->current_outputs || count < 2 ||
+                !readU32(args[0], &index) ||
+                index >= state->current_output_capacity ||
+                !args[1].isNumber()) {
+              return Value(false);
+            }
+            const double number = args[1].asNumber();
+            if (!std::isfinite(number) ||
+                number < -static_cast<double>(std::numeric_limits<float>::max()) ||
+                number > static_cast<double>(std::numeric_limits<float>::max())) {
+              return Value(false);
+            }
+            state->current_outputs[index] = static_cast<float>(number);
+            state->current_output_count =
+                std::max(state->current_output_count, index + 1);
+            return Value(true);
+          }));
+
+  rt.global().setProperty(
+      rt,
+      "__workletRunOnJS",
+      Function::createFromHostFunction(
+          rt,
+          PropNameID::forAscii(rt, "__workletRunOnJS"),
+          1,
+          [handle](Runtime&, const Value&, const Value* args, size_t count) -> Value {
+            auto* state = stateFor(handle);
+            uint32_t callback_identity = 0;
+            if (!state || !state->current_entry || count < 1 ||
+                !readU32(args[0], &callback_identity) ||
+                callback_identity == 0 ||
+                count - 1 > EX_WORKLET_MAX_RUN_ON_JS_SLOTS) {
+              return Value(false);
+            }
+            ExWorkletScheduledCall call{};
+            call.source_identity = state->current_entry->identity;
+            call.generation = state->current_entry->generation;
+            call.callback_identity = callback_identity;
+            call.argument_count = static_cast<uint32_t>(count - 1);
+            for (size_t index = 1; index < count; index++) {
+              if (!args[index].isNumber()) {
+                return Value(false);
+              }
+              const double number = args[index].asNumber();
+              if (!std::isfinite(number) ||
+                  number < -static_cast<double>(std::numeric_limits<float>::max()) ||
+                  number > static_cast<double>(std::numeric_limits<float>::max())) {
+                return Value(false);
+              }
+              call.arguments[index - 1] = static_cast<float>(number);
+            }
+            call.source_sequence = ++state->current_entry->source_sequence;
+            pushTypedScheduled(state, call);
+            return Value(true);
           }));
 
   // measure(nodeId) — geometry read against the host's presenter snapshot.
@@ -200,27 +513,36 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
             return result;
           }));
 
-  // __svGet / __svSet — atomic f32 slots. Out-of-range slots are defined
-  // no-ops (LLP 0297 §4.4 stale-id tolerance): get returns undefined, set
-  // does nothing.
+  // __svGet / __svSet — typed, validating accessors. Stale generation/epoch,
+  // malformed handles, and host rejection are defined no-ops (LLP 0297 §4.4).
+  // The private primitives report rejection as undefined/false; the durable
+  // language handle below owns its last-observed local shadow. Ibex never
+  // sees a raw slab.
   rt.global().setProperty(
       rt,
       "__svGet",
       Function::createFromHostFunction(
           rt,
           PropNameID::forAscii(rt, "__svGet"),
-          1,
+          3,
           [handle](Runtime&, const Value&, const Value* args, size_t count) -> Value {
             auto* state = stateFor(handle);
-            if (!state || !state->shared_values || count < 1 || !args[0].isNumber()) {
+            if (!state || !state->shared_value_read || count < 3) {
               return Value::undefined();
             }
-            auto slot = static_cast<size_t>(args[0].asNumber());
-            if (slot >= state->shared_value_count) {
+            ExWorkletSharedValueHandle shared_value{};
+            if (!readU32(args[0], &shared_value.slot) ||
+                !readU32(args[1], &shared_value.generation) ||
+                !readU32(args[2], &shared_value.epoch)) {
               return Value::undefined();
             }
-            uint32_t bits = state->shared_values[slot].load(std::memory_order_relaxed);
-            return Value(static_cast<double>(bitsToFloat(bits)));
+            float value = 0.0f;
+            if (state->shared_value_read(
+                    shared_value, &value, state->shared_value_context) != 0 ||
+                !std::isfinite(value)) {
+              return Value::undefined();
+            }
+            return Value(static_cast<double>(value));
           }));
 
   rt.global().setProperty(
@@ -229,21 +551,24 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
       Function::createFromHostFunction(
           rt,
           PropNameID::forAscii(rt, "__svSet"),
-          2,
+          4,
           [handle](Runtime&, const Value&, const Value* args, size_t count) -> Value {
             auto* state = stateFor(handle);
-            if (!state || !state->shared_values || count < 2 || !args[0].isNumber() ||
-                !args[1].isNumber()) {
+            if (!state || !state->shared_value_write || count < 4 || !args[3].isNumber()) {
               return Value::undefined();
             }
-            auto slot = static_cast<size_t>(args[0].asNumber());
-            if (slot >= state->shared_value_count) {
+            ExWorkletSharedValueHandle shared_value{};
+            double number = args[3].asNumber();
+            if (!readU32(args[0], &shared_value.slot) ||
+                !readU32(args[1], &shared_value.generation) ||
+                !readU32(args[2], &shared_value.epoch) || !std::isfinite(number) ||
+                number < -static_cast<double>(std::numeric_limits<float>::max()) ||
+                number > static_cast<double>(std::numeric_limits<float>::max())) {
               return Value::undefined();
             }
-            state->shared_values[slot].store(
-                floatToBits(static_cast<float>(args[1].asNumber())),
-                std::memory_order_relaxed);
-            return Value::undefined();
+            const uint32_t verdict = state->shared_value_write(
+                shared_value, static_cast<float>(number), state->shared_value_context);
+            return Value(verdict == 0);
           }));
 
   // Frozen stdlib prelude.
@@ -253,10 +578,22 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
   var w = {
     clamp: function (v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; },
     lerp: function (a, b, t) { return a + (b - a) * t; },
-    sharedValue: function (slot) {
+    capture: __workletCapture,
+    captureGet: __workletCaptureGet,
+    captureSet: __workletCaptureSet,
+    output: __workletOutput,
+    runOnJS: __workletRunOnJS,
+    sharedValue: function (slot, generation, epoch) {
+      var shadow;
       return Object.freeze({
-        get: function () { return __svGet(slot); },
-        set: function (v) { __svSet(slot, v); }
+        get: function () {
+          var value = __svGet(slot, generation, epoch);
+          if (value !== undefined) shadow = value;
+          return value === undefined ? shadow : value;
+        },
+        set: function (v) {
+          if (__svSet(slot, generation, epoch, v)) shadow = v;
+        }
       });
     }
   };
@@ -348,6 +685,14 @@ extern "C" void ex_worklet_set_generation(ExactHermesRuntime* handle, uint64_t g
       ++it;
     }
   }
+  for (auto it = state->typed_worklets.begin();
+       it != state->typed_worklets.end();) {
+    if (it->second.generation != generation) {
+      it = state->typed_worklets.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 extern "C" uint64_t ex_worklet_generation(ExactHermesRuntime* handle) {
@@ -400,6 +745,9 @@ extern "C" int ex_worklet_install(
     }
     WorkletEntry entry;
     entry.generation = generation;
+    const auto fingerprint = workletFingerprint(source, source_len, nullptr, 0);
+    entry.identity = fingerprint.first;
+    entry.fingerprint_hi = fingerprint.second;
     entry.fn = std::make_shared<Function>(value.asObject(rt).asFunction(rt));
     state->worklets[worklet_id] = std::move(entry);
     return EX_WORKLET_OK;
@@ -438,6 +786,7 @@ extern "C" int ex_worklet_invoke(
 
   try {
     auto& rt = *handle->runtime;
+    CurrentInvocationScope invocation(state, &it->second);
     Value result;
     if (args_json && args_json[0] != '\0') {
       result = it->second.fn->call(rt, parseJsonValue(rt, args_json));
@@ -461,19 +810,209 @@ extern "C" int ex_worklet_invoke(
   }
 }
 
-extern "C" int ex_worklet_bind_shared_values(
+extern "C" int ex_worklet_install_typed(
     ExactHermesRuntime* handle,
-    void* slab,
-    size_t slot_count) {
+    uint32_t install_format,
+    const uint8_t* artifact,
+    size_t artifact_len,
+    const ExWorkletCapture* captures,
+    uint32_t capture_count,
+    uint64_t generation,
+    uint64_t* out_identity,
+    char** out_error) {
+  if (out_error) {
+    *out_error = nullptr;
+  }
+  if (out_identity) {
+    *out_identity = 0;
+  }
+  auto* state = stateFor(handle);
+  if (!state || install_format != EX_WORKLET_INSTALL_SOURCE_UTF8 ||
+      !artifact || artifact_len == 0 ||
+      (capture_count > 0 && !captures) || !out_identity) {
+    if (out_error) {
+      *out_error = mallocString(
+          "ex_worklet_install_typed: invalid input or format");
+    }
+    return EX_WORKLET_ERROR;
+  }
+  if (generation < state->generation) {
+    return EX_WORKLET_NOOP;
+  }
+  for (uint32_t index = 0; index < capture_count; index++) {
+    const auto& capture = captures[index];
+    if (capture.kind != EX_WORKLET_CAPTURE_F32 &&
+        capture.kind != EX_WORKLET_CAPTURE_BOOL &&
+        capture.kind != EX_WORKLET_CAPTURE_SHARED_VALUE) {
+      if (out_error) {
+        *out_error = mallocString(
+            "typed worklet capture kind is not supported");
+      }
+      return EX_WORKLET_ERROR;
+    }
+    if ((capture.kind == EX_WORKLET_CAPTURE_F32 ||
+         capture.kind == EX_WORKLET_CAPTURE_BOOL) &&
+        !std::isfinite(capture.scalar)) {
+      if (out_error) {
+        *out_error = mallocString(
+            "typed worklet scalar capture must be finite");
+      }
+      return EX_WORKLET_ERROR;
+    }
+  }
+
+  const auto fingerprint =
+      workletFingerprint(artifact, artifact_len, captures, capture_count);
+  *out_identity = fingerprint.first;
+  if (auto existing = state->typed_worklets.find(fingerprint.first);
+      existing != state->typed_worklets.end()) {
+    if (existing->second.fingerprint_hi != fingerprint.second) {
+      if (out_error) {
+        *out_error = mallocString("typed worklet stable-identity collision");
+      }
+      return EX_WORKLET_ERROR;
+    }
+    if (existing->second.generation == generation) {
+      state->install_metrics.reused_install_count++;
+      return EX_WORKLET_OK;
+    }
+  }
+
+  const auto started = std::chrono::steady_clock::now();
+  try {
+    auto& rt = *handle->runtime;
+    auto value = rt.evaluateJavaScript(
+        std::make_shared<facebook::jsi::StringBuffer>(std::string(
+            reinterpret_cast<const char*>(artifact), artifact_len)),
+        std::string("motion-worklet:") + std::to_string(fingerprint.first));
+    if (!value.isObject() || !value.asObject(rt).isFunction(rt)) {
+      if (out_error) {
+        *out_error = mallocString(
+            "typed worklet source must evaluate to a function expression");
+      }
+      return EX_WORKLET_ERROR;
+    }
+    WorkletEntry entry;
+    entry.generation = generation;
+    entry.identity = fingerprint.first;
+    entry.fingerprint_hi = fingerprint.second;
+    entry.fn = std::make_shared<Function>(
+        value.asObject(rt).asFunction(rt));
+    entry.captures.reserve(capture_count);
+    for (uint32_t index = 0; index < capture_count; index++) {
+      WorkletEntry::Capture stored;
+      stored.kind = captures[index].kind;
+      stored.scalar = captures[index].kind == EX_WORKLET_CAPTURE_BOOL
+          ? (captures[index].scalar == 0.0f ? 0.0f : 1.0f)
+          : captures[index].scalar;
+      stored.shared_value = captures[index].shared_value;
+      entry.captures.push_back(stored);
+    }
+    state->typed_worklets[fingerprint.first] = std::move(entry);
+    const uint64_t elapsed_ns = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - started)
+            .count());
+    state->install_metrics.source_install_count++;
+    state->install_metrics.source_install_total_ns += elapsed_ns;
+    state->install_metrics.source_install_max_ns = std::max(
+        state->install_metrics.source_install_max_ns, elapsed_ns);
+    return EX_WORKLET_OK;
+  } catch (const facebook::jsi::JSError& err) {
+    if (out_error) {
+      *out_error = mallocString(err.getMessage());
+    }
+    return EX_WORKLET_ERROR;
+  } catch (const std::exception& err) {
+    if (out_error) {
+      *out_error = mallocString(err.what());
+    }
+    return EX_WORKLET_ERROR;
+  }
+}
+
+// @abi-output ex_worklet_invoke_typed outputs role=output kind=buffer length=output_capacity ownership=caller-storage
+extern "C" int ex_worklet_invoke_typed(
+    ExactHermesRuntime* handle,
+    uint64_t identity,
+    const float* inputs,
+    uint32_t input_count,
+    float* outputs,
+    uint32_t output_capacity,
+    uint32_t* out_output_count) {
+  if (out_output_count) {
+    *out_output_count = 0;
+  }
+  auto* state = stateFor(handle);
+  if (!state || identity == 0 ||
+      input_count > EX_WORKLET_MAX_INPUT_SLOTS ||
+      output_capacity > EX_WORKLET_MAX_OUTPUT_SLOTS ||
+      (input_count > 0 && !inputs) ||
+      (output_capacity > 0 && !outputs) || !out_output_count) {
+    return EX_WORKLET_ERROR;
+  }
+  auto it = state->typed_worklets.find(identity);
+  if (it == state->typed_worklets.end() ||
+      it->second.generation != state->generation) {
+    return EX_WORKLET_NOOP;
+  }
+  for (uint32_t index = 0; index < input_count; index++) {
+    if (!std::isfinite(inputs[index])) {
+      return EX_WORKLET_ERROR;
+    }
+  }
+  for (uint32_t index = 0; index < output_capacity; index++) {
+    outputs[index] = 0.0f;
+  }
+
+  try {
+    auto& rt = *handle->runtime;
+    std::array<Value, EX_WORKLET_MAX_INPUT_SLOTS> arguments;
+    for (uint32_t index = 0; index < input_count; index++) {
+      arguments[index] = Value(static_cast<double>(inputs[index]));
+    }
+    CurrentInvocationScope invocation(
+        state, &it->second, outputs, output_capacity);
+    (void)it->second.fn->call(
+        rt,
+        static_cast<const Value*>(arguments.data()),
+        static_cast<size_t>(input_count));
+    *out_output_count = state->current_output_count;
+    return EX_WORKLET_OK;
+  } catch (const facebook::jsi::JSError&) {
+    return EX_WORKLET_ERROR;
+  } catch (const std::exception&) {
+    return EX_WORKLET_ERROR;
+  }
+}
+
+extern "C" int ex_worklet_install_metrics(
+    ExactHermesRuntime* handle,
+    ExWorkletInstallMetrics* out_metrics) {
+  auto* state = stateFor(handle);
+  if (!state || !out_metrics) {
+    return EX_WORKLET_ERROR;
+  }
+  *out_metrics = state->install_metrics;
+  return EX_WORKLET_OK;
+}
+
+extern "C" int ex_worklet_bind_shared_value_accessors(
+    ExactHermesRuntime* handle,
+    ExWorkletSharedValueReadCallback read_callback,
+    ExWorkletSharedValueWriteCallback write_callback,
+    void* context) {
   auto* state = stateFor(handle);
   if (!state) {
     return EX_WORKLET_ERROR;
   }
-  state->shared_values = static_cast<std::atomic<uint32_t>*>(slab);
-  state->shared_value_count = slab ? slot_count : 0;
+  state->shared_value_read = read_callback;
+  state->shared_value_write = write_callback;
+  state->shared_value_context = context;
   return EX_WORKLET_OK;
 }
 
+// @abi-callback ex_worklet_set_measure_callback callback output=1 kind=buffer fixed-length=4 ownership=caller-storage
 extern "C" void ex_worklet_set_measure_callback(
     ExactHermesRuntime* handle,
     int (*callback)(uint32_t node_id, float* out_frame4, void* context),
@@ -494,4 +1033,189 @@ extern "C" char* ex_worklet_drain_logs(ExactHermesRuntime* handle) {
 extern "C" char* ex_worklet_drain_scheduled(ExactHermesRuntime* handle) {
   auto* state = stateFor(handle);
   return state ? drainJsonArray(state->scheduled) : nullptr;
+}
+
+extern "C" uint32_t ex_worklet_drain_scheduled_typed(
+    ExactHermesRuntime* handle,
+    ExWorkletScheduledCall* out_calls,
+    uint32_t capacity) {
+  auto* state = stateFor(handle);
+  if (!state || !out_calls || capacity == 0) {
+    return 0;
+  }
+  const uint32_t copied = std::min(capacity, state->typed_scheduled_count);
+  for (uint32_t index = 0; index < copied; index++) {
+    out_calls[index] = state->typed_scheduled[
+        (state->typed_scheduled_head + index) %
+        EX_WORKLET_TYPED_QUEUE_CAPACITY];
+  }
+  state->typed_scheduled_head =
+      (state->typed_scheduled_head + copied) %
+      EX_WORKLET_TYPED_QUEUE_CAPACITY;
+  state->typed_scheduled_count -= copied;
+  return copied;
+}
+
+extern "C" uint64_t ex_worklet_take_scheduled_drop_count(
+    ExactHermesRuntime* handle) {
+  auto* state = stateFor(handle);
+  if (!state) {
+    return 0;
+  }
+  const uint64_t dropped = state->scheduled_drops;
+  state->scheduled_drops = 0;
+  return dropped;
+}
+
+extern "C" int ex_hermes_dispatch_worklet_calls(
+    ExactHermesRuntime* handle,
+    const ExWorkletScheduledCall* calls,
+    uint32_t count,
+    uint32_t* out_delivered) {
+  if (out_delivered) {
+    *out_delivered = 0;
+  }
+  if (!handle || (count > 0 && !calls) || !out_delivered) {
+    return EX_WORKLET_ERROR;
+  }
+  try {
+    auto& rt = *handle->runtime;
+    auto dispatcher_value =
+        rt.global().getProperty(rt, "__exactRunOnJS");
+    if (!dispatcher_value.isObject() ||
+        !dispatcher_value.asObject(rt).isFunction(rt)) {
+      return EX_WORKLET_NOOP;
+    }
+    auto dispatcher = dispatcher_value.asObject(rt).asFunction(rt);
+    for (uint32_t call_index = 0; call_index < count; call_index++) {
+      const auto& call = calls[call_index];
+      if (call.source_identity == 0 || call.callback_identity == 0 ||
+          call.argument_count > EX_WORKLET_MAX_RUN_ON_JS_SLOTS) {
+        return EX_WORKLET_ERROR;
+      }
+      for (uint32_t argument_index = 0;
+           argument_index < call.argument_count;
+           argument_index++) {
+        if (!std::isfinite(call.arguments[argument_index])) {
+          return EX_WORKLET_ERROR;
+        }
+      }
+      Object metadata(rt);
+      metadata.setProperty(
+          rt,
+          "sourceIdentity",
+          String::createFromUtf8(
+              rt, std::to_string(call.source_identity)));
+      metadata.setProperty(
+          rt,
+          "sourceSequence",
+          String::createFromUtf8(
+              rt, std::to_string(call.source_sequence)));
+      metadata.setProperty(
+          rt,
+          "generation",
+          String::createFromUtf8(rt, std::to_string(call.generation)));
+      std::array<Value, EX_WORKLET_MAX_RUN_ON_JS_SLOTS + 2> arguments;
+      arguments[0] = Value(static_cast<double>(call.callback_identity));
+      arguments[1] = Value(std::move(metadata));
+      for (uint32_t argument_index = 0;
+           argument_index < call.argument_count;
+           argument_index++) {
+        arguments[argument_index + 2] =
+            Value(static_cast<double>(call.arguments[argument_index]));
+      }
+      (void)dispatcher.call(
+          rt,
+          static_cast<const Value*>(arguments.data()),
+          static_cast<size_t>(call.argument_count + 2));
+      (*out_delivered)++;
+    }
+    return EX_WORKLET_OK;
+  } catch (const facebook::jsi::JSError&) {
+    return EX_WORKLET_ERROR;
+  } catch (const std::exception&) {
+    return EX_WORKLET_ERROR;
+  }
+}
+
+extern "C" int ex_hermes_dispatch_worklet_json_batch(
+    ExactHermesRuntime* handle,
+    const uint8_t* batch_json,
+    size_t batch_len,
+    uint64_t generation) {
+  if (!handle || !batch_json || batch_len == 0) {
+    return EX_WORKLET_ERROR;
+  }
+  try {
+    auto& rt = *handle->runtime;
+    auto dispatcher_value =
+        rt.global().getProperty(rt, "__exactScheduleOnAppRuntime");
+    if (!dispatcher_value.isObject() ||
+        !dispatcher_value.asObject(rt).isFunction(rt)) {
+      return EX_WORKLET_NOOP;
+    }
+    const std::string encoded(
+        reinterpret_cast<const char*>(batch_json), batch_len);
+    auto batch = parseJsonValue(rt, encoded.c_str());
+    auto dispatcher = dispatcher_value.asObject(rt).asFunction(rt);
+    (void)dispatcher.call(
+        rt, std::move(batch), static_cast<double>(generation));
+    return EX_WORKLET_OK;
+  } catch (const facebook::jsi::JSError&) {
+    return EX_WORKLET_ERROR;
+  } catch (const std::exception&) {
+    return EX_WORKLET_ERROR;
+  }
+}
+
+extern "C" int ex_hermes_dispatch_motion_rated_publish(
+    ExactHermesRuntime* handle,
+    const ExMotionRatedPublishSample* sample) {
+  if (!handle || !sample || sample->channel_identity == 0 ||
+      sample->value_count > EX_WORKLET_MAX_RUN_ON_JS_SLOTS) {
+    return EX_WORKLET_ERROR;
+  }
+  for (uint32_t index = 0; index < sample->value_count; index++) {
+    if (!std::isfinite(sample->values[index])) {
+      return EX_WORKLET_ERROR;
+    }
+  }
+  try {
+    auto& rt = *handle->runtime;
+    auto dispatcher_value =
+        rt.global().getProperty(rt, "__exactMotionRatedPublish");
+    if (!dispatcher_value.isObject() ||
+        !dispatcher_value.asObject(rt).isFunction(rt)) {
+      return EX_WORKLET_NOOP;
+    }
+    Array values(rt, sample->value_count);
+    for (uint32_t index = 0; index < sample->value_count; index++) {
+      values.setValueAtIndex(
+          rt, index, static_cast<double>(sample->values[index]));
+    }
+    Object metadata(rt);
+    metadata.setProperty(
+        rt,
+        "dirtyGeneration",
+        String::createFromUtf8(
+            rt, std::to_string(sample->dirty_generation)));
+    metadata.setProperty(
+        rt,
+        "sampleTimeNs",
+        String::createFromUtf8(rt, std::to_string(sample->sample_time_ns)));
+    metadata.setProperty(rt, "heartbeat", (sample->flags & 1U) != 0);
+    metadata.setProperty(rt, "programmatic", (sample->flags & 2U) != 0);
+    auto dispatcher = dispatcher_value.asObject(rt).asFunction(rt);
+    (void)dispatcher.call(
+        rt,
+        String::createFromUtf8(
+            rt, std::to_string(sample->channel_identity)),
+        std::move(values),
+        std::move(metadata));
+    return EX_WORKLET_OK;
+  } catch (const facebook::jsi::JSError&) {
+    return EX_WORKLET_ERROR;
+  } catch (const std::exception&) {
+    return EX_WORKLET_ERROR;
+  }
 }

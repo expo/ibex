@@ -1024,6 +1024,49 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
     Ok(())
 }
 
+/// Prepare one construction-fresh authenticated artifact pair for a native
+/// embedder. The returned strict JSON envelope is owned by Rust and must be
+/// released with `ex_host_free_string`.
+///
+/// Success: `{ "ok": true, "artifacts": { ... } }`.
+/// Refusal: `{ "ok": false, "error": "..." }`.
+///
+/// # Safety
+///
+/// Each non-null input pointer must reference its declared byte length for the
+/// duration of this call. The input buffers are read-only and are not retained.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_prepare_armed_embedder_artifacts(
+    snapshot_template: *const u8,
+    snapshot_template_len: usize,
+    expected_identity: *const u8,
+    expected_identity_len: usize,
+) -> *mut c_char {
+    let result = if snapshot_template.is_null()
+        || snapshot_template_len == 0
+        || expected_identity.is_null()
+        || expected_identity_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "snapshot template and expected identity are required"
+        ))
+    } else {
+        let snapshot =
+            unsafe { std::slice::from_raw_parts(snapshot_template, snapshot_template_len) };
+        let expected =
+            unsafe { std::slice::from_raw_parts(expected_identity, expected_identity_len) };
+        super::embedder_artifacts::prepare_embedder_artifacts(snapshot, expected)
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     let active = ACTIVE_HOST_CONTEXT.with(Cell::get);
     if active != 0 {
@@ -1641,6 +1684,51 @@ pub(crate) unsafe extern "C" fn private_vfs_project_realpath(
         }
         Err(error) => vfs_error_result(&error, out_errno),
     }
+}
+
+/// Check an Exact operation endowment against the runtime-scoped armed host
+/// context. This is called before Hermes mutates JSI or finalizes package
+/// baselines, so every mismatch is a fail-before-publication refusal.
+///
+/// # Safety
+///
+/// `operation_ids` must address `operation_count` readable `u32` values, and a
+/// non-null `operation_manifest_digest` must point to a valid NUL-terminated
+/// UTF-8 string for the duration of this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_exact_endowment(
+    context_id: u64,
+    context_kind: u32,
+    operation_manifest_digest: *const c_char,
+    operation_ids: *const u32,
+    operation_count: usize,
+) -> i32 {
+    if context_id == 0 || operation_ids.is_null() || operation_count == 0 || operation_count > 4096
+    {
+        return 0;
+    }
+    let manifest_digest = if operation_manifest_digest.is_null() {
+        None
+    } else {
+        unsafe { CStr::from_ptr(operation_manifest_digest) }
+            .to_str()
+            .ok()
+    };
+    if !operation_manifest_digest.is_null() && manifest_digest.is_none() {
+        return 0;
+    }
+    let operations = unsafe { std::slice::from_raw_parts(operation_ids, operation_count) };
+    let host = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .map(|record| Arc::clone(&record.host))
+        })
+    });
+    host.is_some_and(|host| {
+        host.authorizes_exact_endowment(context_kind, manifest_digest, operations)
+    }) as i32
 }
 
 #[doc(hidden)]
@@ -3951,6 +4039,11 @@ fn resolved_path_for_fd(fd: i32) -> Option<std::path::PathBuf> {
     std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()
 }
 
+#[cfg(not(unix))]
+fn resolved_path_for_fd(_fd: i32) -> Option<std::path::PathBuf> {
+    None
+}
+
 #[cfg(unix)]
 fn object_identity_at(
     parent_fd: i32,
@@ -4213,6 +4306,9 @@ pub unsafe extern "C" fn ex_host_typed_handle_revoke(
 ///
 /// # Safety
 /// All output pointers must be non-null and writable.
+/// @abi-output ex_host_typed_generations negative role=output kind=scalar ownership=caller-storage
+/// @abi-output ex_host_typed_generations dynamic role=output kind=scalar ownership=caller-storage
+/// @abi-output ex_host_typed_generations handle role=output kind=scalar ownership=caller-storage
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_typed_generations(
     negative: *mut u64,
@@ -5156,6 +5252,7 @@ pub extern "C" fn ex_host_fs_open(path: *const c_char, flags: u32) -> *mut Exact
     }
 }
 
+/// @abi-output ex_host_fs_read buf role=output kind=buffer length=len ownership=caller-storage
 #[no_mangle]
 pub extern "C" fn ex_host_fs_read(file: *mut ExactFileHandle, buf: *mut u8, len: u32) -> i32 {
     if file.is_null() || buf.is_null() {
@@ -5213,6 +5310,7 @@ pub extern "C" fn ex_host_fs_seek(file: *mut ExactFileHandle, position: u64) -> 
 /// rather than a platform positional API because Windows overlapped reads still
 /// advance the pointer; this keeps behavior identical on every platform.
 /// Returns the number of bytes read, or -1 on error.
+/// @abi-output ex_host_fs_pread buf role=output kind=buffer length=len ownership=caller-storage
 #[no_mangle]
 pub extern "C" fn ex_host_fs_pread(
     file: *mut ExactFileHandle,
@@ -6553,6 +6651,7 @@ pub extern "C" fn ex_host_time_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// @abi-output ex_host_random_fill buf role=output kind=buffer length=len ownership=caller-storage
 #[no_mangle]
 pub extern "C" fn ex_host_random_fill(buf: *mut u8, len: u32) -> i32 {
     if buf.is_null() || len == 0 {
@@ -8029,5 +8128,17 @@ mod tests {
         assert_eq!(ex_host_env_get(key.as_ptr(), ptr::null_mut(), 0), 10_000);
 
         std::env::remove_var(KEY);
+    }
+
+    #[test]
+    fn embedder_artifact_preparation_refuses_missing_inputs() {
+        let envelope = take_json(unsafe {
+            ex_host_prepare_armed_embedder_artifacts(ptr::null(), 0, ptr::null(), 0)
+        });
+        assert_eq!(envelope["ok"], false);
+        assert!(envelope["error"]
+            .as_str()
+            .unwrap()
+            .contains("snapshot template and expected identity are required"));
     }
 }

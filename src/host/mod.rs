@@ -14,6 +14,7 @@
 pub mod abi;
 pub mod capability;
 pub mod capability_bits;
+pub mod embedder_artifacts;
 pub mod handles;
 // @ref LLP 0005#c-compilation — the hyper-based `ex_host_http_*` server is
 // feature-gated; without it the C++ adapter links no-op stubs.
@@ -1102,6 +1103,37 @@ impl Host {
         })?;
         *cached_token = Some(token.clone());
         Ok(token)
+    }
+
+    /// Authorize one immutable Exact host-operation endowment before Hermes
+    /// publishes the corresponding JSI capability. Diagnostic hosts retain
+    /// their explicitly unarmed behavior; armed hosts require an Exact
+    /// binding whose protected manifest digest, context, and numeric set all
+    /// match exactly.
+    pub fn authorizes_exact_endowment(
+        &self,
+        context_kind: u32,
+        operation_manifest_digest: Option<&str>,
+        operations: &[u32],
+    ) -> bool {
+        let Some(snapshot) = self.armed_snapshot() else {
+            return true;
+        };
+        let Some(operation_manifest_digest) = operation_manifest_digest else {
+            return false;
+        };
+        let Ok(Some(binding)) = snapshot.exact_embedder_binding() else {
+            return false;
+        };
+        if binding.operation_manifest_digest.as_str() != operation_manifest_digest {
+            return false;
+        }
+        let expected = match context_kind {
+            1 => &binding.endowments.app,
+            2 => &binding.endowments.agent_isolate,
+            _ => return false,
+        };
+        expected == operations
     }
 
     pub fn decision_context(
@@ -3873,12 +3905,22 @@ impl Host {
                         meta.package_root = Some(host_path_from_binding(&binding)?);
                     }
                     _ => {
-                        if meta.package_name.is_some() || meta.package_root.is_some() {
+                        if meta.package_name.is_some() {
                             anyhow::bail!(
                                 "unbound package metadata cannot be stamped as trusted root for {}",
                                 path.display()
                             );
                         }
+                        // OXC retains the nearest package.json directory as a
+                        // resolution-scope hint even for first-party project
+                        // files. It influences module-kind resolution, but it
+                        // is not package-principal ownership. The authenticated
+                        // binding above has already established Root as the
+                        // defining principal, so do not serialize the scope as
+                        // a package root or carry its version into attribution.
+                        // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+                        meta.package_root = None;
+                        meta.package_version = None;
                     }
                 }
                 if authorize_path_disclosure {
@@ -4697,7 +4739,7 @@ fn validate_snapshot_protected_artifacts(
                 path.display()
             ))
         })?;
-        if !before.is_file() || object_identity_for_metadata(&before)? != artifact.object {
+        if !before.is_file() || object_identity_for_open_file(&file)? != artifact.object {
             return Err(capsec_semantics::Error::ArmRefused(format!(
                 "protected artifact path does not identify its authenticated object: {}",
                 path.display()
@@ -4750,7 +4792,7 @@ fn validate_snapshot_protected_artifacts(
                 path.display()
             ))
         })?;
-        if object_identity_for_metadata(&after)? != artifact.object || after.len() != before.len() {
+        if object_identity_for_open_file(&file)? != artifact.object || after.len() != before.len() {
             return Err(capsec_semantics::Error::ArmRefused(format!(
                 "protected artifact changed while it was authenticated: {}",
                 path.display()
@@ -4763,47 +4805,81 @@ fn validate_snapshot_protected_artifacts(
 fn object_identity_for_host_path(
     path: &std::path::Path,
 ) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
-    let metadata = std::fs::metadata(path).map_err(|error| {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(0x0020_0000 | 0x0200_0000); // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
+    }
+    let file = options.open(path).map_err(|error| {
         capsec_semantics::Error::ArmRefused(format!(
-            "cannot revalidate armed root {}: {error}",
+            "cannot pin armed root {}: {error}",
             path.display()
         ))
     })?;
-    object_identity_for_metadata(&metadata)
+    object_identity_for_open_file(&file)
 }
 
+#[cfg(unix)]
 fn object_identity_for_metadata(
     metadata: &std::fs::Metadata,
 ) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
     use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+    use std::os::unix::fs::MetadataExt;
+    Ok(ObjectIdentity {
+        platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+            ObjectPlatform::Apple
+        } else if cfg!(target_os = "android") {
+            ObjectPlatform::Android
+        } else {
+            ObjectPlatform::Unix
+        },
+        volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+        file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+    })
+}
+
+fn object_identity_for_open_file(
+    file: &std::fs::File,
+) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
-        Ok(ObjectIdentity {
-            platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
-                ObjectPlatform::Apple
-            } else if cfg!(target_os = "android") {
-                ObjectPlatform::Android
-            } else {
-                ObjectPlatform::Unix
-            },
-            volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
-                .map_err(capsec_semantics::Error::InvalidModel)?,
-            file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
-                .map_err(capsec_semantics::Error::InvalidModel)?,
-        })
+        let metadata = file.metadata().map_err(|error| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "cannot inspect pinned filesystem object: {error}"
+            ))
+        })?;
+        object_identity_for_metadata(&metadata)
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
+        use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+
+        let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle() as _, &mut info) } == 0 {
+            return Err(capsec_semantics::Error::ArmRefused(format!(
+                "cannot identify pinned Windows filesystem object: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        let file_index = ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64;
         Ok(ObjectIdentity {
             platform: ObjectPlatform::Windows,
-            volume: NonEmptyString::new(format!(
-                "volume:{}",
-                metadata.volume_serial_number().unwrap_or(0)
-            ))
-            .map_err(capsec_semantics::Error::InvalidModel)?,
-            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))
+            volume: NonEmptyString::new(format!("volume:{}", info.dwVolumeSerialNumber))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+            file: NonEmptyString::new(format!("file:{file_index}"))
                 .map_err(capsec_semantics::Error::InvalidModel)?,
         })
     }
@@ -7117,6 +7193,9 @@ mod tests {
                         capsec_semantics::arming::ProtectedArtifactRole::EngineBinary => {
                             digest_at(&["engine", "binaryDigest"])
                         }
+                        capsec_semantics::arming::ProtectedArtifactRole::ExactOperationManifest => {
+                            digest_at(&["exactEmbedder", "operationManifestDigest"])
+                        }
                         capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy => {
                             digest_at(&["policyDigest"])
                         }
@@ -7145,6 +7224,45 @@ mod tests {
                 .collect(),
         };
         ArmedSnapshot::load(&bytes, &expected).unwrap()
+    }
+
+    #[test]
+    fn armed_exact_endowment_authorization_is_an_exact_three_way_binding() {
+        let manifest_digest = "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+        let host = example_armed_host_with(|value| {
+            value["exactEmbedder"] = serde_json::json!({
+                "schema": "exact/host-operation-endowments/1",
+                "operationManifestDigest": manifest_digest,
+                "endowments": {
+                    "app": [7, 11],
+                    "agentIsolate": [19],
+                    "uiWorklet": [],
+                }
+            });
+            value["protectedObjects"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "role": "exact-operation-manifest",
+                    "object": {
+                        "platform": "unix",
+                        "volume": "fixture-volume",
+                        "file": "exact-operation-manifest"
+                    },
+                    "deniedActions": ["fs:write"]
+                }));
+        });
+
+        assert!(host.authorizes_exact_endowment(1, Some(manifest_digest), &[7, 11]));
+        assert!(host.authorizes_exact_endowment(2, Some(manifest_digest), &[19]));
+        assert!(!host.authorizes_exact_endowment(1, Some(manifest_digest), &[7]));
+        assert!(!host.authorizes_exact_endowment(2, Some(manifest_digest), &[7, 11]));
+        assert!(!host.authorizes_exact_endowment(
+            1,
+            Some("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+            &[7, 11]
+        ));
+        assert!(!host.authorizes_exact_endowment(1, None, &[7, 11]));
     }
 
     #[test]

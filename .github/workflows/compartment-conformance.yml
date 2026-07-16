@@ -71,6 +71,19 @@ jobs:
       - name: Run the complete CapSec matrix and bind evidence
         run: bun run verify:capsec-conformance -- --expect-incomplete
 
+      # This lane owns the reviewed source-patched profile. The runner first
+      # learns the mapped Hermes identity/compiled target from Rust, then
+      # authors and executes the matching inherited-intrinsic probe. Its
+      # ledger must remain incomplete for Android Maven and Windows NuGet
+      # until those targets publish their own loaded-execution records, and
+      # for profile identity until build/package provenance receipts bind the
+      # mapped bytes to each reviewed source/Maven/NuGet identity.
+      - name: Prove source-patched inherited intrinsic aliases
+        run: >-
+          bun packages/ibex-devtools/src/scripts/run-capsec-inherited-intrinsic-alias-conformance.mjs
+          --profile source-patched
+          --output-dir target/capsec-intrinsic-alias-source-patched
+
       - name: Retain exact-engine suite and refusal evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -81,5 +94,6 @@ jobs:
             target/capsec-executions.json
             target/capsec-conformance-report.json
             target/capsec-suite-evidence-*/**
+            target/capsec-intrinsic-alias-source-patched/**
           if-no-files-found: error
           retention-days: 14

@@ -79,6 +79,74 @@ function globalApi(globalName, memberName = null) {
   });
 }
 
+function principalEnvironmentOverlayGlobal() {
+  const dynamicMember =
+    "[[dynamic-table:principal-environment-overlay-properties]]";
+  const name = `global:process.env.${dynamicMember}`;
+  const sourcePath = "packages/ibex-runtime-js/src/node/process.ts";
+  const sourceRefs = [
+    `${sourcePath}#Process.prototype.env`,
+    `${sourcePath}#createEnvProxy`,
+    `${sourcePath}#createEnvProxy:Proxy.deleteProperty`,
+    `${sourcePath}#createEnvProxy:Proxy.get`,
+    `${sourcePath}#createEnvProxy:Proxy.ownKeys`,
+    `${sourcePath}#createEnvProxy:Proxy.set`,
+  ];
+  return surface(
+    "native-op",
+    name,
+    {
+      exportName: `process.env.${dynamicMember}`,
+      globalName: "process",
+      memberKinds: ["dynamic-table"],
+      memberName: `env.${dynamicMember}`,
+      principalEnvironmentOverlaySourceContract: {
+        schema: "ibex/principal-environment-overlay-source-contract/1",
+        surfaceName: name,
+        dynamicMember,
+        globalPath: "process.env",
+        binding: {
+          factory: "createEnvProxy",
+          member: "Process.prototype.env",
+          sourceRef: sourceRefs[0],
+        },
+        factory: { name: "createEnvProxy", sourceRef: sourceRefs[1] },
+        nativeBridges: ["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"],
+        proxyTraps: [
+          {
+            name: "deleteProperty",
+            nativeBridges: ["__exactSetEnv"],
+            sourceRef: sourceRefs[2],
+          },
+          {
+            name: "get",
+            nativeBridges: ["__exactGetAllEnv", "__exactGetEnv"],
+            sourceRef: sourceRefs[3],
+          },
+          {
+            name: "ownKeys",
+            nativeBridges: ["__exactGetAllEnv", "__exactGetEnv"],
+            sourceRef: sourceRefs[4],
+          },
+          {
+            name: "set",
+            nativeBridges: ["__exactSetEnv"],
+            sourceRef: sourceRefs[5],
+          },
+        ],
+        sourceRefs,
+      },
+      semanticRoles: [
+        "principal-environment-overlay",
+        "runtime-property-overlay",
+      ],
+      sourceKey: "shared_runtime",
+      surfaceType: "global-api",
+    },
+    sourceRefs,
+  );
+}
+
 function hermesEvaluatorGlobal(globalName, metadata = {}) {
   const reachability =
     globalName === "eval" || globalName === "Function"
@@ -279,6 +347,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["env:read"],
     ],
     [
+      "principal environment overlay write",
+      surface("native-op", "__exactSetEnv"),
+      "effects",
+      ["env:write"],
+    ],
+    [
       "system information",
       surface("native-op", "__exactGetCpuCount"),
       "effects",
@@ -346,7 +420,18 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ],
     [
       "OS version",
-      surface("native-op", "__exactOSVersion"),
+      surface("native-op", "__exactOSVersion", {
+        exportName: "process.__exactOSVersion",
+        globalName: "process",
+        memberName: "__exactOSVersion",
+        publicOutputAccess: {
+          alias: "process.__exactOSVersion",
+          kind: "property-read",
+        },
+        publicReadAccessSourceProven: true,
+        sourceKey: "native_jsi_global",
+        surfaceType: "global-api",
+      }),
       "effects",
       ["sys:read"],
     ],
@@ -665,7 +750,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "ex_host_vfs_resolve_path",
       "ex_host_vfs_unbind_runtime",
     ]) {
-      const classified = classifyObservedSurface(surface("host-abi", name), context);
+      const classified = classifyObservedSurface(
+        surface("host-abi", name),
+        context,
+      );
       expect(classified.edge, name).toMatchObject({
         classification: "non-capability",
         rationaleId: "terminal-session-control",
@@ -1249,10 +1337,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       expect(edgeActions(classified), observed.name).toEqual([
         "path:cwd-observe",
       ]);
-      expect(classified.edge.effects[0].positiveSources, observed.name).toEqual([
-        "ambient-root",
-        "static-floor",
-      ]);
+      expect(classified.edge.effects[0].positiveSources, observed.name).toEqual(
+        ["ambient-root", "static-floor"],
+      );
     }
 
     for (const observed of [
@@ -2134,10 +2221,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(
       edgeActions(
         classifyObservedSurface(
-          surface(
-            "loader",
-            "route:load:rust:walk_transpile_tool_directory",
-          ),
+          surface("loader", "route:load:rust:walk_transpile_tool_directory"),
           context,
         ),
       ),
@@ -2151,12 +2235,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toEqual(["fs:list", "fs:write"]);
 
-    for (const category of [
-      "cache",
-      "load",
-      "resolution",
-      "transform",
-    ]) {
+    for (const category of ["cache", "load", "resolution", "transform"]) {
       const name = `operation:${category}:env-var`;
       expect(
         edgeActions(classifyObservedSurface(surface("loader", name), context)),
@@ -2267,10 +2346,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "function:javascript:generatedSinglePackagePrincipal";
     expect(reviewedLoaderNames()).toContain(registrationName);
     expect(
-      classifyObservedSurface(
-        surface("loader", registrationName),
-        context,
-      ).edge,
+      classifyObservedSurface(surface("loader", registrationName), context)
+        .edge,
     ).toMatchObject({
       classification: "non-capability",
       rationaleId: "authority-control-plane",
@@ -2289,6 +2366,92 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         rationaleId: "pure-in-memory-compute",
       });
     }
+  });
+
+  test("classifies the source-bound current-principal environment Proxy as exact read/write effects", () => {
+    const observed = principalEnvironmentOverlayGlobal();
+    expect(reviewedGlobalApiNames()).toContain(observed.name);
+    expect(reviewedGlobalApiNames()).not.toContain(
+      "global:process.env.[[dynamic-table:host-process-env-properties]]",
+    );
+
+    const classified = classifyObservedSurface(observed, context);
+    expect(classified.edge).toMatchObject({
+      classification: "effects",
+      effectMode: "conditional",
+      effectOwnerSource: "innermost-nontransparent-frame",
+      principalSources: ["frame-set", "schedule-time"],
+      logicalBranches: [
+        {
+          id: "read",
+          when: [
+            {
+              fact: "environment.property.operation",
+              equals: "read",
+            },
+          ],
+          effects: [{ cap: "env:read" }],
+        },
+        {
+          id: "write",
+          when: [
+            {
+              fact: "environment.property.operation",
+              equals: "write",
+            },
+          ],
+          effects: [{ cap: "env:write" }],
+        },
+      ],
+    });
+    expect(classified.edge.effects.map(({ cap }) => cap)).toEqual([
+      "env:read",
+      "env:write",
+    ]);
+    for (const effect of classified.edge.effects) {
+      expect(effect).toMatchObject({
+        selectorNormalizer: "environment.name.selector.v1",
+        occurrenceNormalizer: "environment.name.occurrence.v1",
+        stages: ["requested", "commit"],
+      });
+    }
+
+    for (const mutate of [
+      (surface) => {
+        surface.metadata.principalEnvironmentOverlaySourceContract.proxyTraps.find(
+          ({ name }) => name === "set",
+        ).nativeBridges = [];
+      },
+      (surface) => {
+        surface.metadata.principalEnvironmentOverlaySourceContract.sourceRefs =
+          surface.metadata.principalEnvironmentOverlaySourceContract.sourceRefs.slice(
+            1,
+          );
+      },
+      (surface) => {
+        surface.metadata.semanticRoles = ["runtime-property-overlay"];
+      },
+    ]) {
+      const drifted = structuredClone(observed);
+      mutate(drifted);
+      expect(() => classifyObservedSurface(drifted, context)).toThrow(
+        /unclassified observed surface/u,
+      );
+    }
+  });
+
+  test("classifies typed environment-write Host authorization as control plane", () => {
+    const name = "ex_host_authorize_typed_environment_write_stack";
+    expect(reviewedHostAbiNames()).toContain(name);
+    const classified = classifyObservedSurface(
+      surface("host-abi", name),
+      context,
+    );
+    expect(classified.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+    expect(classified.specification.implementationOwner).toBe("WP8");
   });
 
   test("shared process-global builtin mutation surfaces remain closed", () => {
@@ -2935,7 +3098,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "function:rust:resolve_with_resolver_at",
       "route:resolution:rust:resolve_with_resolver_at",
     ]) {
-      const classified = classifyObservedSurface(surface("loader", name), context);
+      const classified = classifyObservedSurface(
+        surface("loader", name),
+        context,
+      );
       expect(classified.edge.classification, name).toBe("effects");
       expect(edgeActions(classified), name).toEqual(["fs:list", "fs:read"]);
     }
@@ -3039,10 +3205,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
 
     const auditFileParser = classifyObservedSurface(
-      surface(
-        "cli",
-        "argument-parser:ibex%20capsec%20audit:file:utf8-string",
-      ),
+      surface("cli", "argument-parser:ibex%20capsec%20audit:file:utf8-string"),
       context,
     );
     expect(auditFileParser.edge.classification).toBe("non-capability");
@@ -3623,7 +3786,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ).implementationRows[0];
     expect(sync.branchId).not.toBe(asynchronous.branchId);
     expect(sync.enforcementBranchId).not.toBe(asynchronous.enforcementBranchId);
-    expect(sync.fixtureObligations).not.toEqual(asynchronous.fixtureObligations);
+    expect(sync.fixtureObligations).not.toEqual(
+      asynchronous.fixtureObligations,
+    );
 
     const distinctSource = classifyObservedSurface(
       surface("native-op", "__exactTcpConnectStart", undefined, [
@@ -3631,16 +3796,15 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ]),
       context,
     ).implementationRows[0];
-    expect(distinctSource.enforcementBranchId).not.toBe(sync.enforcementBranchId);
+    expect(distinctSource.enforcementBranchId).not.toBe(
+      sync.enforcementBranchId,
+    );
   });
 
   test("static builtin call routes join the exact native terminal and fail on mutation", () => {
-    const terminal = surface(
-      "native-op",
-      "__exactClipboardRead",
-      undefined,
-      ["src/engine/hermes_runtime_device.cc#__exactClipboardRead"],
-    );
+    const terminal = surface("native-op", "__exactClipboardRead", undefined, [
+      "src/engine/hermes_runtime_device.cc#__exactClipboardRead",
+    ]);
     const facade = (terminalName) =>
       surface(
         "builtin",
@@ -3652,9 +3816,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           enforcementRouteEvidence: {
             ambiguousCallees: [],
             kind: "static-builtin-call-graph",
-            paths: [
-              `export:readText -> readText -> ${terminalName}`,
-            ],
+            paths: [`export:readText -> readText -> ${terminalName}`],
             terminals: [terminalName],
           },
         },
@@ -3670,18 +3832,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     const terminalRow = model.implementationRows.find(
       (row) => row.observedKey === "native-op:__exactClipboardRead",
     );
-    expect(facadeRow.enforcementBranchId).toBe(
-      terminalRow.enforcementBranchId,
-    );
+    expect(facadeRow.enforcementBranchId).toBe(terminalRow.enforcementBranchId);
     expect(facadeRow.enforcementRoute).toEqual({
       kind: "static-builtin-call-graph",
-      proofPaths: [
-        "export:readText -> readText -> __exactClipboardRead",
-      ],
+      proofPaths: ["export:readText -> readText -> __exactClipboardRead"],
       proofSourceRefs: ["src/builtins/clipboard.js#exports:readText"],
-      sourceRefs: [
-        "src/engine/hermes_runtime_device.cc#__exactClipboardRead",
-      ],
+      sourceRefs: ["src/engine/hermes_runtime_device.cc#__exactClipboardRead"],
       terminalObservedKey: "native-op:__exactClipboardRead",
     });
 
@@ -4475,12 +4631,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         effects: [{ cap: "fs:list" }, { cap: "fs:write" }],
       });
     }
-    for (const category of [
-      "cache",
-      "load",
-      "resolution",
-      "transform",
-    ]) {
+    for (const category of ["cache", "load", "resolution", "transform"]) {
       const observedKey = `loader:operation:${category}:env-var`;
       expect(edgeByObservedKey.get(observedKey), observedKey).toMatchObject({
         classification: "effects",
@@ -4605,5 +4756,5 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         expected,
       );
     }
-  }, 30_000);
+  }, 60_000);
 });

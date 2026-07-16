@@ -71,6 +71,8 @@ struct ClosedSourceDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     global_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    member_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     access_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     engine_identity_review_id: Option<String>,
@@ -119,6 +121,18 @@ enum ClosedOperation {
         #[serde(rename = "rejectionFragment")]
         rejection_fragment: String,
     },
+    ExactUnendowedOperation {
+        #[serde(rename = "contextKind")]
+        context_kind: String,
+        #[serde(rename = "operationManifestDigest")]
+        operation_manifest_digest: String,
+        #[serde(rename = "endowedOperationIds")]
+        endowed_operation_ids: Vec<u32>,
+        #[serde(rename = "selectedOperationId")]
+        selected_operation_id: u32,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
 }
 
 impl ClosedOperation {
@@ -128,6 +142,7 @@ impl ClosedOperation {
             Self::CliControl { .. } => "cli-control",
             Self::TamedEvaluator { .. } => "tamed-evaluator",
             Self::LoaderExecutableFile { .. } => "loader-executable-file",
+            Self::ExactUnendowedOperation { .. } => "exact-unendowed-operation",
         }
     }
 
@@ -136,7 +151,8 @@ impl ClosedOperation {
             Self::StartupEnvironment { environment_name } => Some(environment_name),
             Self::CliControl { .. }
             | Self::TamedEvaluator { .. }
-            | Self::LoaderExecutableFile { .. } => None,
+            | Self::LoaderExecutableFile { .. }
+            | Self::ExactUnendowedOperation { .. } => None,
         }
     }
 }
@@ -152,6 +168,11 @@ const CLOSED_BATCH_COMMAND: [&str; 9] = [
     "--",
     "--test-threads=1",
 ];
+const EXACT_OPERATION_MANIFEST_DIGEST: &str =
+    "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+const EXACT_APP_OPERATION_IDS: [u32; 2] = [7, 11];
+const EXACT_UNENDOWED_OPERATION_ID: u32 = 8;
+const EXACT_UNENDOWED_ERROR: &str = "exact.invokeHostAsync operation is not endowed";
 
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)
@@ -594,6 +615,217 @@ async fn execute_closed_tamed_evaluator(
     observation
         .as_object_mut()
         .expect("expected closed evaluator observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+#[cfg(test)]
+async fn execute_closed_exact_unendowed_operation(
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::ExactUnendowedOperation {
+        context_kind,
+        operation_manifest_digest,
+        endowed_operation_ids,
+        selected_operation_id,
+        expected_error,
+    } = &invocation.operation
+    else {
+        panic!("Exact unendowed probe has the wrong closed operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "native-op");
+    assert_eq!(invocation.surface_name, "global:exact.invokeHostAsync");
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+    assert_eq!(context_kind, "app");
+    assert_eq!(operation_manifest_digest, EXACT_OPERATION_MANIFEST_DIGEST);
+    assert_eq!(endowed_operation_ids, &EXACT_APP_OPERATION_IDS);
+    assert_eq!(*selected_operation_id, EXACT_UNENDOWED_OPERATION_ID);
+    assert!(!endowed_operation_ids.contains(selected_operation_id));
+    assert_eq!(expected_error, EXACT_UNENDOWED_ERROR);
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-exact-unendowed-operation");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.global_name.as_deref(), Some("exact"));
+    assert_eq!(descriptor.member_name.as_deref(), Some("invokeHostAsync"));
+    assert_eq!(
+        descriptor.source_refs,
+        ["src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync"]
+    );
+    assert_eq!(descriptor.source_metadata["surfaceType"], "global-api");
+    assert_eq!(descriptor.source_metadata["sourceKey"], "native_jsi_global");
+    assert_eq!(descriptor.source_metadata["globalName"], "exact");
+    assert_eq!(descriptor.source_metadata["memberName"], "invokeHostAsync");
+    assert_eq!(
+        descriptor.source_metadata["memberKinds"],
+        serde_json::json!(["native-object-member"])
+    );
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed Exact recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let (_reset, snapshot_digest) = install_armed_exact_test_host();
+    EXACT_ABI_PROBE_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+    EXACT_ABI_PROBE_OPERATION.store(0, std::sync::atomic::Ordering::SeqCst);
+    EXACT_ABI_PROBE_PAYLOAD_LEN.store(0, std::sync::atomic::Ordering::SeqCst);
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create exact closed-operation engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load exact closed-operation runtime");
+    let session_id = format!("closed-exact-operation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &session_id
+    ));
+    let manifest_digest = std::ffi::CString::new(operation_manifest_digest.as_str()).unwrap();
+    let runtime = engine
+        .ensure_runtime()
+        .await
+        .expect("load exact closed-operation runtime handle");
+    runtime
+        .with_runtime(|raw| unsafe {
+            assert_eq!(
+                ex_hermes_set_exact_host_call_async(
+                    raw,
+                    1,
+                    endowed_operation_ids.as_ptr(),
+                    endowed_operation_ids.len(),
+                    manifest_digest.as_ptr(),
+                    abi_probe_exact_host_call,
+                    std::ptr::null_mut(),
+                ),
+                0,
+                "install authenticated Exact app endowment"
+            );
+        })
+        .expect("invoke Exact setter on the runtime owner thread");
+    let script = format!(
+        r#"JSON.stringify((function(operation) {{
+  var descriptor = Object.getOwnPropertyDescriptor(exact, 'invokeHostAsync');
+  var errorName = null;
+  var errorMessage = null;
+  try {{ exact.invokeHostAsync(operation, new Uint8Array()); }}
+  catch (error) {{
+    errorName = String(error && error.name || 'Error');
+    errorMessage = String(error && error.message || error);
+  }}
+  return {{
+    errorName: errorName,
+    errorMessage: errorMessage,
+    methodInstalled: typeof exact.invokeHostAsync === 'function',
+    immutable: descriptor && descriptor.writable === false && descriptor.configurable === false,
+    genericBridgeAbsent: typeof __hostCall === 'undefined' && typeof __hostCallAsync === 'undefined'
+  }};
+}})({selected_operation_id}))"#
+    );
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("invoke unendowed Exact operation")
+        .expect("unendowed Exact operation returned no result");
+    let observed: serde_json::Value =
+        serde_json::from_str(&encoded).expect("unendowed Exact result must be JSON");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert_eq!(observed["errorMessage"], expected_error.as_str());
+    assert!(observed["errorName"].as_str().is_some());
+    assert_eq!(observed["methodInstalled"], true);
+    assert_eq!(observed["immutable"], true);
+    assert_eq!(observed["genericBridgeAbsent"], true);
+    assert_eq!(
+        EXACT_ABI_PROBE_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "unendowed operation reached the trusted embedder callback"
+    );
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": observed["errorMessage"],
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed Exact observation must be an object")
         .insert("result".into(), serde_json::Value::String("passed".into()));
     let mut evidence = serde_json::json!({
         "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
@@ -1429,9 +1661,21 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let exact_unendowed_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::ExactUnendowedOperation { .. }
+            )
+        })
+        .count();
     assert_eq!(
         recipe_indexes.len(),
-        startup_count + cli_count + evaluator_count + loader_count,
+        startup_count + cli_count + evaluator_count + loader_count + exact_unendowed_count,
         "every closed recipe must have an accounted execution family"
     );
     assert_eq!(
@@ -1448,6 +1692,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         loader_count, 2,
         "expected only the publicly executed extension-guard loader facets"
+    );
+    assert_eq!(
+        exact_unendowed_count, 1,
+        "expected the authenticated Exact app endowment closure fixture"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
@@ -1487,6 +1735,15 @@ async fn capsec_public_closed_recipe_batch() {
             }
             ClosedOperation::LoaderExecutableFile { .. } => {
                 execute_closed_loader_executable(
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await
+            }
+            ClosedOperation::ExactUnendowedOperation { .. } => {
+                execute_closed_exact_unendowed_operation(
                     recipe,
                     &probe,
                     &coverage,

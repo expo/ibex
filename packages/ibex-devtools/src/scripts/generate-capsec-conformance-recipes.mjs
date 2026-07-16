@@ -7,7 +7,10 @@ import {
   assertRecipeCatalogComplete,
   buildConformanceRecipeCatalog,
 } from "./capsec-conformance-recipes.mjs";
-import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
+import {
+  fixtureCatalogForTarget,
+  selectCandidateTarget,
+} from "./capsec-conformance.mjs";
 import { readJsonStrict } from "./capsec-contract.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 
@@ -17,9 +20,10 @@ const repoRoot = path.resolve(
 );
 const capsecRoot = path.join(repoRoot, "capsec");
 const args = process.argv.slice(2);
-const knownOptions = new Set(["--output", "--require-complete"]);
+const knownOptions = new Set(["--output", "--require-complete", "--target"]);
 let outputPath = path.join(repoRoot, "target/capsec-executable-recipes.json");
 let requireComplete = false;
+let requestedTargetTriple;
 for (let index = 0; index < args.length; index += 1) {
   const argument = args[index];
   if (!knownOptions.has(argument)) {
@@ -33,7 +37,11 @@ for (let index = 0; index < args.length; index += 1) {
   if (!value || value.startsWith("--")) {
     throw new Error(`${argument} requires a value`);
   }
-  outputPath = path.resolve(repoRoot, value);
+  if (argument === "--output") {
+    outputPath = path.resolve(repoRoot, value);
+  } else {
+    requestedTargetTriple = value;
+  }
   index += 1;
 }
 
@@ -53,8 +61,7 @@ const occurrenceExamples = readJsonStrict(
 const selectorExamples = readJsonStrict(
   path.join(capsecRoot, "examples/authority-selectors.canonical.json"),
 );
-const target = rules.initialProfile.candidateTargets[0];
-if (!target) throw new Error("no candidate target is declared");
+const target = selectCandidateTarget(rules, requestedTargetTriple);
 const catalog = fixtureCatalogForTarget({ coverage, implementation, target });
 const inventory = await discoverRepositorySurfaces(repoRoot);
 const recipes = buildConformanceRecipeCatalog({

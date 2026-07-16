@@ -52,6 +52,14 @@ const PUBLIC_ABI_IDENTIFIER =
 
 export const HOST_ABI_OUTPUT_CONTRACT_SCHEMA =
   "ibex/host-abi-output-contract/1";
+export const C_ABI_TYPE_REGISTRY_SCHEMA = "ibex/c-abi-type-registry/1";
+export const CALLBACK_OUTPUT_CONTRACT_SCHEMA =
+  "ibex/callback-output-contract/1";
+export const PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA =
+  "ibex/principal-environment-overlay-source-contract/1";
+export const PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER =
+  "[[dynamic-table:principal-environment-overlay-properties]]";
+export const PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME = `global:process.env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`;
 
 const PRIVATE_NATIVE_IDENTIFIER =
   /^__[A-Za-z_$][A-Za-z0-9_$]*(?:[.:/-][A-Za-z0-9_$]+)*$/u;
@@ -935,12 +943,20 @@ function rustPublicExternDefinitions(tokens, sourcePath) {
 export function scanRustHostExterns(text, sourcePath = "<rust-source>") {
   const tokens = rustProductionTokens(text, sourcePath);
   const outputAnnotations = parseAbiOutputAnnotations(text, sourcePath);
+  const callbackAnnotations = parseAbiCallbackAnnotations(text, sourcePath);
   const records = rustPublicExternDefinitions(tokens, sourcePath);
   const recordNames = new Set(records.map((record) => record.name));
   for (const functionName of outputAnnotations.keys()) {
     if (!recordNames.has(functionName)) {
       throw new Error(
         `${sourcePath}: @abi-output names absent Rust ABI definition ${functionName}`,
+      );
+    }
+  }
+  for (const functionName of callbackAnnotations.keys()) {
+    if (!recordNames.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-callback names absent Rust ABI definition ${functionName}`,
       );
     }
   }
@@ -969,6 +985,7 @@ export function scanRustHostExterns(text, sourcePath = "<rust-source>") {
           tokens,
           record,
           outputAnnotations.get(name) ?? [],
+          callbackAnnotations.get(name) ?? [],
           sourceRef,
         ),
         unsafe: record.isUnsafe,
@@ -989,12 +1006,20 @@ export function scanRustPublicAbiDefinitions(
 ) {
   const tokens = rustProductionTokens(text, sourcePath);
   const outputAnnotations = parseAbiOutputAnnotations(text, sourcePath);
+  const callbackAnnotations = parseAbiCallbackAnnotations(text, sourcePath);
   const records = rustPublicExternDefinitions(tokens, sourcePath);
   const recordNames = new Set(records.map((record) => record.name));
   for (const functionName of outputAnnotations.keys()) {
     if (!recordNames.has(functionName)) {
       throw new Error(
         `${sourcePath}: @abi-output names absent Rust ABI definition ${functionName}`,
+      );
+    }
+  }
+  for (const functionName of callbackAnnotations.keys()) {
+    if (!recordNames.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-callback names absent Rust ABI definition ${functionName}`,
       );
     }
   }
@@ -1017,6 +1042,7 @@ export function scanRustPublicAbiDefinitions(
           tokens,
           record,
           outputAnnotations.get(name) ?? [],
+          callbackAnnotations.get(name) ?? [],
           sourceRef,
         ),
         unsafe: record.isUnsafe,
@@ -1143,10 +1169,7 @@ function lexCpp(text, label) {
 }
 
 function matchingToken(tokens, start, open, close) {
-  if (
-    tokens[start]?.type !== "punctuation" ||
-    tokens[start]?.value !== open
-  )
+  if (tokens[start]?.type !== "punctuation" || tokens[start]?.value !== open)
     return -1;
   let depth = 0;
   for (let index = start; index < tokens.length; index += 1) {
@@ -1224,7 +1247,7 @@ function abiTypeDescriptor(tokens) {
   };
 }
 
-function splitAbiTokenList(tokens) {
+function splitTopLevelAbiTokens(tokens, delimiter) {
   if (tokens.length === 0) return [];
   const parts = [];
   let start = 0;
@@ -1238,7 +1261,7 @@ function splitAbiTokenList(tokens) {
       if (depth[open] > 0) depth[open] -= 1;
     }
     if (
-      value === "," &&
+      value === delimiter &&
       Object.values(depth).every((value) => value === 0)
     ) {
       parts.push(tokens.slice(start, index));
@@ -1247,6 +1270,10 @@ function splitAbiTokenList(tokens) {
   }
   parts.push(tokens.slice(start));
   return parts.filter((part) => part.length > 0);
+}
+
+function splitAbiTokenList(tokens) {
+  return splitTopLevelAbiTokens(tokens, ",");
 }
 
 function topLevelTokenIndex(tokens, searched) {
@@ -1382,20 +1409,732 @@ function cppAbiParameters(tokens, open, close) {
   });
 }
 
-function abiParameterContract(language, parameter) {
+function topLevelAbiStatementEnd(tokens, start) {
+  const depth = { "(": 0, "[": 0, "{": 0, "<": 0 };
+  const closeToOpen = { ")": "(", "]": "[", "}": "{", ">": "<" };
+  for (let index = start; index < tokens.length; index += 1) {
+    const value = tokens[index].value;
+    if (value === ";" && Object.values(depth).every((entry) => entry === 0)) {
+      return index;
+    }
+    if (Object.hasOwn(depth, value)) depth[value] += 1;
+    if (Object.hasOwn(closeToOpen, value)) {
+      const open = closeToOpen[value];
+      if (depth[open] > 0) depth[open] -= 1;
+    }
+  }
+  return -1;
+}
+
+function cppAggregateFields(tokens, definition) {
+  const fields = [];
+  for (const [index, declaration] of splitTopLevelAbiTokens(
+    tokens.slice(definition.bodyOpen + 1, definition.bodyClose),
+    ";",
+  ).entries()) {
+    const nameIndex = cppParameterNameIndex(declaration);
+    if (nameIndex === -1) continue;
+    const name = declaration[nameIndex].value;
+    const typeTokens = declaration.filter(
+      (_, tokenIndex) => tokenIndex !== nameIndex,
+    );
+    fields.push({
+      index,
+      name,
+      pointerDepth: abiPointerShape("c++", typeTokens).pointerDepth,
+      type: abiTypeDescriptor(typeTokens),
+      typeTokens,
+      valueKind: abiTypeKind("c++", typeTokens),
+    });
+  }
+  return fields;
+}
+
+/**
+ * Parse the named aggregate layouts and callback typedef signatures that the
+ * public ABI definitions bind by name. The registry remains declaration-only:
+ * a function body annotation still decides which aggregate members it writes
+ * and whether a callback is ever delivered.
+ */
+export function scanCppAbiTypeRegistry(text, sourcePath = "<native-header>") {
+  const tokens = lexCpp(text, sourcePath);
+  const aggregates = {};
+  for (const definition of cppTypeDefinitions(tokens)) {
+    if (!/^Ex(?:Hermes|Worklet|Motion)[A-Za-z0-9_]*$/u.test(definition.name)) {
+      continue;
+    }
+    const alias = tokens[definition.bodyClose + 1];
+    const schemaName =
+      alias?.type === "identifier" ? alias.value : definition.name;
+    if (aggregates[schemaName]) {
+      throw new Error(`${sourcePath}: duplicate ABI aggregate ${schemaName}`);
+    }
+    aggregates[schemaName] = {
+      fields: cppAggregateFields(tokens, definition).map((field) => ({
+        index: field.index,
+        name: field.name,
+        pointerDepth: field.pointerDepth,
+        type: field.type,
+        valueKind: field.valueKind,
+      })),
+      name: schemaName,
+      sourceRef: sourceSymbol(sourcePath, schemaName),
+    };
+  }
+
+  const callbacks = {};
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index].value !== "typedef") continue;
+    const statementEnd = topLevelAbiStatementEnd(tokens, index + 1);
+    if (statementEnd === -1) {
+      throw new Error(`${sourcePath}: unterminated ABI typedef`);
+    }
+    let declaratorOpen = -1;
+    for (let cursor = index + 1; cursor < statementEnd - 4; cursor += 1) {
+      if (
+        tokens[cursor].value === "(" &&
+        tokens[cursor + 1]?.value === "*" &&
+        tokens[cursor + 2]?.type === "identifier" &&
+        tokens[cursor + 3]?.value === ")" &&
+        tokens[cursor + 4]?.value === "("
+      ) {
+        declaratorOpen = cursor;
+        break;
+      }
+    }
+    if (declaratorOpen === -1) {
+      index = statementEnd;
+      continue;
+    }
+    const name = tokens[declaratorOpen + 2].value;
+    const parametersOpen = declaratorOpen + 4;
+    const parametersClose = matchingToken(tokens, parametersOpen, "(", ")");
+    if (parametersClose === -1 || parametersClose >= statementEnd) {
+      throw new Error(`${sourcePath}: malformed ABI callback typedef ${name}`);
+    }
+    if (callbacks[name]) {
+      throw new Error(`${sourcePath}: duplicate ABI callback typedef ${name}`);
+    }
+    callbacks[name] = {
+      language: "c++",
+      name,
+      parameters: cppAbiParameters(tokens, parametersOpen, parametersClose).map(
+        (parameter) => ({
+          index: parameter.index,
+          name: parameter.name,
+          type: abiTypeDescriptor(parameter.typeTokens),
+        }),
+      ),
+      return: abiTypeDescriptor(tokens.slice(index + 1, declaratorOpen)),
+      sourceRef: sourceSymbol(sourcePath, name),
+    };
+    index = statementEnd;
+  }
+
+  return {
+    aggregates: Object.fromEntries(
+      Object.entries(aggregates).sort(([left], [right]) =>
+        compareText(left, right),
+      ),
+    ),
+    callbacks: Object.fromEntries(
+      Object.entries(callbacks).sort(([left], [right]) =>
+        compareText(left, right),
+      ),
+    ),
+    schema: C_ABI_TYPE_REGISTRY_SCHEMA,
+    sourcePath,
+  };
+}
+
+function descriptorTokens(descriptor) {
+  return (descriptor?.tokens ?? []).map((value) => ({
+    type: /^[A-Za-z_][A-Za-z0-9_]*$/u.test(value)
+      ? "identifier"
+      : "punctuation",
+    value,
+  }));
+}
+
+function registryAggregateName(typeTokens, typeRegistry) {
+  if (typeRegistry?.schema !== C_ABI_TYPE_REGISTRY_SCHEMA) return null;
+  const names = typeTokens
+    .filter((token) => token.type === "identifier")
+    .map((token) => token.value)
+    .filter((name) => Object.hasOwn(typeRegistry.aggregates, name));
+  return names.length === 1 ? names[0] : null;
+}
+
+function cppInlineCallbackSignature(typeTokens) {
+  for (let index = 0; index < typeTokens.length - 4; index += 1) {
+    if (
+      typeTokens[index].value !== "(" ||
+      typeTokens[index + 1]?.value !== "*" ||
+      typeTokens[index + 2]?.value !== ")" ||
+      typeTokens[index + 3]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(typeTokens, index + 3, "(", ")");
+    if (close === -1) return null;
+    return {
+      language: "c++",
+      parameters: cppAbiParameters(typeTokens, index + 3, close),
+      returnTokens: typeTokens.slice(0, index),
+      sourceRef: null,
+    };
+  }
+  return null;
+}
+
+function rustInlineCallbackSignature(typeTokens) {
+  const functionIndex = typeTokens.findIndex((token) => token.value === "fn");
+  if (functionIndex === -1 || typeTokens[functionIndex + 1]?.value !== "(") {
+    return null;
+  }
+  const close = matchingToken(typeTokens, functionIndex + 1, "(", ")");
+  if (close === -1) return null;
+  const parameters = splitAbiTokenList(
+    typeTokens.slice(functionIndex + 2, close),
+  ).map((parameterTokens, index) => {
+    let colon = -1;
+    for (let cursor = 1; cursor < parameterTokens.length - 1; cursor += 1) {
+      if (
+        parameterTokens[cursor].value === ":" &&
+        parameterTokens[cursor - 1]?.type === "identifier" &&
+        parameterTokens[cursor - 1]?.value !== ":" &&
+        parameterTokens[cursor + 1]?.value !== ":"
+      ) {
+        colon = cursor;
+        break;
+      }
+    }
+    return {
+      index,
+      name:
+        colon > 0 && parameterTokens[colon - 1]?.type === "identifier"
+          ? parameterTokens[colon - 1].value
+          : null,
+      typeTokens:
+        colon > 0 ? parameterTokens.slice(colon + 1) : parameterTokens,
+    };
+  });
+  let returnTokens = [];
+  if (
+    typeTokens[close + 1]?.value === "-" &&
+    typeTokens[close + 2]?.value === ">"
+  ) {
+    returnTokens = typeTokens.slice(close + 3);
+    while (returnTokens.at(-1)?.value === ">") returnTokens.pop();
+  }
+  return {
+    language: "rust",
+    parameters,
+    returnTokens,
+    sourceRef: null,
+  };
+}
+
+function callbackSignatureForParameter(language, parameter, typeRegistry) {
+  const inline =
+    language === "rust"
+      ? rustInlineCallbackSignature(parameter.typeTokens)
+      : cppInlineCallbackSignature(parameter.typeTokens);
+  if (inline) return inline;
+  if (typeRegistry?.schema !== C_ABI_TYPE_REGISTRY_SCHEMA) return null;
+  const callbackNames = parameter.typeTokens
+    .filter((token) => token.type === "identifier")
+    .map((token) => token.value)
+    .filter((name) => Object.hasOwn(typeRegistry.callbacks, name));
+  if (callbackNames.length !== 1) return null;
+  const callback = typeRegistry.callbacks[callbackNames[0]];
+  return {
+    language: callback.language,
+    name: callback.name,
+    parameters: callback.parameters.map((entry) => ({
+      index: entry.index,
+      name: entry.name,
+      typeTokens: descriptorTokens(entry.type),
+    })),
+    returnTokens: descriptorTokens(callback.return),
+    sourceRef: callback.sourceRef,
+  };
+}
+
+function aggregateLengthPairs(schema) {
+  const pairs = new Map();
+  for (const field of schema.fields) {
+    if (field.pointerDepth === 0) continue;
+    const candidates = new Set(lengthCandidates(field.name));
+    if (field.name === "data") candidates.add("length");
+    if (field.name.endsWith("_data")) {
+      candidates.add(`${field.name.slice(0, -"_data".length)}_length`);
+    }
+    if (field.name.endsWith("ies")) {
+      candidates.add(`${field.name.slice(0, -3)}y_count`);
+    }
+    const next = schema.fields[field.index + 1];
+    const length =
+      schema.fields.find((candidate) => candidates.has(candidate.name)) ??
+      (next && /(?:^|_)(?:len|length|size|count)$/u.test(next.name)
+        ? next
+        : null);
+    if (length) pairs.set(field.name, length.name);
+  }
+  return pairs;
+}
+
+function aggregateOutputChannels({
+  alias,
+  elements = [],
+  memberOwnership,
+  members,
+  role,
+  rootParameter,
+  schemaName,
+  selectorPrefix,
+  typeRegistry,
+}) {
+  const schema = typeRegistry?.aggregates?.[schemaName];
+  if (!schema) return null;
+  const selected = members === "*" ? null : new Set(members);
+  if (selected) {
+    const fieldNames = new Set(schema.fields.map((field) => field.name));
+    for (const member of selected) {
+      if (!fieldNames.has(member)) {
+        throw new Error(`ABI aggregate ${schemaName} has no member ${member}`);
+      }
+    }
+  }
+  const expandedElements = new Set(elements);
+  const rootAlias = alias;
+  const output = [];
+  const walk = (currentSchemaName, currentAlias, selectedMembers, ancestry) => {
+    if (ancestry.has(currentSchemaName)) {
+      throw new Error(`recursive ABI aggregate schema ${currentSchemaName}`);
+    }
+    const currentSchema = typeRegistry.aggregates[currentSchemaName];
+    if (!currentSchema) return false;
+    const nextAncestry = new Set(ancestry);
+    nextAncestry.add(currentSchemaName);
+    const pairs = aggregateLengthPairs(currentSchema);
+    const pairedLengths = new Set(pairs.values());
+    for (const field of currentSchema.fields) {
+      if (selectedMembers && !selectedMembers.has(field.name)) continue;
+      if (pairedLengths.has(field.name)) continue;
+      const fieldAlias = `${currentAlias}.${field.name}`;
+      const typeTokens = descriptorTokens(field.type);
+      const nestedSchema = registryAggregateName(typeTokens, typeRegistry);
+      const pointer = abiPointerShape("c++", typeTokens);
+      const lengthMember = pairs.get(field.name);
+      if (pointer.pointerDepth === 0 && nestedSchema) {
+        walk(nestedSchema, fieldAlias, null, nextAncestry);
+        continue;
+      }
+      if (pointer.pointerDepth > 0 && nestedSchema) {
+        output.push({
+          aggregateSchema: currentSchemaName,
+          alias: fieldAlias,
+          elementSchema: nestedSchema,
+          ...(lengthMember
+            ? { lengthParameter: `${currentAlias}.${lengthMember}` }
+            : {}),
+          kind: "aggregate",
+          memberPath: fieldAlias.slice(alias.length + 1),
+          ownership: structuredClone(memberOwnership),
+          parameter: fieldAlias,
+          role,
+          rootParameter,
+          selector: `${selectorPrefix}${fieldAlias}`,
+        });
+        const relativeFieldAlias = fieldAlias.slice(rootAlias.length + 1);
+        if (expandedElements.has(relativeFieldAlias)) {
+          walk(nestedSchema, `${fieldAlias}[]`, null, nextAncestry);
+        }
+        continue;
+      }
+      const kind =
+        pointer.pointerDepth > 0 && lengthMember
+          ? "buffer"
+          : pointer.pointerDepth > 0
+            ? "pointer"
+            : abiTypeKind("c++", typeTokens);
+      output.push({
+        aggregateSchema: currentSchemaName,
+        alias: fieldAlias,
+        ...(lengthMember
+          ? { lengthParameter: `${currentAlias}.${lengthMember}` }
+          : {}),
+        kind,
+        memberPath: fieldAlias.slice(alias.length + 1),
+        ownership:
+          pointer.pointerDepth > 0
+            ? structuredClone(memberOwnership)
+            : { kind: "not-applicable" },
+        parameter: fieldAlias,
+        role,
+        rootParameter,
+        selector: `${selectorPrefix}${fieldAlias}`,
+      });
+    }
+    return true;
+  };
+  walk(schemaName, alias, selected, new Set());
+  return output;
+}
+
+function bindCallbackBufferLengthPairs(parameters) {
+  const pairs = [];
+  for (const parameter of parameters) {
+    if (parameter.pointerDepth === 0) continue;
+    const candidates = new Set(lengthCandidates(parameter.name));
+    if (parameter.name === "data") candidates.add("length");
+    if (parameter.name?.endsWith("_data")) {
+      candidates.add(`${parameter.name.slice(0, -"_data".length)}_length`);
+    }
+    let length = parameters.find((candidate) => candidates.has(candidate.name));
+    if (!length) {
+      const next = parameters[parameter.index + 1];
+      const byteLike = /(?:u8|uint8_t|char|void|byte)/u.test(
+        parameter.type.canonical,
+      );
+      if (byteLike && /^(?:len|length|size|count)$/u.test(next?.name ?? "")) {
+        length = next;
+      }
+    }
+    if (!length || length.direction !== parameter.direction) continue;
+    parameter.valueKind = "buffer";
+    length.valueKind = "length";
+    pairs.push({
+      bufferParameter: parameter.index,
+      direction: parameter.direction,
+      lengthParameter: length.index,
+    });
+  }
+  return pairs;
+}
+
+function callbackParameterContract(
+  language,
+  parameter,
+  { hasOuterContext, typeRegistry },
+) {
+  const pointer = abiPointerShape(language, parameter.typeTokens);
+  const typeValues = new Set(parameter.typeTokens.map((token) => token.value));
+  const typeIdentifiers = new Set(
+    parameter.typeTokens
+      .filter((token) => token.type === "identifier")
+      .map((token) => token.value),
+  );
+  const voidLike = typeValues.has("void") || typeValues.has("c_void");
+  let direction;
+  if (pointer.pointerDepth === 0 || pointer.constPointee) {
+    direction = "native-to-embedder";
+  } else if (
+    parameter.name === "context" ||
+    typeIdentifiers.has("ExactHermesRuntime") ||
+    (voidLike && hasOuterContext)
+  ) {
+    direction = "native-to-embedder";
+  } else if (
+    /^(?:out(?:_|$)|result_(?:data|length)$)/u.test(parameter.name ?? "")
+  ) {
+    direction = "embedder-to-native";
+  } else {
+    direction = "unknown";
+  }
+  const pointeeKind = abiTypeKind(
+    language,
+    parameter.typeTokens.filter(
+      (token) => !new Set(["*", "const", "mut"]).has(token.value),
+    ),
+  );
+  const aggregateSchema = registryAggregateName(
+    parameter.typeTokens,
+    typeRegistry,
+  );
+  return {
+    ...(aggregateSchema ? { aggregateSchema } : {}),
+    direction,
+    index: parameter.index,
+    name: parameter.name,
+    ownership:
+      pointer.pointerDepth === 0
+        ? { kind: "not-applicable" }
+        : direction === "native-to-embedder"
+          ? { kind: "borrowed" }
+          : direction === "embedder-to-native" && pointer.pointerDepth === 1
+            ? { kind: "caller-storage" }
+            : { kind: "unknown" },
+    pointerDepth: pointer.pointerDepth,
+    role:
+      direction === "native-to-embedder"
+        ? "payload"
+        : direction === "embedder-to-native"
+          ? "output"
+          : "unknown",
+    type: abiTypeDescriptor(parameter.typeTokens),
+    valueKind:
+      pointer.pointerDepth > 0
+        ? direction === "embedder-to-native" &&
+          pointer.pointerDepth === 1 &&
+          pointeeKind === "scalar"
+          ? "scalar"
+          : "pointer"
+        : aggregateSchema
+          ? "aggregate"
+          : abiTypeKind(language, parameter.typeTokens),
+  };
+}
+
+function bindCallbackParameter({
+  annotation,
+  language,
+  outerParameter,
+  rawParameter,
+  rawParameters,
+  typeRegistry,
+}) {
+  const signature = callbackSignatureForParameter(
+    language,
+    rawParameter,
+    typeRegistry,
+  );
+  if (!signature) {
+    return {
+      outputChannels: [],
+      unresolved: [
+        `callback-signature:${outerParameter.name ?? outerParameter.index}`,
+      ],
+    };
+  }
+  const hasOuterContext = rawParameters.some(
+    (parameter) => parameter.name === "context",
+  );
+  const callbackParameters = signature.parameters.map((parameter) =>
+    callbackParameterContract(signature.language, parameter, {
+      hasOuterContext,
+      typeRegistry,
+    }),
+  );
+  const bufferLengthPairs = bindCallbackBufferLengthPairs(callbackParameters);
+  if (annotation?.output !== undefined) {
+    const output = callbackParameters[annotation.output];
+    if (!output || output.direction !== "embedder-to-native") {
+      throw new Error(
+        `@abi-callback output ${annotation.output} is not an embedder-to-native parameter of ${outerParameter.name ?? outerParameter.index}`,
+      );
+    }
+    output.ownership =
+      annotation.ownership === "native-consumes"
+        ? { kind: "native-consumes" }
+        : { kind: annotation.ownership };
+    if (annotation.kind) output.valueKind = annotation.kind;
+    if (annotation.fixedLength) output.fixedLength = annotation.fixedLength;
+  }
+  const returnKind = abiTypeKind(signature.language, signature.returnTokens, {
+    isReturn: true,
+  });
+  const returnContract = {
+    direction: returnKind === "void" ? "none" : "embedder-to-native",
+    kind: returnKind,
+    ownership:
+      returnKind === "pointer"
+        ? { kind: "unknown" }
+        : { kind: "not-applicable" },
+    role: returnKind === "void" ? "none" : "return",
+    type: abiTypeDescriptor(signature.returnTokens),
+  };
+  if (annotation?.returnOwnership === "native-consumes") {
+    if (returnKind !== "pointer") {
+      throw new Error(
+        `@abi-callback return ownership requires a pointer return for ${outerParameter.name ?? outerParameter.index}`,
+      );
+    }
+    returnContract.ownership = { kind: "native-consumes" };
+  }
+  const outputChannels = [];
+  if (annotation?.delivery !== "none") {
+    for (const parameter of callbackParameters) {
+      if (
+        parameter.direction !== "native-to-embedder" ||
+        (parameter.valueKind === "length" &&
+          bufferLengthPairs.some(
+            (pair) => pair.lengthParameter === parameter.index,
+          ))
+      ) {
+        continue;
+      }
+      const alias = `${outerParameter.name ?? outerParameter.index}/${parameter.index}`;
+      if (parameter.aggregateSchema && parameter.pointerDepth === 0) {
+        const expanded = aggregateOutputChannels({
+          alias,
+          elements: [],
+          memberOwnership: { kind: "borrowed" },
+          members: "*",
+          role: "callback-payload",
+          rootParameter: outerParameter.name ?? outerParameter.index,
+          schemaName: parameter.aggregateSchema,
+          selectorPrefix: "callback:",
+          typeRegistry,
+        });
+        if (expanded) {
+          for (const channel of expanded) {
+            channel.callbackDirection = "native-to-embedder";
+            outputChannels.push(channel);
+          }
+        }
+        continue;
+      }
+      const pair = bufferLengthPairs.find(
+        (candidate) => candidate.bufferParameter === parameter.index,
+      );
+      outputChannels.push({
+        alias,
+        callbackDirection: "native-to-embedder",
+        kind: parameter.valueKind,
+        ...(pair
+          ? {
+              lengthParameter: `${outerParameter.name ?? outerParameter.index}/${pair.lengthParameter}`,
+            }
+          : {}),
+        ownership: structuredClone(parameter.ownership),
+        parameter: outerParameter.name ?? outerParameter.index,
+        role: "callback-payload",
+        rootParameter: outerParameter.name ?? outerParameter.index,
+        selector: `callback:${alias}`,
+      });
+    }
+  }
+
+  const unresolved = [];
+  for (const parameter of callbackParameters) {
+    if (parameter.direction === "unknown") {
+      unresolved.push(
+        `callback-direction:${outerParameter.name ?? outerParameter.index}/${parameter.index}`,
+      );
+    }
+    if (parameter.ownership.kind === "unknown") {
+      unresolved.push(
+        `callback-parameter-ownership:${outerParameter.name ?? outerParameter.index}/${parameter.index}`,
+      );
+    }
+    if (parameter.valueKind === "aggregate" && !parameter.aggregateSchema) {
+      unresolved.push(
+        `callback-aggregate-schema:${outerParameter.name ?? outerParameter.index}/${parameter.index}`,
+      );
+    }
+  }
+  if (returnKind === "unknown") {
+    unresolved.push(
+      `callback-return-kind:${outerParameter.name ?? outerParameter.index}`,
+    );
+  }
+  if (returnContract.ownership.kind === "unknown") {
+    unresolved.push(
+      `callback-return-pointer-ownership:${outerParameter.name ?? outerParameter.index}`,
+    );
+  }
+  outerParameter.role =
+    annotation?.delivery === "none" ? "input" : "callback-payload";
+  outerParameter.callbackContract = {
+    bufferLengthPairs,
+    delivery: annotation?.delivery ?? "invoked",
+    ...(signature.name ? { name: signature.name } : {}),
+    outputChannels: structuredClone(outputChannels),
+    parameters: callbackParameters,
+    return: returnContract,
+    ...(signature.sourceRef ? { sourceRef: signature.sourceRef } : {}),
+    status: unresolved.length === 0 ? "resolved" : "unresolved",
+    unresolved,
+  };
+  return { outputChannels, unresolved };
+}
+
+const ABI_CONSUMED_INPUT_POINTERS = new Set([
+  "ex_hermes_destroy:runtime",
+  "ex_hermes_free_string:value",
+  "ex_host_free_buffer:buf",
+  "ex_host_free_string:ptr",
+  "ex_host_fs_close:file",
+  "ex_worklet_destroy:handle",
+]);
+
+const ABI_EXACT_BORROWED_INPUT_POINTERS = new Set([
+  "ex_android_initialize:application_context",
+  "ex_android_initialize:java_vm",
+  "ex_hermes_set_kernel_handle:kernel_handle",
+]);
+
+function sourceProvenAbiInputPointer({
+  functionName,
+  hasCallbackParameter,
+  parameter,
+  pointer,
+}) {
+  if (pointer.pointerDepth === 0) return null;
+  const key = `${functionName}:${parameter.name ?? parameter.index}`;
+  if (pointer.pointerDepth === 1 && ABI_CONSUMED_INPUT_POINTERS.has(key)) {
+    return { ownership: { kind: "callee-consumes" } };
+  }
+
+  const typeIdentifiers = new Set(
+    parameter.typeTokens
+      .filter((token) => token.type === "identifier")
+      .map((token) => token.value),
+  );
+  const typeValues = new Set(parameter.typeTokens.map((token) => token.value));
+  const voidLike = typeValues.has("void") || typeValues.has("c_void");
+  if (
+    pointer.pointerDepth === 1 &&
+    (typeIdentifiers.has("ExactHermesRuntime") ||
+      typeIdentifiers.has("ExactFileHandle"))
+  ) {
+    return { ownership: { kind: "borrowed" } };
+  }
+  if (
+    pointer.pointerDepth === 1 &&
+    voidLike &&
+    ABI_EXACT_BORROWED_INPUT_POINTERS.has(key)
+  ) {
+    return { ownership: { kind: "borrowed" } };
+  }
+  if (
+    pointer.pointerDepth === 1 &&
+    voidLike &&
+    hasCallbackParameter &&
+    parameter.name === "context"
+  ) {
+    return { ownership: { kind: "borrowed" } };
+  }
+  return null;
+}
+
+function abiParameterContract(
+  language,
+  parameter,
+  { functionName, hasCallbackParameter },
+) {
   const pointer = abiPointerShape(language, parameter.typeTokens);
   const callback = isAbiCallbackType(parameter.typeTokens, parameter.name);
+  const sourceProvenInput = sourceProvenAbiInputPointer({
+    functionName,
+    hasCallbackParameter,
+    parameter,
+    pointer,
+  });
   let role;
   if (callback) role = "callback";
   else if (pointer.pointerDepth === 0) role = "input";
   else if (pointer.constPointee) role = "input";
+  else if (sourceProvenInput) role = "input";
   else if (/^out(?:_|$)/u.test(parameter.name ?? "")) role = "output";
   else if (/^inout(?:_|$)/u.test(parameter.name ?? "")) role = "inout";
   else role = "unknown";
 
   let ownership = { kind: "not-applicable" };
   if (callback || (role === "input" && pointer.pointerDepth > 0)) {
-    ownership = { kind: "borrowed" };
+    ownership = sourceProvenInput?.ownership ?? { kind: "borrowed" };
   } else if (
     new Set(["output", "inout"]).has(role) &&
     pointer.pointerDepth === 1
@@ -1499,7 +2238,16 @@ function parseAbiOutputAnnotations(text, sourcePath) {
       const key = field.slice(0, separator);
       const value = field.slice(separator + 1);
       if (
-        !new Set(["kind", "length", "ownership", "role"]).has(key) ||
+        !new Set([
+          "elements",
+          "kind",
+          "length",
+          "member-ownership",
+          "members",
+          "ownership",
+          "role",
+          "schema",
+        ]).has(key) ||
         fields.has(key)
       ) {
         throw new Error(
@@ -1510,10 +2258,31 @@ function parseAbiOutputAnnotations(text, sourcePath) {
     }
     if (
       !new Set(["output", "inout"]).has(fields.get("role")) ||
-      !new Set(["buffer", "pointer", "scalar"]).has(fields.get("kind")) ||
+      !new Set(["aggregate", "buffer", "pointer", "scalar"]).has(
+        fields.get("kind"),
+      ) ||
       !/^(?:caller-frees:[A-Za-z_][A-Za-z0-9_]*|caller-storage|borrowed)$/u.test(
         fields.get("ownership") ?? "",
-      )
+      ) ||
+      (fields.has("member-ownership") &&
+        !/^(?:caller-frees:[A-Za-z_][A-Za-z0-9_]*|caller-storage|borrowed)$/u.test(
+          fields.get("member-ownership"),
+        )) ||
+      (fields.get("kind") === "aggregate" &&
+        (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(fields.get("schema") ?? "") ||
+          !/^(?:\*|[A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*)$/u.test(
+            fields.get("members") ?? "",
+          ) ||
+          (fields.has("elements") &&
+            !/^[A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*$/u.test(
+              fields.get("elements"),
+            )) ||
+          fields.has("length"))) ||
+      (fields.get("kind") !== "aggregate" &&
+        (fields.has("elements") ||
+          fields.has("schema") ||
+          fields.has("members") ||
+          fields.has("member-ownership")))
     ) {
       throw new Error(
         `${sourcePath}:${lineIndex + 1}: incomplete or invalid @abi-output contract`,
@@ -1537,6 +2306,105 @@ function parseAbiOutputAnnotations(text, sourcePath) {
     byFunction.set(functionName, annotations);
   }
   return byFunction;
+}
+
+function parseAbiCallbackAnnotations(text, sourcePath) {
+  const byFunction = new Map();
+  for (const [lineIndex, line] of text.split(/\r?\n/u).entries()) {
+    const match = line.match(
+      /^\s*\/\/\/?\s*@abi-callback\s+(ex_(?:android|host|hermes|worklet)_[A-Za-z0-9_]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$/u,
+    );
+    if (!match) continue;
+    const [, functionName, parameterName, rawFields] = match;
+    const fields = new Map();
+    for (const field of rawFields.split(/\s+/u)) {
+      const separator = field.indexOf("=");
+      if (separator <= 0 || separator === field.length - 1) {
+        throw new Error(
+          `${sourcePath}:${lineIndex + 1}: malformed @abi-callback field ${field}`,
+        );
+      }
+      const key = field.slice(0, separator);
+      const value = field.slice(separator + 1);
+      if (
+        !new Set([
+          "delivery",
+          "fixed-length",
+          "kind",
+          "output",
+          "ownership",
+          "return-ownership",
+        ]).has(key) ||
+        fields.has(key)
+      ) {
+        throw new Error(
+          `${sourcePath}:${lineIndex + 1}: unsupported or duplicate @abi-callback field ${key}`,
+        );
+      }
+      fields.set(key, value);
+    }
+    const deliveryOnly = fields.size === 1 && fields.get("delivery") === "none";
+    const returnOnly =
+      fields.size === 1 && fields.get("return-ownership") === "native-consumes";
+    const outputContract =
+      fields.has("output") &&
+      /^\d+$/u.test(fields.get("output")) &&
+      new Set(["borrowed", "caller-storage", "native-consumes"]).has(
+        fields.get("ownership"),
+      ) &&
+      (!fields.has("kind") ||
+        new Set(["buffer", "pointer", "scalar"]).has(fields.get("kind"))) &&
+      (!fields.has("fixed-length") ||
+        (/^[1-9]\d*$/u.test(fields.get("fixed-length")) &&
+          fields.get("kind") === "buffer")) &&
+      !fields.has("delivery") &&
+      !fields.has("return-ownership") &&
+      [...fields.keys()].every((key) =>
+        new Set(["fixed-length", "kind", "output", "ownership"]).has(key),
+      );
+    if (!deliveryOnly && !returnOnly && !outputContract) {
+      throw new Error(
+        `${sourcePath}:${lineIndex + 1}: incomplete or invalid @abi-callback contract`,
+      );
+    }
+    const annotations = byFunction.get(functionName) ?? [];
+    if (
+      annotations.some(
+        (annotation) => annotation.parameterName === parameterName,
+      )
+    ) {
+      throw new Error(
+        `${sourcePath}:${lineIndex + 1}: duplicate @abi-callback ${functionName}.${parameterName}`,
+      );
+    }
+    annotations.push({
+      ...(deliveryOnly ? { delivery: "none" } : {}),
+      ...(fields.has("fixed-length")
+        ? { fixedLength: Number(fields.get("fixed-length")) }
+        : {}),
+      ...(fields.has("kind") ? { kind: fields.get("kind") } : {}),
+      line: lineIndex + 1,
+      ...(fields.has("output") ? { output: Number(fields.get("output")) } : {}),
+      ...(fields.has("ownership")
+        ? { ownership: fields.get("ownership") }
+        : {}),
+      parameterName,
+      ...(returnOnly
+        ? { returnOwnership: fields.get("return-ownership") }
+        : {}),
+    });
+    byFunction.set(functionName, annotations);
+  }
+  return byFunction;
+}
+
+function annotatedOwnership(value) {
+  return value.startsWith("caller-frees:")
+    ? {
+        kind: "caller-owned",
+        releaseFunction: value.slice("caller-frees:".length),
+      }
+    : { kind: value };
 }
 
 function outputSelector(parameterName) {
@@ -1565,13 +2433,17 @@ function applyAbiOutputAnnotations(
     const { fields } = annotation;
     parameter.role = fields.role;
     parameter.valueKind = fields.kind;
-    if (fields.ownership.startsWith("caller-frees:")) {
-      parameter.ownership = {
-        kind: "caller-owned",
-        releaseFunction: fields.ownership.slice("caller-frees:".length),
+    parameter.ownership = annotatedOwnership(fields.ownership);
+    if (fields.kind === "aggregate") {
+      parameter.aggregateContract = {
+        elements:
+          fields.elements === undefined ? [] : fields.elements.split(","),
+        memberOwnership: annotatedOwnership(
+          fields["member-ownership"] ?? fields.ownership,
+        ),
+        members: fields.members === "*" ? "*" : fields.members.split(","),
+        schema: fields.schema,
       };
-    } else {
-      parameter.ownership = { kind: fields.ownership };
     }
     if (fields.length) {
       const length = byName.get(fields.length);
@@ -1600,14 +2472,22 @@ function applyAbiOutputAnnotations(
 
 function buildHostAbiOutputContract({
   annotations,
+  callbackAnnotations,
   functionName,
   language,
   parameters: rawParameters,
   returnTokens,
   sourceRef,
+  typeRegistry,
 }) {
+  const hasCallbackParameter = rawParameters.some((parameter) =>
+    isAbiCallbackType(parameter.typeTokens, parameter.name),
+  );
   const parameters = rawParameters.map((parameter) =>
-    abiParameterContract(language, parameter),
+    abiParameterContract(language, parameter, {
+      functionName,
+      hasCallbackParameter,
+    }),
   );
   const bufferLengthPairs = bindAbiBufferLengthPairs(parameters);
   applyAbiOutputAnnotations(
@@ -1617,6 +2497,39 @@ function buildHostAbiOutputContract({
     sourceRef.split("#")[0],
     functionName,
   );
+  const callbackAnnotationsByParameter = new Map(
+    callbackAnnotations.map((annotation) => [
+      annotation.parameterName,
+      annotation,
+    ]),
+  );
+  const callbackBindings = new Map();
+  for (const rawParameter of rawParameters) {
+    if (!isAbiCallbackType(rawParameter.typeTokens, rawParameter.name))
+      continue;
+    const parameter = parameters[rawParameter.index];
+    const annotation = callbackAnnotationsByParameter.get(parameter.name);
+    callbackAnnotationsByParameter.delete(parameter.name);
+    callbackBindings.set(
+      parameter.index,
+      bindCallbackParameter({
+        annotation,
+        language,
+        outerParameter: parameter,
+        rawParameter,
+        rawParameters,
+        typeRegistry,
+      }),
+    );
+  }
+  if (callbackAnnotationsByParameter.size > 0) {
+    const [parameterName, annotation] = callbackAnnotationsByParameter
+      .entries()
+      .next().value;
+    throw new Error(
+      `${sourceRef.split("#")[0]}:${annotation.line}: @abi-callback does not name a callback parameter ${functionName}.${parameterName}`,
+    );
+  }
   bufferLengthPairs.sort((left, right) =>
     compareText(left.bufferParameter ?? "", right.bufferParameter ?? ""),
   );
@@ -1641,6 +2554,37 @@ function buildHostAbiOutputContract({
   }
   for (const parameter of parameters) {
     if (new Set(["output", "inout"]).has(parameter.role)) {
+      if (parameter.valueKind === "aggregate") {
+        const aggregate = parameter.aggregateContract;
+        const declaredSchema = registryAggregateName(
+          rawParameters[parameter.index].typeTokens,
+          typeRegistry,
+        );
+        if (
+          aggregate &&
+          typeRegistry?.schema === C_ABI_TYPE_REGISTRY_SCHEMA &&
+          declaredSchema !== aggregate.schema
+        ) {
+          throw new Error(
+            `${sourceRef}: aggregate annotation ${aggregate.schema} does not match ${declaredSchema} for ${parameter.name}`,
+          );
+        }
+        const expanded = aggregate
+          ? aggregateOutputChannels({
+              alias: parameter.name,
+              elements: aggregate.elements,
+              memberOwnership: aggregate.memberOwnership,
+              members: aggregate.members,
+              role: parameter.role,
+              rootParameter: parameter.name,
+              schemaName: aggregate.schema,
+              selectorPrefix: "out:",
+              typeRegistry,
+            })
+          : null;
+        if (expanded) outputChannels.push(...expanded);
+        continue;
+      }
       if (
         parameter.valueKind === "length" &&
         bufferLengthPairs.some(
@@ -1660,14 +2604,10 @@ function buildHostAbiOutputContract({
         role: parameter.role,
         selector: outputSelector(parameter.name),
       });
-    } else if (parameter.role === "callback") {
-      outputChannels.push({
-        kind: "unknown",
-        ownership: { kind: "unknown" },
-        parameter: parameter.name,
-        role: "callback-payload",
-        selector: `callback:${parameter.name ?? parameter.index}`,
-      });
+    } else if (parameter.role === "callback-payload") {
+      outputChannels.push(
+        ...(callbackBindings.get(parameter.index)?.outputChannels ?? []),
+      );
     }
   }
 
@@ -1686,7 +2626,18 @@ function buildHostAbiOutputContract({
       unresolved.push(`parameter-ownership:${label}`);
     }
     if (parameter.role === "callback")
-      unresolved.push(`callback-payload:${label}`);
+      unresolved.push(`callback-signature:${label}`);
+    if (
+      new Set(["output", "inout"]).has(parameter.role) &&
+      parameter.valueKind === "aggregate" &&
+      (!parameter.aggregateContract ||
+        !typeRegistry?.aggregates?.[parameter.aggregateContract.schema])
+    ) {
+      unresolved.push(`aggregate-schema:${label}`);
+    }
+    unresolved.push(
+      ...(callbackBindings.get(parameter.index)?.unresolved ?? []),
+    );
   }
 
   return {
@@ -1714,16 +2665,15 @@ function sourceProvesHostAbiOutputChannel(contract, channel) {
 
   const parameter = contract.parameters.find(
     (candidate) =>
-      candidate.name === channel.parameter ||
-      candidate.index === channel.parameter,
+      candidate.name === (channel.rootParameter ?? channel.parameter) ||
+      candidate.index === (channel.rootParameter ?? channel.parameter),
   );
   if (!parameter || channel.kind === "unknown") return false;
   if (new Set(["output", "inout"]).has(channel.role)) {
     return parameter.role === channel.role;
   }
   return (
-    channel.role === "callback-payload" &&
-    parameter.role === "callback-payload"
+    channel.role === "callback-payload" && parameter.role === "callback-payload"
   );
 }
 
@@ -1774,10 +2724,21 @@ export function deriveHostAbiOutputCatalogAccount(surface) {
       };
       entry.sourceRefs.push(contract.sourceRef);
       entry.variants.push({
+        ...(channel.aggregateSchema
+          ? { aggregateSchema: channel.aggregateSchema }
+          : {}),
+        ...(channel.alias ? { alias: channel.alias } : {}),
+        ...(channel.callbackDirection
+          ? { callbackDirection: channel.callbackDirection }
+          : {}),
+        ...(channel.elementSchema
+          ? { elementSchema: channel.elementSchema }
+          : {}),
         kind: channel.kind,
         ...(channel.lengthParameter
           ? { lengthParameter: channel.lengthParameter }
           : {}),
+        ...(channel.memberPath ? { memberPath: channel.memberPath } : {}),
         ownership: structuredClone(channel.ownership),
         role: channel.role,
         sourceRef: contract.sourceRef,
@@ -1801,7 +2762,9 @@ export function deriveHostAbiOutputCatalogAccount(surface) {
   // so an account with one known channel is still membership-incomplete until
   // those facts are resolved.
   const evidenceUnresolved = unresolved.filter((reason) =>
-    /:(?:parameter-ownership:[^:]+|return-pointer-ownership)$/u.test(reason),
+    /:(?:callback-parameter-ownership:[^:]+|callback-return-pointer-ownership:[^:]+|parameter-ownership:[^:]+|return-pointer-ownership)$/u.test(
+      reason,
+    ),
   );
   const membershipUnresolved = unresolved.filter(
     (reason) => !evidenceUnresolved.includes(reason),
@@ -1816,10 +2779,10 @@ export function deriveHostAbiOutputCatalogAccount(surface) {
     membershipUnresolved.length > 0
       ? "unresolved"
       : catalogChannels.length > 0
-      ? "output-bearing"
-      : structuralOnly
-        ? "structural-only"
-        : "unresolved";
+        ? "output-bearing"
+        : structuralOnly
+          ? "structural-only"
+          : "unresolved";
   return {
     outputChannels: catalogChannels,
     reasonCode:
@@ -1835,7 +2798,13 @@ export function deriveHostAbiOutputCatalogAccount(surface) {
   };
 }
 
-function rustHostAbiOutputContract(tokens, record, annotations, sourceRef) {
+function rustHostAbiOutputContract(
+  tokens,
+  record,
+  annotations,
+  callbackAnnotations,
+  sourceRef,
+) {
   const open = record.nameIndex + 1;
   const close = matchingToken(tokens, open, "(", ")");
   if (close === -1 || record.bodyOpen <= close) {
@@ -1847,6 +2816,7 @@ function rustHostAbiOutputContract(tokens, record, annotations, sourceRef) {
   }
   return buildHostAbiOutputContract({
     annotations,
+    callbackAnnotations,
     functionName: record.name,
     language: "rust",
     parameters: rustAbiParameters(
@@ -1858,15 +2828,13 @@ function rustHostAbiOutputContract(tokens, record, annotations, sourceRef) {
     ),
     returnTokens,
     sourceRef,
+    typeRegistry: null,
   });
 }
 
 function cppReturnTypeTokens(tokens, nameIndex) {
   let boundary = nameIndex - 1;
-  while (
-    boundary >= 0 &&
-    !new Set([";", "{", "}"]).has(tokens[boundary].value)
-  )
+  while (boundary >= 0 && !new Set([";", "{", "}"]).has(tokens[boundary].value))
     boundary -= 1;
   const signature = tokens.slice(boundary + 1, nameIndex);
   const externIndex = signature.findIndex((token) => token.value === "extern");
@@ -1882,7 +2850,14 @@ function cppReturnTypeTokens(tokens, nameIndex) {
   return output;
 }
 
-function cppHostAbiOutputContract(tokens, definition, annotations, sourceRef) {
+function cppHostAbiOutputContract(
+  tokens,
+  definition,
+  annotations,
+  callbackAnnotations,
+  sourceRef,
+  typeRegistry,
+) {
   const open = definition.nameIndex + 1;
   const close = matchingToken(tokens, open, "(", ")");
   if (close === -1 || definition.bodyOpen <= close) {
@@ -1890,11 +2865,13 @@ function cppHostAbiOutputContract(tokens, definition, annotations, sourceRef) {
   }
   return buildHostAbiOutputContract({
     annotations,
+    callbackAnnotations,
     functionName: definition.name,
     language: "c++",
     parameters: cppAbiParameters(tokens, open, close),
     returnTokens: cppReturnTypeTokens(tokens, definition.nameIndex),
     sourceRef,
+    typeRegistry,
   });
 }
 
@@ -2101,9 +3078,11 @@ export function scanCppFunctionNames(text, sourcePath = "<native-source>") {
 export function scanCppPublicAbiDefinitions(
   text,
   sourcePath = "<native-source>",
+  { typeRegistry = null } = {},
 ) {
   const tokens = lexCpp(text, sourcePath);
   const outputAnnotations = parseAbiOutputAnnotations(text, sourcePath);
+  const callbackAnnotations = parseAbiCallbackAnnotations(text, sourcePath);
   const rows = [];
   const names = new Set();
   for (const definition of cppFunctionDefinitions(tokens)) {
@@ -2139,7 +3118,9 @@ export function scanCppPublicAbiDefinitions(
             tokens,
             definition,
             outputAnnotations.get(name) ?? [],
+            callbackAnnotations.get(name) ?? [],
             sourceRef,
+            typeRegistry,
           ),
           unsafe: false,
           weak,
@@ -2151,6 +3132,13 @@ export function scanCppPublicAbiDefinitions(
     if (!names.has(functionName)) {
       throw new Error(
         `${sourcePath}: @abi-output names absent C/C++ ABI definition ${functionName}`,
+      );
+    }
+  }
+  for (const functionName of callbackAnnotations.keys()) {
+    if (!names.has(functionName)) {
+      throw new Error(
+        `${sourcePath}: @abi-callback names absent C/C++ ABI definition ${functionName}`,
       );
     }
   }
@@ -2221,6 +3209,229 @@ function walkAst(root, visitor) {
       }
     }
   }
+}
+
+// Conservative lexical binding index for narrow source-review proofs. A
+// duplicate binding or a write makes resolution unusable rather than guessing.
+function javascriptLexicalBindingIndex(program) {
+  const omittedKeys = new Set([
+    "comments",
+    "end",
+    "errors",
+    "extra",
+    "leadingComments",
+    "loc",
+    "start",
+    "trailingComments",
+  ]);
+  const nodeScopes = new WeakMap();
+  const createScope = (parent, kind) => ({
+    bindings: new Map(),
+    kind,
+    parent,
+  });
+  const programScope = createScope(null, "program");
+  const nearestVarScope = (scope) => {
+    let current = scope;
+    while (current.parent && current.kind !== "function") {
+      current = current.parent;
+    }
+    return current;
+  };
+  const addBinding = (scope, name, kind, node) => {
+    if (!name) return;
+    let bindings = scope.bindings.get(name);
+    if (!bindings) {
+      bindings = [];
+      scope.bindings.set(name, bindings);
+    }
+    bindings.push({ kind, node, writes: 0 });
+  };
+  const addPatternBindings = (scope, pattern, kind, node = pattern) => {
+    if (!pattern) return;
+    if (pattern.type === "Identifier") {
+      addBinding(scope, pattern.name, kind, node);
+      return;
+    }
+    if (pattern.type === "AssignmentPattern") {
+      addPatternBindings(scope, pattern.left, kind, node);
+      return;
+    }
+    if (pattern.type === "RestElement") {
+      addPatternBindings(scope, pattern.argument, kind, node);
+      return;
+    }
+    if (pattern.type === "ArrayPattern") {
+      for (const element of pattern.elements) {
+        addPatternBindings(scope, element, kind, node);
+      }
+      return;
+    }
+    if (pattern.type === "ObjectPattern") {
+      for (const property of pattern.properties) {
+        addPatternBindings(
+          scope,
+          property.type === "RestElement" ? property.argument : property.value,
+          kind,
+          node,
+        );
+      }
+    }
+  };
+  const childNodes = (node) => {
+    const children = [];
+    for (const [key, value] of Object.entries(node)) {
+      if (omittedKeys.has(key)) continue;
+      if (Array.isArray(value)) {
+        children.push(
+          ...value.filter((child) => child && typeof child === "object"),
+        );
+      } else if (value && typeof value === "object") {
+        children.push(value);
+      }
+    }
+    return children;
+  };
+  const visitFunction = (node, outerScope) => {
+    const functionScope = createScope(outerScope, "function");
+    if (node.type === "FunctionExpression" && node.id?.name) {
+      addBinding(functionScope, node.id.name, "function-expression-name", node);
+    }
+    for (const parameter of node.params ?? []) {
+      addPatternBindings(functionScope, parameter, "parameter");
+      visit(parameter, functionScope);
+    }
+    if (node.body?.type === "BlockStatement") {
+      nodeScopes.set(node.body, functionScope);
+      for (const statement of node.body.body) visit(statement, functionScope);
+    } else {
+      visit(node.body, functionScope);
+    }
+  };
+  const visit = (node, scope) => {
+    if (!node || typeof node !== "object") return;
+    nodeScopes.set(node, scope);
+    if (node.type === "FunctionDeclaration") {
+      addBinding(scope, node.id?.name, "function-declaration", node);
+      visitFunction(node, scope);
+      return;
+    }
+    if (
+      node.type === "FunctionExpression" ||
+      node.type === "ArrowFunctionExpression"
+    ) {
+      visitFunction(node, scope);
+      return;
+    }
+    if (
+      node.type === "ClassMethod" ||
+      node.type === "ClassPrivateMethod" ||
+      node.type === "ObjectMethod"
+    ) {
+      if (node.computed) visit(node.key, scope);
+      visitFunction(node, scope);
+      return;
+    }
+    if (node.type === "BlockStatement") {
+      const blockScope = createScope(scope, "block");
+      nodeScopes.set(node, blockScope);
+      for (const statement of node.body) visit(statement, blockScope);
+      return;
+    }
+    if (node.type === "VariableDeclaration") {
+      const bindingScope = node.kind === "var" ? nearestVarScope(scope) : scope;
+      for (const declaration of node.declarations) {
+        nodeScopes.set(declaration, scope);
+        addPatternBindings(
+          bindingScope,
+          declaration.id,
+          `${node.kind}-declaration`,
+          declaration,
+        );
+        visit(declaration.id, scope);
+        visit(declaration.init, scope);
+      }
+      return;
+    }
+    if (node.type === "ClassDeclaration") {
+      addBinding(scope, node.id?.name, "class-declaration", node);
+    }
+    if (node.type === "ImportDeclaration") {
+      for (const specifier of node.specifiers) {
+        addBinding(scope, specifier.local?.name, "import", specifier);
+      }
+    }
+    if (node.type === "CatchClause") {
+      const catchScope = createScope(scope, "block");
+      nodeScopes.set(node, catchScope);
+      addPatternBindings(catchScope, node.param, "catch-parameter");
+      visit(node.param, catchScope);
+      visit(node.body, catchScope);
+      return;
+    }
+    if (
+      node.type === "ForStatement" ||
+      node.type === "ForInStatement" ||
+      node.type === "ForOfStatement" ||
+      node.type === "SwitchStatement"
+    ) {
+      const controlScope = createScope(scope, "block");
+      nodeScopes.set(node, controlScope);
+      for (const child of childNodes(node)) visit(child, controlScope);
+      return;
+    }
+    for (const child of childNodes(node)) visit(child, scope);
+  };
+  visit(program, programScope);
+
+  const resolve = (identifier) => {
+    if (identifier?.type !== "Identifier") return null;
+    let scope = nodeScopes.get(identifier);
+    while (scope) {
+      const bindings = scope.bindings.get(identifier.name);
+      if (bindings) return bindings.length === 1 ? bindings[0] : null;
+      scope = scope.parent;
+    }
+    return null;
+  };
+  const markPatternWrite = (pattern) => {
+    if (!pattern) return;
+    if (pattern.type === "Identifier") {
+      const binding = resolve(pattern);
+      if (binding) binding.writes += 1;
+      return;
+    }
+    if (pattern.type === "AssignmentPattern") {
+      markPatternWrite(pattern.left);
+      return;
+    }
+    if (pattern.type === "RestElement") {
+      markPatternWrite(pattern.argument);
+      return;
+    }
+    if (pattern.type === "ArrayPattern") {
+      for (const element of pattern.elements) markPatternWrite(element);
+      return;
+    }
+    if (pattern.type === "ObjectPattern") {
+      for (const property of pattern.properties) {
+        markPatternWrite(
+          property.type === "RestElement" ? property.argument : property.value,
+        );
+      }
+    }
+  };
+  walkAst(program, (node) => {
+    if (node.type === "AssignmentExpression") markPatternWrite(node.left);
+    if (node.type === "UpdateExpression") markPatternWrite(node.argument);
+    if (
+      (node.type === "ForInStatement" || node.type === "ForOfStatement") &&
+      node.left?.type !== "VariableDeclaration"
+    ) {
+      markPatternWrite(node.left);
+    }
+  });
+  return { resolve };
 }
 
 function staticPropertyName(node, substitutions = new Map()) {
@@ -2585,6 +3796,31 @@ function javascriptFunctionDefinitions(program) {
   return definitions;
 }
 
+// Fixed semantic evidence occasionally lives in a bootstrap-owned global
+// assignment rather than a lexical declaration. Keep this deliberately
+// narrower than javascriptFunctionDefinitions(): broad surface discovery must
+// not acquire new callables merely because a global bootstrap helper is named.
+function javascriptFixedGlobalFunctionDefinitions(program) {
+  const definitions = [...javascriptFunctionDefinitions(program)];
+  walkAst(program, (node) => {
+    if (
+      node.type !== "AssignmentExpression" ||
+      node.operator !== "=" ||
+      node.left?.type !== "MemberExpression" ||
+      node.left.object?.type !== "Identifier" ||
+      node.left.object.name !== "globalThis" ||
+      !callbackFunction(node.right)
+    ) {
+      return;
+    }
+    const names = node.left.computed
+      ? staticPropertyName(node.left.property)
+      : [node.left.property?.name].filter(Boolean);
+    for (const name of names) definitions.push({ name, node: node.right });
+  });
+  return definitions;
+}
+
 /**
  * Discover statically named CommonJS and ESM exports from one builtin source.
  * Babel supplies the lexer/parser boundary so comments, regexes, templates,
@@ -2697,7 +3933,8 @@ export function scanStaticBuiltinExports(
         node.type === "FunctionDeclaration") &&
       node.id?.name
     ) {
-      if (node.type === "ClassDeclaration") classDefinitionNames.add(node.id.name);
+      if (node.type === "ClassDeclaration")
+        classDefinitionNames.add(node.id.name);
     }
     if (
       node.type === "VariableDeclarator" &&
@@ -2767,16 +4004,14 @@ export function scanStaticBuiltinExports(
     ) {
       const method = directMemberName(node.left);
       const owner = prototypeOwner(node.left?.object);
-      if (method && owner) addQualifiedCallable(`${owner}.${method}`, node.right);
+      if (method && owner)
+        addQualifiedCallable(`${owner}.${method}`, node.right);
       else if (
         method &&
         node.left.object?.type === "Identifier" &&
         staticObjectBindings.has(node.left.object.name)
       ) {
-        addQualifiedCallable(
-          `${node.left.object.name}.${method}`,
-          node.right,
-        );
+        addQualifiedCallable(`${node.left.object.name}.${method}`, node.right);
       }
     }
   });
@@ -2802,7 +4037,8 @@ export function scanStaticBuiltinExports(
     }
     if (isJavaScriptFunctionNode(node)) {
       for (const parameter of node.params ?? []) {
-        if (parameter?.type === "Identifier") declaredIdentifiers.add(parameter.name);
+        if (parameter?.type === "Identifier")
+          declaredIdentifiers.add(parameter.name);
       }
     }
   });
@@ -3005,7 +4241,8 @@ export function scanStaticBuiltinExports(
         continue;
       }
       const reference = terminalReference(declaration.init);
-      if (reference?.name) terminalAliases.set(declaration.id.name, reference.name);
+      if (reference?.name)
+        terminalAliases.set(declaration.id.name, reference.name);
     }
   });
 
@@ -3017,7 +4254,9 @@ export function scanStaticBuiltinExports(
       new Set(["apply", "call"]).has(call.callee.property?.name)
     ) {
       if (mutatedIntrinsicRoots.has("Function")) {
-        return { ambiguity: `dynamic-call-receiver:${call.callee.property.name}` };
+        return {
+          ambiguity: `dynamic-call-receiver:${call.callee.property.name}`,
+        };
       }
       const invokedReference = terminalReference(call.callee.object);
       if (invokedReference?.ambiguity) return invokedReference;
@@ -3079,7 +4318,8 @@ export function scanStaticBuiltinExports(
     const binding = requiredModuleBindingSpecifiers.get(target.name);
     if (!binding) return null;
     return {
-      exportName: [...binding.exportSegments, ...segments].join(".") || "default",
+      exportName:
+        [...binding.exportSegments, ...segments].join(".") || "default",
       moduleSpecifier: binding.moduleSpecifier,
     };
   };
@@ -3211,8 +4451,8 @@ export function scanStaticBuiltinExports(
         node.callee?.type === "MemberExpression" &&
         new Set(["apply", "call"]).has(directMemberName(node.callee)) &&
         node.callee.object?.type === "Identifier" &&
-        (callableDefinitionsByName.get(node.callee.object.name) ?? []).length ===
-          1 &&
+        (callableDefinitionsByName.get(node.callee.object.name) ?? [])
+          .length === 1 &&
         !mutatedIntrinsicRoots.has("Function")
       ) {
         calleeNames.add(node.callee.object.name);
@@ -3495,7 +4735,8 @@ export function scanStaticBuiltinExports(
       }
     }
     if (routes.length === 0) {
-      for (const owner of bindings.get(ROOT_EXPORT_OBJECT)?.get("default") ?? []) {
+      for (const owner of bindings.get(ROOT_EXPORT_OBJECT)?.get("default") ??
+        []) {
         routes.push(routeForCallable(`${owner}.${exportName}`));
       }
     }
@@ -3765,7 +5006,8 @@ export function scanStaticBuiltinExports(
       const member = memberTargetAndNames(expression, new Map(), staticArrays);
       if (member) {
         for (const name of member.names) {
-          for (const shape of valueShapeFacts.get(member.target)?.get(name) ?? []) {
+          for (const shape of valueShapeFacts.get(member.target)?.get(name) ??
+            []) {
             shapes.add(shape);
           }
         }
@@ -3773,8 +5015,8 @@ export function scanStaticBuiltinExports(
       const owner = prototypeOwner(expression.object);
       const name = directMemberName(expression);
       if (owner && name) {
-        for (const shape of
-          prototypeValueShapeFacts.get(owner)?.get(name) ?? []) {
+        for (const shape of prototypeValueShapeFacts.get(owner)?.get(name) ??
+          []) {
           shapes.add(shape);
         }
       }
@@ -5680,8 +6922,8 @@ export function scanStaticBuiltinExports(
             if ((facts.get(target)?.get(name)?.size ?? 0) !== before)
               graphChanged = true;
           }
-          for (const [name, sourceShapes] of
-            valueShapeFacts.get(source) ?? []) {
+          for (const [name, sourceShapes] of valueShapeFacts.get(source) ??
+            []) {
             const before = valueShapeFacts.get(target)?.get(name)?.size ?? 0;
             for (const shape of sourceShapes)
               addValueShapeFact(target, name, shape);
@@ -5701,8 +6943,8 @@ export function scanStaticBuiltinExports(
             if ((facts.get(target)?.get(name)?.size ?? 0) !== before)
               graphChanged = true;
           }
-          for (const [name, sourceShapes] of
-            valueShapeFacts.get(source) ?? []) {
+          for (const [name, sourceShapes] of valueShapeFacts.get(source) ??
+            []) {
             const before = valueShapeFacts.get(target)?.get(name)?.size ?? 0;
             for (const shape of sourceShapes)
               addValueShapeFact(target, name, shape);
@@ -5777,7 +7019,9 @@ export function scanStaticBuiltinExports(
     if (registration.prototypeOwner && closedShapes.has(registration.source)) {
       for (const name of names) {
         addPrototypeFact(registration.prototypeOwner, name);
-        for (const shape of valueShapeFacts.get(registration.source)?.get(name) ?? []) {
+        for (const shape of valueShapeFacts
+          .get(registration.source)
+          ?.get(name) ?? []) {
           addPrototypeValueShapeFact(registration.prototypeOwner, name, shape);
         }
       }
@@ -5815,8 +7059,9 @@ export function scanStaticBuiltinExports(
         const before = prototypeFacts.get(owner)?.size ?? 0;
         for (const name of prototypeFacts.get(source.sourceOwner) ?? []) {
           markInheritedPrototypeFact(owner, name);
-          for (const shape of
-            prototypeValueShapeFacts.get(source.sourceOwner)?.get(name) ?? []) {
+          for (const shape of prototypeValueShapeFacts
+            .get(source.sourceOwner)
+            ?.get(name) ?? []) {
             addPrototypeValueShapeFact(owner, name, shape);
           }
         }
@@ -5838,8 +7083,8 @@ export function scanStaticBuiltinExports(
       }
       for (const name of inherited) {
         addFact(target, name, "inherited-prototype-member");
-        for (const shape of
-          prototypeValueShapeFacts.get(owner)?.get(name) ?? []) {
+        for (const shape of prototypeValueShapeFacts.get(owner)?.get(name) ??
+          []) {
           addValueShapeFact(target, name, shape);
         }
       }
@@ -6059,8 +7304,8 @@ export function scanStaticBuiltinExports(
     const valueShapes = new Set(
       valueShapeFacts.get(ROOT_EXPORT_OBJECT)?.get(exportName) ?? [],
     );
-    for (const localName of
-      bindings.get(ROOT_EXPORT_OBJECT)?.get(exportName) ?? []) {
+    for (const localName of bindings.get(ROOT_EXPORT_OBJECT)?.get(exportName) ??
+      []) {
       valueShapes.add(
         expressionValueShape({ type: "Identifier", name: localName }),
       );
@@ -6068,10 +7313,12 @@ export function scanStaticBuiltinExports(
     if (exportIdioms.some((idiom) => prototypeExportIdioms.has(idiom))) {
       const [ownerExportName, ...memberSegments] = exportName.split(".");
       const memberName = memberSegments.join(".");
-      for (const localName of
-        bindings.get(ROOT_EXPORT_OBJECT)?.get(ownerExportName) ?? []) {
-        for (const shape of
-          prototypeValueShapeFacts.get(localName)?.get(memberName) ?? []) {
+      for (const localName of bindings
+        .get(ROOT_EXPORT_OBJECT)
+        ?.get(ownerExportName) ?? []) {
+        for (const shape of prototypeValueShapeFacts
+          .get(localName)
+          ?.get(memberName) ?? []) {
           valueShapes.add(shape);
         }
       }
@@ -6280,6 +7527,31 @@ export function scanLegacyEvaluatorBootstrapInstallations(
  * bootstrap code. Private `__exact*` rows use the same observed keys as native
  * registration evidence so alternate implementations merge structurally.
  */
+const PUBLIC_READ_ACCESS_SOURCE_CONTRACT_SCHEMA =
+  "ibex/public-read-access-source-contract/1";
+
+const FACTORY_RETURNED_CALLABLE_SOURCE_CONTRACT_SCHEMA =
+  "ibex/factory-returned-callable-source-contract/1";
+const REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH =
+  "src/engine/bootstrap/ipc-listener.js";
+
+const REVIEWED_FACTORY_RETURNED_CALLABLES = new Map([
+  [
+    `${REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH}\0process.once`,
+    {
+      argumentPath: "process.once",
+      factoryName: "wrapSingleUseListener",
+    },
+  ],
+  [
+    `${REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH}\0process.prependOnceListener`,
+    {
+      argumentPath: "process.prependOnceListener",
+      factoryName: "wrapSingleUseListener",
+    },
+  ],
+]);
+
 export function scanStaticGlobalApiSurfaces(
   text,
   sourcePath = "<bootstrap-source>",
@@ -6311,10 +7583,20 @@ export function scanStaticGlobalApiSurfaces(
   ]);
   const prototypeMembers = new Map();
   const objectMembers = new Map();
+  const prototypeMemberShapes = new Map();
+  const objectMemberShapes = new Map();
   const prototypeSources = new Map();
   const knownPrototypeOwners = new Set();
   const classExpressionOwners = new WeakMap();
-  const opaqueCallShapeEvidence = new WeakMap();
+  const normalizedSourcePath = sourcePath.replaceAll("\\", "/");
+  const reviewedFactorySource =
+    normalizedSourcePath === REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH ||
+    normalizedSourcePath.endsWith(
+      `/${REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH}`,
+    );
+  const lexicalBindings = reviewedFactorySource
+    ? javascriptLexicalBindingIndex(program)
+    : null;
   const installations = [];
   const functionNames = new Set();
   const functionDefinitions = new Map();
@@ -6332,6 +7614,158 @@ export function scanStaticGlobalApiSurfaces(
     }
     definitions.push(definition);
   }
+
+  const classDefinitionNames = new Set();
+  const localValueExpressions = new Map();
+  const addLocalValueExpression = (name, expression) => {
+    if (!name || !expression) return;
+    let expressions = localValueExpressions.get(name);
+    if (!expressions) {
+      expressions = [];
+      localValueExpressions.set(name, expressions);
+    }
+    expressions.push(expression);
+  };
+  walkAst(program, (node) => {
+    if (node.type === "ClassDeclaration" && node.id?.name) {
+      classDefinitionNames.add(node.id.name);
+    }
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.init
+    ) {
+      addLocalValueExpression(node.id.name, node.init);
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      node.left?.type === "Identifier"
+    ) {
+      addLocalValueExpression(node.left.name, node.right);
+    }
+  });
+
+  const resolvedValueShape = (shapes) => {
+    const resolved = new Set([...shapes].filter(Boolean));
+    return resolved.size === 1 ? [...resolved][0] : null;
+  };
+  const expressionValueShape = (expression, activeNames = new Set()) => {
+    if (!expression) return null;
+    if (
+      new Set([
+        "ArrowFunctionExpression",
+        "ClassDeclaration",
+        "ClassExpression",
+        "FunctionDeclaration",
+        "FunctionExpression",
+      ]).has(expression.type)
+    ) {
+      return "callable";
+    }
+    if (
+      new Set([
+        "ArrayExpression",
+        "BigIntLiteral",
+        "BinaryExpression",
+        "BooleanLiteral",
+        "NewExpression",
+        "NullLiteral",
+        "NumericLiteral",
+        "ObjectExpression",
+        "RegExpLiteral",
+        "StringLiteral",
+        "TemplateLiteral",
+        "UnaryExpression",
+      ]).has(expression.type)
+    ) {
+      return "data";
+    }
+    if (expression.type === "Identifier") {
+      if (
+        classDefinitionNames.has(expression.name) ||
+        (callableDefinitionsByName.get(expression.name) ?? []).length === 1
+      ) {
+        return "callable";
+      }
+      if (activeNames.has(expression.name)) return null;
+      const expressions = localValueExpressions.get(expression.name) ?? [];
+      if (expressions.length === 0) return null;
+      const nextActive = new Set(activeNames);
+      nextActive.add(expression.name);
+      return resolvedValueShape(
+        expressions.map((candidate) =>
+          expressionValueShape(candidate, nextActive),
+        ),
+      );
+    }
+    if (
+      expression.type === "LogicalExpression" ||
+      expression.type === "ConditionalExpression"
+    ) {
+      const children =
+        expression.type === "LogicalExpression"
+          ? [expression.left, expression.right]
+          : [expression.consequent, expression.alternate];
+      const shapes = children.map((candidate) =>
+        expressionValueShape(candidate, activeNames),
+      );
+      return shapes.every(Boolean) ? resolvedValueShape(shapes) : null;
+    }
+    if (expression.type === "SequenceExpression") {
+      return expressionValueShape(expression.expressions.at(-1), activeNames);
+    }
+    if (
+      expression.type === "CallExpression" &&
+      new Set(["freeze", "seal"]).has(callName(expression)) &&
+      expression.arguments.length === 1
+    ) {
+      return expressionValueShape(expression.arguments[0], activeNames);
+    }
+    return null;
+  };
+  const propertyValueShape = (property) => {
+    if (property?.type === "ObjectMethod") {
+      return property.kind === "get" || property.kind === "set"
+        ? "accessor"
+        : "callable";
+    }
+    if (property?.type === "ObjectProperty") {
+      return expressionValueShape(property.value);
+    }
+    if (property?.type === "ClassMethod") {
+      return property.kind === "get" || property.kind === "set"
+        ? "accessor"
+        : "callable";
+    }
+    if (property?.type === "ClassProperty") {
+      return expressionValueShape(property.value);
+    }
+    return null;
+  };
+  const descriptorValueShape = (descriptor) => {
+    if (descriptor?.type !== "ObjectExpression") return null;
+    const values = [];
+    let accessor = false;
+    for (const property of descriptor.properties) {
+      if (property.type === "SpreadElement" || property.computed) continue;
+      const names =
+        property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key, staticBindings);
+      if (names.includes("get") || names.includes("set")) accessor = true;
+      if (
+        names.includes("value") &&
+        property.type === "ObjectProperty" &&
+        property.value
+      ) {
+        values.push(expressionValueShape(property.value));
+      }
+    }
+    if (accessor && values.length > 0) return null;
+    if (accessor) return "accessor";
+    return values.length > 0 ? resolvedValueShape(values) : null;
+  };
 
   if (webStreamsWrapperOffset !== -1) {
     let hasReachableContainer = false;
@@ -6355,7 +7789,7 @@ export function scanStaticGlobalApiSurfaces(
       installations.push({ pathSegments: ["WebStreamsPolyfill"], value: null });
   }
 
-  const addMember = (map, owner, name) => {
+  const addMember = (map, owner, name, valueShape = null) => {
     if (!owner || !name || typeof name !== "string") return;
     let names = map.get(owner);
     if (!names) {
@@ -6363,11 +7797,39 @@ export function scanStaticGlobalApiSurfaces(
       map.set(owner, names);
     }
     names.add(name);
+    if (valueShape) {
+      const shapeMap =
+        map === prototypeMembers ? prototypeMemberShapes : objectMemberShapes;
+      let ownerShapes = shapeMap.get(owner);
+      if (!ownerShapes) {
+        ownerShapes = new Map();
+        shapeMap.set(owner, ownerShapes);
+      }
+      let shapes = ownerShapes.get(name);
+      if (!shapes) {
+        shapes = new Set();
+        ownerShapes.set(name, shapes);
+      }
+      shapes.add(valueShape);
+    }
+  };
+  const memberValueShape = (map, owner, name) => {
+    const shapeMap =
+      map === prototypeMembers ? prototypeMemberShapes : objectMemberShapes;
+    return resolvedValueShape(shapeMap.get(owner)?.get(name) ?? []);
   };
   const addExpressionMembers = (owner, expression) => {
-    if (!owner || !expression) return;
-    for (const name of objectPropertyNames(expression))
-      addMember(objectMembers, owner, name);
+    if (!owner || expression?.type !== "ObjectExpression") return;
+    for (const property of expression.properties) {
+      if (property.type === "SpreadElement") continue;
+      const names =
+        !property.computed && property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key, staticBindings);
+      for (const name of names) {
+        addMember(objectMembers, owner, name, propertyValueShape(property));
+      }
+    }
   };
   const observePrototypeRegistration = (
     node,
@@ -6536,7 +7998,7 @@ export function scanStaticGlobalApiSurfaces(
       return opaqueCallValue(expression.expressions.at(-1));
     return null;
   };
-  const callShapeEvidence = (call) => {
+  const structuralShapeEvidence = (node) => {
     const omitted = new Set([
       "comments",
       "end",
@@ -6547,10 +8009,97 @@ export function scanStaticGlobalApiSurfaces(
       "start",
       "trailingComments",
     ]);
-    const structural = JSON.stringify(call, (key, value) =>
+    const structural = JSON.stringify(node, (key, value) =>
       omitted.has(key) ? undefined : value,
     );
     return `sha256-${sha256Hex(structural)}`;
+  };
+  const callShapeEvidence = structuralShapeEvidence;
+  const reviewedFactoryReturnedCallableSourceContract = (
+    value,
+    pathSegments,
+  ) => {
+    const installedPath = pathSegments.join(".");
+    if (!lexicalBindings) return null;
+    const specification = REVIEWED_FACTORY_RETURNED_CALLABLES.get(
+      `${REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH}\0${installedPath}`,
+    );
+    if (
+      !specification ||
+      value?.type !== "CallExpression" ||
+      value.callee?.type !== "Identifier" ||
+      value.callee.name !== specification.factoryName ||
+      value.arguments.length !== 1
+    ) {
+      return null;
+    }
+    const argument = value.arguments[0];
+    const argumentPath = specification.argumentPath.split(".");
+    if (
+      argument?.type !== "MemberExpression" ||
+      argument.computed ||
+      argument.object?.type !== "Identifier" ||
+      argument.object.name !== argumentPath[0] ||
+      argument.property?.type !== "Identifier" ||
+      argument.property.name !== argumentPath[1]
+    ) {
+      return null;
+    }
+    const binding = lexicalBindings.resolve(value.callee);
+    const definition = binding?.node;
+    if (
+      binding?.kind !== "function-declaration" ||
+      binding.writes !== 0 ||
+      definition?.type !== "FunctionDeclaration" ||
+      definition.id?.name !== specification.factoryName ||
+      definition.async ||
+      definition.generator ||
+      definition.params.length !== 1 ||
+      definition.params[0]?.type !== "Identifier" ||
+      definition.body?.type !== "BlockStatement" ||
+      definition.body.body.length !== 1
+    ) {
+      return null;
+    }
+    const returnedFunction = definition.body.body[0];
+    if (
+      returnedFunction?.type !== "ReturnStatement" ||
+      returnedFunction.argument?.type !== "FunctionExpression" ||
+      returnedFunction.argument.id !== null ||
+      returnedFunction.argument.async ||
+      returnedFunction.argument.generator
+    ) {
+      return null;
+    }
+
+    // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
+    // admit a callable only when the exact call resolves to the reviewed
+    // lexical factory declaration. Aliases and branch-dependent factories
+    // deliberately retain the opaque call-result sentinel.
+    const callsiteEvidence = callShapeEvidence(value);
+    const factoryDefinitionEvidence = structuralShapeEvidence(definition);
+    const evidence = `sha256-${sha256Hex(
+      JSON.stringify({
+        callsiteEvidence,
+        factoryDefinitionEvidence,
+        factoryName: specification.factoryName,
+        installedPath,
+        schema: FACTORY_RETURNED_CALLABLE_SOURCE_CONTRACT_SCHEMA,
+        sourcePath: REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH,
+      }),
+    )}`;
+    return {
+      callsiteEvidence,
+      evidence,
+      factoryBindingKind: binding.kind,
+      factoryDefinitionEvidence,
+      factoryName: specification.factoryName,
+      installedPath,
+      proofKind: "lexically-bound-factory-returned-function",
+      returnedValueShape: "callable",
+      schema: FACTORY_RETURNED_CALLABLE_SOURCE_CONTRACT_SCHEMA,
+      sourcePath: REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH,
+    };
   };
   const reviewedIifeCallEvidence = (call) => {
     if (
@@ -6575,6 +8124,87 @@ export function scanStaticGlobalApiSurfaces(
     }
     if (returns.length === 0 || returns.some((value) => !value)) return null;
     return callShapeEvidence(call);
+  };
+  const reviewedIifeReturnedFunctionShape = (call) => {
+    const evidence = reviewedIifeCallEvidence(call);
+    if (
+      !evidence ||
+      call.callee.type !== "FunctionExpression" ||
+      call.callee.body?.type !== "BlockStatement"
+    ) {
+      return null;
+    }
+    const returns = call.callee.body.body.filter(
+      (statement) => statement.type === "ReturnStatement",
+    );
+    if (returns.length !== 1 || returns[0].argument?.type !== "Identifier") {
+      return null;
+    }
+    const owner = returns[0].argument.name;
+    const declarations = call.callee.body.body.filter(
+      (statement) =>
+        statement.type === "FunctionDeclaration" &&
+        statement.id?.name === owner,
+    );
+    if (declarations.length !== 1) return null;
+
+    const members = new Map();
+    const addClosedMember = (memberPath, valueShape) => {
+      if (!memberPath || !valueShape) return false;
+      const previous = members.get(memberPath);
+      if (previous !== undefined && previous !== valueShape) return false;
+      members.set(memberPath, valueShape);
+      return true;
+    };
+    for (const statement of call.callee.body.body) {
+      if (statement === declarations[0] || statement === returns[0]) {
+        continue;
+      }
+      // Exact membership is admitted only for the narrow constructor idiom
+      // used by the checked-in CryptoHasher shim: one declaration, direct
+      // static/prototype assignments, then the return. Conditions, aliases,
+      // helper calls, and reflective mutations retain the dynamic sentinel.
+      const assignment =
+        statement.type === "ExpressionStatement" &&
+        statement.expression?.type === "AssignmentExpression" &&
+        statement.expression.operator === "="
+          ? statement.expression
+          : null;
+      const left = assignment?.left;
+      if (left?.type !== "MemberExpression") return null;
+      const directName = directMemberName(left);
+      if (directName === null || directName === "prototype") return null;
+      if (left.object?.type === "Identifier" && left.object.name === owner) {
+        if (
+          !addClosedMember(directName, expressionValueShape(assignment.right))
+        )
+          return null;
+        continue;
+      }
+      if (prototypeOwner(left.object) === owner) {
+        if (
+          !addClosedMember(
+            `prototype.${directName}`,
+            expressionValueShape(assignment.right),
+          )
+        ) {
+          return null;
+        }
+        continue;
+      }
+      return null;
+    }
+    if (members.size === 0) return null;
+    if ([...members.keys()].some((member) => member.startsWith("prototype."))) {
+      members.set("prototype", "data");
+    }
+    return {
+      evidence,
+      members: [...members.entries()]
+        .map(([memberPath, valueShape]) => ({ memberPath, valueShape }))
+        .sort((left, right) => compareText(left.memberPath, right.memberPath)),
+      owner,
+    };
   };
   const reviewedClosedGlobalCallValue = (call) =>
     Boolean(
@@ -6601,7 +8231,9 @@ export function scanStaticGlobalApiSurfaces(
           ? "computed-static-class-member"
           : "computed-class-member",
       );
-      for (const name of names) addMember(prototypeMembers, owner, name);
+      for (const name of names) {
+        addMember(prototypeMembers, owner, name, propertyValueShape(method));
+      }
     }
     if (classNode.superClass) {
       const sourceOwner =
@@ -6641,7 +8273,9 @@ export function scanStaticGlobalApiSurfaces(
           ? [property.key.name]
           : staticPropertyName(property.key, substitutions);
       observePrototypeRegistration(property, owner, property.key, names, idiom);
-      for (const name of names) addMember(prototypeMembers, owner, name);
+      for (const name of names) {
+        addMember(prototypeMembers, owner, name, propertyValueShape(property));
+      }
     }
   };
   const collectReturnedConstructors = (expression, constructors) => {
@@ -6748,22 +8382,17 @@ export function scanStaticGlobalApiSurfaces(
     value,
     idiom,
     basePaths = [""],
+    valueShape = expressionValueShape(value),
   ) => {
     if (names.length > 0) {
       const classOwners = classOwnersForExpression(value);
       const opaqueCall = classOwners.size > 0 ? null : opaqueCallValue(value);
-      if (opaqueCall) {
-        const iifeEvidence = reviewedIifeCallEvidence(opaqueCall);
-        if (reviewedClosedGlobalCallValue(opaqueCall)) {
-          // Timer registration returns a reviewed scheduler handle. Its
-          // lifecycle authority is inventoried at the timer API boundary.
-        } else {
-          opaqueCallShapeEvidence.set(value, {
-            evidence: iifeEvidence ?? callShapeEvidence(opaqueCall),
-            kind: iifeEvidence ? "iife-call-result" : "opaque-call-result",
-          });
-        }
-      }
+      const closedIifeFunctionShape = opaqueCall
+        ? reviewedIifeReturnedFunctionShape(opaqueCall)
+        : null;
+      const iifeEvidence = opaqueCall
+        ? reviewedIifeCallEvidence(opaqueCall)
+        : null;
       resolvedRegistrations.add(node);
       for (const basePath of basePaths) {
         for (const registeredName of names) {
@@ -6771,7 +8400,34 @@ export function scanStaticGlobalApiSurfaces(
             ...basePath.split(".").filter(Boolean),
             registeredName,
           ];
-          installations.push({ pathSegments, value });
+          const factoryReturnedCallableSourceContract =
+            reviewedFactoryReturnedCallableSourceContract(value, pathSegments);
+          const dynamicCallShape =
+            opaqueCall &&
+            !reviewedClosedGlobalCallValue(opaqueCall) &&
+            !closedIifeFunctionShape &&
+            !factoryReturnedCallableSourceContract
+              ? {
+                  evidence: iifeEvidence ?? callShapeEvidence(opaqueCall),
+                  kind: iifeEvidence
+                    ? "iife-call-result"
+                    : "opaque-call-result",
+                }
+              : null;
+          installations.push({
+            ...(dynamicCallShape ? { dynamicCallShape } : {}),
+            ...(factoryReturnedCallableSourceContract
+              ? { factoryReturnedCallableSourceContract }
+              : {}),
+            memberKinds: [idiom],
+            pathSegments,
+            value,
+            ...(closedIifeFunctionShape ? { closedIifeFunctionShape } : {}),
+            valueShape:
+              closedIifeFunctionShape || factoryReturnedCallableSourceContract
+                ? "callable"
+                : valueShape,
+          });
         }
       }
       return;
@@ -6838,9 +8494,8 @@ export function scanStaticGlobalApiSurfaces(
     });
   }
 
-  // A runtime-supplied property key with an authored fallback is a closed
-  // conditional branch, but not one exact string. Preserve it as an explicit
-  // dynamic-table sentinel instead of silently dropping the member.
+  // A runtime-supplied property key is not one exact string. Preserve it as an
+  // explicit dynamic-table sentinel instead of silently dropping the member.
   const computedRegistrationBindings = new Set();
   walkAst(program, (node) => {
     if (
@@ -6925,8 +8580,14 @@ export function scanStaticGlobalApiSurfaces(
           memberNames,
           "computed-prototype-assignment",
         );
-        for (const name of memberNames)
-          addMember(prototypeMembers, prototype, name);
+        for (const name of memberNames) {
+          addMember(
+            prototypeMembers,
+            prototype,
+            name,
+            expressionValueShape(node.right),
+          );
+        }
       }
       if (
         node.left?.type === "MemberExpression" &&
@@ -7000,8 +8661,16 @@ export function scanStaticGlobalApiSurfaces(
           names,
           `computed-prototype-${mutation.replace(".", "-")}`,
         );
-        for (const name of names)
-          addMember(prototypeMembers, targetPrototype, name);
+        for (const name of names) {
+          addMember(
+            prototypeMembers,
+            targetPrototype,
+            name,
+            mutation === "Reflect.set"
+              ? expressionValueShape(node.arguments[2])
+              : descriptorValueShape(node.arguments[2]),
+          );
+        }
       }
       if (targetPrototype && mutation === "Object.defineProperties") {
         recordPrototypeObjectMembers(
@@ -7039,7 +8708,9 @@ export function scanStaticGlobalApiSurfaces(
           names,
           `computed-prototype-${legacyAccessor}`,
         );
-        for (const name of names) addMember(prototypeMembers, prototype, name);
+        for (const name of names) {
+          addMember(prototypeMembers, prototype, name, "accessor");
+        }
       }
 
       const objectTargetPaths = expressionObjectPaths(node.arguments?.[0]);
@@ -7069,6 +8740,7 @@ export function scanStaticGlobalApiSurfaces(
             ? "define-property"
             : "reflect-define-property",
           objectTargetPaths,
+          descriptorValueShape(node.arguments[2]),
         );
       }
       if (mutation === "Reflect.set" && objectTargetPaths.length > 0) {
@@ -7124,6 +8796,7 @@ export function scanStaticGlobalApiSurfaces(
                 : null,
               "define-properties",
               objectTargetPaths,
+              descriptorValueShape(property.value),
             );
           }
         }
@@ -7131,14 +8804,17 @@ export function scanStaticGlobalApiSurfaces(
       if (mutation === "Object.assign" && objectTargetPaths.length > 0) {
         for (const source of node.arguments.slice(1)) {
           if (source?.type === "Identifier" && objectMembers.has(source.name)) {
-            observeGlobalRegistration(
-              source,
-              source,
-              [...objectMembers.get(source.name)],
-              null,
-              "object-assign-closed-binding",
-              objectTargetPaths,
-            );
+            for (const name of objectMembers.get(source.name)) {
+              observeGlobalRegistration(
+                source,
+                source,
+                [name],
+                null,
+                "object-assign-closed-binding",
+                objectTargetPaths,
+                memberValueShape(objectMembers, source.name, name),
+              );
+            }
             continue;
           }
           if (source?.type !== "ObjectExpression") {
@@ -7273,7 +8949,12 @@ export function scanStaticGlobalApiSurfaces(
         if (!source.sourceOwner) continue;
         const before = prototypeMembers.get(owner)?.size ?? 0;
         for (const name of prototypeMembers.get(source.sourceOwner) ?? []) {
-          addMember(prototypeMembers, owner, name);
+          addMember(
+            prototypeMembers,
+            owner,
+            name,
+            memberValueShape(prototypeMembers, source.sourceOwner, name),
+          );
         }
         if ((prototypeMembers.get(owner)?.size ?? 0) !== before) {
           inheritedChanged = true;
@@ -7349,7 +9030,7 @@ export function scanStaticGlobalApiSurfaces(
     const name = globalSurfaceName(exportName);
     const ipcConditional =
       path.basename(sourcePath) === "compat-polyfills.js" &&
-      /^process\.(?:channel|connected|disconnect|send|\[\[dynamic-table:(?:exact-channel-handle-key|k-channel-handle)\]\])/u.test(
+      /^process\.(?:__exactKChannelHandle|channel|connected|disconnect|send|\[\[dynamic-table:(?:exact-channel-handle-key|k-channel-handle)\]\])/u.test(
         exportName,
       );
     const harnessConditional =
@@ -7414,22 +9095,41 @@ export function scanStaticGlobalApiSurfaces(
   };
 
   const namespaceAliases = [];
-  for (const { pathSegments, value } of installations) {
+  for (const {
+    closedIifeFunctionShape,
+    dynamicCallShape,
+    factoryReturnedCallableSourceContract,
+    memberKinds = ["registration"],
+    pathSegments,
+    value,
+    valueShape,
+  } of installations) {
     const [globalName, ...memberSegments] = pathSegments;
     if (!globalName) continue;
     const installedMember =
       memberSegments.length === 0 ? null : memberSegments.join(".");
-    const dynamicCallShape = opaqueCallShapeEvidence.get(value);
+    const concreteInstallation = pathSegments.every(
+      (segment) => !DYNAMIC_TABLE_MEMBER.test(segment),
+    );
+    const installationMetadata = {
+      memberKinds,
+      ...(concreteInstallation ? { publicReadAccessSourceProven: true } : {}),
+      ...(valueShape ? { valueShape } : {}),
+      ...(factoryReturnedCallableSourceContract
+        ? { factoryReturnedCallableSourceContract }
+        : {}),
+    };
     addGlobal(
       globalName,
       installedMember,
       dynamicCallShape
         ? {
+            ...installationMetadata,
             dynamicNamespace: true,
             dynamicNamespaceEvidence: dynamicCallShape.evidence,
             dynamicNamespaceKind: dynamicCallShape.kind,
           }
-        : {},
+        : installationMetadata,
     );
     if (dynamicCallShape) {
       const dynamicNamespaceRoot = [globalName, ...memberSegments].join(".");
@@ -7445,9 +9145,28 @@ export function scanStaticGlobalApiSurfaces(
           dynamicNamespaceEvidence: dynamicCallShape.evidence,
           dynamicNamespaceKind: dynamicCallShape.kind,
           dynamicNamespaceRoot,
+          memberKinds: ["dynamic-table"],
           semanticRoles: ["dynamic-call-result-shape"],
         },
       );
+    }
+    if (closedIifeFunctionShape) {
+      for (const {
+        memberPath,
+        valueShape,
+      } of closedIifeFunctionShape.members) {
+        addGlobal(
+          globalName,
+          [installedMember, memberPath].filter(Boolean).join("."),
+          {
+            memberKinds: ["source-derived-iife-function-member"],
+            ...(concreteInstallation
+              ? { publicReadAccessSourceProven: true }
+              : {}),
+            valueShape,
+          },
+        );
+      }
     }
     if (pathSegments.length === 1 && value) {
       for (const sourceObjectPath of expressionObjectPaths(value)) {
@@ -7455,38 +9174,86 @@ export function scanStaticGlobalApiSurfaces(
           namespaceAliases.push({ destination: globalName, sourceObjectPath });
       }
     }
-    let memberNames = [];
+    const memberShapeFacts = new Map();
+    const addMemberShapeFact = (name, shape) => {
+      let shapes = memberShapeFacts.get(name);
+      if (!shapes) {
+        shapes = new Set();
+        memberShapeFacts.set(name, shapes);
+      }
+      if (shape) shapes.add(shape);
+    };
     const installedClassOwners = classOwnersForExpression(value);
     if (installedClassOwners.size > 0) {
-      memberNames = uniqueSorted(
-        [...installedClassOwners].flatMap((owner) => [
-          ...(prototypeMembers.get(owner) ?? []),
-        ]),
-      );
+      for (const owner of installedClassOwners) {
+        for (const name of prototypeMembers.get(owner) ?? []) {
+          addMemberShapeFact(
+            name,
+            memberValueShape(prototypeMembers, owner, name),
+          );
+        }
+      }
     } else if (
       value?.type === "NewExpression" &&
       value.callee?.type === "Identifier"
     ) {
-      memberNames = [...(prototypeMembers.get(value.callee.name) ?? [])];
+      for (const name of prototypeMembers.get(value.callee.name) ?? []) {
+        addMemberShapeFact(
+          name,
+          memberValueShape(prototypeMembers, value.callee.name, name),
+        );
+      }
     } else if (value?.type === "Identifier") {
-      memberNames = uniqueSorted([
-        ...(prototypeMembers.get(value.name) ?? []),
-        ...(objectMembers.get(value.name) ?? []),
-      ]);
+      for (const map of [prototypeMembers, objectMembers]) {
+        for (const name of map.get(value.name) ?? []) {
+          addMemberShapeFact(name, memberValueShape(map, value.name, name));
+        }
+      }
     } else if (value?.type === "ObjectExpression") {
-      memberNames = objectPropertyNames(value);
+      for (const property of value.properties) {
+        if (property.type === "SpreadElement") continue;
+        const names =
+          !property.computed && property.key?.type === "Identifier"
+            ? [property.key.name]
+            : staticPropertyName(property.key, staticBindings);
+        for (const name of names) {
+          addMemberShapeFact(name, propertyValueShape(property));
+        }
+      }
     }
-    for (const memberName of memberNames) {
+    for (const memberName of uniqueSorted(memberShapeFacts.keys())) {
+      const memberShape = resolvedValueShape(
+        memberShapeFacts.get(memberName) ?? [],
+      );
+      const concreteMember =
+        concreteInstallation && !DYNAMIC_TABLE_MEMBER.test(memberName);
       addGlobal(
         globalName,
         [installedMember, memberName].filter(Boolean).join("."),
+        {
+          memberKinds: ["source-derived-member"],
+          ...(concreteMember ? { publicReadAccessSourceProven: true } : {}),
+          ...(memberShape ? { valueShape: memberShape } : {}),
+        },
       );
     }
     for (const constructor of returnedConstructors(value)) {
       for (const memberName of prototypeMembers.get(constructor) ?? []) {
+        const memberShape = memberValueShape(
+          prototypeMembers,
+          constructor,
+          memberName,
+        );
         addGlobal(
           globalName,
           [installedMember, "[[return]]", memberName].filter(Boolean).join("."),
+          {
+            memberKinds: ["returned-object-member"],
+            ...(concreteInstallation
+              ? { publicReadAccessSourceProven: true }
+              : {}),
+            ...(memberShape ? { valueShape: memberShape } : {}),
+          },
         );
       }
     }
@@ -7542,7 +9309,18 @@ export function scanStaticGlobalApiSurfaces(
           .slice(sourceObjectPath.length)
           .replace(/^\./u, "");
         const memberName = suffix || null;
-        const aliasMetadata = {};
+        const aliasMetadata = {
+          memberKinds: uniqueSorted([
+            ...(row.metadata.memberKinds ?? []),
+            "namespace-alias",
+          ]),
+          ...(row.metadata.publicReadAccessSourceProven === true
+            ? { publicReadAccessSourceProven: true }
+            : {}),
+          ...(row.metadata.valueShape
+            ? { valueShape: row.metadata.valueShape }
+            : {}),
+        };
         if (row.metadata.dynamicNamespace === true) {
           aliasMetadata.dynamicNamespace = true;
           aliasMetadata.dynamicNamespaceEvidence =
@@ -7580,6 +9358,72 @@ const SHARED_RUNTIME_SOURCE_ROOT = "packages/ibex-runtime-js/src";
 const GENERATED_AUTHORITY_PATH =
   /(?:^|\/)(?:vendored-generated|generated|dist|out)(?:\/|$)|\.generated\.[A-Za-z0-9]+$/u;
 const DYNAMIC_TABLE_MEMBER = /^\[\[dynamic-table:[a-z0-9-]+\]\]$/u;
+const REVIEWED_SHARED_RUNTIME_PREFIX_READS = new Map([
+  [
+    "__exactLoadTimings",
+    {
+      activationVariants: ["baseline-input-absent", "baseline-input-present"],
+      valueShape: "data",
+    },
+  ],
+  [
+    "Intl.DateTimeFormat",
+    {
+      activationVariants: [
+        "constructor-absent-or-noncallable",
+        "constructor-callable",
+      ],
+      valueShape: "callable",
+    },
+  ],
+  [
+    "Intl.DateTimeFormat.prototype",
+    {
+      activationVariants: [
+        "constructor-absent-or-noncallable",
+        "prototype-present",
+      ],
+      valueShape: "data",
+    },
+  ],
+  [
+    "Intl.Locale.prototype",
+    {
+      activationVariants: [
+        "native-locale-prototype-absent",
+        "native-locale-prototype-present",
+      ],
+      valueShape: "data",
+    },
+  ],
+  [
+    "Intl.NumberFormat",
+    {
+      activationVariants: [
+        "constructor-absent-or-noncallable",
+        "constructor-callable",
+      ],
+      valueShape: "callable",
+    },
+  ],
+  [
+    "Intl.NumberFormat.prototype",
+    {
+      activationVariants: [
+        "constructor-absent-or-noncallable",
+        "prototype-present",
+      ],
+      valueShape: "data",
+    },
+  ],
+  [
+    "Promise.prototype",
+    {
+      activationVariants: ["tracking-inactive", "tracking-active"],
+      valueShape: "data",
+    },
+  ],
+]);
 
 function isPathInside(root, candidate) {
   const relative = path.relative(root, candidate);
@@ -7850,6 +9694,255 @@ function tsReturnExpressions(functionNode) {
 }
 
 /**
+ * Prove the authored Process.env dynamic-table route without treating a
+ * runtime Proxy as an opaque object. The binding, traps, local helper graph,
+ * and native bridge aliases all live in one TypeScript module, so this audit
+ * can remain syntax-derived and mutation-sensitive without executing it.
+ *
+ * @ref LLP 0022#7-capabilities-principals-and-affordance-parity — the armed
+ * environment is a shared facade over current-principal native overlays; its
+ * open property domain must not inherit the legacy host-process provenance.
+ */
+export function scanPrincipalEnvironmentOverlayProxy(
+  text,
+  sourcePath = "packages/ibex-runtime-js/src/node/process.ts",
+) {
+  if (typeof text !== "string" || text.length === 0) {
+    throw new Error(
+      `${sourcePath}: principal environment Proxy source is empty`,
+    );
+  }
+  const source = ts.createSourceFile(
+    sourcePath,
+    text,
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.TS,
+  );
+  for (const diagnostic of source.parseDiagnostics ?? []) {
+    throw new Error(
+      `${sourcePath}: unable to parse principal environment Proxy: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`,
+    );
+  }
+  const requireProof = (condition, message) => {
+    if (!condition) {
+      throw new Error(`${sourcePath}: ${message}`);
+    }
+  };
+  const namedTopLevel = (predicate, name) =>
+    source.statements.filter(
+      (statement) => predicate(statement) && statement.name?.text === name,
+    );
+
+  const factories = namedTopLevel(ts.isFunctionDeclaration, "createEnvProxy");
+  requireProof(
+    factories.length === 1 && factories[0].body,
+    "expected exactly one implemented top-level createEnvProxy factory",
+  );
+  const factory = factories[0];
+  const processClasses = namedTopLevel(ts.isClassDeclaration, "Process");
+  requireProof(
+    processClasses.length === 1,
+    "expected exactly one top-level Process class",
+  );
+  const envBindings = processClasses[0].members.filter((member) => {
+    if (!ts.isPropertyDeclaration(member) || !member.initializer) return false;
+    if (tsMemberName(member.name, sourcePath) !== "env") return false;
+    const initializer = tsUnwrapExpression(member.initializer);
+    const callee = ts.isCallExpression(initializer)
+      ? tsUnwrapExpression(initializer.expression)
+      : null;
+    return (
+      ts.isCallExpression(initializer) &&
+      initializer.arguments.length === 0 &&
+      ts.isIdentifier(callee) &&
+      callee.text === "createEnvProxy"
+    );
+  });
+  requireProof(
+    envBindings.length === 1,
+    "Process.env must be initialized by one direct createEnvProxy() call",
+  );
+
+  const setterBindings = factory.body.statements.flatMap((statement) =>
+    ts.isVariableStatement(statement)
+      ? statement.declarationList.declarations.filter(
+          (declaration) =>
+            ts.isIdentifier(declaration.name) &&
+            declaration.name.text === "setPrincipalOverlay",
+        )
+      : [],
+  );
+  requireProof(
+    setterBindings.length === 1 && setterBindings[0].initializer,
+    "createEnvProxy must capture one setPrincipalOverlay binding",
+  );
+  const setterInitializer = tsUnwrapExpression(setterBindings[0].initializer);
+  const setterCondition = ts.isConditionalExpression(setterInitializer)
+    ? tsUnwrapExpression(setterInitializer.condition)
+    : null;
+  const setterTrue = ts.isConditionalExpression(setterInitializer)
+    ? tsUnwrapExpression(setterInitializer.whenTrue)
+    : null;
+  const setterFalse = ts.isConditionalExpression(setterInitializer)
+    ? tsUnwrapExpression(setterInitializer.whenFalse)
+    : null;
+  requireProof(
+    ts.isConditionalExpression(setterInitializer) &&
+      ts.isBinaryExpression(setterCondition) &&
+      setterCondition.operatorToken.kind ===
+        ts.SyntaxKind.EqualsEqualsEqualsToken &&
+      ts.isTypeOfExpression(tsUnwrapExpression(setterCondition.left)) &&
+      ts.isIdentifier(tsUnwrapExpression(setterCondition.left).expression) &&
+      tsUnwrapExpression(setterCondition.left).expression.text ===
+        "__exactSetEnv" &&
+      ts.isStringLiteralLike(tsUnwrapExpression(setterCondition.right)) &&
+      tsUnwrapExpression(setterCondition.right).text === "function" &&
+      ts.isIdentifier(setterTrue) &&
+      setterTrue.text === "__exactSetEnv" &&
+      setterFalse?.kind === ts.SyntaxKind.NullKeyword,
+    "setPrincipalOverlay must be the guarded lexical capture of __exactSetEnv",
+  );
+
+  const proxyReturns = factory.body.statements.filter((statement) => {
+    if (!ts.isReturnStatement(statement) || !statement.expression) return false;
+    const expression = tsUnwrapExpression(statement.expression);
+    const constructor = ts.isNewExpression(expression)
+      ? tsUnwrapExpression(expression.expression)
+      : null;
+    return (
+      ts.isNewExpression(expression) &&
+      ts.isIdentifier(constructor) &&
+      constructor.text === "Proxy"
+    );
+  });
+  requireProof(
+    proxyReturns.length === 1,
+    "createEnvProxy must directly return exactly one Proxy",
+  );
+  const proxy = tsUnwrapExpression(proxyReturns[0].expression);
+  const handler = tsUnwrapExpression(proxy.arguments?.[1]);
+  requireProof(
+    proxy.arguments?.length === 2 && ts.isObjectLiteralExpression(handler),
+    "createEnvProxy must supply one explicit Proxy handler object",
+  );
+
+  const requiredTrapNames = ["deleteProperty", "get", "ownKeys", "set"];
+  const traps = new Map();
+  for (const property of handler.properties) {
+    if (!ts.isMethodDeclaration(property)) continue;
+    const name = tsMemberName(property.name, sourcePath);
+    if (!requiredTrapNames.includes(name)) continue;
+    requireProof(!traps.has(name), `duplicate process.env Proxy trap ${name}`);
+    traps.set(name, property);
+  }
+  requireProof(
+    requiredTrapNames.every((name) => traps.has(name)),
+    "process.env Proxy must define get, set, deleteProperty, and ownKeys traps",
+  );
+
+  const localFunctions = new Map();
+  for (const statement of factory.body.statements) {
+    if (!ts.isFunctionDeclaration(statement) || !statement.name) continue;
+    requireProof(
+      !localFunctions.has(statement.name.text),
+      `duplicate createEnvProxy helper ${statement.name.text}`,
+    );
+    localFunctions.set(statement.name.text, statement);
+  }
+  const directIdentifierCalls = (callable) => {
+    const calls = new Set();
+    const visit = (node) => {
+      if (node !== callable && ts.isFunctionDeclaration(node)) return;
+      if (ts.isCallExpression(node)) {
+        const callee = tsUnwrapExpression(node.expression);
+        if (ts.isIdentifier(callee)) calls.add(callee.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    if (callable.body) visit(callable.body);
+    return calls;
+  };
+  const bridgeForCall = (name) => {
+    if (name === "setPrincipalOverlay") return "__exactSetEnv";
+    if (
+      new Set(["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"]).has(name)
+    ) {
+      return name;
+    }
+    return null;
+  };
+  const reachableBridges = (callable) => {
+    const bridges = new Set();
+    const seenHelpers = new Set();
+    const visit = (node) => {
+      for (const call of directIdentifierCalls(node)) {
+        const bridge = bridgeForCall(call);
+        if (bridge) bridges.add(bridge);
+        const helper = localFunctions.get(call);
+        if (helper && !seenHelpers.has(call)) {
+          seenHelpers.add(call);
+          visit(helper);
+        }
+      }
+    };
+    visit(callable);
+    return uniqueSorted(bridges);
+  };
+  const trapRoutes = requiredTrapNames.map((name) => ({
+    name,
+    nativeBridges: reachableBridges(traps.get(name)),
+    sourceRef: sourceSymbol(sourcePath, `createEnvProxy:Proxy.${name}`),
+  }));
+  const routesByTrap = new Map(
+    trapRoutes.map((route) => [route.name, new Set(route.nativeBridges)]),
+  );
+  for (const [trap, bridge] of [
+    ["get", "__exactGetEnv"],
+    ["set", "__exactSetEnv"],
+    ["deleteProperty", "__exactSetEnv"],
+    ["ownKeys", "__exactGetAllEnv"],
+    ["ownKeys", "__exactGetEnv"],
+  ]) {
+    requireProof(
+      routesByTrap.get(trap)?.has(bridge),
+      `process.env ${trap} trap lost its ${bridge} route`,
+    );
+  }
+  const nativeBridges = uniqueSorted(
+    trapRoutes.flatMap((route) => route.nativeBridges),
+  );
+  requireProof(
+    JSON.stringify(nativeBridges) ===
+      JSON.stringify(["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"]),
+    "process.env Proxy native bridge set is incomplete or ambiguous",
+  );
+
+  const bindingRef = sourceSymbol(sourcePath, "Process.prototype.env");
+  const factoryRef = sourceSymbol(sourcePath, "createEnvProxy");
+  const sourceRefs = uniqueSorted([
+    bindingRef,
+    factoryRef,
+    ...trapRoutes.map(({ sourceRef }) => sourceRef),
+  ]);
+  return {
+    schema: PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA,
+    surfaceName: PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
+    dynamicMember: PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER,
+    globalPath: "process.env",
+    binding: {
+      factory: "createEnvProxy",
+      member: "Process.prototype.env",
+      sourceRef: bindingRef,
+    },
+    factory: { name: "createEnvProxy", sourceRef: factoryRef },
+    nativeBridges,
+    proxyTraps: trapRoutes,
+    sourceRefs,
+  };
+}
+
+/**
  * Discover every global installed by the authored shared-runtime module graph.
  * The entry and every relative module are TypeScript authoring sources; bundle,
  * vendored, generated, and output files are deliberately rejected as authority.
@@ -7938,6 +10031,24 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       );
     }
   }
+
+  const processFacadeSources = authoredSources.filter(
+    (source) =>
+      posixPath(path.relative(absoluteRepoRoot, source.fileName)) ===
+      "packages/ibex-runtime-js/src/node/process.ts",
+  );
+  if (processFacadeSources.length > 1) {
+    throw new Error(
+      "shared runtime inventory found duplicate authored process facades",
+    );
+  }
+  const principalEnvironmentOverlay =
+    processFacadeSources.length === 1
+      ? scanPrincipalEnvironmentOverlayProxy(
+          processFacadeSources[0].text,
+          "packages/ibex-runtime-js/src/node/process.ts",
+        )
+      : null;
 
   const relativeSourcePath = (node) =>
     posixPath(path.relative(absoluteRepoRoot, node.getSourceFile().fileName));
@@ -8086,6 +10197,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
   const facts = new Map();
   const globalAliases = new Map();
   const installedSymbolPaths = new Map();
+  const reviewedPrefixReadProofs = new Map();
   const addFact = (
     segments,
     refs,
@@ -8701,6 +10813,220 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
     }
     const shapes = new Set(candidates);
     return shapes.size === 1 ? [...shapes][0] : null;
+  };
+  const expressionUseNode = (expression) => {
+    let current = expression;
+    while (
+      current?.parent &&
+      (ts.isAsExpression(current.parent) ||
+        ts.isTypeAssertionExpression(current.parent) ||
+        ts.isParenthesizedExpression(current.parent) ||
+        ts.isNonNullExpression(current.parent) ||
+        ts.isSatisfiesExpression(current.parent)) &&
+      current.parent.expression === current
+    ) {
+      current = current.parent;
+    }
+    return current;
+  };
+  const concretePathBinding = (
+    expression,
+    environment,
+    expectedSegments,
+    seen = new Set(),
+  ) => {
+    const node = tsUnwrapExpression(expression);
+    if (!node) return false;
+    const expectedName = expectedSegments.join(".");
+    if (
+      !globalPaths(node, environment).some(
+        (segments) => segments.join(".") === expectedName,
+      )
+    ) {
+      return false;
+    }
+    const terminalMember = expectedSegments.at(-1);
+    if (ts.isPropertyAccessExpression(node)) {
+      return (
+        node.name.text === terminalMember &&
+        /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(terminalMember) &&
+        !DYNAMIC_TABLE_MEMBER.test(terminalMember)
+      );
+    }
+    if (ts.isElementAccessExpression(node)) {
+      const names = staticStrings(node.argumentExpression, environment);
+      return (
+        names.length === 1 &&
+        names[0] === terminalMember &&
+        /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(terminalMember) &&
+        !DYNAMIC_TABLE_MEMBER.test(terminalMember)
+      );
+    }
+    if (!ts.isIdentifier(node)) return false;
+    const symbol = symbolAt(node);
+    if (!symbol || seen.has(symbol)) return false;
+    const nextSeen = new Set(seen).add(symbol);
+    const bound = bindingFor(symbol, environment);
+    if (
+      bound?.expression &&
+      concretePathBinding(
+        bound.expression,
+        bound.environment,
+        expectedSegments,
+        nextSeen,
+      )
+    ) {
+      return true;
+    }
+    return (symbol.declarations ?? []).some(
+      (declaration) =>
+        ts.isVariableDeclaration(declaration) &&
+        declaration.initializer &&
+        concretePathBinding(
+          declaration.initializer,
+          environment,
+          expectedSegments,
+          nextSeen,
+        ),
+    );
+  };
+  const callableMembershipGuard = (expression) => {
+    const use = expressionUseNode(expression);
+    const typeOf = use?.parent;
+    if (
+      !typeOf ||
+      !ts.isTypeOfExpression(typeOf) ||
+      typeOf.expression !== use
+    ) {
+      return null;
+    }
+    const comparison = typeOf.parent;
+    if (
+      !comparison ||
+      !ts.isBinaryExpression(comparison) ||
+      !new Set([
+        ts.SyntaxKind.EqualsEqualsToken,
+        ts.SyntaxKind.EqualsEqualsEqualsToken,
+        ts.SyntaxKind.ExclamationEqualsToken,
+        ts.SyntaxKind.ExclamationEqualsEqualsToken,
+      ]).has(comparison.operatorToken.kind)
+    ) {
+      return null;
+    }
+    const other =
+      comparison.left === typeOf
+        ? comparison.right
+        : comparison.right === typeOf
+          ? comparison.left
+          : null;
+    return other &&
+      ts.isStringLiteralLike(tsUnwrapExpression(other)) &&
+      tsUnwrapExpression(other).text === "function"
+      ? comparison
+      : null;
+  };
+  const concreteDataOwnerUse = (expression, environment, expectedSegments) => {
+    const use = expressionUseNode(expression);
+    const parent = use?.parent;
+    if (!parent) return null;
+    if (
+      (ts.isPropertyAccessExpression(parent) ||
+        ts.isElementAccessExpression(parent)) &&
+      parent.expression === use
+    ) {
+      const descendantPaths = globalPaths(parent, environment);
+      const exactPrefix = expectedSegments.join(".");
+      const concreteDescendant = descendantPaths.some(
+        (segments) =>
+          segments.length > expectedSegments.length &&
+          segments.slice(0, expectedSegments.length).join(".") ===
+            exactPrefix &&
+          segments
+            .slice(expectedSegments.length)
+            .every(
+              (segment) =>
+                /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(segment) &&
+                !DYNAMIC_TABLE_MEMBER.test(segment),
+            ),
+      );
+      if (concreteDescendant) return parent;
+    }
+    if (ts.isCallExpression(parent) && parent.arguments[0] === use) {
+      const callee = tsUnwrapExpression(parent.expression);
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(tsUnwrapExpression(callee.expression)) &&
+        new Set(["Object", "Reflect"]).has(
+          tsUnwrapExpression(callee.expression).text,
+        ) &&
+        new Set(["defineProperties", "defineProperty"]).has(callee.name.text)
+      ) {
+        return parent;
+      }
+    }
+    return null;
+  };
+  const recordReviewedPrefixReadProof = (
+    exportName,
+    proofKind,
+    evidenceNode,
+    valueShape,
+  ) => {
+    const sourceRef = authoredRef(evidenceNode, `public-read:${exportName}`);
+    let proofs = reviewedPrefixReadProofs.get(exportName);
+    if (!proofs) {
+      proofs = new Map();
+      reviewedPrefixReadProofs.set(exportName, proofs);
+    }
+    proofs.set(`${proofKind}\0${sourceRef}`, {
+      proofKind,
+      sourceRef,
+      valueShape,
+    });
+  };
+  const observeReviewedPrefixRead = (expression, environment) => {
+    const node = tsUnwrapExpression(expression);
+    if (
+      !node ||
+      (!ts.isIdentifier(node) &&
+        !ts.isPropertyAccessExpression(node) &&
+        !ts.isElementAccessExpression(node))
+    ) {
+      return;
+    }
+    for (const segments of globalPaths(node, environment)) {
+      const exportName = segments.join(".");
+      const specification =
+        REVIEWED_SHARED_RUNTIME_PREFIX_READS.get(exportName);
+      if (
+        !specification ||
+        segments.some((segment) => DYNAMIC_TABLE_MEMBER.test(segment)) ||
+        !concretePathBinding(node, environment, segments)
+      ) {
+        continue;
+      }
+      if (specification.valueShape === "callable") {
+        const guard = callableMembershipGuard(node);
+        if (guard) {
+          recordReviewedPrefixReadProof(
+            exportName,
+            "typeof-callable-membership",
+            guard,
+            "callable",
+          );
+        }
+        continue;
+      }
+      const ownerUse = concreteDataOwnerUse(node, environment, segments);
+      if (ownerUse) {
+        recordReviewedPrefixReadProof(
+          exportName,
+          "concrete-member-owner",
+          ownerUse,
+          "data",
+        );
+      }
+    }
   };
   const propertyValueShape = (property, environment) => {
     if (ts.isMethodDeclaration(property)) return "callable";
@@ -9334,9 +11660,14 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       for (const base of bases) {
         for (const name of names) {
           const segments = [...base, name];
-          recordRegistration(segments, values[0] ?? null, environment, call, [
-            "define-property",
-          ], descriptorValueShape(descriptor, environment, sourcePath));
+          recordRegistration(
+            segments,
+            values[0] ?? null,
+            environment,
+            call,
+            ["define-property"],
+            descriptorValueShape(descriptor, environment, sourcePath),
+          );
           for (const value of values.slice(1)) {
             collectRegisteredValueMembers(value, environment, segments, [
               authoredRef(call, `globals:${segments.join(".")}`),
@@ -9436,10 +11767,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
                       resolvedLiteral.environment,
                       sourcePath,
                     )
-                  : propertyValueShape(
-                      property,
-                      resolvedLiteral.environment,
-                    ),
+                  : propertyValueShape(property, resolvedLiteral.environment),
               );
               for (const value of values.slice(1)) {
                 collectRegisteredValueMembers(
@@ -9459,6 +11787,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
 
   processNode = (node, environment) => {
     if (!node) return;
+    observeReviewedPrefixRead(node, environment);
     if (
       ts.isFunctionLike(node) ||
       ts.isClassDeclaration(node) ||
@@ -9596,27 +11925,104 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       surfaceType: "global-api",
     };
     const accessPath = fact.exportName.split(".");
-    const sourceProvesEveryAccessSegment = accessPath.every((_, index) => {
-      const prefix = facts.get(accessPath.slice(0, index + 1).join("."));
-      return (
-        prefix &&
-        [...prefix.memberKinds].some(
-          (kind) =>
-            !new Set([
-              "dynamic-table",
-              "inherited-shape",
-              "namespace-prefix",
-            ]).has(kind),
-        )
-      );
-    });
+    const reviewedPrefixSpecification =
+      REVIEWED_SHARED_RUNTIME_PREFIX_READS.get(fact.exportName);
+    const reviewedPrefixProofs = [
+      ...(reviewedPrefixReadProofs.get(fact.exportName)?.values() ?? []),
+    ];
+    const reviewedPrefixContract =
+      reviewedPrefixSpecification &&
+      fact.memberKinds.size === 1 &&
+      fact.memberKinds.has("namespace-prefix") &&
+      accessPath.every(
+        (segment) =>
+          /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(segment) &&
+          !DYNAMIC_TABLE_MEMBER.test(segment),
+      ) &&
+      reviewedPrefixProofs.length > 0 &&
+      reviewedPrefixProofs.every(
+        (proof) => proof.valueShape === reviewedPrefixSpecification.valueShape,
+      )
+        ? {
+            activationVariants: [
+              ...reviewedPrefixSpecification.activationVariants,
+            ],
+            path: fact.exportName,
+            presenceVariants: ["absent", "present"],
+            proofKinds: uniqueSorted(
+              reviewedPrefixProofs.map((proof) => proof.proofKind),
+            ),
+            schema: PUBLIC_READ_ACCESS_SOURCE_CONTRACT_SCHEMA,
+            sourceRefs: uniqueSorted(
+              reviewedPrefixProofs.map((proof) => proof.sourceRef),
+            ),
+            terminalMember: accessPath.at(-1),
+            valueShape: reviewedPrefixSpecification.valueShape,
+          }
+        : null;
+    const sourceProvesEveryAccessSegment = accessPath.every(
+      (segment, index) => {
+        if (DYNAMIC_TABLE_MEMBER.test(segment)) return false;
+        const prefix = facts.get(accessPath.slice(0, index + 1).join("."));
+        return (
+          prefix &&
+          [...prefix.memberKinds].some(
+            (kind) =>
+              !new Set([
+                "dynamic-table",
+                "inherited-shape",
+                "namespace-prefix",
+              ]).has(kind),
+          )
+        );
+      },
+    );
     if (sourceProvesEveryAccessSegment)
       metadata.publicReadAccessSourceProven = true;
+    if (reviewedPrefixContract) {
+      metadata.publicReadAccessSourceContract = reviewedPrefixContract;
+      metadata.publicReadAccessSourceProven = true;
+      metadata.valueShape = reviewedPrefixContract.valueShape;
+    }
     if (fact.semanticRoles.size > 0)
       metadata.semanticRoles = uniqueSorted(fact.semanticRoles);
     if (fact.valueShapes.size === 1)
       metadata.valueShape = [...fact.valueShapes][0];
     rows.push(makeSurface("native-op", name, sourceRefs, { metadata }));
+  }
+  if (principalEnvironmentOverlay) {
+    const overlaySourceRefs = principalEnvironmentOverlay.sourceRefs;
+    const overlayBranch = makeInstallationBranch(
+      "shared-runtime",
+      "all",
+      overlaySourceRefs,
+    );
+    rows.push(
+      makeSurface(
+        "native-op",
+        PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
+        overlaySourceRefs,
+        {
+          metadata: {
+            branches: [overlayBranch],
+            exportName: `process.env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`,
+            globalName: "process",
+            installationBranches: [overlayBranch],
+            memberKinds: ["dynamic-table"],
+            memberName: `env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`,
+            moduleSpecifiers: [],
+            principalEnvironmentOverlaySourceContract:
+              principalEnvironmentOverlay,
+            semanticRoles: [
+              "principal-environment-overlay",
+              "runtime-property-overlay",
+            ],
+            sourceKey: "shared_runtime",
+            surfaceType: "global-api",
+          },
+        },
+      ),
+    );
   }
   const sortedRows = sortSurfaces(rows);
   const inheritedReviewRows = sortedRows
@@ -9955,6 +12361,42 @@ function cppMovedOrDirectIdentifier(tokens) {
   return move === -1 ? null : tokens[move + 2].value;
 }
 
+function cppHostFunctionValueDescriptor(
+  tokens,
+  assignedHostFunctions,
+  sourcePath,
+) {
+  const assigned = cppMovedOrDirectIdentifier(tokens);
+  const assignedDescriptor = assignedHostFunctions.get(assigned);
+  if (assignedDescriptor) return assignedDescriptor;
+
+  const descriptors = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index]?.value !== "createFromHostFunction" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: inline createFromHostFunction call has no closing parenthesis`,
+      );
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    if (args.length < 4) continue;
+    const functionName = cppLiteralArgument(args[1]);
+    const arity = cppUnsignedIntegerArgument(args[2]);
+    if (functionName !== null && arity !== null) {
+      descriptors.push({ arity, functionName });
+    }
+    index = close;
+  }
+  if (descriptors.length !== 1) return null;
+  return descriptors[0];
+}
+
 function getAllEnvironmentInstallationBranches(tokens, sourcePath, baseRefs) {
   const definitions = [];
   for (let index = 0; index < tokens.length - 2; index += 1) {
@@ -10061,6 +12503,7 @@ export function scanCppGlobalPropertySurfaces(
   const assignedHostFunctions = cppAssignedHostFunctions(tokens, sourcePath);
   const calls = [];
   const objectOwners = new Set();
+  const exactCapabilityOwners = new Set();
   const closedGlobalTableNames = new Set();
   for (let index = 0; index < tokens.length; index += 1) {
     if (
@@ -10092,6 +12535,38 @@ export function scanCppGlobalPropertySurfaces(
       args,
       globalTarget: false,
       owner: tokens[index].value,
+    });
+  }
+
+  // Exact's late-bound embedder capability uses Object.defineProperty through
+  // this dedicated helper so the member can be sealed after the compartment
+  // baseline refresh. Treat it as the same authored object-member installation
+  // shape as target.setProperty; otherwise the reviewed public ingress silently
+  // disappears from source-derived inventory.
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index].type !== "identifier" ||
+      tokens[index].value !== "defineExactCapability" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: defineExactCapability call has no closing parenthesis`,
+      );
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    if (args.length < 4) continue;
+    const owner = cppMovedOrDirectIdentifier(args[1]);
+    if (!owner) continue;
+    objectOwners.add(owner);
+    exactCapabilityOwners.add(owner);
+    calls.push({
+      args: [args[0], args[2], args[3]],
+      globalTarget: false,
+      owner,
     });
   }
 
@@ -10156,6 +12631,7 @@ export function scanCppGlobalPropertySurfaces(
       globalTarget: false,
       owner,
       propertyName,
+      valueShape: "accessor",
     });
   }
 
@@ -10222,6 +12698,7 @@ export function scanCppGlobalPropertySurfaces(
   const ownerPaths = new Map();
   const facts = new Map();
   const publicInvocations = new Map();
+  const valueShapes = new Map();
   const dynamicFacts = new Set();
   const propertyNameForCall = (call) => {
     if (call.propertyName) return call.propertyName;
@@ -10245,31 +12722,46 @@ export function scanCppGlobalPropertySurfaces(
     paths.add(objectPath);
     return paths.size !== before;
   };
+  for (const owner of exactCapabilityOwners) addOwnerPath(owner, "exact");
   const addFact = (exportName) => {
     if (!facts.has(exportName)) facts.set(exportName, new Set());
     facts
       .get(exportName)
       .add(sourceSymbol(sourcePath, `jsi-global:${exportName}`));
   };
+  const addValueShape = (exportName, valueShape) => {
+    if (!valueShape) return;
+    let shapes = valueShapes.get(exportName);
+    if (!shapes) {
+      shapes = new Set();
+      valueShapes.set(exportName, shapes);
+    }
+    shapes.add(valueShape);
+  };
+  const recordInvocation = (call, exportName, propertyName) => {
+    const hostFunction = cppHostFunctionValueDescriptor(
+      call.args[2],
+      assignedHostFunctions,
+      sourcePath,
+    );
+    if (!hostFunction || DYNAMIC_TABLE_MEMBER.test(propertyName)) {
+      addValueShape(exportName, call.valueShape);
+      return;
+    }
+    addValueShape(exportName, "callable");
+    publicInvocations.set(exportName, {
+      arity: hostFunction.arity,
+      globalName: exportName,
+      kind: "native-global-function",
+      sourceRef: sourceSymbol(sourcePath, `jsi-global:${exportName}`),
+    });
+  };
 
   for (const call of calls.filter((candidate) => candidate.globalTarget)) {
     const name = propertyNameForCall(call);
     if (DYNAMIC_TABLE_MEMBER.test(name)) dynamicFacts.add(name);
     addFact(name);
-    const assigned = cppMovedOrDirectIdentifier(call.args[2]);
-    const hostFunction = assignedHostFunctions.get(assigned);
-    if (
-      hostFunction &&
-      hostFunction.functionName === name &&
-      !DYNAMIC_TABLE_MEMBER.test(name)
-    ) {
-      publicInvocations.set(name, {
-        arity: hostFunction.arity,
-        globalName: name,
-        kind: "native-global-function",
-        sourceRef: sourceSymbol(sourcePath, `jsi-global:${name}`),
-      });
-    }
+    recordInvocation(call, name, name);
     for (const owner of valueOwners(call.args[2])) addOwnerPath(owner, name);
   }
   for (const name of closedGlobalTableNames) addFact(name);
@@ -10284,6 +12776,7 @@ export function scanCppGlobalPropertySurfaces(
         if (DYNAMIC_TABLE_MEMBER.test(name)) dynamicFacts.add(exportName);
         const before = facts.size;
         addFact(exportName);
+        recordInvocation(call, exportName, name);
         if (facts.size !== before) changed = true;
         for (const owner of valueOwners(call.args[2])) {
           changed = addOwnerPath(owner, exportName) || changed;
@@ -10319,6 +12812,12 @@ export function scanCppGlobalPropertySurfaces(
         branches.flatMap((branch) => branch.sourceRefs),
       );
       const name = globalSurfaceName(exportName);
+      const concreteProperty = !exportName
+        .split(".")
+        .some((segment) => DYNAMIC_TABLE_MEMBER.test(segment));
+      const observedValueShapes = valueShapes.get(exportName) ?? new Set();
+      const valueShape =
+        observedValueShapes.size === 1 ? [...observedValueShapes][0] : null;
       return makeSurface("native-op", name, sourceRefs, {
         metadata: {
           branches,
@@ -10335,11 +12834,13 @@ export function scanCppGlobalPropertySurfaces(
           memberName:
             memberSegments.length === 0 ? null : memberSegments.join("."),
           moduleSpecifiers: [],
+          ...(concreteProperty ? { publicReadAccessSourceProven: true } : {}),
           ...(publicInvocations.has(exportName)
             ? { publicInvocation: publicInvocations.get(exportName) }
             : {}),
           sourceKey: "native_jsi_global",
           surfaceType: "global-api",
+          ...(valueShape ? { valueShape } : {}),
           ...(dynamicFacts.has(exportName)
             ? { semanticRoles: ["runtime-property-overlay"] }
             : {}),
@@ -10910,10 +13411,7 @@ export function scanLockdownEvaluatorSurfaces(
     );
   }
   let assignmentEnd = assignmentStart + 2;
-  while (
-    assignmentEnd < tokens.length &&
-    tokens[assignmentEnd].value !== ";"
-  ) {
+  while (assignmentEnd < tokens.length && tokens[assignmentEnd].value !== ";") {
     assignmentEnd += 1;
   }
   if (assignmentEnd === tokens.length) {
@@ -10947,11 +13445,7 @@ export function scanLockdownEvaluatorSurfaces(
   const parts = assignmentTokens
     .filter((token) => token.type === "string")
     .map((token) => token.value);
-  if (
-    parts.length !== 4 ||
-    parts[1] !== "true" ||
-    parts[2] !== "false"
-  ) {
+  if (parts.length !== 4 || parts[1] !== "true" || parts[2] !== "false") {
     throw new Error(
       `${sourcePath}#lockdownJS: expected exact armed and diagnostic script parts`,
     );
@@ -10982,18 +13476,31 @@ export function scanLockdownEvaluatorSurfaces(
     lockdownTamingDigest,
   );
 
-  const names = new Set();
+  const tamingKinds = new Map();
+  const addTamingFact = (name, kind) => {
+    const prior = tamingKinds.get(name);
+    if (prior && prior !== kind) {
+      throw new Error(
+        `${sourcePath}#lockdownJS: evaluator ${name} has conflicting taming shapes`,
+      );
+    }
+    tamingKinds.set(name, kind);
+  };
   walkAst(parseJavaScript(script, `${sourcePath}#lockdownJS`), (node) => {
     if (node.type !== "CallExpression" || node.callee?.type !== "Identifier")
       return;
     if (node.callee.name === "tameCtor") {
-      for (const name of staticPropertyName(node.arguments[1])) names.add(name);
+      for (const name of staticPropertyName(node.arguments[1])) {
+        addTamingFact(name, "constructor");
+      }
     }
     if (node.callee.name === "makeTamed") {
-      for (const name of staticPropertyName(node.arguments[0])) names.add(name);
+      for (const name of staticPropertyName(node.arguments[0])) {
+        addTamingFact(name, "evaluator");
+      }
     }
   });
-  const tamedEvaluators = uniqueSorted(names);
+  const tamedEvaluators = uniqueSorted(tamingKinds.keys());
   const reachableEvaluators = uniqueSorted(
     profiles.flatMap((profile) => profile.reachableEvaluators),
   );
@@ -11056,8 +13563,10 @@ export function scanLockdownEvaluatorSurfaces(
           globalName,
           installationBranches: branches,
           lockdownTamingDigest,
+          memberKinds: ["hermes-intrinsic-reachability"],
           memberName: null,
           moduleSpecifiers: [],
+          publicReadAccessSourceProven: true,
           reachability:
             globalName === "eval" || globalName === "Function"
               ? "inherited-global"
@@ -11065,6 +13574,8 @@ export function scanLockdownEvaluatorSurfaces(
           sourceKey: "hermes_intrinsic_evaluators",
           surfaceType: "global-api",
           tamingEvidence: "lockdownJS",
+          tamingKind: tamingKinds.get(globalName),
+          valueShape: "callable",
         },
       },
     );
@@ -11076,8 +13587,12 @@ export function scanModuleSpecifierEntries(
   moduleExports,
   sourcePath = "modules.ts",
 ) {
-  const { bootstrapInternalModules = [], meta, sources, specifiers } =
-    moduleExports ?? {};
+  const {
+    bootstrapInternalModules = [],
+    meta,
+    sources,
+    specifiers,
+  } = moduleExports ?? {};
   if (!Array.isArray(specifiers) || specifiers.length === 0) {
     throw new Error(
       `${sourcePath}: exported specifiers must be a non-empty array`,
@@ -11228,7 +13743,8 @@ function composeRequiredBuiltinRoutes(exports, aliases) {
   const betterPath = (candidate, existing) =>
     existing === undefined ||
     candidate.length < existing.length ||
-    (candidate.length === existing.length && compareText(candidate, existing) < 0);
+    (candidate.length === existing.length &&
+      compareText(candidate, existing) < 0);
   let changed = true;
   let iterations = 0;
   while (changed && iterations <= states.size) {
@@ -11237,8 +13753,9 @@ function composeRequiredBuiltinRoutes(exports, aliases) {
     for (const row of exports) {
       const state = states.get(row.observedKey);
       if (!state) continue;
-      for (const { dependency, target } of
-        resolvedDependencies.get(row.observedKey) ?? []) {
+      for (const { dependency, target } of resolvedDependencies.get(
+        row.observedKey,
+      ) ?? []) {
         const targetState = target ? states.get(target.observedKey) : null;
         if (!targetState) continue;
         for (const ambiguity of targetState.ambiguous) {
@@ -11257,8 +13774,9 @@ function composeRequiredBuiltinRoutes(exports, aliases) {
             targetState.derivedPaths.get(terminal) ??
             [...targetState.paths]
               .filter((routePath) => routePath.endsWith(` -> ${terminal}`))
-              .sort((left, right) =>
-                left.length - right.length || compareText(left, right),
+              .sort(
+                (left, right) =>
+                  left.length - right.length || compareText(left, right),
               )[0] ??
             `export:${dependency.exportName} -> ${terminal}`;
           for (const dependencyPath of dependency.paths) {
@@ -11274,7 +13792,9 @@ function composeRequiredBuiltinRoutes(exports, aliases) {
     }
   }
   if (changed) {
-    throw new Error("builtin required-export route composition did not converge");
+    throw new Error(
+      "builtin required-export route composition did not converge",
+    );
   }
   for (const row of exports) {
     const evidence = row.metadata?.enforcementRouteEvidence;
@@ -11572,9 +14092,7 @@ function replRegistryRelations(value, label) {
     const relationLabel = `${label}[${index}]`;
     assertExactObjectKeys(relation, new Set(["id", "kind"]), relationLabel);
     if (
-      !new Set(["capability", "non-capability-rationale"]).has(
-        relation.kind,
-      ) ||
+      !new Set(["capability", "non-capability-rationale"]).has(relation.kind) ||
       typeof relation.id !== "string" ||
       !/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*)?$/u.test(relation.id)
     ) {
@@ -11606,7 +14124,9 @@ export function scanRuntimeReplSurfaces(
     }
   }
   if (manifest?.version !== 5) {
-    throw new Error(`${sourcePath}: REPL inventory requires manifest version 5`);
+    throw new Error(
+      `${sourcePath}: REPL inventory requires manifest version 5`,
+    );
   }
   const repl = manifest.replSurface;
   const keybindings = manifest.keybindingSurface;
@@ -11628,7 +14148,9 @@ export function scanRuntimeReplSurfaces(
     `${sourcePath}: keybindingSurface`,
   );
   if (repl.version !== 1 || keybindings.version !== 1) {
-    throw new Error(`${sourcePath}: only REPL/keybinding surface version 1 is reviewed`);
+    throw new Error(
+      `${sourcePath}: only REPL/keybinding surface version 1 is reviewed`,
+    );
   }
   if (
     JSON.stringify(repl.modes) !==
@@ -11639,8 +14161,13 @@ export function scanRuntimeReplSurfaces(
   if (!Array.isArray(repl.commands) || repl.commands.length === 0) {
     throw new Error(`${sourcePath}: replSurface.commands must be non-empty`);
   }
-  if (!Array.isArray(keybindings.bindings) || keybindings.bindings.length === 0) {
-    throw new Error(`${sourcePath}: keybindingSurface.bindings must be non-empty`);
+  if (
+    !Array.isArray(keybindings.bindings) ||
+    keybindings.bindings.length === 0
+  ) {
+    throw new Error(
+      `${sourcePath}: keybindingSurface.bindings must be non-empty`,
+    );
   }
 
   const rows = [];
@@ -11783,7 +14310,12 @@ export function scanRuntimeReplSurfaces(
       makeSurface(
         "cli",
         `repl-load-extension:${cliSurfaceComponent(row.extension)}`,
-        [sourceSymbol(sourcePath, `replSurface.loadExtension:${row.extension}`)],
+        [
+          sourceSymbol(
+            sourcePath,
+            `replSurface.loadExtension:${row.extension}`,
+          ),
+        ],
         {
           metadata: {
             ...structuredClone(row),
@@ -11826,7 +14358,9 @@ export function scanRuntimeReplSurfaces(
       ]),
       label,
     );
-    const sequence = Array.isArray(binding.bytes) ? binding.bytes.join(",") : "";
+    const sequence = Array.isArray(binding.bytes)
+      ? binding.bytes.join(",")
+      : "";
     if (
       typeof binding.id !== "string" ||
       !/^[a-z][a-z0-9-]*$/u.test(binding.id) ||
@@ -12504,6 +15038,53 @@ function mergeDynamicNamespaceEvidence(existing, row, label) {
   }
 }
 
+function mergeFactoryReturnedCallableEvidence(existing, row, label) {
+  const claims = [existing, row].filter(
+    (candidate) =>
+      candidate.metadata?.factoryReturnedCallableSourceContract !== undefined,
+  );
+  if (claims.length === 0) return;
+  for (const claim of claims) {
+    const contract = claim.metadata.factoryReturnedCallableSourceContract;
+    if (
+      contract?.schema !== FACTORY_RETURNED_CALLABLE_SOURCE_CONTRACT_SCHEMA ||
+      contract.proofKind !== "lexically-bound-factory-returned-function" ||
+      contract.factoryBindingKind !== "function-declaration" ||
+      contract.factoryName !== "wrapSingleUseListener" ||
+      contract.returnedValueShape !== "callable" ||
+      contract.sourcePath !== REVIEWED_FACTORY_RETURNED_CALLABLE_SOURCE_PATH ||
+      contract.installedPath !== claim.metadata.exportName ||
+      !new Set(["process.once", "process.prependOnceListener"]).has(
+        contract.installedPath,
+      ) ||
+      ![
+        contract.callsiteEvidence,
+        contract.evidence,
+        contract.factoryDefinitionEvidence,
+      ].every((evidence) => /^sha256-[a-f0-9]{64}$/u.test(evidence ?? ""))
+    ) {
+      throw new Error(
+        `${label}: malformed factory-returned callable evidence for ${claim.observedKey}`,
+      );
+    }
+  }
+  const contracts = new Map(
+    claims.map((claim) => {
+      const contract = claim.metadata.factoryReturnedCallableSourceContract;
+      return [contract.evidence, contract];
+    }),
+  );
+  if (contracts.size !== 1) {
+    throw new Error(
+      `${label}: conflicting factory-returned callable evidence for ${row.observedKey}`,
+    );
+  }
+  existing.metadata ??= {};
+  existing.metadata.factoryReturnedCallableSourceContract = structuredClone(
+    contracts.values().next().value,
+  );
+}
+
 function mergeSurfaceEvidence(rows, label) {
   const merged = new Map();
   for (const row of rows) {
@@ -12554,6 +15135,25 @@ function mergeSurfaceEvidence(rows, label) {
     // install `eval`; merging its route must not erase pin-bound taming proof.
     mergeHermesEvaluatorEvidence(existing, row, label);
     mergeDynamicNamespaceEvidence(existing, row, label);
+    mergeFactoryReturnedCallableEvidence(existing, row, label);
+    const readClaims = [existing, row].filter(
+      (candidate) => candidate.metadata?.publicReadAccessSourceProven === true,
+    );
+    if (readClaims.length > 0) {
+      existing.metadata ??= {};
+      existing.metadata.publicReadAccessSourceProven = true;
+      const valueShapes = readClaims.map(
+        (candidate) => candidate.metadata?.valueShape ?? null,
+      );
+      const resolvedShape =
+        valueShapes.every(
+          (valueShape) => valueShape !== null && valueShape === valueShapes[0],
+        ) && valueShapes.length > 0
+          ? valueShapes[0]
+          : null;
+      if (resolvedShape) existing.metadata.valueShape = resolvedShape;
+      else delete existing.metadata.valueShape;
+    }
     for (const listKey of ["memberKinds", "semanticRoles"]) {
       if (existing.metadata?.[listKey] || row.metadata?.[listKey]) {
         existing.metadata ??= {};
@@ -12871,8 +15471,7 @@ const LOADER_FUNCTION_NAME =
   /(?:builtin|capabilit|compile|import|load|module|principal|resolve)/iu;
 
 function isKindMember(node) {
-  if (
-    !(
+  if (!(
     node?.type === "MemberExpression" &&
     ((!node.computed &&
       node.property?.type === "Identifier" &&
@@ -12880,8 +15479,7 @@ function isKindMember(node) {
       (node.computed &&
         node.property?.type === "StringLiteral" &&
         node.property.value === "kind"))
-    )
-  ) {
+  )) {
     return false;
   }
 
@@ -15511,7 +18109,7 @@ export function scanFixedRuntimeEvidenceCandidates(text, sourcePath) {
     rows = definitionEvidenceRows(
       "javascript-function",
       sourcePath,
-      javascriptFunctionDefinitions(program),
+      javascriptFixedGlobalFunctionDefinitions(program),
     );
   } else if (extension === ".rs") {
     const tokens = rustProductionTokens(text, sourcePath);
@@ -15576,6 +18174,38 @@ function fixedEvidence(type, file, symbol, role = "implementation") {
 
 function fixedSurface(kind, name, ...evidence) {
   return { kind, name, evidence };
+}
+
+function fixedCallbackControlSurface(name, ...evidence) {
+  return {
+    ...fixedSurface("callback", name, ...evidence),
+    callbackOutputBoundary: "none",
+  };
+}
+
+function callbackOutput(
+  selector,
+  returnVariant,
+  direction,
+  role,
+  valueShape,
+  ...sourceRefs
+) {
+  return {
+    selector,
+    returnVariant,
+    direction,
+    role,
+    valueShape,
+    sourceRefs,
+  };
+}
+
+function fixedCallbackOutputSurface(name, outputContracts, ...evidence) {
+  return {
+    ...fixedSurface("callback", name, ...evidence),
+    callbackOutputContracts: outputContracts,
+  };
 }
 
 function implementationContainer(type, file, symbol) {
@@ -15782,11 +18412,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
   fixedSurface(
     "cli",
     "authenticated-one-shot-ingress",
-    fixedEvidence(
-      "rust-function",
-      "src/bin/ibex/main.rs",
-      "eval_code",
-    ),
+    fixedEvidence("rust-function", "src/bin/ibex/main.rs", "eval_code"),
   ),
   fixedSurface(
     "cli",
@@ -15800,20 +18426,12 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
   fixedSurface(
     "cli",
     "authenticated-program-stdin-ingress",
-    fixedEvidence(
-      "rust-function",
-      "src/bin/ibex/main.rs",
-      "run_stdin_program",
-    ),
+    fixedEvidence("rust-function", "src/bin/ibex/main.rs", "run_stdin_program"),
   ),
   fixedSurface(
     "cli",
     "authenticated-repl-ingress",
-    fixedEvidence(
-      "rust-function",
-      "src/bin/ibex/main.rs",
-      "start_repl",
-    ),
+    fixedEvidence("rust-function", "src/bin/ibex/main.rs", "start_repl"),
   ),
   fixedSurface(
     "cli",
@@ -15823,8 +18441,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
 
   // Callback and continuation branches, including the native-principal stamp
   // that must survive scheduling and be restored only around the callback.
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "queue-enqueue",
     fixedEvidence(
       "cpp-function",
@@ -15832,8 +18449,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "pushRuntimeCallback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "queue-drain",
     fixedEvidence(
       "cpp-function",
@@ -15841,8 +18457,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "drainCallbackQueue",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "next-tick-drain",
     fixedEvidence(
       "cpp-function",
@@ -15850,8 +18465,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "runNextTickQueue",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "microtask-drain",
     fixedEvidence(
       "cpp-function",
@@ -15859,8 +18473,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "drainMicrotasks",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "timer-invoke",
     fixedEvidence(
       "public-abi",
@@ -15868,8 +18481,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "ex_hermes_poll",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "native-principal-restore",
     fixedEvidence(
       "cpp-type",
@@ -15877,17 +18489,91 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "ScopedNativePrincipal",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "host-call-async-resolve",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "decoded-json",
+        "native-to-javascript",
+        "payload",
+        "json-value",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_host_call",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "null-sentinel",
+        "native-to-javascript",
+        "payload",
+        "null",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "host-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "decode-or-delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_host_call",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime.cc",
       "ex_hermes_resolve_host_call",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
+    "exact-host-call-async-resolve",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "success-bytes",
+        "native-to-javascript",
+        "payload",
+        "uint8-array",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "status-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "malformed-payload-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call",
+      ),
+    ],
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime.cc",
+      "ex_hermes_resolve_exact_host_call",
+    ),
+  ),
+  fixedCallbackControlSurface(
     "watchdog-heartbeat",
     fixedEvidence(
       "public-abi",
@@ -15895,62 +18581,284 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "ex_hermes_schedule_watchdog_heartbeat_for_generation",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "signal-delivery",
+    [
+      callbackOutput(
+        "callback:process-listener/0",
+        "signal-name",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/bootstrap/stream-enhance.js#__exactDispatchPendingSignals",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_crypto.cc",
       "signalWatcherThreadMain",
     ),
+    fixedEvidence(
+      "javascript-function",
+      "src/engine/bootstrap/stream-enhance.js",
+      "__exactDispatchPendingSignals",
+    ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "fetch-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "response-body-buffer",
+        "native-to-javascript",
+        "payload",
+        "object",
+        "src/engine/hermes_runtime_fetch.cc#installFetchGlobals",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "response-body-null",
+        "native-to-javascript",
+        "payload",
+        "object",
+        "src/engine/hermes_runtime_fetch.cc#installFetchGlobals",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "network-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fetch.cc#installFetchGlobals",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fetch.cc#installFetchGlobals",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_fetch.cc",
       "installFetchGlobals",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "filesystem-async-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "bytes",
+        "native-to-javascript",
+        "payload",
+        "uint8-array",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "json-string",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "number",
+        "native-to-javascript",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "undefined",
+        "native-to-javascript",
+        "payload",
+        "undefined",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "operation-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "queue-full-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_fs.cc#startFsAsync",
+        "src/engine/hermes_runtime_fs_windows.cc#startFsAsync",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_fs.cc",
       "startFsAsync",
     ),
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_fs_windows.cc",
+      "startFsAsync",
+    ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "dns-async-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "lookup-json",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_dns.cc#installDnsHostFunctions",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "resolve-json",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_dns.cc#installDnsHostFunctions",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "reverse-json",
+        "native-to-javascript",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_dns.cc#installDnsHostFunctions",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "resolver-or-worker-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "queue-full-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_dns.cc#startDnsAsync",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_dns.cc",
       "startDnsAsync",
     ),
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_dns.cc",
+      "installDnsHostFunctions",
+    ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "http-wait-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "request-json",
+        "native-to-javascript",
+        "payload",
+        "json-string",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:resolve/0",
+        "timeout",
+        "native-to-javascript",
+        "payload",
+        "null",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "queue-full-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+    ],
     implementationContainer(
       "cpp-function",
       "src/engine/hermes_runtime_http.cc",
       "installHttpHostFunctions",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "http-writable-delivery",
+    [
+      callbackOutput(
+        "callback:resolve/0",
+        "status-code",
+        "native-to-javascript",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "queue-full-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+      callbackOutput(
+        "callback:reject/0",
+        "delivery-error",
+        "native-to-javascript",
+        "error",
+        "error",
+        "src/engine/hermes_runtime_http.cc#installHttpHostFunctions",
+      ),
+    ],
     implementationContainer(
       "cpp-function",
       "src/engine/hermes_runtime_http.cc",
       "installHttpHostFunctions",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "websocket-context-release",
     fixedEvidence(
       "cpp-function",
@@ -15959,16 +18867,136 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
     ),
   ),
   ...[
-    "websocket-open-delivery",
-    "websocket-text-delivery",
-    "websocket-binary-delivery",
-    "websocket-close-delivery",
-    "websocket-error-delivery",
-    "websocket-bytes-sent-delivery",
-  ].map((name) =>
-    fixedSurface(
-      "callback",
+    [
+      "websocket-open-delivery",
+      [
+        callbackOutput(
+          "callback:_handleOpen/0",
+          "protocol",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleOpen/1",
+          "extensions",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-text-delivery",
+      [
+        callbackOutput(
+          "callback:_handleMessage/0",
+          "text",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-binary-delivery",
+      [
+        callbackOutput(
+          "callback:_handleMessage/0",
+          "binary",
+          "native-to-javascript",
+          "payload",
+          "array-buffer",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-close-delivery",
+      [
+        callbackOutput(
+          "callback:_handleClose/0",
+          "close-code",
+          "native-to-javascript",
+          "payload",
+          "number",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/1",
+          "close-reason",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/2",
+          "clean-flag",
+          "native-to-javascript",
+          "payload",
+          "boolean",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-error-delivery",
+      [
+        callbackOutput(
+          "callback:_handleError/0",
+          "error-message",
+          "native-to-javascript",
+          "error",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/0",
+          "setup-failure-close",
+          "native-to-javascript",
+          "payload",
+          "number",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/1",
+          "setup-failure-close",
+          "native-to-javascript",
+          "payload",
+          "string",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+        callbackOutput(
+          "callback:_handleClose/2",
+          "setup-failure-close",
+          "native-to-javascript",
+          "payload",
+          "boolean",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+    [
+      "websocket-bytes-sent-delivery",
+      [
+        callbackOutput(
+          "callback:_handleBytesSent/0",
+          "byte-count",
+          "native-to-javascript",
+          "payload",
+          "number",
+          "src/engine/hermes_runtime_websocket.cc#installWebSocketGlobals",
+        ),
+      ],
+    ],
+  ].map(([name, outputContracts]) =>
+    fixedCallbackOutputSurface(
       name,
+      outputContracts,
       implementationContainer(
         "cpp-function",
         "src/engine/hermes_runtime_websocket.cc",
@@ -15976,53 +19004,273 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       ),
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "ios-dispatch",
+    [
+      callbackOutput(
+        "callback:dispatch/0",
+        "array-buffer",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch/0",
+        "array-buffer-view",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch/1",
+        "array-buffer-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch/1",
+        "array-buffer-view-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_ios.cc",
       "ex_hermes_set_dispatch_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "ios-dispatch-debug-context",
+    [
+      callbackOutput(
+        "callback:dispatch-with-debug-context/0",
+        "utf8-string",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/0",
+        "array-buffer",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/0",
+        "array-buffer-view",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/1",
+        "utf8-string-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/1",
+        "array-buffer-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/1",
+        "array-buffer-view-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/2",
+        "string",
+        "javascript-to-native",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/2",
+        "json-stringified",
+        "javascript-to-native",
+        "payload",
+        "string",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+      callbackOutput(
+        "callback:dispatch-with-debug-context/2",
+        "null-or-empty",
+        "javascript-to-native",
+        "payload",
+        "null",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_dispatch_with_debug_context_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_ios.cc",
       "ex_hermes_set_dispatch_with_debug_context_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "ios-module-dispatch",
+    [
+      callbackOutput(
+        "callback:module-dispatch/0",
+        "array-buffer",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:module-dispatch/0",
+        "array-buffer-view",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:module-dispatch/1",
+        "array-buffer-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_dispatch_callback",
+      ),
+      callbackOutput(
+        "callback:module-dispatch/1",
+        "array-buffer-view-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_dispatch_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_ios.cc",
       "ex_hermes_set_module_dispatch_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "ios-module-sync",
+    [
+      callbackOutput(
+        "callback:module-sync/0",
+        "array-buffer",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/0",
+        "array-buffer-view",
+        "javascript-to-native",
+        "payload",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/1",
+        "array-buffer-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/1",
+        "array-buffer-view-length",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/return",
+        "status",
+        "native-to-javascript",
+        "return",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/2",
+        "result-bytes",
+        "native-to-javascript",
+        "return",
+        "bytes",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+      callbackOutput(
+        "callback:module-sync/3",
+        "result-length",
+        "native-to-javascript",
+        "return",
+        "number",
+        "src/engine/hermes_runtime_ios.cc#ex_hermes_set_module_sync_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_ios.cc",
       "ex_hermes_set_module_sync_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "worklet-measure",
+    [
+      callbackOutput(
+        "callback:measure/0",
+        "node-id",
+        "javascript-to-native",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_set_measure_callback",
+      ),
+      callbackOutput(
+        "callback:measure/return",
+        "status",
+        "native-to-javascript",
+        "return",
+        "number",
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_set_measure_callback",
+      ),
+      callbackOutput(
+        "callback:measure/1",
+        "frame",
+        "native-to-javascript",
+        "return",
+        "float32x4",
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_set_measure_callback",
+      ),
+    ],
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime_worklet.cc",
       "ex_worklet_set_measure_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackControlSurface(
     "worklet-scheduled-drain",
     fixedEvidence(
       "public-abi",
@@ -16030,22 +19278,53 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
       "ex_worklet_drain_scheduled",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "android-animation-frame",
+    [
+      callbackOutput(
+        "callback:animation-frame/0",
+        "frame-time-milliseconds",
+        "native-to-javascript",
+        "payload",
+        "number",
+        "src/engine/hermes_runtime_android.cc#android_animation_frame_callback",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_android.cc",
       "android_animation_frame_callback",
     ),
   ),
-  fixedSurface(
-    "callback",
+  fixedCallbackOutputSurface(
     "android-platform-event",
+    [
+      callbackOutput(
+        "callback:__exactAndroidDispatchPlatformEvent/0",
+        "event-json",
+        "native-to-javascript",
+        "payload",
+        "json-string",
+        "src/engine/hermes_runtime_android.cc#dispatchAndroidPlatformEvents",
+      ),
+      callbackOutput(
+        "callback:__exactAndroidDispatchPlatformEvent/1",
+        "platform-state",
+        "native-to-javascript",
+        "payload",
+        "object",
+        "src/engine/hermes_runtime_android.cc#dispatchAndroidPlatformEvents",
+      ),
+    ],
     fixedEvidence(
       "cpp-function",
       "src/engine/hermes_runtime_android.cc",
       "android_platform_event_available",
+    ),
+    fixedEvidence(
+      "cpp-function",
+      "src/engine/hermes_runtime_android.cc",
+      "dispatchAndroidPlatformEvents",
     ),
   ),
 
@@ -16330,6 +19609,89 @@ function canonicalFixedEvidence(evidence, label) {
   return { type, file, symbol, role, sourceRef: sourceSymbol(file, symbol) };
 }
 
+const CALLBACK_OUTPUT_DIRECTIONS = new Set([
+  "javascript-to-native",
+  "native-to-javascript",
+]);
+const CALLBACK_OUTPUT_ROLES = new Set(["error", "payload", "return"]);
+const CALLBACK_OUTPUT_VALUE_SHAPES = new Set([
+  "array-buffer",
+  "boolean",
+  "bytes",
+  "error",
+  "float32x4",
+  "json-string",
+  "json-value",
+  "null",
+  "number",
+  "object",
+  "string",
+  "uint8-array",
+  "undefined",
+]);
+
+function canonicalFixedCallbackOutputContracts(definition, observedKey) {
+  const contracts = definition.callbackOutputContracts;
+  if (contracts === undefined) return undefined;
+  if (definition.kind !== "callback") {
+    throw new Error(
+      `${observedKey}: callbackOutputContracts require callback kind`,
+    );
+  }
+  if (!Array.isArray(contracts) || contracts.length === 0) {
+    throw new Error(
+      `${observedKey}: callbackOutputContracts must be a non-empty array`,
+    );
+  }
+  const keys = new Set();
+  return contracts.map((contract, index) => {
+    const label = `${observedKey}.callbackOutputContracts[${index}]`;
+    assertExactObjectKeys(
+      contract,
+      new Set([
+        "direction",
+        "returnVariant",
+        "role",
+        "selector",
+        "sourceRefs",
+        "valueShape",
+      ]),
+      label,
+    );
+    if (
+      Object.keys(contract).length !== 6 ||
+      typeof contract.selector !== "string" ||
+      !/^callback:[A-Za-z_$][A-Za-z0-9_$-]*\/(?:[0-9]+|return)$/u.test(
+        contract.selector,
+      ) ||
+      typeof contract.returnVariant !== "string" ||
+      !/^[a-z][a-z0-9-]*$/u.test(contract.returnVariant) ||
+      !CALLBACK_OUTPUT_DIRECTIONS.has(contract.direction) ||
+      !CALLBACK_OUTPUT_ROLES.has(contract.role) ||
+      !CALLBACK_OUTPUT_VALUE_SHAPES.has(contract.valueShape) ||
+      !Array.isArray(contract.sourceRefs) ||
+      contract.sourceRefs.length === 0 ||
+      contract.sourceRefs.some(
+        (sourceRef) =>
+          typeof sourceRef !== "string" ||
+          !/^[^#]+#[A-Za-z_$][A-Za-z0-9_$]*$/u.test(sourceRef),
+      ) ||
+      JSON.stringify(contract.sourceRefs) !==
+        JSON.stringify(uniqueSorted(contract.sourceRefs))
+    ) {
+      throw new Error(`${label}: malformed callback output contract`);
+    }
+    const key = `${contract.selector}\0${contract.returnVariant}`;
+    if (keys.has(key)) {
+      throw new Error(
+        `${observedKey}: duplicate callback output ${contract.selector}:${contract.returnVariant}`,
+      );
+    }
+    keys.add(key);
+    return structuredClone(contract);
+  });
+}
+
 function canonicalFixedDefinitions(definitions) {
   if (!Array.isArray(definitions) || definitions.length === 0) {
     throw new Error(
@@ -16359,6 +19721,27 @@ function canonicalFixedDefinitions(definitions) {
         `${observedKey}: malformed fixed runtime surface definition`,
       );
     }
+    const callbackOutputBoundary = definition.callbackOutputBoundary;
+    if (
+      callbackOutputBoundary !== undefined &&
+      (kind !== "callback" || callbackOutputBoundary !== "none")
+    ) {
+      throw new Error(
+        `${observedKey}: invalid callbackOutputBoundary ${JSON.stringify(callbackOutputBoundary)}`,
+      );
+    }
+    const callbackOutputContracts = canonicalFixedCallbackOutputContracts(
+      definition,
+      observedKey,
+    );
+    if (
+      callbackOutputBoundary !== undefined &&
+      callbackOutputContracts !== undefined
+    ) {
+      throw new Error(
+        `${observedKey}: callback output boundary and contracts are mutually exclusive`,
+      );
+    }
     if (observedKeys.has(observedKey)) {
       throw new Error(
         `fixed runtime surface inventory: duplicate observed key ${observedKey}`,
@@ -16377,6 +19760,7 @@ function canonicalFixedDefinitions(definitions) {
       canonicalFixedEvidence(row, `${observedKey}.evidence[${index}]`),
     );
     const evidenceKeys = new Set();
+    const evidenceRefs = new Set();
     for (const row of evidence) {
       const evidenceKey = `${row.type}\0${row.sourceRef}`;
       if (evidenceKeys.has(evidenceKey)) {
@@ -16385,11 +19769,34 @@ function canonicalFixedDefinitions(definitions) {
         );
       }
       evidenceKeys.add(evidenceKey);
+      evidenceRefs.add(row.sourceRef);
       const uses = evidenceUses.get(row.sourceRef) ?? [];
       uses.push({ observedKey, role: row.role });
       evidenceUses.set(row.sourceRef, uses);
     }
-    normalized.push({ kind, name, observedKey, evidence });
+    for (const [contractIndex, contract] of (
+      callbackOutputContracts ?? []
+    ).entries()) {
+      for (const sourceRef of contract.sourceRefs) {
+        if (!evidenceRefs.has(sourceRef)) {
+          throw new Error(
+            `${observedKey}.callbackOutputContracts[${contractIndex}]: source ref ${sourceRef} is not validated fixed evidence`,
+          );
+        }
+      }
+    }
+    normalized.push({
+      kind,
+      name,
+      observedKey,
+      evidence,
+      ...(callbackOutputBoundary === undefined
+        ? {}
+        : { callbackOutputBoundary }),
+      ...(callbackOutputContracts === undefined
+        ? {}
+        : { callbackOutputContracts }),
+    });
   }
 
   for (const [sourceRef, uses] of evidenceUses) {
@@ -16421,6 +19828,21 @@ export function fixedRuntimeSurfaceInventory(
       definition.kind,
       definition.name,
       definition.evidence.map((evidence) => evidence.sourceRef),
+      {
+        metadata:
+          definition.callbackOutputBoundary !== undefined
+            ? {
+                callbackOutputBoundary: definition.callbackOutputBoundary,
+              }
+            : definition.callbackOutputContracts !== undefined
+              ? {
+                  callbackOutputContractSchema: CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+                  callbackOutputContracts: structuredClone(
+                    definition.callbackOutputContracts,
+                  ),
+                }
+              : undefined,
+      },
     ),
   );
   assertUniqueObservedKeys(rows, "fixed runtime surface inventory");
@@ -16552,6 +19974,127 @@ function mergePrivateNativeRows(rows) {
     existing.metadata.occurrenceCount += row.metadata.occurrenceCount;
   }
   return sortSurfaces([...merged.values()]);
+}
+
+const SOURCE_ASSERTED_PRIVATE_NATIVE_PROPERTY_BINDINGS = Object.freeze([
+  Object.freeze({
+    surfaceName: "__exactOSRelease",
+    sourcePath: "src/engine/hermes_runtime_android.cc",
+    globalName: "process",
+    memberName: "__exactOSRelease",
+    targetVariant: "android",
+    valueToken: "facebook::jsi::String::createFromUtf8(rt, platform_version)",
+  }),
+  Object.freeze({
+    surfaceName: "__exactOSVersion",
+    sourcePath: "src/engine/hermes_runtime_android.cc",
+    globalName: "process",
+    memberName: "__exactOSVersion",
+    targetVariant: "android",
+    valueToken: "facebook::jsi::String::createFromUtf8(rt, android_os_version)",
+  }),
+]);
+
+// The generic private-identifier scanner sees the two Android process fields
+// only as string tokens. Bind those exact tokens back to the source-proven
+// public property reads so output accounting and target-absence evidence do
+// not invent a raw callable with the same spelling.
+// @ref LLP 0023#6-path-bearing-observables — output membership follows the
+// actual public projection and its target branch, not a nearby native token.
+function attachPrivateNativePropertyBindings(rows, repoRoot) {
+  const byObservedKey = new Map(
+    rows.map((row) => [row.observedKey, structuredClone(row)]),
+  );
+  for (const binding of SOURCE_ASSERTED_PRIVATE_NATIVE_PROPERTY_BINDINGS) {
+    const observedKey = `native-op:${binding.surfaceName}`;
+    const row = byObservedKey.get(observedKey);
+    const privateSourceRef = sourceSymbol(
+      binding.sourcePath,
+      binding.surfaceName,
+    );
+    if (
+      !row ||
+      row.metadata?.occurrenceCount !== 1 ||
+      !row.sourceRefs.includes(privateSourceRef)
+    ) {
+      throw new Error(
+        `${observedKey}: expected one source-bound private identifier at ${privateSourceRef}`,
+      );
+    }
+
+    const source = readUtf8(path.join(repoRoot, binding.sourcePath));
+    const functionStart = source.indexOf(
+      "void installAndroidEnvironmentGlobals(ExactHermesRuntime* handle) {",
+    );
+    const functionEnd = source.indexOf(
+      "std::free(platform_version);",
+      functionStart,
+    );
+    const propertyLiteral = JSON.stringify(binding.memberName);
+    const propertyIndex = source.indexOf(propertyLiteral, functionStart);
+    const duplicatePropertyIndex = source.indexOf(
+      propertyLiteral,
+      propertyIndex + propertyLiteral.length,
+    );
+    const callStart = source.lastIndexOf("process.setProperty(", propertyIndex);
+    const callEnd = source.indexOf(");", propertyIndex);
+    const bindingRegion =
+      callStart >= 0 && callEnd >= propertyIndex
+        ? source.slice(callStart, callEnd + 2)
+        : "";
+    if (
+      functionStart < 0 ||
+      functionEnd < functionStart ||
+      propertyIndex < functionStart ||
+      propertyIndex > functionEnd ||
+      (duplicatePropertyIndex >= 0 && duplicatePropertyIndex < functionEnd) ||
+      !source
+        .slice(functionStart, functionEnd)
+        .includes('rt.global().getProperty(rt, "process")') ||
+      !source
+        .slice(functionStart, functionEnd)
+        .includes("auto process = process_value.asObject(rt)") ||
+      !bindingRegion.includes(propertyLiteral) ||
+      !bindingRegion.includes(binding.valueToken)
+    ) {
+      throw new Error(
+        `${observedKey}: Android process property binding source drift`,
+      );
+    }
+
+    const exportName = `${binding.globalName}.${binding.memberName}`;
+    const bindingSourceRef = sourceSymbol(
+      binding.sourcePath,
+      `jsi-global-property:${exportName}`,
+    );
+    const sourceRefs = uniqueSorted([...row.sourceRefs, bindingSourceRef]);
+    const branches = [
+      makeInstallationBranch(
+        "native-jsi-global-property-alias",
+        binding.targetVariant,
+        sourceRefs,
+      ),
+    ];
+    row.sourceRefs = sourceRefs;
+    row.metadata = {
+      ...row.metadata,
+      branches,
+      exportName,
+      globalName: binding.globalName,
+      installationBranches: branches,
+      memberKinds: ["native-object-member"],
+      memberName: binding.memberName,
+      publicOutputAccess: {
+        alias: exportName,
+        kind: "property-read",
+      },
+      publicReadAccessSourceProven: true,
+      sourceKey: "native_jsi_global",
+      surfaceType: "global-api",
+      valueShape: "data",
+    };
+  }
+  return sortSurfaces([...byObservedKey.values()]);
 }
 
 function abiTargetVariant(sourceRef) {
@@ -16728,8 +20271,28 @@ function parseJvmMethodDescriptor(descriptor) {
 
 function androidHostAbiOutputContract(row) {
   const descriptor = row.metadata?.cppBinding?.descriptor;
-  const parsed = parseJvmMethodDescriptor(descriptor);
-  const callback = row.metadata?.bridgeRole === "java-to-native-callback";
+  const descriptorSignature = parseJvmMethodDescriptor(descriptor);
+  const javaSignature = row.metadata?.javaSignature;
+  if (
+    descriptorSignature &&
+    (!javaSignature ||
+      descriptorSignature.returnType.kind !== javaSignature.returnType?.kind ||
+      descriptorSignature.parameters.length !==
+        javaSignature.parameters?.length ||
+      descriptorSignature.parameters.some(
+        (parameter, index) =>
+          parameter.kind !== javaSignature.parameters[index]?.kind,
+      ))
+  ) {
+    throw new Error(
+      `${row.name}: Java declaration and JNI descriptor disagree on output membership`,
+    );
+  }
+  const parsed = descriptorSignature ?? javaSignature;
+  const callback = new Set([
+    "java-to-native-callback",
+    "provider-interface",
+  ]).has(row.metadata?.bridgeRole);
   const parameters = (parsed?.parameters ?? []).map((parameter, index) => ({
     index,
     name: null,
@@ -16743,7 +20306,8 @@ function androidHostAbiOutputContract(row) {
     valueKind: parameter.kind,
   }));
   const returnKind = parsed?.returnType.kind ?? "unknown";
-  const returnRole = returnKind === "void" ? "none" : parsed ? "value" : "unknown";
+  const returnRole =
+    returnKind === "void" ? "none" : parsed ? "value" : "unknown";
   const returnOwnership =
     returnKind === "aggregate"
       ? { kind: "managed-reference" }
@@ -16770,9 +20334,16 @@ function androidHostAbiOutputContract(row) {
       });
     }
   }
-  const signatureRef = row.sourceRefs.find((sourceRef) =>
-    sourceRef.includes("#java-call:") || sourceRef.includes("#jni-callback:"),
-  );
+  const signatureRef = descriptorSignature
+    ? row.sourceRefs.find(
+        (sourceRef) =>
+          sourceRef.includes("#java-call:") ||
+          sourceRef.includes("#jni-callback:"),
+      )
+    : row.sourceRefs.find(
+        (sourceRef) =>
+          sourceRef.includes("#java:") || sourceRef.includes("#jni:"),
+      );
   return {
     bufferLengthPairs: [],
     functionName: row.name,
@@ -16789,7 +20360,7 @@ function androidHostAbiOutputContract(row) {
       },
     },
     schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
-    signatureDescriptor: descriptor ?? null,
+    signatureDescriptor: descriptorSignature ? descriptor : null,
     sourceRef: signatureRef ?? row.sourceRefs[0],
     sourceRefs: [...row.sourceRefs],
     status: parsed ? "resolved" : "unresolved",
@@ -16828,6 +20399,12 @@ export async function discoverRepositorySurfaces(repoRoot) {
   const engineRoot = path.join(repoRoot, "src", "engine");
   const sourceRoot = path.join(repoRoot, "src");
   const bootstrapRoot = path.join(engineRoot, "bootstrap");
+  const embeddingHeaderPath = path.join(repoRoot, "include", "exact_runtime.h");
+  const embeddingHeader = readUtf8(embeddingHeaderPath);
+  const abiTypeRegistry = scanCppAbiTypeRegistry(
+    embeddingHeader,
+    "include/exact_runtime.h",
+  );
   const nativeFiles = listFiles(
     sourceRoot,
     (candidate) =>
@@ -16855,7 +20432,11 @@ export async function discoverRepositorySurfaces(repoRoot) {
       );
       lifecycleRows.push(...scanNativeLifecycleSurfaces(source, relativePath));
     }
-    abiRows.push(...scanCppPublicAbiDefinitions(source, relativePath));
+    abiRows.push(
+      ...scanCppPublicAbiDefinitions(source, relativePath, {
+        typeRegistry: abiTypeRegistry,
+      }),
+    );
   }
 
   for (const filePath of listFiles(
@@ -16893,7 +20474,7 @@ export async function discoverRepositorySurfaces(repoRoot) {
     "public host/engine/worklet/Android ABI inventory",
   );
   const declaredEmbeddingAbi = scanCppPublicAbiDeclarations(
-    readUtf8(path.join(repoRoot, "include", "exact_runtime.h")),
+    embeddingHeader,
     "include/exact_runtime.h",
   ).filter((name) => /^(?:ex_android_|ex_hermes_|ex_worklet_)/u.test(name));
   const definedEmbeddingAbi = hostAbi
@@ -16965,7 +20546,10 @@ export async function discoverRepositorySurfaces(repoRoot) {
   const nativeOps = mergeSurfaceEvidence(
     [
       ...globals,
-      ...mergePrivateNativeRows(nativeRows),
+      ...attachPrivateNativePropertyBindings(
+        mergePrivateNativeRows(nativeRows),
+        repoRoot,
+      ),
       ...discoverNativeNetworkingBackendSurfaces(repoRoot),
     ],
     "native and global operation inventory",

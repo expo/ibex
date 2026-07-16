@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CALLBACK_OUTPUT_CONTRACT_SCHEMA,
   deriveHostAbiOutputCatalogAccount,
   discoverRepositorySurfaces,
   discoverHermesEvaluatorIdentityProfiles,
@@ -14,9 +15,13 @@ import {
   HERMES_EVALUATOR_REVIEW_ID,
   HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
   isRuntimeEnvironmentSourceAllowed,
+  PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER,
+  PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA,
+  PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
   scanBuiltinSurfaces,
   scanCdpSurfaces,
   scanCppGlobalPropertySurfaces,
+  scanCppAbiTypeRegistry,
   scanCppPublicAbiDefinitions,
   scanEvaluatedCppGlobalScripts,
   scanFixedRuntimeEvidenceCandidates,
@@ -28,6 +33,7 @@ import {
   scanModuleSpecifierEntries,
   scanNativeLifecycleSurfaces,
   scanPrivateNativeIdentifiers,
+  scanPrincipalEnvironmentOverlayProxy,
   scanRuntimeCliSurfaces,
   scanRuntimeCommandClasses,
   scanRuntimeEnvironmentSurfaces,
@@ -384,8 +390,48 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         outputContract: {
           return: { kind: "scalar", role: "value" },
           schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
+          sourceRef: "src/host/abi.rs#ex_host_authorize_typed_listen_stack",
+        },
+        unsafe: true,
+      },
+    });
+  });
+
+  test("Rust host ABI inventory includes typed environment-write authorization exactly once", () => {
+    const source = fs.readFileSync(
+      path.join(repoRoot, "src/host/abi.rs"),
+      "utf8",
+    );
+    const rows = scanRustHostExterns(source, "src/host/abi.rs").filter(
+      (row) => row.name === "ex_host_authorize_typed_environment_write_stack",
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "host-abi",
+      name: "ex_host_authorize_typed_environment_write_stack",
+      observedKey: "host-abi:ex_host_authorize_typed_environment_write_stack",
+      sourceRefs: [
+        "src/host/abi.rs#ex_host_authorize_typed_environment_write_stack",
+      ],
+      metadata: {
+        outputContract: {
+          bufferLengthPairs: [
+            {
+              bufferParameter: "module_ids",
+              direction: "input",
+              lengthParameter: "module_ids_len",
+            },
+            {
+              bufferParameter: "name",
+              direction: "input",
+              lengthParameter: "name_len",
+            },
+          ],
+          return: { kind: "scalar", role: "value" },
+          schema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
           sourceRef:
-            "src/host/abi.rs#ex_host_authorize_typed_listen_stack",
+            "src/host/abi.rs#ex_host_authorize_typed_environment_write_stack",
         },
         unsafe: true,
       },
@@ -570,7 +616,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ]),
       ),
     ).toEqual({
-      callback: "callback",
+      callback: "callback-payload",
       input: "input",
       input_len: "input",
       out_data: "output",
@@ -589,10 +635,22 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         releaseFunction: "ex_host_free_buffer",
       },
     });
-    expect(contract.unresolved).toEqual([
-      "parameter-role:scratch",
-      "callback-payload:callback",
-    ]);
+    expect(contract.unresolved).toEqual(["parameter-role:scratch"]);
+    expect(
+      contract.parameters.find((parameter) => parameter.name === "callback")
+        .callbackContract,
+    ).toMatchObject({
+      delivery: "invoked",
+      parameters: [
+        {
+          direction: "native-to-embedder",
+          name: "value",
+          valueKind: "scalar",
+        },
+      ],
+      return: { direction: "none", role: "none" },
+      status: "resolved",
+    });
     expect(
       deriveHostAbiOutputCatalogAccount({
         kind: "host-abi",
@@ -603,11 +661,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toMatchObject({
       outputChannels: [
         { selector: "[[return]]" },
+        { selector: "callback:callback/0" },
         { selector: "out:data" },
       ],
       membershipUnresolved: expect.arrayContaining([
         expect.stringContaining("parameter-role:scratch"),
-        expect.stringContaining("callback-payload:callback"),
       ]),
       status: "unresolved",
     });
@@ -644,11 +702,48 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toEqual({
       callback: "callback",
       out_value: "output",
-      runtime: "unknown",
+      runtime: "input",
       source: "input",
       source_len: "input",
     });
+    expect(
+      cppContract.parameters.find((parameter) => parameter.name === "runtime")
+        .ownership,
+    ).toEqual({ kind: "borrowed" });
     expect(cppContract.status).toBe("unresolved");
+
+    const pointerInputRows = scanCppPublicAbiDefinitions(
+      String.raw`
+        extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {}
+        extern "C" void ex_hermes_set_dispatch_callback(
+          ExactHermesRuntime* runtime,
+          void (*callback)(void* context),
+          void* context) {}
+      `,
+      "pointer-inputs.cc",
+    );
+    expect(
+      pointerInputRows.find((row) => row.name === "ex_hermes_destroy").metadata
+        .outputContract.parameters[0],
+    ).toMatchObject({
+      name: "runtime",
+      ownership: { kind: "callee-consumes" },
+      role: "input",
+    });
+    expect(
+      Object.fromEntries(
+        pointerInputRows
+          .find((row) => row.name === "ex_hermes_set_dispatch_callback")
+          .metadata.outputContract.parameters.map((parameter) => [
+            parameter.name,
+            parameter.role,
+          ]),
+      ),
+    ).toEqual({
+      callback: "callback-payload",
+      context: "input",
+      runtime: "input",
+    });
 
     expect(() =>
       scanRustPublicAbiDefinitions(
@@ -656,6 +751,107 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "orphan-annotation.rs",
       ),
     ).toThrow(/@abi-output names absent Rust ABI definition ex_host_absent/);
+  });
+
+  test("named ABI schemas expand aggregate members and bind callback directions without flattening", () => {
+    const typeRegistry = scanCppAbiTypeRegistry(
+      String.raw`
+        typedef struct ExHermesOwnedBytes {
+          uint8_t* data;
+          size_t length;
+        } ExHermesOwnedBytes;
+        typedef struct ExHermesSourcePosition {
+          ExHermesOwnedBytes source_label;
+          uint32_t line;
+          uint32_t column;
+        } ExHermesSourcePosition;
+        typedef struct ExHermesEvaluationResult {
+          ExHermesOwnedBytes message;
+          ExHermesSourcePosition* positions;
+          size_t position_count;
+        } ExHermesEvaluationResult;
+        typedef struct ExWorkletSharedValueHandle {
+          uint32_t slot;
+          uint32_t generation;
+          uint32_t epoch;
+        } ExWorkletSharedValueHandle;
+        typedef uint32_t (*ExWorkletReadCallback)(
+          ExWorkletSharedValueHandle handle,
+          float* out_value,
+          void* context);
+      `,
+      "synthetic.h",
+    );
+    expect(Object.keys(typeRegistry.aggregates)).toEqual([
+      "ExHermesEvaluationResult",
+      "ExHermesOwnedBytes",
+      "ExHermesSourcePosition",
+      "ExWorkletSharedValueHandle",
+    ]);
+    expect(Object.keys(typeRegistry.callbacks)).toEqual([
+      "ExWorkletReadCallback",
+    ]);
+
+    const rows = scanCppPublicAbiDefinitions(
+      String.raw`
+        // @abi-output ex_hermes_aggregate result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+        extern "C" void ex_hermes_aggregate(
+          ExHermesEvaluationResult* result) {}
+
+        extern "C" int ex_worklet_callback(
+          ExWorkletReadCallback read_callback,
+          void* context) { return 0; }
+      `,
+      "synthetic.cc",
+      { typeRegistry },
+    );
+    const aggregate = rows.find((row) => row.name === "ex_hermes_aggregate")
+      .metadata.outputContract;
+    expect(aggregate.status).toBe("resolved");
+    expect(aggregate.outputChannels.map((channel) => channel.selector)).toEqual(
+      [
+        "out:result.message.data",
+        "out:result.positions",
+        "out:result.positions[].source_label.data",
+        "out:result.positions[].line",
+        "out:result.positions[].column",
+      ],
+    );
+    expect(aggregate.outputChannels.map((channel) => channel.alias)).toEqual([
+      "result.message.data",
+      "result.positions",
+      "result.positions[].source_label.data",
+      "result.positions[].line",
+      "result.positions[].column",
+    ]);
+
+    const callback = rows.find((row) => row.name === "ex_worklet_callback")
+      .metadata.outputContract;
+    expect(callback.status).toBe("resolved");
+    expect(callback.outputChannels.map((channel) => channel.selector)).toEqual([
+      "[[return]]",
+      "callback:read_callback/0.slot",
+      "callback:read_callback/0.generation",
+      "callback:read_callback/0.epoch",
+      "callback:read_callback/2",
+    ]);
+    expect(
+      callback.parameters.find(
+        (parameter) => parameter.name === "read_callback",
+      ).callbackContract,
+    ).toMatchObject({
+      parameters: [
+        { direction: "native-to-embedder", valueKind: "aggregate" },
+        { direction: "embedder-to-native", valueKind: "scalar" },
+        { direction: "native-to-embedder", valueKind: "pointer" },
+      ],
+      return: {
+        direction: "embedder-to-native",
+        kind: "scalar",
+        role: "return",
+      },
+      status: "resolved",
+    });
   });
 
   test("duplicate native ABI definitions fail closed", () => {
@@ -1046,9 +1242,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(idioms("Public.constructor")).toEqual([
       "exported-constructor-prototype",
     ]);
-    expect(idioms("Public.run")).toEqual([
-      "exported-constructor-prototype",
-    ]);
+    expect(idioms("Public.run")).toEqual(["exported-constructor-prototype"]);
   });
 
   test("member aliases inherit source-proven callable value shapes", () => {
@@ -1099,9 +1293,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(evidence("read")).toEqual({
       ambiguousCallees: [],
       kind: "static-builtin-call-graph",
-      paths: [
-        "export:read -> read -> readImpl -> __exactReadFile",
-      ],
+      paths: ["export:read -> read -> readImpl -> __exactReadFile"],
       terminals: ["__exactReadFile"],
     });
     expect(evidence("Handle.read")).toEqual({
@@ -1154,9 +1346,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     expect(
-      rows.find(
-        (row) => row.name === "export:node_wrapped_route:platform",
-      ).metadata.enforcementRouteEvidence,
+      rows.find((row) => row.name === "export:node_wrapped_route:platform")
+        .metadata.enforcementRouteEvidence,
     ).toEqual({
       ambiguousCallees: [],
       kind: "static-builtin-call-graph",
@@ -1174,9 +1365,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     expect(
-      opaque.find(
-        (row) => row.name === "export:node_opaque_wrapped_route:read",
-      ).metadata.enforcementRouteEvidence.terminals,
+      opaque.find((row) => row.name === "export:node_opaque_wrapped_route:read")
+        .metadata.enforcementRouteEvidence.terminals,
     ).toEqual([]);
   });
 
@@ -1220,9 +1410,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_route_mutations:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_route_mutations:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("shadowed").ambiguousCallees).toContain(
       "shadowed:__exactReadFile",
     );
@@ -1281,22 +1470,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_route_provenance:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_route_provenance:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("construct").terminals).toEqual(["__exactOpenHandle"]);
-    expect(evidence("invokeWithCall").terminals).toEqual([
-      "__exactReadHandle",
-    ]);
+    expect(evidence("invokeWithCall").terminals).toEqual(["__exactReadHandle"]);
     expect(evidence("intrinsicCall").ambiguousCallees).toEqual([]);
     // Even a literal require can cross the package import gate when it runs
     // after builtin evaluation, so it remains a conservative route edge.
     expect(evidence("staticRequire").ambiguousCallees).toContain(
       "unresolved-call:require",
     );
-    expect(evidence("staticRequire").terminals).toEqual([
-      "__exactReadHandle",
-    ]);
+    expect(evidence("staticRequire").terminals).toEqual(["__exactReadHandle"]);
     expect(evidence("dynamicConstructor").ambiguousCallees).toContain(
       "unresolved-call:Constructor",
     );
@@ -1334,9 +1518,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_route_tampering:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_route_tampering:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("mutatedIntrinsic").ambiguousCallees).toContain(
       "dynamic-call-receiver:call",
     );
@@ -1370,8 +1553,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     );
     const evidence = rows.find(
       (row) =>
-        row.name ===
-        "export:node_route_function_tampering:mutatedFunctionCall",
+        row.name === "export:node_route_function_tampering:mutatedFunctionCall",
     ).metadata.enforcementRouteEvidence;
     expect(evidence.ambiguousCallees).toContain("dynamic-call-receiver:call");
     expect(evidence.terminals).toEqual([]);
@@ -1396,9 +1578,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_route_alternatives:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_route_alternatives:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("read").terminals).toEqual(["__exactReadHandle"]);
     expect(evidence("read").ambiguousCallees).toContain(
       "dynamic-callable-alternative:api.read",
@@ -1428,16 +1609,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       },
     );
     const evidence = (name) =>
-      rows.find(
-        (row) => row.name === `export:node_required_routes:${name}`,
-      ).metadata.enforcementRouteEvidence;
+      rows.find((row) => row.name === `export:node_required_routes:${name}`)
+        .metadata.enforcementRouteEvidence;
     expect(evidence("read").requiredExportCalls).toEqual([
       {
         exportName: "readFileSync",
         moduleSpecifier: "node:fs",
-        paths: [
-          "export:read -> read -> require:node:fs:readFileSync",
-        ],
+        paths: ["export:read -> read -> require:node:fs:readFileSync"],
       },
     ]);
     expect(evidence("tampered").requiredExportCalls).toBeUndefined();
@@ -1817,7 +1995,9 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       rows.find((row) => row.name === "option-name:ibex:mode:--legacy-mode")
         .metadata,
     ).toMatchObject({ routeKind: "hidden-alias" });
-    expect(rows.find((row) => row.name === "option:ibex:mode").metadata).toMatchObject({
+    expect(
+      rows.find((row) => row.name === "option:ibex:mode").metadata,
+    ).toMatchObject({
       global: true,
     });
 
@@ -1920,9 +2100,265 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       exportName: "localStorage.getItem",
       globalName: "localStorage",
       moduleSpecifiers: [],
+      publicReadAccessSourceProven: true,
       sourceKey: "global_storage",
       surfaceType: "global-api",
+      valueShape: "callable",
     });
+    expect(
+      Object.fromEntries(
+        rows.map((row) => [
+          row.name,
+          [row.metadata.publicReadAccessSourceProven, row.metadata.valueShape],
+        ]),
+      ),
+    ).toEqual({
+      "global:localStorage": [true, "data"],
+      "global:localStorage.getItem": [true, "callable"],
+      "global:localStorage.length": [true, "accessor"],
+      "global:localStorage.setItem": [true, "callable"],
+    });
+  });
+
+  test("concrete IPC channel handles retain their parent and callable descendants", () => {
+    const fixtures = [
+      {
+        binding: "channelHandleKey",
+        owner: "process",
+        sourcePath: "src/engine/bootstrap/ipc-listener.js",
+      },
+      {
+        binding: "kChannelHandle",
+        owner: "globalThis.process",
+        conditionalGate: "EXACT_IPC_FD",
+        sourcePath: "src/engine/bootstrap/compat-polyfills.js",
+      },
+    ];
+    for (const fixture of fixtures) {
+      const rows = scanStaticGlobalApiSurfaces(
+        `
+          var ${fixture.binding} = '__exactKChannelHandle';
+          ${fixture.owner}[${fixture.binding}] = {
+            readStop: function() {},
+            readStart: function() {},
+            status: function() {}
+          };
+        `,
+        fixture.sourcePath,
+      );
+      const ownerName = "global:process.__exactKChannelHandle";
+      expect(rows.map((row) => row.name)).toEqual(
+        expect.arrayContaining([
+          ownerName,
+          `${ownerName}.readStart`,
+          `${ownerName}.readStop`,
+        ]),
+      );
+      expect(
+        rows.some((row) =>
+          /\[\[dynamic-table:(?:channel-handle-key|k-channel-handle)\]\]/u.test(
+            row.name,
+          ),
+        ),
+      ).toBe(false);
+      for (const row of rows.filter((candidate) =>
+        candidate.name.startsWith(ownerName),
+      )) {
+        expect(row.metadata).toMatchObject({
+          publicReadAccessSourceProven: true,
+          ...(fixture.conditionalGate
+            ? { conditionalGate: fixture.conditionalGate }
+            : {}),
+        });
+        expect(row.metadata.publicReadAccessSourceContract).toBeUndefined();
+      }
+      expect(
+        rows.find((row) => row.name === ownerName).metadata.valueShape,
+      ).toBe("data");
+      expect(
+        rows
+          .filter((row) => /\.read(?:Start|Stop)$/u.test(row.name))
+          .every((row) => row.metadata.valueShape === "callable"),
+      ).toBe(true);
+    }
+
+    const dynamicFamily = scanStaticGlobalApiSurfaces(
+      `
+        var channelFamily = globalThis.__exactKChannelHandleKey;
+        channelFamily = '__exactKChannelHandle';
+        globalThis.__exactKChannelHandleKey = channelFamily;
+        process[channelFamily] = { readStart: function() {} };
+      `,
+      "src/engine/bootstrap/ipc-listener.js",
+    );
+    const unresolvedRoot = "global:process.[[dynamic-table:channel-family]]";
+    expect(dynamicFamily.map((row) => row.name)).toEqual(
+      expect.arrayContaining([unresolvedRoot, `${unresolvedRoot}.readStart`]),
+    );
+    expect(
+      dynamicFamily.some(
+        (row) => row.name === "global:process.__exactKChannelHandle",
+      ),
+    ).toBe(false);
+    expect(
+      dynamicFamily
+        .filter((row) => row.name.startsWith(unresolvedRoot))
+        .every(
+          (row) =>
+            row.metadata.publicReadAccessSourceContract === undefined &&
+            row.metadata.publicReadAccessSourceProven === undefined,
+        ),
+    ).toBe(true);
+  });
+
+  test("reviewed process wrapper factories bind the exact lexical definition", () => {
+    const sourcePath = "src/engine/bootstrap/ipc-listener.js";
+    const fixture = ({
+      innerReturn = "return originalRegistrar.apply(this, arguments);",
+      outerReturn = "return {};",
+    } = {}) => `
+      function wrapSingleUseListener(originalRegistrar) {
+        ${outerReturn}
+      }
+      function installAsyncPatch() {
+        function wrapSingleUseListener(originalRegistrar) {
+          return function(event, listener) {
+            ${innerReturn}
+          };
+        }
+        process.once = wrapSingleUseListener(process.once);
+        process.prependOnceListener =
+          wrapSingleUseListener(process.prependOnceListener);
+      }
+      installAsyncPatch();
+    `;
+    const rows = scanStaticGlobalApiSurfaces(fixture(), sourcePath);
+    const wrappers = rows.filter((row) =>
+      new Set([
+        "global:process.once",
+        "global:process.prependOnceListener",
+      ]).has(row.name),
+    );
+    expect(wrappers).toHaveLength(2);
+    expect(
+      rows.some((row) =>
+        /^global:process\.(?:once|prependOnceListener)\.\[\[dynamic-table:call-result-/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(false);
+    for (const row of wrappers) {
+      const contract = row.metadata.factoryReturnedCallableSourceContract;
+      expect(row.metadata).toMatchObject({
+        publicReadAccessSourceProven: true,
+        valueShape: "callable",
+        factoryReturnedCallableSourceContract: {
+          factoryBindingKind: "function-declaration",
+          factoryName: "wrapSingleUseListener",
+          installedPath: row.metadata.exportName,
+          proofKind: "lexically-bound-factory-returned-function",
+          returnedValueShape: "callable",
+          schema: "ibex/factory-returned-callable-source-contract/1",
+          sourcePath,
+        },
+      });
+      for (const evidence of [
+        contract.callsiteEvidence,
+        contract.evidence,
+        contract.factoryDefinitionEvidence,
+      ]) {
+        expect(evidence).toMatch(/^sha256-[a-f0-9]{64}$/u);
+      }
+    }
+    const contracts = wrappers.map(
+      (row) => row.metadata.factoryReturnedCallableSourceContract,
+    );
+    expect(
+      new Set(contracts.map((contract) => contract.callsiteEvidence)).size,
+    ).toBe(2);
+    expect(
+      new Set(contracts.map((contract) => contract.factoryDefinitionEvidence))
+        .size,
+    ).toBe(1);
+    expect(new Set(contracts.map((contract) => contract.evidence)).size).toBe(
+      2,
+    );
+
+    const changedOuter = scanStaticGlobalApiSurfaces(
+      fixture({ outerReturn: "return function outerOnly() {};" }),
+      sourcePath,
+    ).filter((row) => row.metadata.factoryReturnedCallableSourceContract);
+    expect(
+      changedOuter.map(
+        (row) => row.metadata.factoryReturnedCallableSourceContract,
+      ),
+    ).toEqual(contracts);
+
+    const changedInner = scanStaticGlobalApiSurfaces(
+      fixture({ innerReturn: "return originalRegistrar.call(this, event);" }),
+      sourcePath,
+    ).filter((row) => row.metadata.factoryReturnedCallableSourceContract);
+    expect(
+      new Set(
+        changedInner.map(
+          (row) =>
+            row.metadata.factoryReturnedCallableSourceContract
+              .factoryDefinitionEvidence,
+        ),
+      ),
+    ).not.toEqual(
+      new Set(contracts.map((contract) => contract.factoryDefinitionEvidence)),
+    );
+  });
+
+  test("reviewed process wrapper factories reject shadowed, aliased, conditional, and dynamic calls", () => {
+    const sourcePath = "src/engine/bootstrap/ipc-listener.js";
+    const reviewedFactory = `
+      function wrapSingleUseListener(originalRegistrar) {
+        return function(event, listener) {
+          return originalRegistrar.apply(this, arguments);
+        };
+      }
+    `;
+    const adversarialSources = [
+      `${reviewedFactory}
+       function install(wrapSingleUseListener) {
+         process.once = wrapSingleUseListener(process.once);
+       }
+       install(getFactory());`,
+      `${reviewedFactory}
+       var alias = wrapSingleUseListener;
+       process.once = alias(process.once);`,
+      `${reviewedFactory}
+       process.once = enabled
+         ? wrapSingleUseListener(process.once)
+         : wrapSingleUseListener(process.once);`,
+      `function wrapSingleUseListener(originalRegistrar) {
+         return enabled
+           ? function() { return originalRegistrar.apply(this, arguments); }
+           : originalRegistrar;
+       }
+       process.once = wrapSingleUseListener(process.once);`,
+      `${reviewedFactory}
+       wrapSingleUseListener = getFactory();
+       process.once = wrapSingleUseListener(process.once);`,
+      `${reviewedFactory}
+       process.once = factories.wrapSingleUseListener(process.once);`,
+    ];
+    for (const source of adversarialSources) {
+      const rows = scanStaticGlobalApiSurfaces(source, sourcePath);
+      expect(
+        rows.find((row) => row.name === "global:process.once").metadata
+          .factoryReturnedCallableSourceContract,
+      ).toBeUndefined();
+      expect(
+        rows.some((row) =>
+          /^global:process\.once\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
+            row.name,
+          ),
+        ),
+      ).toBe(true);
+    }
   });
 
   test("installed class expressions, class declarations, and util inheritance retain members", () => {
@@ -1985,6 +2421,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      opaqueFactoryRows.find((row) => row.name.includes("[[dynamic-table:"))
+        ?.metadata.publicReadAccessSourceProven,
+    ).toBeUndefined();
     const duplicateRows = scanStaticGlobalApiSurfaces(
       "globalThis.Dynamic = unknownFactory(); globalThis.Dynamic = function Dynamic() {};",
       "src/engine/bootstrap/duplicate-dynamic.js",
@@ -2039,11 +2479,41 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       semanticRoles: ["dynamic-call-result-shape"],
     });
     const constructorRows = scanStaticGlobalApiSurfaces(
-      "globalThis.Constructor = (function() { function C() {} C.prototype.run = function() {}; return C; })();",
+      "globalThis.Constructor = (function() { function C() {} C.create = function() {}; C.prototype.run = function() {}; return C; })();",
       "src/engine/bootstrap/iife-constructor.js",
     );
     expect(
       constructorRows.some((row) =>
+        /^global:Constructor\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      constructorRows.map((row) => [row.name, row.metadata.valueShape]),
+    ).toEqual([
+      ["global:Constructor", "callable"],
+      ["global:Constructor.create", "callable"],
+      ["global:Constructor.prototype", "data"],
+      ["global:Constructor.prototype.run", "callable"],
+    ]);
+    const computedConstructorRows = scanStaticGlobalApiSurfaces(
+      "globalThis.Constructor = (function() { function C() {} C.prototype[getName()] = function() {}; return C; })();",
+      "src/engine/bootstrap/iife-constructor-computed.js",
+    );
+    expect(
+      computedConstructorRows.some((row) =>
+        /^global:Constructor\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(true);
+    const aliasedConstructorRows = scanStaticGlobalApiSurfaces(
+      "globalThis.Constructor = (function() { function C() {} var P = C.prototype; P.run = function() {}; return C; })();",
+      "src/engine/bootstrap/iife-constructor-aliased.js",
+    );
+    expect(
+      aliasedConstructorRows.some((row) =>
         /^global:Constructor\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
           row.name,
         ),
@@ -2105,6 +2575,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "global:API.open.[[return]].read",
       "global:API.open.[[return]].scoped",
       "global:API.status",
+    ]);
+    expect(
+      rows
+        .filter((row) => row.name !== "global:API")
+        .map((row) => [
+          row.name,
+          row.metadata.publicReadAccessSourceProven,
+          row.metadata.valueShape,
+        ]),
+    ).toEqual([
+      ["global:API.close", true, "callable"],
+      ["global:API.open", true, "callable"],
+      ["global:API.open.[[return]].read", true, "callable"],
+      ["global:API.open.[[return]].scoped", true, "callable"],
+      ["global:API.status", true, "callable"],
     ]);
 
     expect(() =>
@@ -2231,11 +2716,142 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           .metadata.valueShape,
       ).toBe("data");
       expect(
-        first.find((row) => row.name === "global:exact.runtime.info")
-          .metadata.valueShape,
+        first.find((row) => row.name === "global:exact.runtime.info").metadata
+          .valueShape,
       ).toBe("callable");
     } finally {
       fs.rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  test("reviewed shared-runtime prefixes require exact membership or concrete owner reads", () => {
+    const root = makeRuntimeFixture({
+      "packages/ibex-runtime-js/src/runtime-entry.ts": `
+        import { installGlobals } from './bootstrap.js';
+        installGlobals();
+      `,
+      "packages/ibex-runtime-js/src/bootstrap.ts": `
+        export function installGlobals() {
+          const g = globalThis as any;
+          if (g.__exactLoadTimings) {
+            g.__exactLoadTimings.installGlobalsStart = 1;
+          }
+          const Intl = g.Intl;
+          if (typeof Intl.DateTimeFormat === 'function') {
+            const DTFProto = Intl.DateTimeFormat.prototype;
+            Object.defineProperty(DTFProto, 'formatToParts', {
+              value: function formatToParts() {},
+            });
+          }
+          if (Intl.Locale?.prototype) {
+            Object.defineProperty(Intl.Locale.prototype, 'textInfo', {
+              get: function textInfo() { return {}; },
+            });
+          }
+          if (typeof Intl.NumberFormat === 'function') {
+            const NFProto = Intl.NumberFormat.prototype;
+            Object.defineProperty(NFProto, 'formatToParts', {
+              value: function formatToParts() {},
+            });
+          }
+          const OriginalPromise = g.Promise;
+          OriginalPromise.prototype.then = function then() {};
+        }
+      `,
+    });
+    try {
+      const rows = scanSharedRuntimeGlobalSurfaces(root);
+      const contracts = rows.filter(
+        (row) => row.metadata.publicReadAccessSourceContract,
+      );
+      expect(contracts.map((row) => row.name)).toEqual([
+        "__exactLoadTimings",
+        "global:Intl.DateTimeFormat",
+        "global:Intl.DateTimeFormat.prototype",
+        "global:Intl.Locale.prototype",
+        "global:Intl.NumberFormat",
+        "global:Intl.NumberFormat.prototype",
+        "global:Promise.prototype",
+      ]);
+      expect(
+        Object.fromEntries(
+          contracts.map((row) => [
+            row.name,
+            [
+              row.metadata.valueShape,
+              row.metadata.publicReadAccessSourceContract.proofKinds,
+            ],
+          ]),
+        ),
+      ).toEqual({
+        __exactLoadTimings: ["data", ["concrete-member-owner"]],
+        "global:Intl.DateTimeFormat": [
+          "callable",
+          ["typeof-callable-membership"],
+        ],
+        "global:Intl.DateTimeFormat.prototype": [
+          "data",
+          ["concrete-member-owner"],
+        ],
+        "global:Intl.Locale.prototype": ["data", ["concrete-member-owner"]],
+        "global:Intl.NumberFormat": [
+          "callable",
+          ["typeof-callable-membership"],
+        ],
+        "global:Intl.NumberFormat.prototype": [
+          "data",
+          ["concrete-member-owner"],
+        ],
+        "global:Promise.prototype": ["data", ["concrete-member-owner"]],
+      });
+      expect(
+        contracts.every(
+          (row) =>
+            row.metadata.publicReadAccessSourceProven === true &&
+            row.metadata.publicReadAccessSourceContract.schema ===
+              "ibex/public-read-access-source-contract/1" &&
+            row.metadata.publicReadAccessSourceContract.presenceVariants.join(
+              ",",
+            ) === "absent,present",
+        ),
+      ).toBe(true);
+      expect(
+        contracts
+          .filter((row) => row.metadata.valueShape === "callable")
+          .every((row) => row.metadata.publicInvocation === undefined),
+      ).toBe(true);
+    } finally {
+      fs.rmSync(root, { force: true, recursive: true });
+    }
+
+    const noMembershipGuard = makeRuntimeFixture({
+      "packages/ibex-runtime-js/src/runtime-entry.ts": `
+        import { installGlobals } from './bootstrap.js';
+        installGlobals();
+      `,
+      "packages/ibex-runtime-js/src/bootstrap.ts": `
+        export function installGlobals() {
+          const g = globalThis as any;
+          const Intl = g.Intl;
+          Intl.DateTimeFormat.prototype.formatToParts = function() {};
+        }
+      `,
+    });
+    try {
+      const rows = scanSharedRuntimeGlobalSurfaces(noMembershipGuard);
+      expect(
+        rows.find((row) => row.name === "global:Intl.DateTimeFormat")?.metadata
+          .publicReadAccessSourceContract,
+      ).toBeUndefined();
+      expect(
+        rows.find((row) => row.name === "global:Intl.DateTimeFormat.prototype")
+          ?.metadata.publicReadAccessSourceContract,
+      ).toMatchObject({
+        proofKinds: ["concrete-member-owner"],
+        valueShape: "data",
+      });
+    } finally {
+      fs.rmSync(noMembershipGuard, { force: true, recursive: true });
     }
   });
 
@@ -2369,6 +2985,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       route: "native-jsi-global",
       targetVariant: "windows",
     });
+    expect(
+      rows
+        .filter((row) => !row.name.includes("[[dynamic-table:"))
+        .every((row) => row.metadata.publicReadAccessSourceProven === true),
+    ).toBe(true);
   });
 
   test("native JSI stdio accessor helpers retain concrete member provenance", () => {
@@ -2396,6 +3017,20 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
   });
 
+  test("Exact defineProperty helper retains late-bound capability members", () => {
+    const source = `
+      facebook::jsi::Object exactObject(rt);
+      rt.global().setProperty(rt, "exact", std::move(exactObject));
+      defineExactCapability(
+        rt, exactObject, "invokeHostAsync", std::move(invoke), true);
+    `;
+    const rows = scanCppGlobalPropertySurfaces(source, "synthetic.cc");
+    expect(rows.map((row) => row.name)).toEqual([
+      "global:exact",
+      "global:exact.invokeHostAsync",
+    ]);
+  });
+
   test("native JSI globals derive direct public function invocation descriptors", () => {
     const source = `
       auto directFn = facebook::jsi::Function::createFromHostFunction(
@@ -2420,8 +3055,23 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       sourceRef: "synthetic.cc#jsi-global:__exactDirect",
     });
     expect(
-      rows.find((row) => row.name === "global:namespaceObject.nested")
-        ?.metadata.publicInvocation,
+      rows.find((row) => row.name === "global:namespaceObject.nested")?.metadata
+        .publicInvocation,
+    ).toEqual({
+      arity: 4,
+      globalName: "namespaceObject.nested",
+      kind: "native-global-function",
+      sourceRef: "synthetic.cc#jsi-global:namespaceObject.nested",
+    });
+    const dynamicRows = scanCppGlobalPropertySurfaces(
+      `facebook::jsi::Object values(rt);
+       values.setProperty(rt, runtimeName, 1);
+       rt.global().setProperty(rt, "values", std::move(values));`,
+      "synthetic.cc",
+    );
+    expect(
+      dynamicRows.find((row) => row.name.includes("[[dynamic-table:"))?.metadata
+        .publicReadAccessSourceProven,
     ).toBeUndefined();
   });
 
@@ -2641,6 +3291,19 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       rows[0].metadata.branches.map((branch) => branch.targetVariant),
     ).toEqual(["android", "default"]);
+    expect(
+      rows.map((row) => [
+        row.name,
+        row.metadata.publicReadAccessSourceProven,
+        row.metadata.tamingKind,
+        row.metadata.valueShape,
+      ]),
+    ).toEqual([
+      ["global:AsyncFunction", true, "constructor", "callable"],
+      ["global:Function", true, "constructor", "callable"],
+      ["global:GeneratorFunction", true, "constructor", "callable"],
+      ["global:eval", true, "evaluator", "callable"],
+    ]);
 
     expect(() =>
       scanLockdownEvaluatorSurfaces(
@@ -2662,6 +3325,16 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         profiles,
       ),
     ).toThrow(/tamed-but-unreachable \[AsyncGeneratorFunction\]/u);
+    expect(() =>
+      scanLockdownEvaluatorSurfaces(
+        source.replace(
+          "makeTamed('eval');",
+          "makeTamed('Function'); makeTamed('eval');",
+        ),
+        "runtime.cc",
+        profiles,
+      ),
+    ).toThrow(/Function has conflicting taming shapes/u);
 
     const conditionalProfiles = syntheticHermesEvaluatorProfiles();
     conditionalProfiles[0] = {
@@ -2959,8 +3632,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         text: fs
           .readFileSync(path.join(repoRoot, "src/module_loader/mod.rs"), "utf8")
           .replace(
-            "std::fs::write(\n            stage.join(\"manifest.json\"),",
-            "std::fs::future_authority_call(\n            stage.join(\"manifest.json\"),",
+            'std::fs::write(\n            stage.join("manifest.json"),',
+            'std::fs::future_authority_call(\n            stage.join("manifest.json"),',
           ),
       },
       {
@@ -3569,6 +4242,91 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     }
   });
 
+  test("fixed callback control boundaries are explicit and fail closed", () => {
+    const definition = {
+      kind: "callback",
+      name: "test-control",
+      callbackOutputBoundary: "none",
+      evidence: [
+        {
+          type: "javascript-function",
+          file: "implementation.js",
+          symbol: "load",
+          role: "implementation",
+        },
+      ],
+    };
+    expect(fixedRuntimeSurfaceInventory([definition])).toEqual([
+      {
+        kind: "callback",
+        name: "test-control",
+        observedKey: "callback:test-control",
+        sourceRefs: ["implementation.js#load"],
+        metadata: { callbackOutputBoundary: "none" },
+      },
+    ]);
+
+    expect(() =>
+      fixedRuntimeSurfaceInventory([
+        { ...definition, callbackOutputBoundary: "payload" },
+      ]),
+    ).toThrow(/invalid callbackOutputBoundary "payload"/);
+    expect(() =>
+      fixedRuntimeSurfaceInventory([{ ...definition, kind: "loader" }]),
+    ).toThrow(/invalid callbackOutputBoundary "none"/);
+
+    const outputContract = {
+      direction: "native-to-javascript",
+      returnVariant: "success",
+      role: "payload",
+      selector: "callback:resolve/0",
+      sourceRefs: ["implementation.js#load"],
+      valueShape: "string",
+    };
+    const outputDefinition = {
+      kind: "callback",
+      name: "test-output",
+      callbackOutputContracts: [outputContract],
+      evidence: definition.evidence,
+    };
+    expect(fixedRuntimeSurfaceInventory([outputDefinition])).toEqual([
+      {
+        kind: "callback",
+        name: "test-output",
+        observedKey: "callback:test-output",
+        sourceRefs: ["implementation.js#load"],
+        metadata: {
+          callbackOutputContractSchema: CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+          callbackOutputContracts: [outputContract],
+        },
+      },
+    ]);
+
+    for (const callbackOutputContracts of [
+      [{ ...outputContract, selector: "callback:resolve" }],
+      [{ ...outputContract, valueShape: "no-arguments" }],
+      [{ ...outputContract, sourceRefs: ["implementation.js#missing"] }],
+      [outputContract, structuredClone(outputContract)],
+      [{ ...outputContract, unexpected: true }],
+    ]) {
+      expect(() =>
+        fixedRuntimeSurfaceInventory([
+          { ...outputDefinition, callbackOutputContracts },
+        ]),
+      ).toThrow(
+        /callback output|expected exact keys|unreviewed fields|validated fixed evidence/,
+      );
+    }
+    expect(() =>
+      fixedRuntimeSurfaceInventory([{ ...outputDefinition, kind: "loader" }]),
+    ).toThrow(/callbackOutputContracts require callback kind/);
+    expect(() =>
+      fixedRuntimeSurfaceInventory([
+        { ...outputDefinition, callbackOutputBoundary: "none" },
+      ]),
+    ).toThrow(/mutually exclusive/);
+  });
+
   test("callback producer and startup discovery is structural and exact-counted", () => {
     const rows = scanNativeLifecycleSurfaces(
       String.raw`
@@ -3710,6 +4468,91 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ),
     ).toBe(true);
     expect(
+      rows
+        .filter((row) => row.metadata?.callbackOutputBoundary === "none")
+        .map((row) => row.name),
+    ).toEqual([
+      "microtask-drain",
+      "native-principal-restore",
+      "next-tick-drain",
+      "queue-drain",
+      "queue-enqueue",
+      "timer-invoke",
+      "watchdog-heartbeat",
+      "websocket-context-release",
+      "worklet-scheduled-drain",
+    ]);
+    expect(
+      rows
+        .filter(
+          (row) =>
+            row.metadata?.callbackOutputContractSchema ===
+            CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+        )
+        .map((row) => row.name),
+    ).toEqual([
+      "android-animation-frame",
+      "android-platform-event",
+      "dns-async-delivery",
+      "exact-host-call-async-resolve",
+      "fetch-delivery",
+      "filesystem-async-delivery",
+      "host-call-async-resolve",
+      "http-wait-delivery",
+      "http-writable-delivery",
+      "ios-dispatch",
+      "ios-dispatch-debug-context",
+      "ios-module-dispatch",
+      "ios-module-sync",
+      "signal-delivery",
+      "websocket-binary-delivery",
+      "websocket-bytes-sent-delivery",
+      "websocket-close-delivery",
+      "websocket-error-delivery",
+      "websocket-open-delivery",
+      "websocket-text-delivery",
+      "worklet-measure",
+    ]);
+    expect(
+      rows
+        .filter((row) => row.kind === "callback")
+        .every(
+          (row) =>
+            row.metadata?.callbackOutputBoundary === "none" ||
+            row.metadata?.callbackOutputContractSchema ===
+              CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+        ),
+    ).toBe(true);
+    expect(
+      rows
+        .flatMap((row) => row.metadata?.callbackOutputContracts ?? [])
+        .some((contract) => contract.valueShape === "no-arguments"),
+    ).toBe(false);
+    expect(
+      rows.find((row) => row.name === "signal-delivery")?.metadata
+        ?.callbackOutputContracts,
+    ).toEqual([
+      {
+        direction: "native-to-javascript",
+        returnVariant: "signal-name",
+        role: "payload",
+        selector: "callback:process-listener/0",
+        sourceRefs: [
+          "src/engine/bootstrap/stream-enhance.js#__exactDispatchPendingSignals",
+        ],
+        valueShape: "string",
+      },
+    ]);
+    expect(
+      rows
+        .find((row) => row.name === "android-platform-event")
+        ?.metadata?.callbackOutputContracts.every((contract) =>
+          contract.sourceRefs.includes(
+            "src/engine/hermes_runtime_android.cc#dispatchAndroidPlatformEvents",
+          ),
+        ),
+    ).toBe(true);
+    expect(
       rows.some(
         (row) => row.observedKey === "startup:capability-hardening-seal",
       ),
@@ -3728,8 +4571,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toEqual({
       kind: "startup",
       name: "supervisor-history.authenticated-project-scope",
-      observedKey:
-        "startup:supervisor-history.authenticated-project-scope",
+      observedKey: "startup:supervisor-history.authenticated-project-scope",
       sourceRefs: [
         "src/bin/ibex/history.rs#derive_authenticated_project_history_scope",
       ],
@@ -3777,7 +4619,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
 
   test("every live fixed reference joins one exact structural definition", () => {
     const rows = fixedRuntimeSurfaceInventory();
-    expect(rows).toHaveLength(87);
+    expect(rows).toHaveLength(88);
     expect(() => validateFixedRuntimeSurfaceRefs(repoRoot, rows)).not.toThrow();
   });
 
@@ -3792,8 +4634,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       rows.find(
         (row) =>
-          row.name ===
-          "install-route:installGlobals:installOsInfoGlobals",
+          row.name === "install-route:installGlobals:installOsInfoGlobals",
       )?.metadata,
     ).toMatchObject({
       caller: "installGlobals",
@@ -3874,8 +4715,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toBe(true);
     expect(
       exports.find(
-        (row) =>
-          row.name === "export:internal_fs_utils:toPathIfFileURL",
+        (row) => row.name === "export:internal_fs_utils:toPathIfFileURL",
       )?.metadata,
     ).toMatchObject({
       bootstrapInternalModuleSpecifiers: ["internal/fs/utils"],
@@ -3884,9 +4724,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       publicModuleSpecifiers: [],
     });
     expect(
-      exports.find(
-        (row) => row.name === "export:node_fs_promises:readFile",
-      )?.metadata,
+      exports.find((row) => row.name === "export:node_fs_promises:readFile")
+        ?.metadata,
     ).toMatchObject({
       importReachability: "public",
       moduleSpecifiers: [
@@ -3903,9 +4742,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ],
     });
     expect(
-      exports.find(
-        (row) => row.name === "export:node_fs_promises:writeFile",
-      )?.metadata.enforcementRouteEvidence,
+      exports.find((row) => row.name === "export:node_fs_promises:writeFile")
+        ?.metadata.enforcementRouteEvidence,
     ).toMatchObject({
       requiredExportCalls: [
         {
@@ -3913,10 +4751,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           moduleSpecifier: "node:fs",
         },
       ],
-      terminals: expect.arrayContaining([
-        "__exactFsOpen",
-        "__exactFsWrite",
-      ]),
+      terminals: expect.arrayContaining(["__exactFsOpen", "__exactFsWrite"]),
     });
     expect(
       exports.find(
@@ -3928,7 +4763,84 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(exports.every((row) => row.sourceRefs.length > 0)).toBe(true);
   });
 
-  test("live shared-runtime authority includes the reviewed roots, members, and opaque overlays", () => {
+  test("principal environment Proxy inventory binds its facade, traps, and native routes", () => {
+    const sourcePath = "packages/ibex-runtime-js/src/node/process.ts";
+    const source = fs.readFileSync(path.join(repoRoot, sourcePath), "utf8");
+    const contract = scanPrincipalEnvironmentOverlayProxy(source, sourcePath);
+
+    expect(contract).toMatchObject({
+      schema: PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA,
+      surfaceName: PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
+      dynamicMember: PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER,
+      globalPath: "process.env",
+      binding: {
+        factory: "createEnvProxy",
+        member: "Process.prototype.env",
+        sourceRef: `${sourcePath}#Process.prototype.env`,
+      },
+      factory: {
+        name: "createEnvProxy",
+        sourceRef: `${sourcePath}#createEnvProxy`,
+      },
+      nativeBridges: ["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"],
+      proxyTraps: [
+        {
+          name: "deleteProperty",
+          nativeBridges: ["__exactSetEnv"],
+        },
+        {
+          name: "get",
+          nativeBridges: ["__exactGetAllEnv", "__exactGetEnv"],
+        },
+        {
+          name: "ownKeys",
+          nativeBridges: ["__exactGetAllEnv", "__exactGetEnv"],
+        },
+        { name: "set", nativeBridges: ["__exactSetEnv"] },
+      ],
+    });
+    expect(contract.sourceRefs).toEqual(
+      expect.arrayContaining([
+        `${sourcePath}#Process.prototype.env`,
+        `${sourcePath}#createEnvProxy:Proxy.deleteProperty`,
+        `${sourcePath}#createEnvProxy:Proxy.get`,
+        `${sourcePath}#createEnvProxy:Proxy.ownKeys`,
+        `${sourcePath}#createEnvProxy:Proxy.set`,
+      ]),
+    );
+
+    for (const [label, mutated] of [
+      [
+        "facade binding",
+        source.replace(
+          "readonly env: Record<string, string | undefined> = createEnvProxy();",
+          "readonly env: Record<string, string | undefined> = {};",
+        ),
+      ],
+      [
+        "scalar read route",
+        source.replace("value = __exactGetEnv(key);", "value = undefined;"),
+      ],
+      [
+        "write route",
+        source.replace(
+          "setPrincipalOverlay(key, normalized);",
+          "void normalized;",
+        ),
+      ],
+      [
+        "delete route",
+        source.replace("setPrincipalOverlay(key, undefined);", "void key;"),
+      ],
+    ]) {
+      expect(
+        () => scanPrincipalEnvironmentOverlayProxy(mutated, sourcePath),
+        label,
+      ).toThrow(/principal environment|process\.env|Process\.env/u);
+    }
+  });
+
+  test("live shared-runtime authority includes the reviewed roots and closed members", () => {
     expect(REVIEWED_SHARED_RUNTIME_ROOTS.length).toBeGreaterThan(0);
     expect(new Set(REVIEWED_SHARED_RUNTIME_ROOTS).size).toBe(
       REVIEWED_SHARED_RUNTIME_ROOTS.length,
@@ -3944,7 +4856,6 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(rows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "__exactMemoryDebug.snapshot",
-        "__exactHostNavigator.[[dynamic-table:host-navigator-properties]]",
         "global:BroadcastChannel.postMessage",
         "global:BroadcastChannel.addEventListener",
         "global:Buffer.from",
@@ -3962,16 +4873,89 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "global:WebSocket.send",
         "global:WebSocket.addEventListener",
         "global:exact.runtime.info",
-        "global:process.[[dynamic-table:host-process-own-properties]]",
-        "global:process.[[dynamic-table:host-process-prototype-properties]]",
         "global:process.chdir",
-        "global:process.env.[[dynamic-table:host-process-env-properties]]",
+        PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
       ]),
     );
+    expect(
+      rows.find(
+        (row) => row.name === PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME,
+      ),
+    ).toMatchObject({
+      observedKey: `native-op:${PRINCIPAL_ENVIRONMENT_OVERLAY_SURFACE_NAME}`,
+      metadata: {
+        exportName: `process.env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`,
+        globalName: "process",
+        memberKinds: ["dynamic-table"],
+        memberName: `env.${PRINCIPAL_ENVIRONMENT_OVERLAY_DYNAMIC_MEMBER}`,
+        principalEnvironmentOverlaySourceContract: {
+          schema: PRINCIPAL_ENVIRONMENT_OVERLAY_SOURCE_CONTRACT_SCHEMA,
+          nativeBridges: ["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"],
+        },
+        semanticRoles: [
+          "principal-environment-overlay",
+          "runtime-property-overlay",
+        ],
+        sourceKey: "shared_runtime",
+        surfaceType: "global-api",
+      },
+    });
+    expect(
+      rows
+        .map((row) => row.name)
+        .filter((name) =>
+          new Set([
+            "global:process.[[dynamic-table:host-process-own-properties]]",
+            "global:process.[[dynamic-table:host-process-prototype-properties]]",
+          ]).has(name),
+        ),
+    ).toEqual([]);
     expect(
       rows.find((row) => row.name === "global:Request.arrayBuffer").metadata
         .memberKinds,
     ).toContain("inherited");
+    expect(
+      rows.find((row) => row.name === "global:Request.arrayBuffer").metadata
+        .publicReadAccessSourceProven,
+    ).toBe(true);
+    expect(
+      rows
+        .filter((row) => row.metadata.publicReadAccessSourceContract)
+        .map((row) => row.name),
+    ).toEqual([
+      "__exactLoadTimings",
+      "global:Intl.DateTimeFormat",
+      "global:Intl.DateTimeFormat.prototype",
+      "global:Intl.Locale.prototype",
+      "global:Intl.NumberFormat",
+      "global:Intl.NumberFormat.prototype",
+      "global:Promise.prototype",
+    ]);
+    expect(
+      rows
+        .filter((row) =>
+          new Set([
+            "global:Intl.DateTimeFormat",
+            "global:Intl.NumberFormat",
+          ]).has(row.name),
+        )
+        .every(
+          (row) =>
+            row.metadata.valueShape === "callable" &&
+            row.metadata.publicInvocation === undefined &&
+            row.metadata.publicReadAccessSourceContract.proofKinds.join(",") ===
+              "typeof-callable-membership",
+        ),
+    ).toBe(true);
+    expect(
+      rows
+        .filter((row) => row.name.includes("[[dynamic-table:"))
+        .every(
+          (row) =>
+            row.metadata.publicReadAccessSourceProven === undefined &&
+            row.metadata.publicReadAccessSourceContract === undefined,
+        ),
+    ).toBe(true);
     expect(
       rows.every((row) =>
         row.sourceRefs.every(
@@ -4164,6 +5148,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ),
       "src/engine/bootstrap/compat-polyfills.js",
     );
+    const ipcListenerRows = scanStaticGlobalApiSurfaces(
+      fs.readFileSync(
+        path.join(repoRoot, "src/engine/bootstrap/ipc-listener.js"),
+        "utf8",
+      ),
+      "src/engine/bootstrap/ipc-listener.js",
+    );
     expect(compatRows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "global:process.channel",
@@ -4186,6 +5177,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ],
     });
     expect(
+      compatRows.find(
+        (row) => row.name === "global:process.__exactKChannelHandle",
+      ).metadata,
+    ).toMatchObject({
+      conditionalGate: "EXACT_IPC_FD",
+      publicReadAccessSourceProven: true,
+      valueShape: "data",
+      branches: [
+        expect.objectContaining({
+          route: "legacy-bootstrap-ipc",
+          targetVariant: "conditional:EXACT_IPC_FD",
+        }),
+      ],
+    });
+    expect(
       compatRows.find((row) => row.name === "global:ok").metadata,
     ).toMatchObject({
       conditionalGate: "EXACT_COMPAT_TEST",
@@ -4197,6 +5203,57 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         }),
       ],
     });
+    for (const rows of [ipcListenerRows, compatRows]) {
+      expect(
+        rows.some((row) =>
+          /\[\[dynamic-table:(?:channel-handle-key|k-channel-handle)\]\]/u.test(
+            row.name,
+          ),
+        ),
+      ).toBe(false);
+      const handleRows = rows.filter((row) =>
+        row.name.startsWith("global:process.__exactKChannelHandle"),
+      );
+      expect(handleRows.map((row) => row.name)).toEqual(
+        expect.arrayContaining([
+          "global:process.__exactKChannelHandle",
+          "global:process.__exactKChannelHandle.readStart",
+          "global:process.__exactKChannelHandle.readStop",
+        ]),
+      );
+      expect(
+        handleRows.every(
+          (row) => row.metadata.publicReadAccessSourceProven === true,
+        ),
+      ).toBe(true);
+      expect(
+        handleRows
+          .filter((row) => /\.read(?:Start|Stop)$/u.test(row.name))
+          .every((row) => row.metadata.valueShape === "callable"),
+      ).toBe(true);
+    }
+    const wrapperRows = ipcListenerRows.filter((row) =>
+      new Set([
+        "global:process.once",
+        "global:process.prependOnceListener",
+      ]).has(row.name),
+    );
+    expect(wrapperRows).toHaveLength(2);
+    expect(
+      wrapperRows.every(
+        (row) =>
+          row.metadata.valueShape === "callable" &&
+          row.metadata.factoryReturnedCallableSourceContract?.proofKind ===
+            "lexically-bound-factory-returned-function",
+      ),
+    ).toBe(true);
+    expect(
+      ipcListenerRows.some((row) =>
+        /^global:process\.(?:once|prependOnceListener)\.\[\[dynamic-table:call-result-/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(false);
   });
 
   test("live repository discovery has every non-empty category and stable ordering", async () => {
@@ -4230,7 +5287,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(first.hostAbi.some((row) => row.name === "ex_host_fs_open")).toBe(
       true,
     );
-    expect(first.hostAbi).toHaveLength(264);
+    expect(first.hostAbi).toHaveLength(277);
     expect(
       first.hostAbi.every(
         (row) =>
@@ -4244,6 +5301,39 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           ),
       ),
     ).toBe(true);
+    for (const [surfaceName, alias] of [
+      ["__exactOSRelease", "process.__exactOSRelease"],
+      ["__exactOSVersion", "process.__exactOSVersion"],
+    ]) {
+      const row = first.nativeOps.find(
+        (candidate) => candidate.name === surfaceName,
+      );
+      expect(row, surfaceName).toMatchObject({
+        observedKey: `native-op:${surfaceName}`,
+        metadata: {
+          branches: [
+            expect.objectContaining({
+              route: "native-jsi-global-property-alias",
+              targetVariant: "android",
+            }),
+          ],
+          exportName: alias,
+          globalName: "process",
+          memberName: surfaceName,
+          publicOutputAccess: {
+            alias,
+            kind: "property-read",
+          },
+          publicReadAccessSourceProven: true,
+          sourceKey: "native_jsi_global",
+          surfaceType: "global-api",
+          valueShape: "data",
+        },
+      });
+      expect(row.sourceRefs).toContain(
+        `src/engine/hermes_runtime_android.cc#jsi-global-property:${alias}`,
+      );
+    }
     const primaryAbiContracts = first.hostAbi.map(
       (row) => row.metadata.outputContracts[0],
     );
@@ -4257,9 +5347,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           .sort(),
       ),
     ).toEqual({
-      "output-bearing": 149,
-      "structural-only": 25,
-      unresolved: 90,
+      "output-bearing": 227,
+      "structural-only": 50,
     });
     expect(
       catalogAbiAccounts.filter(
@@ -4267,7 +5356,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           account.status === "output-bearing" &&
           account.evidenceUnresolved.length > 0,
       ),
-    ).toHaveLength(35);
+    ).toHaveLength(51);
     expect(
       catalogAbiAccounts
         .filter((account) => account.status === "unresolved")
@@ -4275,73 +5364,271 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toBe(true);
     expect(
       Object.fromEntries(
-        [...Map.groupBy(
-          catalogAbiAccounts
-            .filter((account) => account.status === "output-bearing")
-            .flatMap((account) => account.outputChannels),
-          (channel) =>
-            channel.selector === "[[return]]"
-              ? "return"
-              : channel.selector.startsWith("callback:")
-                ? "callback"
-                : "out",
-        )]
+        [
+          ...Map.groupBy(
+            catalogAbiAccounts
+              .filter((account) => account.status === "output-bearing")
+              .flatMap((account) => account.outputChannels),
+            (channel) =>
+              channel.selector === "[[return]]"
+                ? "return"
+                : channel.selector.startsWith("callback:")
+                  ? "callback"
+                  : "out",
+          ),
+        ]
           .map(([role, channels]) => [role, channels.length])
           .sort(),
       ),
-    ).toEqual({ callback: 19, out: 18, return: 143 });
+    ).toEqual({ callback: 59, out: 150, return: 209 });
     expect(
       Object.fromEntries(
-        [...Map.groupBy(
-          primaryAbiContracts,
-          (contract) => `${contract.return.role}:${contract.return.kind}`,
-        )]
+        [
+          ...Map.groupBy(
+            primaryAbiContracts,
+            (contract) => `${contract.return.role}:${contract.return.kind}`,
+          ),
+        ]
           .map(([role, contracts]) => [role, contracts.length])
           .sort(),
       ),
     ).toEqual({
-      "none:void": 57,
-      "unknown:unknown": 13,
-      "value:aggregate": 14,
-      "value:pointer": 45,
-      "value:scalar": 135,
+      "none:void": 68,
+      "value:aggregate": 17,
+      "value:pointer": 46,
+      "value:scalar": 146,
     });
     expect(
       Object.fromEntries(
-        [...Map.groupBy(
-          primaryAbiContracts.flatMap((contract) => contract.parameters),
-          (parameter) => parameter.role,
-        )]
+        [
+          ...Map.groupBy(
+            primaryAbiContracts.flatMap((contract) => contract.parameters),
+            (parameter) => parameter.role,
+          ),
+        ]
           .map(([role, parameters]) => [role, parameters.length])
           .sort(),
       ),
     ).toEqual({
-      callback: 10,
-      "callback-payload": 19,
-      input: 418,
-      output: 28,
-      unknown: 100,
+      "callback-payload": 38,
+      inout: 8,
+      input: 562,
+      output: 44,
+    });
+
+    const accountFor = (name) =>
+      deriveHostAbiOutputCatalogAccount(
+        first.hostAbi.find((row) => row.name === name),
+      );
+    const aggregateAccounts = [
+      "ex_hermes_eval_lowered_session",
+      "ex_hermes_eval_structured_diagnostic",
+      "ex_hermes_eval_structured_session",
+      "ex_hermes_evaluation_result_dispose",
+      "ex_hermes_evaluation_result_init",
+      "ex_hermes_resume_structured_session",
+      "ex_hermes_take_async_failure_event",
+      "ex_hermes_take_cancellation_event",
+      "ex_hermes_take_work_unit_event",
+      "ex_hermes_value_safe_throw_metadata",
+    ];
+    const callbackAccounts = [
+      "ex_hermes_schedule_watchdog_heartbeat",
+      "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+      "ex_hermes_set_dispatch_callback",
+      "ex_hermes_set_dispatch_with_debug_context_callback",
+      "ex_hermes_set_exact_host_call_async",
+      "ex_hermes_set_host_call",
+      "ex_hermes_set_host_call_async",
+      "ex_hermes_set_host_wake_hook",
+      "ex_hermes_set_module_dispatch_callback",
+      "ex_hermes_set_module_sync_callback",
+      "ex_worklet_bind_shared_value_accessors",
+      "ex_worklet_set_measure_callback",
+    ];
+    expect(
+      Object.fromEntries(
+        [...aggregateAccounts, ...callbackAccounts].map((name) => [
+          name,
+          accountFor(name).status,
+        ]),
+      ),
+    ).toEqual({
+      ...Object.fromEntries(
+        [...aggregateAccounts, ...callbackAccounts]
+          .filter((name) => name !== "ex_hermes_schedule_watchdog_heartbeat")
+          .map((name) => [name, "output-bearing"]),
+      ),
+      ex_hermes_schedule_watchdog_heartbeat: "structural-only",
+    });
+    expect(
+      first.hostAbi
+        .find((row) => row.name === "ex_hermes_schedule_watchdog_heartbeat")
+        .metadata.outputContracts[0].parameters.find(
+          (parameter) => parameter.name === "callback",
+        ).callbackContract,
+    ).toMatchObject({
+      delivery: "none",
+      outputChannels: [],
+      parameters: [
+        {
+          direction: "native-to-embedder",
+          name: "context",
+          valueKind: "pointer",
+        },
+      ],
+      return: { direction: "none", role: "none" },
+      status: "resolved",
+    });
+
+    const resultInit = accountFor("ex_hermes_evaluation_result_init");
+    expect(
+      resultInit.outputChannels.map((channel) => channel.selector),
+    ).toEqual([
+      "out:result.abi_version",
+      "out:result.capability_flags",
+      "out:result.fault",
+      "out:result.lifecycle_exit_code",
+      "out:result.message.data",
+      "out:result.outcome_tag",
+      "out:result.positions",
+      "out:result.stack.data",
+      "out:result.struct_size",
+      "out:result.throw_metadata_fields",
+      "out:result.throw_metadata_status",
+      "out:result.value.handle_id",
+      "out:result.value.runtime_nonce",
+      "out:result.work_target_id",
+    ]);
+    expect(
+      resultInit.outputChannels
+        .filter((channel) =>
+          /(?:message|positions|stack)/u.test(channel.selector),
+        )
+        .map((channel) => channel.variants[0].alias),
+    ).toEqual(["result.message.data", "result.positions", "result.stack.data"]);
+    expect(
+      accountFor("ex_hermes_eval_structured_diagnostic")
+        .outputChannels.filter((channel) =>
+          channel.selector.includes("positions[]"),
+        )
+        .map((channel) => [channel.selector, channel.variants[0].alias]),
+    ).toEqual([
+      ["out:result.positions[].column", "result.positions[].column"],
+      ["out:result.positions[].line", "result.positions[].line"],
+      [
+        "out:result.positions[].source_label.data",
+        "result.positions[].source_label.data",
+      ],
+    ]);
+    expect(
+      accountFor("ex_hermes_take_work_unit_event").outputChannels.map(
+        (channel) => channel.selector,
+      ),
+    ).toEqual([
+      "[[return]]",
+      "out:event.kind",
+      "out:event.phase",
+      "out:event.scheduling_id",
+      "out:event.target_id",
+    ]);
+    expect(
+      accountFor("ex_hermes_value_safe_throw_metadata").outputChannels.map(
+        (channel) => channel.selector,
+      ),
+    ).toEqual(["[[return]]", "out:message.data", "out:stack.data"]);
+
+    const moduleSyncContract = first.hostAbi.find(
+      (row) => row.name === "ex_hermes_set_module_sync_callback",
+    ).metadata.outputContracts[0];
+    expect(moduleSyncContract.status).toBe("resolved");
+    expect(
+      moduleSyncContract.outputChannels.map((channel) => channel.selector),
+    ).toEqual(["callback:callback/0", "callback:callback/4"]);
+    expect(
+      moduleSyncContract.parameters.find(
+        (parameter) => parameter.name === "callback",
+      ).callbackContract,
+    ).toMatchObject({
+      parameters: [
+        { direction: "native-to-embedder", valueKind: "buffer" },
+        { direction: "native-to-embedder", valueKind: "length" },
+        {
+          direction: "embedder-to-native",
+          ownership: { kind: "native-consumes" },
+          valueKind: "buffer",
+        },
+        { direction: "embedder-to-native", valueKind: "length" },
+        { direction: "native-to-embedder", valueKind: "pointer" },
+      ],
+      return: {
+        direction: "embedder-to-native",
+        kind: "scalar",
+        role: "return",
+      },
+    });
+    const measureCallback = first.hostAbi
+      .find((row) => row.name === "ex_worklet_set_measure_callback")
+      .metadata.outputContracts[0].parameters.find(
+        (parameter) => parameter.name === "callback",
+      ).callbackContract;
+    expect(measureCallback.parameters[1]).toMatchObject({
+      direction: "embedder-to-native",
+      fixedLength: 4,
+      ownership: { kind: "caller-storage" },
+      valueKind: "buffer",
+    });
+    expect(
+      first.hostAbi
+        .find((row) => row.name === "ex_hermes_set_host_call")
+        .metadata.outputContracts[0].parameters.find(
+          (parameter) => parameter.name === "callback",
+        ).callbackContract.return,
+    ).toMatchObject({
+      direction: "embedder-to-native",
+      ownership: { kind: "native-consumes" },
+      role: "return",
     });
     expect(
       Object.fromEntries(
-        [...Map.groupBy(
-          first.hostAbi.filter(
-            (row) =>
-              row.metadata.outputContracts[0].language === "java-jni",
+        [
+          ...Map.groupBy(
+            first.hostAbi.filter(
+              (row) => row.metadata.outputContracts[0].language === "java-jni",
+            ),
+            (row) => row.metadata.outputContracts[0].status,
           ),
-          (row) => row.metadata.outputContracts[0].status,
-        )]
+        ]
           .map(([status, rows]) => [status, rows.length])
           .sort(),
       ),
-    ).toEqual({ resolved: 34, unresolved: 13 });
+    ).toEqual({ resolved: 47 });
+    for (const [name, selectors] of [
+      [
+        "java:dev.ibex.runtime.IbexNetworking.CameraHostProvider.cameraHostCall",
+        ["[[return]]", "callback:0", "callback:1"],
+      ],
+      [
+        "java:dev.ibex.runtime.IbexNetworking.DialogHostProvider.dialog",
+        ["[[return]]", "callback:0", "callback:1", "callback:2"],
+      ],
+      [
+        "jni:dev.ibex.runtime.IbexNetworking.nativeAnimationFrame",
+        ["callback:0", "callback:1"],
+      ],
+    ]) {
+      expect(
+        first.hostAbi
+          .find((row) => row.name === name)
+          .metadata.outputContracts[0].outputChannels.map(
+            (channel) => channel.selector,
+          ),
+      ).toEqual(selectors);
+    }
     for (const [name, selectors] of [
       ["ex_host_vfs_bind_runtime", ["[[return]]"]],
       ["ex_host_vfs_unbind_runtime", ["[[return]]"]],
-      [
-        "ex_host_vfs_get_cwd",
-        ["[[return]]", "out:virtual", "out:errno"],
-      ],
+      ["ex_host_vfs_get_cwd", ["[[return]]", "out:virtual", "out:errno"]],
       ["ex_host_vfs_chdir", ["[[return]]", "out:virtual", "out:errno"]],
       [
         "ex_host_vfs_resolve_path",
@@ -4351,18 +5638,16 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       const contract = first.hostAbi.find((row) => row.name === name).metadata
         .outputContracts[0];
       expect(contract.status).toBe("resolved");
-      expect(contract.outputChannels.map((channel) => channel.selector)).toEqual(
-        selectors,
-      );
+      expect(
+        contract.outputChannels.map((channel) => channel.selector),
+      ).toEqual(selectors);
     }
     expect(
       first.startup.find((row) => row.name === "runtime-create").sourceRefs,
-    ).toEqual([
-      "src/engine/hermes_runtime.cc#ex_hermes_create_armed",
-    ]);
+    ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(141);
+    ).toHaveLength(144);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);
@@ -4382,7 +5667,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     );
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_worklet_")),
-    ).toHaveLength(10);
+    ).toHaveLength(15);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_android_")),
     ).toHaveLength(1);
@@ -4599,6 +5884,28 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         }),
       ]),
     );
+    const mergedProcessWrappers = first.globals.filter((row) =>
+      new Set([
+        "global:process.once",
+        "global:process.prependOnceListener",
+      ]).has(row.name),
+    );
+    expect(mergedProcessWrappers).toHaveLength(2);
+    expect(
+      mergedProcessWrappers.every(
+        (row) =>
+          row.metadata.valueShape === "callable" &&
+          row.metadata.factoryReturnedCallableSourceContract?.installedPath ===
+            row.metadata.exportName,
+      ),
+    ).toBe(true);
+    expect(
+      first.globals.some((row) =>
+        /^global:process\.(?:once|prependOnceListener)\.\[\[dynamic-table:call-result-/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(false);
     for (const row of first.globals) {
       const branches = row.metadata.installationBranches;
       expect(branches.length).toBeGreaterThan(0);
@@ -4672,10 +5979,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const producers = first.callbacks.filter((row) =>
       row.name.startsWith("producer:"),
     );
-    expect(producers).toHaveLength(12);
+    expect(producers).toHaveLength(13);
     expect(
       producers.reduce((count, row) => count + row.metadata.occurrenceCount, 0),
-    ).toBe(17);
+    ).toBe(18);
     expect(
       first.loader
         .filter((row) => row.metadata?.evidenceType === "loader-kind-branch")
@@ -4747,9 +6054,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "IBEX_CAPSEC_REPL_256_REPRO",
     ]) {
       expect(
-        environmentRows.some(
-          (row) => row.name === `env:${environmentName}`,
-        ),
+        environmentRows.some((row) => row.name === `env:${environmentName}`),
         environmentName,
       ).toBe(false);
     }

@@ -1050,7 +1050,7 @@
         "mode": "all",
         "sourceKind": "file",
         "returnVariant": "file-backed",
-        "contextId": "javascript.package-property-read-loaded"
+        "contextId": "javascript.package-call-loaded"
       },
       "disposition": "virtual-absolute",
       "expectation": {
@@ -1067,7 +1067,7 @@
         "mode": "all",
         "sourceKind": "builtin",
         "returnVariant": "builtin",
-        "contextId": "javascript.package-property-read-loaded"
+        "contextId": "javascript.package-call-loaded"
       },
       "disposition": "synthetic-source-id",
       "expectation": {
@@ -3271,6 +3271,23 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.engine.binary.path.1xy60vb",
+        "output": "out:out",
+        "alias": "ex_hermes_engine_binary_path",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "private-native-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "private-native-path"
+      },
+      "rationale": "The engine artifact spelling is consumed only by authenticated native diagnostics; the executor validates its path class and persists no machine-specific bytes."
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.host.vfs.bind.runtime.1oq30xd",
         "output": "[[return]]",
         "alias": "ex_host_vfs_bind_runtime",
@@ -3285,6 +3302,23 @@
         "normalizedValue": "absent"
       },
       "rationale": "The authenticated runtime-VFS binding callback is native-private and has no JavaScript-visible projection."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.vfs.chdir.0ptaq6p",
+        "output": "out:virtual",
+        "alias": "ex_host_vfs_chdir",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "virtual-absolute",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "virtual-absolute"
+      },
+      "rationale": "The source-derived ABI output slot returns only the canonical runtime-local virtual cwd; its native proof retains the class marker rather than path bytes."
     },
     {
       "key": {
@@ -3323,6 +3357,23 @@
     {
       "key": {
         "surfaceId": "surface.host.abi.ex.host.vfs.get.cwd.1x86sba",
+        "output": "out:virtual",
+        "alias": "ex_host_vfs_get_cwd",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "virtual-absolute",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "virtual-absolute"
+      },
+      "rationale": "The source-derived cwd output is a canonical virtual absolute spelling validated inside the authenticated runtime session."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.vfs.get.cwd.1x86sba",
         "output": "[[return]]",
         "alias": "ex_host_vfs_get_cwd",
         "mode": "javascript",
@@ -3353,6 +3404,40 @@
         "normalizedValue": "virtual-absolute"
       },
       "rationale": "The private cwd query returns the runtime-local virtual cwd and never the process cwd."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.vfs.resolve.path.02yfc47",
+        "output": "out:backing",
+        "alias": "ex_host_vfs_resolve_path",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "private-native-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "private-native-path"
+      },
+      "rationale": "The backing spelling is confined to the authenticated native VFS adapter; its proof validates only the private-path class and never serializes the host bytes."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.vfs.resolve.path.02yfc47",
+        "output": "out:virtual",
+        "alias": "ex_host_vfs_resolve_path",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "virtual-absolute",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "virtual-absolute"
+      },
+      "rationale": "The resolver's source-derived virtual output is a canonical virtual absolute spelling validated in the authenticated runtime session."
     },
     {
       "key": {
@@ -3421,6 +3506,23 @@
         "normalizedValue": "absent"
       },
       "rationale": "The runtime-VFS teardown callback is native-private and has no JavaScript-visible projection."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.storagepaths.1e7zbqo",
+        "output": "[[return]]",
+        "alias": "java:dev.ibex.runtime.IbexNetworking.storagePaths",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-absence recipe proves the Android-only Java storage-path bridge is absent from the loaded target. Armed Android separately keeps its private Context paths out of every JavaScript projection."
     },
     {
       "key": {
@@ -3781,6 +3883,210 @@
     },
     {
       "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.1mdbn1n",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes the Android-only storage projection absent. Armed Android installs an immutable empty-string sentinel instead of private Context paths."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.cachedir.0isn50y",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.cacheDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.codecachedir.0mrvtb7",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.codeCacheDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.externalfilesdir.1mvpsmq",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.externalFilesDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.filesdir.0v863tp",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.filesDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactandroidstoragepaths.nobackupfilesdir.1tcc2lo",
+        "output": "[[value]]",
+        "alias": "__exactAndroidStoragePaths.noBackupFilesDir",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-absence recipe observes this Android-only storage field absent; armed Android pins it to an immutable empty string."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactosrelease.0ot9o6g",
+        "output": "[[value]]",
+        "alias": "process.__exactOSRelease",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-absence recipe reads the exact Android-only process.__exactOSRelease property and observes it absent from the loaded target."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactosversion.0b1yqs5",
+        "output": "[[value]]",
+        "alias": "process.__exactOSVersion",
+        "mode": "all",
+        "sourceKind": "native-op",
+        "returnVariant": "default",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The source-bound macOS/aarch64 target-absence recipe reads the exact Android-only process.__exactOSVersion property and observes it absent from the loaded target."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactdeepfreeze.1vcvmfo",
+        "output": "[[return]]",
+        "alias": "__exactDeepFreeze",
+        "mode": "primitive-sentinel",
+        "sourceKind": "native-op",
+        "returnVariant": "same-as-argument-0",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "same-as-argument-0"
+      },
+      "rationale": "The loaded-Hermes identity probe supplies a deterministic primitive and proves the native deep-freeze primitive returns argument zero exactly."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactdeepfreeze.1vcvmfo",
+        "output": "[[return]]",
+        "alias": "__exactDeepFreeze",
+        "mode": "object-sentinel",
+        "sourceKind": "native-op",
+        "returnVariant": "same-as-argument-0",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "same-as-argument-0"
+      },
+      "rationale": "The loaded-Hermes identity probe supplies a deterministic object graph and proves both strict return identity and recursive freezing."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactnativefreeze.0145fn1",
+        "output": "[[return]]",
+        "alias": "__exactNativeFreeze",
+        "mode": "primitive-sentinel",
+        "sourceKind": "native-op",
+        "returnVariant": "same-as-argument-0",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "same-as-argument-0"
+      },
+      "rationale": "The loaded-Hermes identity probe supplies a deterministic primitive and proves the native shallow-freeze primitive returns argument zero exactly."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.exactnativefreeze.0145fn1",
+        "output": "[[return]]",
+        "alias": "__exactNativeFreeze",
+        "mode": "object-sentinel",
+        "sourceKind": "native-op",
+        "returnVariant": "same-as-argument-0",
+        "contextId": "runtime.bootstrap-native-call-loaded"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "same-as-argument-0"
+      },
+      "rationale": "The loaded-Hermes identity probe supplies a deterministic object graph and proves both strict return identity and shallow freezing."
+    },
+    {
+      "key": {
         "surfaceId": "surface.native.op.exactclipboardread.1jw3spp",
         "output": "[[return]]",
         "alias": "__exactClipboardRead",
@@ -3948,6 +4254,261 @@
         "normalizedValue": "/dev/null"
       },
       "rationale": "The universal constant names no machine-specific host path and is not a mounted node."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
+        "output": "[[return]]",
+        "alias": "ex_host_fs_mkdir_recursive_result",
+        "mode": "unarmed",
+        "sourceKind": "host-abi",
+        "returnVariant": "success",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "private-native-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "private-native-path"
+      },
+      "rationale": "The unarmed compatibility ABI returns the created physical directory only to native code; its executor validates the path privately and persists only the class marker."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
+        "output": "[[return]]",
+        "alias": "ex_host_fs_mkdir_recursive_result",
+        "mode": "unarmed",
+        "sourceKind": "host-abi",
+        "returnVariant": "error",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "throw",
+        "normalizedValue": "HOST_ABI_EEXIST"
+      },
+      "rationale": "The bounded compatibility error fixture returns NULL and immediately records EEXIST; no path value crosses the ABI."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
+        "output": "[[return]]",
+        "alias": "ex_host_fs_mkdir_recursive_result",
+        "mode": "armed",
+        "sourceKind": "host-abi",
+        "returnVariant": "refused",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "refused",
+      "expectation": {
+        "outcome": "throw",
+        "normalizedValue": "HOST_ABI_EPERM"
+      },
+      "rationale": "An armed Host refuses this legacy physical-path return with EPERM before decoding or mutating the requested path."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.mkdtemp.071q6nt",
+        "output": "[[return]]",
+        "alias": "ex_host_fs_mkdtemp",
+        "mode": "unarmed",
+        "sourceKind": "host-abi",
+        "returnVariant": "success",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "private-native-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "private-native-path"
+      },
+      "rationale": "The unarmed compatibility ABI returns the temporary directory only to native code; the executor validates and removes it without serializing its machine-specific spelling."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.mkdtemp.071q6nt",
+        "output": "[[return]]",
+        "alias": "ex_host_fs_mkdtemp",
+        "mode": "unarmed",
+        "sourceKind": "host-abi",
+        "returnVariant": "error",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "throw",
+        "normalizedValue": "HOST_ABI_EACCES"
+      },
+      "rationale": "The bounded compatibility error fixture returns NULL and immediately records EACCES; no temporary path is created or exposed."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.mkdtemp.071q6nt",
+        "output": "[[return]]",
+        "alias": "ex_host_fs_mkdtemp",
+        "mode": "armed",
+        "sourceKind": "host-abi",
+        "returnVariant": "refused",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "refused",
+      "expectation": {
+        "outcome": "throw",
+        "normalizedValue": "HOST_ABI_EPERM"
+      },
+      "rationale": "An armed Host refuses legacy mkdtemp with EPERM before consuming the prefix, randomness, or filesystem mutation."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.realpath.15844au",
+        "output": "[[return]]",
+        "alias": "ex_host_fs_realpath",
+        "mode": "unarmed",
+        "sourceKind": "host-abi",
+        "returnVariant": "success",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "private-native-path",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "private-native-path"
+      },
+      "rationale": "The unarmed compatibility ABI returns a canonical physical spelling only to native code; its executor retains only the validated private-path class."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.realpath.15844au",
+        "output": "[[return]]",
+        "alias": "ex_host_fs_realpath",
+        "mode": "unarmed",
+        "sourceKind": "host-abi",
+        "returnVariant": "error",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "non-path",
+      "expectation": {
+        "outcome": "throw",
+        "normalizedValue": "HOST_ABI_ENOENT"
+      },
+      "rationale": "The bounded compatibility error fixture returns NULL and immediately records ENOENT; it yields no canonical path."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.realpath.15844au",
+        "output": "[[return]]",
+        "alias": "ex_host_fs_realpath",
+        "mode": "armed",
+        "sourceKind": "host-abi",
+        "returnVariant": "refused",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "refused",
+      "expectation": {
+        "outcome": "throw",
+        "normalizedValue": "HOST_ABI_EPERM"
+      },
+      "rationale": "An armed Host refuses the legacy physical realpath projection with EPERM before lookup."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.host.fs.readdir.1jmcmt8",
+        "output": "array-items",
+        "alias": "ex_host_fs_readdir[]",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "success",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "virtual-basename",
+      "expectation": {
+        "outcome": "return",
+        "normalizedValue": "array:virtual-basename"
+      },
+      "rationale": "The Host readdir result is parsed and checked item-by-item; every non-empty item is a final component with no path separator."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibexlockeddown.1l9g3ta",
+        "output": "[[value]]",
+        "alias": "globalThis.__ibexLockedDown",
+        "mode": "no-lockdown",
+        "sourceKind": "native-op",
+        "returnVariant": "absent",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The immutable lockdown-complete marker is not installed when structural lockdown is disabled."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibextamed.1miuye7",
+        "output": "[[value]]",
+        "alias": "globalThis.Function.__ibexTamed",
+        "mode": "no-lockdown",
+        "sourceKind": "native-op",
+        "returnVariant": "absent",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "Without structural lockdown, Function is not replaced with a marked tamed evaluator."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibextamed.1miuye7",
+        "output": "[[value]]",
+        "alias": "globalThis.eval.__ibexTamed",
+        "mode": "no-lockdown",
+        "sourceKind": "native-op",
+        "returnVariant": "absent",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "Without structural lockdown, eval is not replaced with a marked tamed evaluator."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibextamed.1miuye7",
+        "output": "[[value]]",
+        "alias": "Object.getPrototypeOf(function*(){}).constructor.__ibexTamed",
+        "mode": "no-lockdown",
+        "sourceKind": "native-op",
+        "returnVariant": "absent",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "Without structural lockdown, the generator-function constructor is not replaced with a marked tamed evaluator."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.native.op.ibextamed.1miuye7",
+        "output": "[[value]]",
+        "alias": "Object.getPrototypeOf(async function(){}).constructor.__ibexTamed",
+        "mode": "no-lockdown",
+        "sourceKind": "native-op",
+        "returnVariant": "absent",
+        "contextId": "javascript.package-property-read-loaded"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "Without structural lockdown, the async-function constructor is not replaced with a marked tamed evaluator."
     }
   ]
 }

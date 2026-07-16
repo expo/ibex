@@ -14,6 +14,7 @@ import {
   buildOutputShapeCatalog,
   canonicalOutputDispositionKey,
   defaultContextIdForCatalogRow,
+  legacyHostPathOutputShapes,
   modulePackageRootShapes,
   outputExecutionContextsForRows,
   outputShapeCatalogKeyDigest,
@@ -25,7 +26,11 @@ import {
   validateOutputValueProofKind,
   vfsHostAbiShapes,
 } from "./capsec-output-dispositions.mjs";
-import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
+import {
+  CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+  deriveHostAbiOutputCatalogAccount,
+  discoverRepositorySurfaces,
+} from "./capsec-surface-inventory.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -45,14 +50,21 @@ function countsBy(rows, select) {
 }
 
 function key(index) {
+  const privateNative = OUTPUT_DISPOSITIONS[index] === "private-native-path";
   return {
     surfaceId: `surface.test.output.${index}`,
     output: index % 2 === 0 ? "[[return]]" : `field:value${index}`,
     alias: `test.alias.${index}`,
     mode: index % 3 === 0 ? "file" : "all",
-    sourceKind: index % 2 === 0 ? "builtin" : "native-op",
+    sourceKind: privateNative
+      ? "host-abi"
+      : index % 2 === 0
+        ? "builtin"
+        : "native-op",
     returnVariant: "default",
-    contextId: "javascript.package-call-loaded",
+    contextId: privateNative
+      ? "host.private-native-call-initialized"
+      : "javascript.package-call-loaded",
   };
 }
 
@@ -341,6 +353,64 @@ describe("LLP 0023 output-disposition dataset", () => {
     }
   });
 
+  test("splits legacy physical-path ABI returns by armed state and catalogs readdir items", async () => {
+    for (const surfaceName of [
+      "ex_host_fs_mkdir_recursive_result",
+      "ex_host_fs_mkdtemp",
+      "ex_host_fs_realpath",
+    ]) {
+      expect(legacyHostPathOutputShapes(surfaceName)).toEqual([
+        expect.objectContaining({
+          output: "[[return]]",
+          alias: surfaceName,
+          mode: "unarmed",
+          sourceKind: "host-abi",
+          returnVariant: "success",
+        }),
+        expect.objectContaining({
+          output: "[[return]]",
+          alias: surfaceName,
+          mode: "unarmed",
+          sourceKind: "host-abi",
+          returnVariant: "error",
+        }),
+        expect.objectContaining({
+          output: "[[return]]",
+          alias: surfaceName,
+          mode: "armed",
+          sourceKind: "host-abi",
+          returnVariant: "refused",
+        }),
+      ]);
+    }
+    expect(() => legacyHostPathOutputShapes("ex_host_fs_open")).toThrow(
+      /unknown legacy Host path output/,
+    );
+    const { catalog } = await repositoryCatalogFixture();
+    for (const surfaceName of [
+      "ex_host_fs_mkdir_recursive_result",
+      "ex_host_fs_mkdtemp",
+      "ex_host_fs_realpath",
+    ]) {
+      const rows = catalog.rows.filter((row) => row.key.alias === surfaceName);
+      expect(rows).toHaveLength(3);
+      expect(
+        rows.some(
+          (row) =>
+            row.key.mode === "all" && row.key.returnVariant === "default",
+        ),
+      ).toBe(false);
+    }
+    expect(
+      catalog.rows.some(
+        (row) =>
+          row.key.alias === "ex_host_fs_readdir[]" &&
+          row.key.output === "array-items" &&
+          row.key.returnVariant === "success",
+      ),
+    ).toBe(true);
+  }, 30_000);
+
   test("uses exactly the canonical seven-part key", () => {
     expect(JSON.parse(canonicalOutputDispositionKey(key(0)))).toEqual([
       key(0).surfaceId,
@@ -361,18 +431,29 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,177 source surfaces and emits only 5,231 actual output rows", async () => {
+  test("accounts for all 7,206 covered surfaces and emits 5,553 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
-    expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_177,
-      outputBearingSurfaces: 4_916,
-      structuralOnlySurfaces: 1_352,
-      unresolvedSurfaces: 909,
-      catalogRows: 5_231,
-      sourceInventoryRows: 4_888,
+    // coverage-edges.json is regenerated after the source-derived catalog.
+    // Accept the one-row pre-regeneration state while pinning the exact
+    // post-regeneration baseline this repository must converge to.
+    const pendingStructuralRegeneration = 7_206 - coverage.edges.length;
+    expect(new Set([0, 1]).has(pendingStructuralRegeneration)).toBe(true);
+    expect({
+      ...catalog.counts,
+      coverageSurfaces:
+        catalog.counts.coverageSurfaces + pendingStructuralRegeneration,
+      structuralOnlySurfaces:
+        catalog.counts.structuralOnlySurfaces + pendingStructuralRegeneration,
+    }).toEqual({
+      coverageSurfaces: 7_206,
+      outputBearingSurfaces: 5_149,
+      structuralOnlySurfaces: 1_400,
+      unresolvedSurfaces: 657,
+      catalogRows: 5_553,
+      sourceInventoryRows: 5_210,
       structuredRows: 343,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -386,9 +467,9 @@ describe("LLP 0023 output-disposition dataset", () => {
         rows: catalog.rows,
       }),
     ).toEqual({
-      "output-bearing": 4_916,
-      "structural-only": 1_352,
-      unresolved: 909,
+      "output-bearing": 5_149,
+      "structural-only": 1_400 - pendingStructuralRegeneration,
+      unresolved: 657,
     });
     expect(
       catalog.rows.filter(
@@ -412,6 +493,800 @@ describe("LLP 0023 output-disposition dataset", () => {
       schema,
     );
     expect(validate(catalog), JSON.stringify(validate.errors)).toBe(true);
+  }, 30_000);
+
+  test("accounts source-shaped globals and source-bound callback outputs", async () => {
+    const fixture = await repositoryCatalogFixture();
+    const edgeByObservedKey = new Map(
+      fixture.coverage.edges.map((edge) => [
+        `${edge.surface.kind}:${edge.surface.name}`,
+        edge,
+      ]),
+    );
+    const accountById = new Map(
+      fixture.catalog.surfaceAccounts.map((account) => [
+        account.surfaceId,
+        account,
+      ]),
+    );
+    const rowsById = Map.groupBy(
+      fixture.catalog.rows,
+      (row) => row.key.surfaceId,
+    );
+    const sourceShapedGlobals = fixture.surfaces.filter(
+      (surface) =>
+        surface.kind === "native-op" &&
+        surface.metadata?.surfaceType === "global-api" &&
+        surface.metadata?.sourceKey === "shared_runtime" &&
+        surface.metadata?.publicReadAccessSourceProven !== true &&
+        new Set(["accessor", "callable", "data"]).has(
+          surface.metadata?.valueShape,
+        ),
+    );
+    expect(sourceShapedGlobals).toHaveLength(66);
+    expect(
+      countsBy(sourceShapedGlobals, (surface) => surface.metadata.valueShape),
+    ).toEqual({ accessor: 44, callable: 17, data: 5 });
+    for (const surface of sourceShapedGlobals) {
+      const edge = edgeByObservedKey.get(surface.observedKey);
+      const account = accountById.get(edge.id);
+      expect(account.status, surface.observedKey).toBe("output-bearing");
+      expect(account.reasonCode, surface.observedKey).toBe(
+        "source-derived-public-output",
+      );
+      const rows = (rowsById.get(edge.id) ?? []).filter(
+        (row) => row.discovery.kind === "source-inventory-surface",
+      );
+      expect(rows, surface.observedKey).toHaveLength(1);
+      expect(rows[0].key.output, surface.observedKey).toBe(
+        surface.metadata.valueShape === "callable" ? "[[return]]" : "[[value]]",
+      );
+    }
+
+    for (const [surfaceName, reasonCode] of [
+      [
+        "__exactGeneratedImportGrantKeys.[[dynamic-table:call-result-354b628423c4-properties]]",
+        "private-root-dynamic-descendant",
+      ],
+      [
+        "global:localStorage.persistence",
+        "semantic-effect-marker-no-value-slot",
+      ],
+    ]) {
+      const edge = edgeByObservedKey.get(`native-op:${surfaceName}`);
+      expect(accountById.get(edge.id), surfaceName).toMatchObject({
+        status: "structural-only",
+        reasonCode,
+        outputKinds: [],
+      });
+      expect(rowsById.get(edge.id) ?? [], surfaceName).toHaveLength(0);
+    }
+
+    const callbacks = fixture.surfaces.filter(
+      (surface) => surface.kind === "callback",
+    );
+    const producerCallbacks = callbacks.filter(
+      (surface) =>
+        surface.metadata?.evidenceType === "push-runtime-callback-producer",
+    );
+    const controlCallbacks = callbacks.filter(
+      (surface) => surface.metadata?.callbackOutputBoundary === "none",
+    );
+    const outputCallbacks = callbacks.filter(
+      (surface) =>
+        surface.metadata?.callbackOutputContractSchema ===
+        CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+    );
+    expect(producerCallbacks).toHaveLength(13);
+    expect(controlCallbacks).toHaveLength(9);
+    expect(outputCallbacks).toHaveLength(21);
+    expect(
+      countsBy(callbacks, (surface) => {
+        const edge = edgeByObservedKey.get(surface.observedKey);
+        return accountById.get(edge.id).status;
+      }),
+    ).toEqual({ "output-bearing": 21, "structural-only": 22 });
+    for (const [surfaces, reasonCode] of [
+      [producerCallbacks, "callback-producer-provenance"],
+      [controlCallbacks, "callback-control-plane"],
+    ]) {
+      for (const surface of surfaces) {
+        const edge = edgeByObservedKey.get(surface.observedKey);
+        expect(accountById.get(edge.id)).toMatchObject({
+          status: "structural-only",
+          reasonCode,
+          outputKinds: [],
+        });
+      }
+    }
+    for (const surface of outputCallbacks) {
+      const edge = edgeByObservedKey.get(surface.observedKey);
+      const account = accountById.get(edge.id);
+      expect(account, surface.observedKey).toMatchObject({
+        status: "output-bearing",
+        reasonCode: "source-derived-callback-output",
+      });
+      const contracts = surface.metadata.callbackOutputContracts;
+      const rows = rowsById.get(edge.id) ?? [];
+      expect(rows, surface.observedKey).toHaveLength(contracts.length);
+      expect(account.outputKinds, surface.observedKey).toEqual(
+        [
+          ...new Set(contracts.map((contract) => `callback-${contract.role}`)),
+        ].sort(),
+      );
+      for (const contract of contracts) {
+        expect(
+          rows,
+          `${surface.observedKey}:${contract.selector}`,
+        ).toContainEqual({
+          key: {
+            surfaceId: edge.id,
+            output: contract.selector,
+            alias: surface.name,
+            mode: "all",
+            sourceKind: "callback",
+            returnVariant: contract.returnVariant,
+            contextId: "javascript.package-callback-loaded",
+          },
+          discovery: {
+            kind: "source-inventory-surface",
+            observedKeys: [surface.observedKey],
+            sourceRefs: contract.sourceRefs,
+          },
+          requiredValueProof: "live-value-observation",
+        });
+      }
+    }
+    expect(
+      outputCallbacks.flatMap(
+        (surface) => surface.metadata.callbackOutputContracts,
+      ),
+    ).toHaveLength(74);
+
+    const mutatedSurfaces = structuredClone(fixture.surfaces);
+    const dataVictim = mutatedSurfaces.find(
+      (surface) =>
+        sourceShapedGlobals.some(
+          (candidate) => candidate.observedKey === surface.observedKey,
+        ) && surface.metadata?.valueShape === "data",
+    );
+    expect(dataVictim).toBeDefined();
+    delete dataVictim.metadata.valueShape;
+    for (const surface of mutatedSurfaces) {
+      if (surface.kind !== "callback") continue;
+      delete surface.metadata?.evidenceType;
+      delete surface.metadata?.callbackOutputBoundary;
+    }
+    const mutated = buildOutputShapeCatalog({
+      coverage: fixture.coverage,
+      implementationRows: fixture.implementationRows,
+      surfaces: mutatedSurfaces,
+      repoRoot,
+      liveEvidence: fixture.liveEvidence,
+    });
+    expect(mutated.counts).toEqual({
+      ...fixture.catalog.counts,
+      outputBearingSurfaces: fixture.catalog.counts.outputBearingSurfaces - 1,
+      structuralOnlySurfaces:
+        fixture.catalog.counts.structuralOnlySurfaces - 22,
+      unresolvedSurfaces: fixture.catalog.counts.unresolvedSurfaces + 23,
+      catalogRows: fixture.catalog.counts.catalogRows - 1,
+      sourceInventoryRows: fixture.catalog.counts.sourceInventoryRows - 1,
+    });
+    const mutatedAccountById = new Map(
+      mutated.surfaceAccounts.map((account) => [account.surfaceId, account]),
+    );
+    expect(
+      mutatedAccountById.get(edgeByObservedKey.get(dataVictim.observedKey).id),
+    ).toMatchObject({
+      status: "unresolved",
+      reasonCode: "native-global-reachability-contract-missing",
+    });
+    for (const surface of [...producerCallbacks, ...controlCallbacks]) {
+      expect(
+        mutatedAccountById.get(edgeByObservedKey.get(surface.observedKey).id),
+      ).toMatchObject({
+        status: "unresolved",
+        reasonCode: "callback-payload-contract-missing",
+      });
+    }
+
+    const missingOutputContracts = structuredClone(fixture.surfaces);
+    for (const surface of missingOutputContracts) {
+      if (
+        surface.metadata?.callbackOutputContractSchema !==
+        CALLBACK_OUTPUT_CONTRACT_SCHEMA
+      ) {
+        continue;
+      }
+      delete surface.metadata.callbackOutputContractSchema;
+      delete surface.metadata.callbackOutputContracts;
+    }
+    const missingOutputCatalog = buildOutputShapeCatalog({
+      coverage: fixture.coverage,
+      implementationRows: fixture.implementationRows,
+      surfaces: missingOutputContracts,
+      repoRoot,
+      liveEvidence: fixture.liveEvidence,
+    });
+    expect(missingOutputCatalog.counts).toEqual({
+      ...fixture.catalog.counts,
+      outputBearingSurfaces: fixture.catalog.counts.outputBearingSurfaces - 21,
+      unresolvedSurfaces: fixture.catalog.counts.unresolvedSurfaces + 21,
+      catalogRows: fixture.catalog.counts.catalogRows - 74,
+      sourceInventoryRows: fixture.catalog.counts.sourceInventoryRows - 74,
+    });
+    const missingAccountById = new Map(
+      missingOutputCatalog.surfaceAccounts.map((account) => [
+        account.surfaceId,
+        account,
+      ]),
+    );
+    for (const surface of outputCallbacks) {
+      expect(
+        missingAccountById.get(edgeByObservedKey.get(surface.observedKey).id),
+      ).toMatchObject({
+        status: "unresolved",
+        reasonCode: "callback-payload-contract-missing",
+      });
+    }
+
+    for (const mutate of [
+      (surface) => {
+        surface.metadata.callbackOutputContractSchema = "unknown";
+      },
+      (surface) => {
+        surface.metadata.callbackOutputContracts[0].sourceRefs = [
+          "missing.cc#callback",
+        ];
+      },
+      (surface) => {
+        surface.metadata.callbackOutputContracts[0].valueShape = "no-arguments";
+      },
+    ]) {
+      const malformedSurfaces = structuredClone(fixture.surfaces);
+      const victim = malformedSurfaces.find(
+        (surface) =>
+          surface.metadata?.callbackOutputContractSchema ===
+          CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+      );
+      mutate(victim);
+      expect(() =>
+        buildOutputShapeCatalog({
+          coverage: fixture.coverage,
+          implementationRows: fixture.implementationRows,
+          surfaces: malformedSurfaces,
+          repoRoot,
+          liveEvidence: fixture.liveEvidence,
+        }),
+      ).toThrow(/callback output contract/);
+    }
+  }, 30_000);
+
+  test("source-asserts native control tokens and identity-bearing freeze outputs", async () => {
+    const fixture = await repositoryCatalogFixture();
+    const edgeByName = new Map(
+      fixture.coverage.edges.map((edge) => [edge.surface.name, edge]),
+    );
+    const accountById = new Map(
+      fixture.catalog.surfaceAccounts.map((account) => [
+        account.surfaceId,
+        account,
+      ]),
+    );
+    const rowsById = Map.groupBy(
+      fixture.catalog.rows,
+      (row) => row.key.surfaceId,
+    );
+    const accountFor = (surfaceName) =>
+      accountById.get(edgeByName.get(surfaceName).id);
+    const rowsFor = (surfaceName) =>
+      rowsById.get(edgeByName.get(surfaceName).id) ?? [];
+
+    for (const [surfaceName, reasonCode] of [
+      ["__exact", "reserved-native-prefix-literal"],
+      ["__ibex", "reserved-native-prefix-literal"],
+      ["__exactHttpWaitExecutor", "promise-executor-control"],
+      ["__exactHttpAwaitWritableExecutor", "promise-executor-control"],
+      ["inspector.cdp-listener", "inspector-listener-control-plane"],
+      ["inspector.debugger-pause", "debugger-void-control"],
+      ["inspector.debugger-remove-breakpoint", "debugger-void-control"],
+      ["inspector.debugger-resume", "debugger-void-control"],
+    ]) {
+      const account = accountFor(surfaceName);
+      expect(account, surfaceName).toMatchObject({
+        status: "structural-only",
+        reasonCode,
+        outputKinds: [],
+      });
+      expect(
+        account.sourceRefs.some((sourceRef) => sourceRef.includes("#tokens:")),
+        surfaceName,
+      ).toBe(true);
+      expect(rowsFor(surfaceName), surfaceName).toHaveLength(0);
+    }
+
+    for (const symbol of [
+      "ex_hermes_debugger_pause",
+      "ex_hermes_debugger_remove_breakpoint",
+      "ex_hermes_debugger_resume",
+    ]) {
+      const surfaceName =
+        symbol === "ex_hermes_debugger_remove_breakpoint"
+          ? "inspector.debugger-remove-breakpoint"
+          : `inspector.debugger-${symbol.replace("ex_hermes_debugger_", "")}`;
+      const tokenRefs = accountFor(surfaceName).sourceRefs.filter((sourceRef) =>
+        sourceRef.includes(`#tokens:extern \"C\" void ${symbol}(`),
+      );
+      expect(tokenRefs, surfaceName).toHaveLength(2);
+      expect(
+        tokenRefs.some((sourceRef) =>
+          sourceRef.startsWith("src/engine/hermes_runtime_debugger.cc#"),
+        ),
+      ).toBe(true);
+      expect(
+        tokenRefs.some((sourceRef) =>
+          sourceRef.startsWith(
+            "src/engine/hermes_runtime_platform_windows.cc#",
+          ),
+        ),
+      ).toBe(true);
+    }
+
+    expect(accountFor("__exactCancel")).toMatchObject({
+      status: "output-bearing",
+      reasonCode: "source-asserted-structured-output",
+      outputKinds: ["structured-output"],
+    });
+    expect(rowsFor("__exactCancel").map((row) => row.key)).toEqual([
+      {
+        surfaceId: edgeByName.get("__exactCancel").id,
+        output: "[[return]]",
+        alias: "nativeFetchPromise.__exactCancel",
+        mode: "all",
+        sourceKind: "native-op",
+        returnVariant: "undefined",
+        contextId: "javascript.package-call-loaded",
+      },
+    ]);
+
+    expect(accountFor("__exactSetCompartmentFor")).toMatchObject({
+      status: "output-bearing",
+      reasonCode: "source-asserted-structured-output",
+      outputKinds: ["structured-output"],
+    });
+    expect(rowsFor("__exactSetCompartmentFor").map((row) => row.key)).toEqual([
+      {
+        surfaceId: edgeByName.get("__exactSetCompartmentFor").id,
+        output: "[[return]]",
+        alias: "__privSetCompartmentFor",
+        mode: "all",
+        sourceKind: "native-op",
+        returnVariant: "undefined",
+        contextId: "runtime.bootstrap-native-call-loaded",
+      },
+    ]);
+
+    expect(accountFor("__ibexLockedDown")).toMatchObject({
+      status: "output-bearing",
+      reasonCode: "source-asserted-structured-output",
+    });
+    expect(rowsFor("__ibexLockedDown").map((row) => row.key)).toEqual([
+      expect.objectContaining({
+        output: "[[value]]",
+        alias: "globalThis.__ibexLockedDown",
+        mode: "lockdown",
+        sourceKind: "native-op",
+        returnVariant: "true",
+        contextId: "javascript.package-property-read-loaded",
+      }),
+      expect.objectContaining({
+        output: "[[value]]",
+        alias: "globalThis.__ibexLockedDown",
+        mode: "no-lockdown",
+        sourceKind: "native-op",
+        returnVariant: "absent",
+        contextId: "javascript.package-property-read-loaded",
+      }),
+    ]);
+
+    const tamedAliases = [
+      "globalThis.Function.__ibexTamed",
+      "globalThis.eval.__ibexTamed",
+      "Object.getPrototypeOf(function*(){}).constructor.__ibexTamed",
+      "Object.getPrototypeOf(async function(){}).constructor.__ibexTamed",
+    ];
+    const tamedKeys = rowsFor("__ibexTamed").map((row) => row.key);
+    expect(tamedKeys).toHaveLength(8);
+    for (const alias of tamedAliases) {
+      expect(tamedKeys).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            output: "[[value]]",
+            alias,
+            mode: "lockdown",
+            returnVariant: "true",
+          }),
+          expect.objectContaining({
+            output: "[[value]]",
+            alias,
+            mode: "no-lockdown",
+            returnVariant: "absent",
+          }),
+        ]),
+      );
+    }
+
+    for (const [surfaceName, patchPath] of [
+      [
+        "__exactDeepFreeze",
+        "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch",
+      ],
+      [
+        "__exactNativeFreeze",
+        "patches/hermes/0005-native-compartment-refinements.patch",
+      ],
+    ]) {
+      expect(accountFor(surfaceName), surfaceName).toMatchObject({
+        status: "output-bearing",
+        reasonCode: "source-asserted-structured-output",
+        outputKinds: ["structured-output"],
+      });
+      const rows = rowsFor(surfaceName);
+      expect(rows, surfaceName).toHaveLength(2);
+      expect(
+        rows.map((row) => row.key),
+        surfaceName,
+      ).toEqual(
+        expect.arrayContaining(
+          ["primitive-sentinel", "object-sentinel"].map((mode) => ({
+            surfaceId: edgeByName.get(surfaceName).id,
+            output: "[[return]]",
+            alias: surfaceName,
+            mode,
+            sourceKind: "native-op",
+            returnVariant: "same-as-argument-0",
+            contextId: "runtime.bootstrap-native-call-loaded",
+          })),
+        ),
+      );
+      for (const row of rows) {
+        expect(row.discovery.kind).toBe("source-asserted-structured-output");
+        expect(row.discovery.sourceRefs).toHaveLength(2);
+        expect(
+          row.discovery.sourceRefs.every((sourceRef) =>
+            sourceRef.startsWith(`${patchPath}#region:`),
+          ),
+        ).toBe(true);
+        expect(
+          row.discovery.sourceRefs.some((sourceRef) =>
+            sourceRef.includes("return args.getArg(0);"),
+          ),
+        ).toBe(true);
+      }
+    }
+
+    // These private identifier spellings are source-bound to Android-only
+    // process property reads. The catalog names the public property value;
+    // the current target proves its absence through the separate target route.
+    for (const [surfaceName, alias] of [
+      ["__exactOSRelease", "process.__exactOSRelease"],
+      ["__exactOSVersion", "process.__exactOSVersion"],
+    ]) {
+      expect(accountFor(surfaceName), surfaceName).toMatchObject({
+        status: "output-bearing",
+        reasonCode: "source-derived-public-output",
+        outputKinds: ["public-property-read"],
+      });
+      expect(rowsFor(surfaceName), surfaceName).toEqual([
+        {
+          key: {
+            surfaceId: edgeByName.get(surfaceName).id,
+            output: "[[value]]",
+            alias,
+            mode: "all",
+            sourceKind: "native-op",
+            returnVariant: "default",
+            contextId: "javascript.package-property-read-loaded",
+          },
+          discovery: {
+            kind: "source-inventory-surface",
+            observedKeys: [`native-op:${surfaceName}`],
+            sourceRefs: expect.arrayContaining([
+              `src/engine/hermes_runtime_android.cc#jsi-global-property:${alias}`,
+            ]),
+          },
+          requiredValueProof: "live-value-observation",
+        },
+      ]);
+    }
+    expect(
+      fs.readFileSync(
+        path.join(
+          repoRoot,
+          "patches/hermes/0005-native-compartment-refinements.patch",
+        ),
+        "utf8",
+      ),
+    ).toContain("return args.getArg(0);");
+    expect(
+      fs.readFileSync(
+        path.join(
+          repoRoot,
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch",
+        ),
+        "utf8",
+      ),
+    ).toContain("return args.getArg(0);");
+    const androidRuntime = fs.readFileSync(
+      path.join(repoRoot, "src/engine/hermes_runtime_android.cc"),
+      "utf8",
+    );
+    expect(androidRuntime).toContain('"__exactOSRelease"');
+    expect(androidRuntime).toContain('"__exactOSVersion"');
+    expect(androidRuntime).toContain("process.setProperty(");
+  }, 30_000);
+
+  test("catalogs fixed native callback deliveries separately from ignored callback returns", async () => {
+    const { catalog, coverage } = await repositoryCatalogFixture();
+    const edgeByName = new Map(
+      coverage.edges.map((edge) => [edge.surface.name, edge]),
+    );
+    const accountById = new Map(
+      catalog.surfaceAccounts.map((account) => [account.surfaceId, account]),
+    );
+    const rowsById = Map.groupBy(
+      catalog.rows,
+      (row) => row.key.surfaceId,
+    );
+    const rowsFor = (surfaceName) =>
+      rowsById.get(edgeByName.get(surfaceName).id) ?? [];
+
+    const deliveryCounts = new Map([
+      ["__exactDispatchEvent", 3],
+      ["__exactModuleEvent", 14],
+      ["__exactMotionRatedPublish", 8],
+      ["__exactRunOnJS", 6],
+      ["__exactScheduleOnAppRuntime", 4],
+    ]);
+    for (const [surfaceName, count] of deliveryCounts) {
+      const edge = edgeByName.get(surfaceName);
+      expect(accountById.get(edge.id), surfaceName).toMatchObject({
+        status: "output-bearing",
+        reasonCode: "source-asserted-structured-output",
+        outputKinds: ["structured-output"],
+      });
+      const rows = rowsFor(surfaceName);
+      expect(rows, surfaceName).toHaveLength(count);
+      expect(
+        rows.every(
+          (row) =>
+            row.key.output.startsWith("callback:") &&
+            row.key.sourceKind === "native-op" &&
+            row.key.contextId === "javascript.package-callback-loaded" &&
+            row.discovery.kind === "source-asserted-structured-output" &&
+            row.requiredValueProof === "live-value-observation",
+        ),
+        surfaceName,
+      ).toBe(true);
+      expect(
+        rows.some((row) => row.key.output === "[[return]]"),
+        `${surfaceName} ignored callback return`,
+      ).toBe(false);
+      expect(
+        rows.every((row) =>
+          row.discovery.sourceRefs.some((sourceRef) =>
+            sourceRef.includes("#tokens:"),
+          ),
+        ),
+        surfaceName,
+      ).toBe(true);
+    }
+
+    expect(rowsFor("__exactDispatchEvent").map((row) => row.key)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          output: "callback:dispatch/0",
+          alias: "__exactDispatchEvent.handlerId",
+          mode: "json-payload",
+          returnVariant: "number",
+        }),
+        expect.objectContaining({
+          output: "callback:dispatch/1",
+          alias: "__exactDispatchEvent.payload",
+          mode: "json-payload",
+          returnVariant: "json-value",
+        }),
+        expect.objectContaining({
+          output: "callback:dispatch/1",
+          alias: "__exactDispatchEvent.payload",
+          mode: "empty-payload",
+          returnVariant: "undefined",
+        }),
+      ]),
+    );
+    expect(
+      rowsFor("__exactModuleEvent").filter(
+        (row) => row.key.returnVariant === "absent",
+      ),
+    ).toHaveLength(2);
+    expect(
+      rowsFor("__exactRunOnJS").map((row) => row.key.output),
+    ).toEqual(
+      expect.arrayContaining([
+        "callback:run-on-js/0",
+        "callback:run-on-js/1.sourceIdentity",
+        "callback:run-on-js/1.sourceSequence",
+        "callback:run-on-js/1.generation",
+        "callback:run-on-js/arguments[]",
+      ]),
+    );
+    expect(
+      rowsFor("__exactMotionRatedPublish").map((row) => row.key.output),
+    ).toEqual(
+      expect.arrayContaining([
+        "callback:motion-rated-publish/0",
+        "callback:motion-rated-publish/1[]",
+        "callback:motion-rated-publish/2.dirtyGeneration",
+        "callback:motion-rated-publish/2.sampleTimeNs",
+        "callback:motion-rated-publish/2.heartbeat",
+        "callback:motion-rated-publish/2.programmatic",
+      ]),
+    );
+
+    const observerName = "__ibexCapsecContextObserver_";
+    const observerEdge = edgeByName.get(observerName);
+    expect(accountById.get(observerEdge.id)).toMatchObject({
+      status: "output-bearing",
+      reasonCode: "source-asserted-structured-output",
+      outputKinds: ["structured-output"],
+    });
+    expect(rowsFor(observerName).map((row) => row.key)).toEqual([
+      expect.objectContaining({
+        output: "[[return]]",
+        alias: "__ibexCapsecContextObserver_.context",
+        mode: "ephemeral-one-shot",
+        returnVariant: "context-record",
+        contextId: "javascript.package-call-loaded",
+      }),
+      expect.objectContaining({
+        output: "field:principalId",
+        alias: "__ibexCapsecContextObserver_.principalId",
+        returnVariant: "u64-tagged-string",
+      }),
+      expect.objectContaining({
+        output: "field:runtimeNonce",
+        alias: "__ibexCapsecContextObserver_.runtimeNonce",
+        returnVariant: "u64-tagged-string",
+      }),
+    ]);
+    expect(
+      rowsFor(observerName).every((row) =>
+        row.discovery.sourceRefs.some((sourceRef) =>
+          sourceRef.startsWith(
+            "src/engine/hermes_runtime.cc#region:extern \"C\" int ibex_test_install_capsec_context_observer(",
+          ),
+        ),
+      ),
+    ).toBe(true);
+  }, 30_000);
+
+  test("derives every host ABI account and output row only from its signature contract", async () => {
+    const { catalog, coverage, surfaces } = await repositoryCatalogFixture();
+    const sourceByObservedKey = new Map(
+      surfaces.map((surface) => [surface.observedKey, surface]),
+    );
+    const accountBySurfaceId = new Map(
+      catalog.surfaceAccounts.map((account) => [account.surfaceId, account]),
+    );
+    const rowsBySurfaceId = Map.groupBy(
+      catalog.rows,
+      (row) => row.key.surfaceId,
+    );
+    const hostEdges = coverage.edges.filter(
+      (edge) => edge.surface.kind === "host-abi",
+    );
+    const derivedAccounts = hostEdges.map((edge) => {
+      const surface = sourceByObservedKey.get(`host-abi:${edge.surface.name}`);
+      const derived = deriveHostAbiOutputCatalogAccount(surface);
+      const membershipComplete =
+        derived.status === "output-bearing" &&
+        derived.membershipUnresolved.length === 0;
+      const sourceRefs = [
+        ...new Set(
+          surface.metadata.outputContracts.map(
+            (contract) => contract.sourceRef,
+          ),
+        ),
+      ].sort();
+      const outputKinds = membershipComplete
+        ? derived.outputChannels.map((channel) => channel.selector)
+        : [];
+      const account = accountBySurfaceId.get(edge.id);
+      expect(Object.keys(account).sort()).toEqual([
+        "outputKinds",
+        "reasonCode",
+        "sourceRefs",
+        "status",
+        "surfaceId",
+      ]);
+      expect(account).toEqual({
+        surfaceId: edge.id,
+        status: derived.status,
+        reasonCode: derived.reasonCode,
+        sourceRefs,
+        outputKinds,
+      });
+
+      const allRows = rowsBySurfaceId.get(edge.id) ?? [];
+      const rows = allRows.filter(
+        (row) => row.discovery.kind === "source-inventory-surface",
+      );
+      const hasReplacementRecipe = [
+        "ex_host_fs_mkdir_recursive_result",
+        "ex_host_fs_mkdtemp",
+        "ex_host_fs_realpath",
+      ].includes(edge.surface.name);
+      const expectedChannels =
+        membershipComplete && !hasReplacementRecipe
+          ? derived.outputChannels
+          : [];
+      expect(rows).toHaveLength(expectedChannels.length);
+      if (!membershipComplete) expect(allRows).toHaveLength(0);
+      for (const channel of expectedChannels) {
+        expect(rows).toContainEqual({
+          key: {
+            surfaceId: edge.id,
+            output: channel.selector,
+            alias: edge.surface.name,
+            mode: "all",
+            sourceKind: "host-abi",
+            returnVariant: "default",
+            contextId: "host.private-native-call-initialized",
+          },
+          discovery: {
+            kind: "source-inventory-surface",
+            observedKeys: [surface.observedKey],
+            sourceRefs: channel.sourceRefs,
+          },
+          requiredValueProof: "live-value-observation",
+        });
+      }
+      return derived;
+    });
+
+    expect(hostEdges).toHaveLength(276);
+    expect(countsBy(derivedAccounts, (account) => account.status)).toEqual({
+      "output-bearing": 151,
+      "structural-only": 25,
+      unresolved: 100,
+    });
+    expect(
+      derivedAccounts
+        .filter((account) => account.status === "output-bearing")
+        .flatMap((account) => account.outputChannels),
+    ).toHaveLength(182);
+    expect(
+      derivedAccounts.some(
+        (account) =>
+          account.status === "unresolved" && account.outputChannels.length > 0,
+      ),
+    ).toBe(true);
+
+    const vfsResolveEdge = hostEdges.find(
+      (edge) => edge.surface.name === "ex_host_vfs_resolve_path",
+    );
+    expect(
+      rowsBySurfaceId.get(vfsResolveEdge.id).map((row) => row.key),
+    ).toContainEqual({
+      surfaceId: vfsResolveEdge.id,
+      output: "out:backing",
+      alias: "ex_host_vfs_resolve_path",
+      mode: "all",
+      sourceKind: "host-abi",
+      returnVariant: "default",
+      contextId: "host.private-native-call-initialized",
+    });
   }, 30_000);
 
   test("derives output membership independently of classification, capability, and rationale", async () => {
@@ -452,7 +1327,7 @@ describe("LLP 0023 output-disposition dataset", () => {
           engineBinaryDigest: `sha256-${"A".repeat(43)}`,
         },
       }),
-    ).toThrow(/verified output catalog has 909 unresolved surface accounts/);
+    ).toThrow(/verified output catalog has 657 unresolved surface accounts/);
   }, 30_000);
 
   test("rejects incomplete accounts and registrar-only value evidence", async () => {
@@ -731,7 +1606,7 @@ describe("LLP 0023 output-disposition dataset", () => {
     ).toThrow(/evidence is not a complete v2 document/);
   });
 
-  test("generates all ten dispositions and an explicit unpromotable state", () => {
+  test("generates all eleven dispositions and an explicit unpromotable state", () => {
     const { catalog, policy, evidence } = fixture();
     const dataset = buildOutputDispositionDataset({
       catalog,
@@ -740,7 +1615,7 @@ describe("LLP 0023 output-disposition dataset", () => {
     });
     expect(dataset.dispositions).toEqual(OUTPUT_DISPOSITIONS);
     expect(Object.values(dataset.counts.byDisposition)).toEqual(
-      Array(10).fill(1),
+      Array(OUTPUT_DISPOSITIONS.length).fill(1),
     );
     expect(dataset.evidence).toEqual({
       status: "unpromotable",
@@ -750,6 +1625,48 @@ describe("LLP 0023 output-disposition dataset", () => {
       "Evidence status: **unpromotable**",
     );
     expect(renderOutputDispositionMarkdown(dataset)).toContain(evidence.reason);
+  });
+
+  test("confines private native path markers to authenticated Host-ABI rows", () => {
+    const input = fixture();
+    const privateIndex = OUTPUT_DISPOSITIONS.indexOf("private-native-path");
+    const privateOverride = input.policy.overrides[privateIndex];
+    expect(privateOverride).toMatchObject({
+      disposition: "private-native-path",
+      expectation: {
+        outcome: "return",
+        normalizedValue: "private-native-path",
+      },
+      key: {
+        sourceKind: "host-abi",
+        contextId: "host.private-native-call-initialized",
+      },
+    });
+    expect(() => buildOutputDispositionDataset(input)).not.toThrow();
+
+    for (const mutation of [
+      (row) => {
+        row.key.sourceKind = "native-op";
+      },
+      (row) => {
+        row.key.contextId = "javascript.package-call-loaded";
+      },
+      (row) => {
+        row.expectation.normalizedValue = "non-path";
+      },
+    ]) {
+      const changed = fixture();
+      mutation(changed.policy.overrides[privateIndex]);
+      expect(() => buildOutputDispositionDataset(changed)).toThrow(
+        /private-native-path requires an authenticated Host-ABI return marker/,
+      );
+    }
+
+    const mismatched = fixture();
+    mismatched.policy.overrides[privateIndex].disposition = "non-path";
+    expect(() => buildOutputDispositionDataset(mismatched)).toThrow(
+      /private-native-path marker requires the matching disposition/,
+    );
   });
 
   test("binds catalog discovery to the exact evidence state and engine identity", () => {

@@ -1869,3 +1869,9 @@ async fn capsec_public_native_recipe_batch() {
         .sync_all()
         .expect("sync native public evidence artifact");
 }
+
+mod inherited_intrinsic_alias {
+    use super::{hermes_engine_test_lock, HermesEngine};
+    use crate::engine::Engine as _;
+    include!("capsec_inherited_intrinsic_alias_batch.test.rs");
+}

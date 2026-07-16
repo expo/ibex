@@ -1197,6 +1197,9 @@ fn resolve_exec_path(extra_candidates: &[&str]) -> String {
         .unwrap_or_else(|| "ibex".to_string())
 }
 
+const ARMED_INSPECTOR_CLOSED_MESSAGE: &str =
+    "armed capability runtime closes inspector activation and configuration";
+
 /// Runtime wrapper that owns the engine and host configuration.
 pub struct Runtime {
     engine: Arc<dyn Engine>,
@@ -2191,6 +2194,41 @@ pub(crate) fn prepare_session_worker_runtime(
     })
 }
 
+fn authenticated_session_worker_snapshot(
+    application: &[u8],
+    session_io: crate::terminal_session::SessionIoPlan,
+) -> Result<Arc<capsec_semantics::arming::ArmedSnapshot>> {
+    use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode, ArmedSnapshot};
+
+    anyhow::ensure!(
+        matches!(
+            (session_io.route.entry_kind, session_io.route.mode),
+            (ArmedEntryKind::Repl, ArmedExecutionMode::Interactive)
+                | (ArmedEntryKind::Repl, ArmedExecutionMode::Transcript)
+                | (ArmedEntryKind::Stdin, ArmedExecutionMode::Program)
+        ),
+        "worker runtime received an invalid session route"
+    );
+    let text =
+        std::str::from_utf8(application).context("session worker launch material is not UTF-8")?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .context("session worker launch material is not strict JSON")?;
+    let material: SessionWorkerRuntimeMaterial = serde_json::from_value(value)
+        .context("session worker launch material has the wrong shape")?;
+    let snapshot_bytes = capsec_semantics::canonical::to_jcs_bytes(&material.snapshot)?;
+    let snapshot = Arc::new(
+        ArmedSnapshot::load(&snapshot_bytes, &material.expected_identity)
+            .context("session worker refused its authenticated armed snapshot")?,
+    );
+    anyhow::ensure!(
+        snapshot.entry().kind == session_io.route.entry_kind
+            && snapshot.entry().mode == session_io.route.mode
+            && session_io.route.synthetic_identity() == Some(snapshot.entry().identity.as_str()),
+        "session worker route differs from the armed entry"
+    );
+    Ok(snapshot)
+}
+
 impl Runtime {
     /// Build a runtime from CLI configuration.
     pub fn from_cli(cli: &Cli) -> Result<Self> {
@@ -2208,36 +2246,7 @@ impl Runtime {
         application: &[u8],
         session_io: crate::terminal_session::SessionIoPlan,
     ) -> Result<Self> {
-        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode, ArmedSnapshot};
-        use std::sync::Arc;
-
-        anyhow::ensure!(
-            matches!(
-                (session_io.route.entry_kind, session_io.route.mode),
-                (ArmedEntryKind::Repl, ArmedExecutionMode::Interactive)
-                    | (ArmedEntryKind::Repl, ArmedExecutionMode::Transcript)
-                    | (ArmedEntryKind::Stdin, ArmedExecutionMode::Program)
-            ),
-            "worker runtime received an invalid session route"
-        );
-        let text = std::str::from_utf8(application)
-            .context("session worker launch material is not UTF-8")?;
-        let value = capsec_semantics::strict_json::parse_strict(text)
-            .context("session worker launch material is not strict JSON")?;
-        let material: SessionWorkerRuntimeMaterial = serde_json::from_value(value)
-            .context("session worker launch material has the wrong shape")?;
-        let snapshot_bytes = capsec_semantics::canonical::to_jcs_bytes(&material.snapshot)?;
-        let snapshot = Arc::new(
-            ArmedSnapshot::load(&snapshot_bytes, &material.expected_identity)
-                .context("session worker refused its authenticated armed snapshot")?,
-        );
-        anyhow::ensure!(
-            snapshot.entry().kind == session_io.route.entry_kind
-                && snapshot.entry().mode == session_io.route.mode
-                && session_io.route.synthetic_identity()
-                    == Some(snapshot.entry().identity.as_str()),
-            "session worker route differs from the armed entry"
-        );
+        let snapshot = authenticated_session_worker_snapshot(application, session_io)?;
         let digest = snapshot.digest().as_str().to_owned();
         let host = Host::new_armed(
             HostConfig {
@@ -2249,13 +2258,23 @@ impl Runtime {
         .context("failed to construct authenticated session worker host")?;
         crate::host::abi::install_host(host.clone());
         let engine = engine::create_engine("hermes", Some(&digest))?;
+        Ok(Self::from_authenticated_session_worker_parts(
+            host, engine, session_io,
+        ))
+    }
+
+    fn from_authenticated_session_worker_parts(
+        host: Host,
+        engine: Arc<dyn Engine>,
+        session_io: crate::terminal_session::SessionIoPlan,
+    ) -> Self {
         let history_startup = crate::history::HistoryPlatformCapture::capture(
             crate::cli::HistoryMode::Off,
             false,
             false,
         )
         .bind_authenticated_project_root(None);
-        Ok(Self {
+        Self {
             engine,
             host,
             runtime_bootstrap_loaded: tokio::sync::OnceCell::new(),
@@ -2265,7 +2284,7 @@ impl Runtime {
             bundle_format: BundleFormat::Cjs,
             exec_argv: Vec::new(),
             compat_modes: Vec::new(),
-        })
+        }
     }
 
     /// Build a production runtime from the terminal and route facts captured
@@ -3022,6 +3041,16 @@ impl Runtime {
     }
 
     pub async fn start_inspector(&self, host: &str, port: u16) -> Result<()> {
+        // The CLI spelling guard is useful early rejection, but this is the
+        // capability sink shared by every Runtime constructor, including the
+        // authenticated pre-Clap session-worker route. Refuse while the armed
+        // Host is still available and before the Engine can allocate a debugger
+        // backend or bind a CDP listener.
+        // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+        // @ref LLP 0022#2-startup-project-identity-and-session-arming
+        if self.host.armed_snapshot().is_some() {
+            anyhow::bail!(ARMED_INSPECTOR_CLOSED_MESSAGE);
+        }
         self.engine.start_inspector(host, port).await
     }
 
@@ -3751,31 +3780,7 @@ fn observed_arming_identity(
     mut supplied: capsec_semantics::arming::ExpectedArmingIdentity,
     snapshot_bytes: &[u8],
 ) -> Result<capsec_semantics::arming::ExpectedArmingIdentity> {
-    use capsec_semantics::model::Digest;
-
-    let compiled: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/capsec/examples/armed-snapshot.canonical.json"
-    )))?;
-    supplied.profile = ibex_runtime::capsec_registry_generated::CAPSEC_PROFILE.into();
-    supplied.semantic_core = ibex_runtime::capsec_registry_generated::CAPSEC_SEMANTIC_CORE.into();
-    supplied.vocab_digest = Digest::new(
-        compiled["vocabDigest"]
-            .as_str()
-            .context("compiled vocabulary digest is missing")?,
-    )
-    .map_err(anyhow::Error::msg)?;
-    supplied.registry_digest = Digest::new(
-        compiled["registryDigest"]
-            .as_str()
-            .context("compiled registry digest is missing")?,
-    )
-    .map_err(anyhow::Error::msg)?;
-    supplied.target = exact_runtime_target();
-    supplied.features = observed_structural_features();
-    supplied.engine_binary_digest =
-        Digest::new(crate::engine::hermes::HermesEngine::loaded_engine_identity()?.binary_digest)
-            .map_err(anyhow::Error::msg)?;
+    supplied = ibex_runtime::host::embedder_artifacts::verify_expected_identity(supplied)?;
     let snapshot_text = std::str::from_utf8(snapshot_bytes)
         .context("capsec armed snapshot is not UTF-8 while probing bound volumes")?;
     let snapshot = capsec_semantics::strict_json::parse_strict(snapshot_text)
@@ -9192,6 +9197,117 @@ pub(crate) mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct InspectorProbeEngine {
+        starts: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl Engine for InspectorProbeEngine {
+        fn name(&self) -> &str {
+            "inspector-probe-test"
+        }
+
+        fn version(&self) -> Result<String> {
+            Ok("test".to_owned())
+        }
+
+        async fn load_runtime(&self) -> Result<()> {
+            Ok(())
+        }
+
+        async fn eval(&self, _code: &str) -> Result<Option<String>> {
+            Ok(None)
+        }
+
+        async fn run_file(&self, _path: &str) -> Result<Option<String>> {
+            Ok(None)
+        }
+
+        async fn start_inspector(&self, _host: &str, _port: u16) -> Result<()> {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn stop_inspector(&self) -> Result<()> {
+            Ok(())
+        }
+
+        fn supports_feature(&self, _feature: EngineFeature) -> bool {
+            false
+        }
+    }
+
+    fn inspector_probe_runtime(host: Host, engine: Arc<InspectorProbeEngine>) -> Runtime {
+        Runtime {
+            engine,
+            host,
+            runtime_bootstrap_loaded: tokio::sync::OnceCell::new(),
+            history_startup: crate::history::HistoryPlatformCapture::capture(
+                crate::cli::HistoryMode::Off,
+                false,
+                false,
+            )
+            .bind_authenticated_project_root(None),
+            session_io: None,
+            authenticated_project_root: None,
+            bundle_format: BundleFormat::Cjs,
+            exec_argv: Vec::new(),
+            compat_modes: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn unarmed_runtime_retains_inspector_dispatch() {
+        let engine = Arc::new(InspectorProbeEngine::default());
+        let runtime = inspector_probe_runtime(Host::new(HostConfig::default()), engine.clone());
+
+        Runtime::start_inspector(&runtime, "127.0.0.1", 0)
+            .await
+            .unwrap();
+
+        assert_eq!(engine.starts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn session_worker_material_runtime_refuses_inspector_before_engine_dispatch() {
+        let project = tempdir().unwrap();
+        let plan = repl_ingress_test_plan(capsec_semantics::arming::ArmedExecutionMode::Transcript);
+        let supervisor_host = armed_repl_ingress_test_host(
+            project.path(),
+            capsec_semantics::arming::ArmedExecutionMode::Transcript,
+        );
+        let snapshot = supervisor_host.armed_snapshot().unwrap();
+        let material = SessionWorkerRuntimeMaterial {
+            snapshot: snapshot.document().clone(),
+            expected_identity: expected_identity_from_snapshot(snapshot).unwrap(),
+        };
+        let application =
+            capsec_semantics::canonical::to_jcs_bytes(&serde_json::to_value(material).unwrap())
+                .unwrap();
+        let authenticated = authenticated_session_worker_snapshot(&application, plan).unwrap();
+        let worker_host = unsafe {
+            Host::new_armed_for_test(
+                HostConfig {
+                    mode: crate::host::SecurityMode::Enforce,
+                    ..Default::default()
+                },
+                authenticated,
+            )
+        }
+        .unwrap();
+        let engine = Arc::new(InspectorProbeEngine::default());
+        let runtime =
+            Runtime::from_authenticated_session_worker_parts(worker_host, engine.clone(), plan);
+
+        let error = Runtime::start_inspector(&runtime, "127.0.0.1", 0)
+            .await
+            .expect_err("an armed session-worker Runtime must close the inspector");
+
+        assert_eq!(error.to_string(), ARMED_INSPECTOR_CLOSED_MESSAGE);
+        assert_eq!(engine.starts.load(Ordering::SeqCst), 0);
+    }
+
     #[cfg(not(windows))]
     #[tokio::test]
     async fn runtime_load_preload_is_single_shot_after_success() {
@@ -9285,7 +9401,6 @@ pub(crate) mod tests {
         }
     }
 
-    #[cfg(feature = "capsec-conformance-observer")]
     fn armed_repl_ingress_test_host(
         project_root: &Path,
         mode: capsec_semantics::arming::ArmedExecutionMode,
@@ -9298,7 +9413,6 @@ pub(crate) mod tests {
         )
     }
 
-    #[cfg(feature = "capsec-conformance-observer")]
     fn armed_ingress_test_host(
         project_root: &Path,
         entry_kind: capsec_semantics::arming::ArmedEntryKind,
@@ -9353,6 +9467,9 @@ pub(crate) mod tests {
                     serde_json::from_value(row["role"].clone()).unwrap();
                 let content_digest = match role {
                     ProtectedArtifactRole::EngineBinary => digest_at(&["engine", "binaryDigest"]),
+                    ProtectedArtifactRole::ExactOperationManifest => {
+                        digest_at(&["exactEmbedder", "operationManifestDigest"])
+                    }
                     ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
                     ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
                     ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
@@ -9413,7 +9530,6 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    #[cfg(feature = "capsec-conformance-observer")]
     fn repl_ingress_test_plan(
         mode: capsec_semantics::arming::ArmedExecutionMode,
     ) -> crate::terminal_session::SessionIoPlan {
@@ -9442,7 +9558,6 @@ pub(crate) mod tests {
         Ok((host, engine, ingress))
     }
 
-    #[cfg(feature = "capsec-conformance-observer")]
     fn ingress_test_plan(
         entry_kind: capsec_semantics::arming::ArmedEntryKind,
         mode: capsec_semantics::arming::ArmedExecutionMode,

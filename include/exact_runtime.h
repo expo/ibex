@@ -27,6 +27,16 @@ extern "C" {
 /// Opaque handle to an Exact Hermes runtime
 typedef struct ExactHermesRuntime ExactHermesRuntime;
 
+/// Exact embedder execution contexts. App and agent runtimes receive separate
+/// operation endowment sets through `ex_hermes_set_exact_host_call_async`.
+/// UI worklets are created through `ex_worklet_create` and deliberately cannot
+/// install this ingress; their existing SharedValue/Motion ABI is the complete
+/// host endowment.
+typedef enum ExactEmbedderContext {
+    EXACT_EMBEDDER_CONTEXT_APP = 1,
+    EXACT_EMBEDDER_CONTEXT_AGENT = 2,
+} ExactEmbedderContext;
+
 // =============================================================================
 // Runtime Lifecycle
 // =============================================================================
@@ -804,6 +814,65 @@ void ex_hermes_resolve_host_call(
     uint64_t call_id,
     const char* payload);
 
+/// Install the dedicated asynchronous Exact embedder ingress as
+/// `exact.invokeHostAsync(operationId, ArrayBuffer | ArrayBufferView)
+///   -> Promise<Uint8Array>`.
+///
+/// This is not the generic `__hostCall` channel: operations are numeric,
+/// payloads are binary, and each app/agent runtime receives one immutable,
+/// canonical endowment set. The runtime predeclares one stable `exact` object
+/// before package-compartment capture; successful installation publishes a
+/// non-writable/non-configurable method on that object and atomically performs
+/// the one-shot package-baseline finalization when it is still pending.
+/// `allowed_operation_ids` must be non-empty,
+/// strictly increasing, contain no zero ID, and contain at most 4096 entries.
+/// The setter succeeds at most once per runtime. It is available to armed and
+/// diagnostic app/agent runtimes, but always refuses restricted UI worklets.
+/// Armed runtimes additionally require `operation_manifest_digest` and the
+/// context/endowment set to exactly match the Exact binding authenticated by
+/// the armed snapshot and its protected operation-manifest artifact.
+///
+/// Return 0 on success; negative values indicate malformed arguments,
+/// unsupported context/runtime kind, or an attempted replacement.
+/// This setter creates JSI objects and therefore must be called on the runtime
+/// owner thread; an off-owner-thread call returns -7 without touching JSI or
+/// installing any endowment.
+/// `payload` passed to `callback` is borrowed only for that callback invocation;
+/// an asynchronous embedder must copy it before returning.
+/// The callback runs inline on the runtime owner thread and must return
+/// promptly. `context` and the callback implementation must remain valid until
+/// runtime destruction. At most 1024 calls may be pending; excess calls reject
+/// deterministically. Runtime destruction abandons pending calls, so the
+/// embedder must cancel its native work and must not resolve through a destroyed
+/// runtime pointer.
+int ex_hermes_set_exact_host_call_async(
+    ExactHermesRuntime* runtime,
+    ExactEmbedderContext context_kind,
+    const uint32_t* allowed_operation_ids,
+    size_t allowed_operation_count,
+    const char* operation_manifest_digest,
+    void (*callback)(ExactHermesRuntime* runtime,
+                     uint64_t call_id,
+                     uint32_t operation_id,
+                     const uint8_t* payload,
+                     size_t payload_len,
+                     void* context),
+    void* context);
+
+/// Complete a pending `exact.invokeHostAsync` call. Safe from any thread.
+/// Status zero resolves with a Uint8Array copy of `payload`; non-zero status
+/// rejects with an Error whose message is decoded from the payload (or a
+/// generic message when the payload is empty). Completion payloads are limited
+/// to 16 MiB; a malformed or oversized completion consumes the call ID and
+/// rejects it. Unknown, stale, replayed, and already-completed call IDs are
+/// ignored.
+void ex_hermes_resolve_exact_host_call(
+    ExactHermesRuntime* runtime,
+    uint64_t call_id,
+    int32_t status,
+    const uint8_t* payload,
+    size_t payload_len);
+
 /// Attach the Exact kernel handle so the runtime can expose kernel-backed
 /// state-mirror snapshots and module metadata through the `exact` global.
 void ex_hermes_set_kernel_handle(
@@ -873,6 +942,27 @@ int ex_host_install_armed(const uint8_t* snapshot,
                           size_t snapshot_len,
                           const uint8_t* expected_identity,
                           size_t expected_identity_len);
+
+/// Authenticate a paired snapshot template/expected identity against the
+/// loaded engine and checked registry, validate protected artifacts/package
+/// roots, replace the template nonce with OS randomness, and recompute the
+/// checked armed digest. Returns a heap-owned strict JSON success/refusal
+/// envelope; free it with `ex_host_free_string`.
+/// A success envelope's `artifacts` object has the stable schema
+/// `{ artifactSchema, armedSnapshotDigest, snapshot, expectedIdentity }`, with
+/// `artifactSchema` equal to `ibex/armed-embedder-artifacts/1`.
+///
+/// Preparing an artifact does not advertise a target. A later
+/// `ex_host_install_armed` still refuses any target without report-derived
+/// complete cells.
+char* ex_host_prepare_armed_embedder_artifacts(
+    const uint8_t* snapshot_template,
+    size_t snapshot_template_len,
+    const uint8_t* expected_identity,
+    size_t expected_identity_len);
+
+/// Release a heap-owned string returned by the host ABI.
+void ex_host_free_string(char* value);
 
 /// Return 1 only when the installed host has the exact snapshot digest.
 int ex_host_matches_armed_snapshot_digest(const char* digest);
@@ -1071,6 +1161,29 @@ char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime);
 //   0 = ok, 1 = error (out param carries the message), 2 = defined no-op
 //       (missing worklet or generation mismatch).
 
+// M6's steady-state ABI is intentionally fixed-width. These limits are part
+// of the C contract: callers reject/lower larger programs at build time
+// rather than allocating variable argument/result containers on a frame.
+#define EX_WORKLET_MAX_INPUT_SLOTS 16
+#define EX_WORKLET_MAX_OUTPUT_SLOTS 16
+#define EX_WORKLET_MAX_RUN_ON_JS_SLOTS 8
+#define EX_WORKLET_TYPED_QUEUE_CAPACITY 256
+
+/// The restricted runtime currently installs UTF-8 function-expression
+/// source. This is an explicit format value rather than an implicit bool so
+/// an eventual HBC artifact can be added without guessing from bytes. The M6
+/// source-install decision is guarded by the install-cost benchmark in the
+/// Ibex engine tests; unsupported formats fail closed.
+typedef enum ExWorkletInstallFormat {
+    EX_WORKLET_INSTALL_SOURCE_UTF8 = 1,
+} ExWorkletInstallFormat;
+
+typedef enum ExWorkletCaptureKind {
+    EX_WORKLET_CAPTURE_F32 = 1,
+    EX_WORKLET_CAPTURE_BOOL = 2,
+    EX_WORKLET_CAPTURE_SHARED_VALUE = 3,
+} ExWorkletCaptureKind;
+
 /// Create a restricted worklet runtime (small heap: 1MB init / 8MB max).
 /// Compatible with ex_hermes_eval/gc/get_heap_info; destroy with
 /// ex_worklet_destroy (NOT ex_hermes_destroy — worklet state must be
@@ -1112,14 +1225,112 @@ int ex_worklet_invoke(
     const char* args_json,
     char** out_result_json);
 
-/// Bind the SharedValue slab: `slab` points to `slot_count` 32-bit slots
-/// (atomic f32 bit patterns; kernel-owned shared memory per LLP 0297 §4.5).
-/// Pass NULL to unbind. Out-of-range slot access from worklet JS is a
-/// defined no-op.
-int ex_worklet_bind_shared_values(
+/// Durable identity for one Exact Motion SharedValue. Ibex treats the fields
+/// as opaque and forwards them to the host's validating accessors.
+typedef struct ExWorkletSharedValueHandle {
+    uint32_t slot;
+    uint32_t generation;
+    uint32_t epoch;
+} ExWorkletSharedValueHandle;
+
+/// Install-time-only capture record. Scalar values and complete SharedValue
+/// identities are the entire legal capture surface for math worklets. A
+/// compiler must reject mutable JS/object captures before this ABI.
+typedef struct ExWorkletCapture {
+    uint32_t kind;
+    float scalar;
+    ExWorkletSharedValueHandle shared_value;
+} ExWorkletCapture;
+
+/// One allocation-free worklet -> app-runtime call. `callback_identity` is
+/// generated from the app callback at build time; `source_identity` and
+/// `source_sequence` let the consumer preserve/diagnose per-worklet order.
+typedef struct ExWorkletScheduledCall {
+    uint64_t source_identity;
+    uint64_t source_sequence;
+    uint64_t generation;
+    uint32_t callback_identity;
+    uint32_t argument_count;
+    float arguments[EX_WORKLET_MAX_RUN_ON_JS_SLOTS];
+} ExWorkletScheduledCall;
+
+typedef struct ExWorkletInstallMetrics {
+    uint64_t source_install_count;
+    uint64_t reused_install_count;
+    uint64_t source_install_total_ns;
+    uint64_t source_install_max_ns;
+} ExWorkletInstallMetrics;
+
+/// Runtime-side rated-publish input. Motion writes the latest finite raw
+/// sample plus a monotonically increasing dirty generation; the app-runtime
+/// pacer forwards one coalesced sample per declared slot. Payload evaluation
+/// and provider invocation are owned by the app callback, never main/UI.
+typedef struct ExMotionRatedPublishSample {
+    uint64_t channel_identity;
+    uint64_t dirty_generation;
+    uint64_t sample_time_ns;
+    uint32_t value_count;
+    uint32_t flags; // bit 0 = heartbeat, bit 1 = programmatic/default sample
+    float values[EX_WORKLET_MAX_RUN_ON_JS_SLOTS];
+} ExMotionRatedPublishSample;
+
+/// Install a Motion math worklet and return its stable identity, computed
+/// from artifact bytes plus the serialized capture set. Reinstalling the
+/// same artifact/captures in one generation reuses the resident function.
+/// Captures are read by `worklet.capture(index)`,
+/// `worklet.captureGet(index)`, and `worklet.captureSet(index, value)`.
+int ex_worklet_install_typed(
     ExactHermesRuntime* runtime,
-    void* slab,
-    size_t slot_count);
+    uint32_t install_format,
+    const uint8_t* artifact,
+    size_t artifact_len,
+    const ExWorkletCapture* captures,
+    uint32_t capture_count,
+    uint64_t generation,
+    uint64_t* out_identity,
+    char** out_error);
+
+/// Invoke by stable identity with fixed f32 input/output slots. The worklet
+/// receives each input as a positional number and writes results with
+/// `worklet.output(index, value)`. No strings, JSON, or result allocation
+/// occur on a successful steady-state host path. `out_output_count` is the
+/// highest written slot + 1 (zero when no output was written).
+int ex_worklet_invoke_typed(
+    ExactHermesRuntime* runtime,
+    uint64_t identity,
+    const float* inputs,
+    uint32_t input_count,
+    float* outputs,
+    uint32_t output_capacity,
+    uint32_t* out_output_count);
+
+/// Snapshot source-install cost counters. The call does not reset them.
+int ex_worklet_install_metrics(
+    ExactHermesRuntime* runtime,
+    ExWorkletInstallMetrics* out_metrics);
+
+/// Validating, synchronous main-thread accessors for the restricted worklet
+/// runtime. Return 0 for a live read/write; any other verdict is a defined
+/// stale/no-op. `read` writes `out_value` only on success. The callbacks must
+/// never enter the app runtime or block on another domain.
+typedef uint32_t (*ExWorkletSharedValueReadCallback)(
+    ExWorkletSharedValueHandle handle,
+    float* out_value,
+    void* context);
+typedef uint32_t (*ExWorkletSharedValueWriteCallback)(
+    ExWorkletSharedValueHandle handle,
+    float value,
+    void* context);
+
+/// Bind typed SharedValue accessors, replacing the historical raw slab
+/// pointer. Pass NULL callbacks to unbind. Worklet JS addresses a value as
+/// `worklet.sharedValue(slot, generation, epoch)`; invalid/stale identities
+/// retain the handle's last-observed local shadow and writes are no-ops.
+int ex_worklet_bind_shared_value_accessors(
+    ExactHermesRuntime* runtime,
+    ExWorkletSharedValueReadCallback read_callback,
+    ExWorkletSharedValueWriteCallback write_callback,
+    void* context);
 
 /// Register the measure(nodeId) host callback. The callback fills
 /// out_frame4 with {x, y, width, height} and returns 1, or returns 0 for
@@ -1138,6 +1349,45 @@ char* ex_worklet_drain_logs(ExactHermesRuntime* runtime);
 /// {"name","args"} objects (malloc'd; free with ex_hermes_free_string).
 /// NULL when empty. The host forwards these to the app runtime.
 char* ex_worklet_drain_scheduled(ExactHermesRuntime* runtime);
+
+/// Drain the allocation-free `worklet.runOnJS(callbackIdentity, ...f32)`
+/// ring into caller-owned storage. Returns the number copied. A too-small
+/// output buffer leaves the remainder queued in FIFO order.
+uint32_t ex_worklet_drain_scheduled_typed(
+    ExactHermesRuntime* runtime,
+    ExWorkletScheduledCall* out_calls,
+    uint32_t capacity);
+
+/// Read-and-clear the number of schedule entries evicted by drop-oldest
+/// overflow (typed and compatibility JSON queues combined).
+uint64_t ex_worklet_take_scheduled_drop_count(ExactHermesRuntime* runtime);
+
+/// Deliver typed runOnJS calls on the APP runtime's owning thread. The app
+/// bundle installs `globalThis.__exactRunOnJS(callbackIdentity, metadata,
+/// ...args)`. Missing dispatchers are a defined no-op (2).
+int ex_hermes_dispatch_worklet_calls(
+    ExactHermesRuntime* runtime,
+    const ExWorkletScheduledCall* calls,
+    uint32_t count,
+    uint32_t* out_delivered);
+
+/// Compatibility delivery for `scheduleOnAppRuntime(name, args)`. The app
+/// bundle installs `globalThis.__exactScheduleOnAppRuntime(batch,
+/// generation)`. Parsing/callback execution happens on the app runtime;
+/// the main/UI worklet owner only drains and asynchronously forwards bytes.
+int ex_hermes_dispatch_worklet_json_batch(
+    ExactHermesRuntime* runtime,
+    const uint8_t* batch_json,
+    size_t batch_len,
+    uint64_t generation);
+
+/// Invoke `globalThis.__exactMotionRatedPublish(channelIdentity, values,
+/// metadata)` on the app runtime's owning thread. The callback evaluates the
+/// authored payload mapping and calls the capability provider. Missing
+/// callback is a defined no-op (2); non-finite input fails closed (1).
+int ex_hermes_dispatch_motion_rated_publish(
+    ExactHermesRuntime* runtime,
+    const ExMotionRatedPublishSample* sample);
 
 #ifdef __cplusplus
 }

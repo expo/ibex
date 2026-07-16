@@ -5,8 +5,13 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-14 (production generated-form narrowing and cache-authorship
-correction: the authenticated runtime admits only a freshly compiled, non-reusable,
+**Revised:** 2026-07-14 (armed Android storage roots are now confined to native
+initialization: JavaScript receives immutable empty compatibility descriptors,
+the seeded environment aliases are absent, and persistent Web Storage/IndexedDB
+refuse before path construction; the output vocabulary now distinguishes a raw
+host path confined to authenticated native Host-ABI glue from every JavaScript projection;
+production generated-form narrowing and cache-authorship correction: the
+authenticated runtime admits only a freshly compiled, non-reusable,
 source-backed single-original CJS form; persistent cache hashes are freshness data,
 not proof of compiler authorship; flattened multi-original chunks and provenance-
 bearing HBC remain closed and use the already-authenticated raw source route).
@@ -1575,6 +1580,7 @@ observable. Each row carries a disposition drawn from a closed set:
 | `refused` | the call fails with a stated reason (§7.2) |
 | `typed-logical` | a typed logical value carried across an ABI, not a string — the resolver record's `path`/`pkgRoot`, which are typed values, never raw host strings |
 | `reserved-constant` | a well-known universal constant string that names no host (`/dev/null`) |
+| `private-native-path` | a host/backing path confined to an authenticated native Host-ABI call; it is never a JavaScript value or a license to project the path into a realm |
 | **`non-path`** | the field is judged **not path-bearing** (including a container object whose *own* value is not a path — its path-bearing fields are dispositioned as their own rows) |
 
 **`non-path` is the load-bearing member.** Without it the dataset cannot decide
@@ -1588,6 +1594,14 @@ context id)` — the same spelling used in §8 and the §9 ledger row — for ev
 any **un-dispositioned** field, not merely on a path-bearing one lacking a
 disposition. Judging a field `non-path` is a recorded decision someone signs,
 not a silence.
+
+`private-native-path` is deliberately narrower than the other value classes.
+It is valid only when the catalog key has `sourceKind: host-abi` and execution
+context `host.private-native-call-initialized`, and its expected observation is
+the normalized class rather than the machine-specific bytes. A corresponding
+JavaScript projection must have its own catalog row and must be virtual,
+logical, absent, closed, or refused; the private disposition cannot satisfy
+that row.
 
 Output-slot totality is paired with **surface-account totality**. Every coverage
 surface id appears exactly once in the catalog as `output-bearing`,
@@ -1667,6 +1681,10 @@ Its v1 content:
 | `os.homedir()`, `os.tmpdir()` | `closed` | **pinned outcome:** each **throws** the closed-surface denial rather than returning a host path. They read `HOME`/`TMPDIR` and return native paths today (`src/builtins/os.js:63`), which is exactly the disclosure being closed. |
 | `os.devNull` | `reserved-constant` | returns the well-known constant string `/dev/null`, which names no host and discloses nothing about this machine. It is **not** a mount, so an `fs` operation *on* it fails outside-mount in v1 like any other non-mount path — an earlier draft made it a synthetic write-sink, but §3 refuses any child of `/` that is not a mount and synthetic `/` has no node semantics for it, so the sink was underspecified. A reserved `/dev/null` sink node (lookup, open/read/stat/truncate, listing, and error-order all pinned) is a named future item, not v1 (the sink question is OQ 7). It is `/dev/null` today (`src/builtins/os.js:229`). |
 | `os.userInfo()` — `homedir`, `shell` | `closed` | **pinned outcome:** these fields are **absent** from the returned object; passwd-backed host paths are not disclosed |
+| Android `__exactAndroidStoragePaths` and platform-state `storage` fields | `non-path` | an armed runtime never calls the JNI storage-path getter for these projections; all five compatibility descriptors are immutable empty strings. The root object is frozen and its binding is non-writable/non-configurable, so a later bundled bootstrap cannot replace the closed sentinel with a host spelling. Unarmed Android retains the LLP 0008 compatibility projection. |
+| Android `process.__exactOSRelease` / `process.__exactOSVersion` | `absent` on non-Android targets | the inventory's private identifier spellings are source-bound to these exact `process` property reads, not fabricated raw call returns. Target-absence evidence therefore probes `process.__exactOSRelease` and `process.__exactOSVersion` on the loaded candidate runtime; Android retains the LLP 0008 platform metadata projection. |
+| Android-seeded `HOME`, `TMPDIR`, `TEMP`, `TMP`, and `EXACT_ANDROID_*` storage environment keys | `absent` | armed direct reads return `undefined` before native environment lookup, while full environment enumeration is already empty. A grant to read environment data is not a grant to project a private Android backing root. |
+| Android persistent Web Storage / default IndexedDB backing path | `closed` / `refused` | the armed empty storage descriptor is a closed sentinel, never a reason to fall through to seeded environment paths or `/tmp`. Web Storage keeps only its non-persistent facade; default IndexedDB reports `NotAllowedError` before SQLite or filesystem path construction. |
 | stack frames from runtime-owned bundles and builtins | `synthetic-source-id` | synthetic source identities |
 | error `path` / `dest` | `virtual-absolute` | virtual spellings |
 | watch-event paths | `virtual-relative` / `virtual-basename` | Node returns a **basename** for a non-recursive watch and a **relative** path for a recursive one (`src/builtins/fs.js:5226`); an earlier draft wrongly dispositioned these `virtual-absolute`. (Moot in v1: `fs.watch` is closed, §4.1 — the row is retained for the disposition dataset's totality and for a future reopening.) |

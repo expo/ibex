@@ -86,6 +86,7 @@
             "refused",
             "typed-logical",
             "reserved-constant",
+            "private-native-path",
             "non-path"
           ]
         },

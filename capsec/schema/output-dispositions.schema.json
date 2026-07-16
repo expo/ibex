@@ -21,8 +21,8 @@
     "evidence": { "$ref": "#/$defs/evidenceState" },
     "dispositions": {
       "type": "array",
-      "minItems": 10,
-      "maxItems": 10,
+      "minItems": 11,
+      "maxItems": 11,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/disposition" }
     },
@@ -51,6 +51,7 @@
         "refused",
         "typed-logical",
         "reserved-constant",
+        "private-native-path",
         "non-path"
       ]
     },
@@ -169,6 +170,7 @@
             "refused",
             "typed-logical",
             "reserved-constant",
+            "private-native-path",
             "non-path"
           ],
           "properties": {
@@ -181,6 +183,7 @@
             "refused": { "type": "integer", "minimum": 1 },
             "typed-logical": { "type": "integer", "minimum": 1 },
             "reserved-constant": { "type": "integer", "minimum": 1 },
+            "private-native-path": { "type": "integer", "minimum": 1 },
             "non-path": { "type": "integer", "minimum": 1 }
           },
           "additionalProperties": false

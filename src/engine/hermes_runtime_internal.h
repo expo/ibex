@@ -165,6 +165,15 @@ struct StructuredSessionJournalEntry {
   std::unique_ptr<StructuredSessionCell> displaced;
 };
 
+// Pending promise for the dedicated Exact embedder ingress.  This is kept
+// separate from HostCallAsyncEntry storage so an armed runtime can accept
+// typed Exact completions without making the diagnostic string bridge
+// reachable again. @ref LLP 0002#the-exact-embedder-ingress
+struct ExactHostCallAsyncEntry {
+  std::shared_ptr<facebook::jsi::Function> resolve;
+  std::shared_ptr<facebook::jsi::Function> reject;
+};
+
 struct ExactHermesRuntime;
 
 // A runtime address is not an identity: allocators routinely reuse the same
@@ -412,6 +421,9 @@ struct ExactHermesRuntime {
   std::unordered_map<uint32_t, FetchCallbackEntry> fetchCallbacks;
   std::mutex hostCallAsyncMutex;
   std::unordered_map<uint64_t, HostCallAsyncEntry> hostCallAsyncCallbacks;
+  std::mutex exactHostCallAsyncMutex;
+  std::unordered_map<uint64_t, ExactHostCallAsyncEntry>
+      exactHostCallAsyncCallbacks;
   std::mutex callbackMutex;
   struct QueuedRuntimeCallback {
     StructuredAsyncFailureContext failureContext;
@@ -484,6 +496,19 @@ struct ExactHermesRuntime {
                              uint64_t call_id,
                              const char* op,
                              const char* args_json) = nullptr;
+
+  // Dedicated Exact app/agent endowment. The operation domain is a canonical
+  // sorted set of numeric IDs selected once by the native embedder. JS can
+  // send only bytes for one of those IDs; it cannot name a new host operation.
+  uint32_t exact_host_context = 0;
+  std::unordered_set<uint32_t> exact_host_operations;
+  void (*exact_host_call_async_fn)(ExactHermesRuntime* runtime,
+                                   uint64_t call_id,
+                                   uint32_t operation_id,
+                                   const uint8_t* payload,
+                                   size_t payload_len,
+                                   void* context) = nullptr;
+  void* exact_host_call_async_context = nullptr;
 };
 
 struct NativeWebSocketCallbackContext {

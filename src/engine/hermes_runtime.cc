@@ -179,9 +179,9 @@ extern "C" char **environ;
 #include "bootstrap_source.h"
 #endif
 
+#include "../../include/exact_runtime.h"
 #include "hermes_runtime_internal.h"
 #include "hermes_runtime_zlib_streams.h"
-#include "../../include/exact_runtime.h"
 
 // PATH_MAX / realpath live in <limits.h> on Linux; macOS pulls them in
 // transitively. Spell it out so the realpath() path-resolution helpers build
@@ -257,6 +257,13 @@ thread_local std::string g_injected_armed_startup_failure_stage;
 thread_local std::string g_injected_root_global_disposition_key;
 thread_local uint32_t g_injected_root_global_getter_calls = 0;
 thread_local std::string g_root_global_disposition_last_failure;
+// Test-only proof that one Exact completion capability traversed the resolver,
+// callback queue, and runtime delivery exactly once. Ordinary artifacts do not
+// compile this observer, and it cannot authorize or complete an operation.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+std::atomic<uint64_t> g_exact_host_completion_targets_consumed{0};
+std::atomic<uint64_t> g_exact_host_completion_callbacks_queued{0};
+std::atomic<uint64_t> g_exact_host_completion_callbacks_delivered{0};
 
 extern "C" void ibex_test_set_armed_startup_failure_stage(const char* stage) {
   g_injected_armed_startup_failure_stage = stage ? stage : "";
@@ -273,6 +280,29 @@ extern "C" uint32_t ibex_test_root_global_disposition_getter_calls() {
 
 extern "C" const char* ibex_test_root_global_disposition_last_failure() {
   return g_root_global_disposition_last_failure.c_str();
+}
+
+extern "C" void ibex_test_reset_exact_host_completion_observer() {
+  g_exact_host_completion_targets_consumed.store(0, std::memory_order_seq_cst);
+  g_exact_host_completion_callbacks_queued.store(0, std::memory_order_seq_cst);
+  g_exact_host_completion_callbacks_delivered.store(0, std::memory_order_seq_cst);
+}
+
+extern "C" int ibex_test_exact_host_completion_observation(
+    uint64_t* targets_consumed,
+    uint64_t* callbacks_queued,
+    uint64_t* callbacks_delivered) {
+  if (targets_consumed == nullptr || callbacks_queued == nullptr ||
+      callbacks_delivered == nullptr) {
+    return 0;
+  }
+  *targets_consumed =
+      g_exact_host_completion_targets_consumed.load(std::memory_order_seq_cst);
+  *callbacks_queued =
+      g_exact_host_completion_callbacks_queued.load(std::memory_order_seq_cst);
+  *callbacks_delivered =
+      g_exact_host_completion_callbacks_delivered.load(std::memory_order_seq_cst);
+  return 1;
 }
 #endif
 
@@ -322,6 +352,12 @@ extern "C" int32_t ex_host_authorize_typed_fs_stack(
     int32_t needs_write,
     const char* presented_handle_id);
 extern "C" int32_t ex_host_matches_armed_snapshot_digest(const char* digest);
+extern "C" int32_t ex_host_authorize_exact_endowment(
+    uint64_t host_context_id,
+    uint32_t context_kind,
+    const char* operation_manifest_digest,
+    const uint32_t* operation_ids,
+    size_t operation_count);
 extern "C" int32_t ex_host_typed_dynamic_grant(uint64_t module_id,
                                                  const uint8_t* request,
                                                  size_t request_len);
@@ -2720,6 +2756,24 @@ void emitNewScriptsImpl(ExactHermesRuntime* runtime,
 #include "hermes_runtime_templates.inl"
 #endif
 
+bool isAndroidStorageHostPathEnvironmentKey(const std::string& key) {
+#if defined(EXACT_PLATFORM_ANDROID)
+  // Android initialization seeds these keys with Context backing paths. Even
+  // an env:read grant cannot turn a private native storage root into an armed
+  // JavaScript projection.
+  // @ref LLP 0023#6-path-bearing-observables
+  return key == "HOME" || key == "TMPDIR" || key == "TEMP" || key == "TMP" ||
+      key == "EXACT_ANDROID_FILES_DIR" ||
+      key == "EXACT_ANDROID_CACHE_DIR" ||
+      key == "EXACT_ANDROID_NO_BACKUP_FILES_DIR" ||
+      key == "EXACT_ANDROID_CODE_CACHE_DIR" ||
+      key == "EXACT_ANDROID_EXTERNAL_FILES_DIR";
+#else
+  (void)key;
+  return false;
+#endif
+}
+
 // Returns the value of `key`, or std::nullopt when the variable is unset (kept
 // distinct from a present-but-empty value). Grows past the initial stack buffer
 // so a value >= 4096 bytes (e.g. a long PATH) is read in full rather than being
@@ -2942,6 +2996,10 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
     defineProp(g, '__ibexCompartmentBaselineFinalized', {
       value: true, writable: false, enumerable: false, configurable: false
     });
+    // The trusted finalizer is one-shot. Delete it from inside the closure so
+    // both the CLI handshake and native embedders can finalize without a
+    // second eval that leaves a capability-bearing hook reachable by app code.
+    try { delete g.__ibexRefreshCompartmentBaseline; } catch (e) {}
   }
 
   var POWERFUL = ['process','fetch','Buffer','XMLHttpRequest','WebSocket',
@@ -3221,6 +3279,83 @@ void sealUnarmedProcessExitCodeDescriptor(ExactHermesRuntime* handle) {
       descriptor);
 }
 
+// Create the one stable Exact capability object before the package-compartment
+// baseline is captured. Native setters add immutable methods to this object;
+// package compartments retain the object identity from the baseline instead of
+// consulting a later, replaceable realm-global binding.
+void ensureExactEmbedderObject(struct ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto exactValue = rt.global().getProperty(rt, "exact");
+  if (exactValue.isUndefined()) {
+    rt.global().setProperty(rt, "exact", facebook::jsi::Object(rt));
+    return;
+  }
+  if (!exactValue.isObject()) {
+    throw facebook::jsi::JSError(
+        rt, "armed startup requires the Exact capability global to be an object");
+  }
+}
+
+// Finalize the one-shot compartment baseline after the native embedder adds
+// its last package-visible capability. The CLI may already have finalized the
+// baseline before a diagnostic test installs this ingress; that idempotent path
+// is accepted only when the complete marker/registry state is intact.
+bool finalizeCompartmentBaselineForEmbedder(
+    struct ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto registry = rt.global().getProperty(rt, "__compartments");
+  auto ready =
+      rt.global().getProperty(rt, "__ibexCompartmentRegistryReady");
+  auto finalized =
+      rt.global().getProperty(rt, "__ibexCompartmentBaselineFinalized");
+  auto refresh =
+      rt.global().getProperty(rt, "__ibexRefreshCompartmentBaseline");
+
+  const bool handshakeAbsent = registry.isUndefined() && ready.isUndefined() &&
+      finalized.isUndefined() && refresh.isUndefined();
+  if (handshakeAbsent) return true;
+  if (!registry.isObject() || !ready.isBool() || !ready.getBool()) return false;
+
+  if (refresh.isUndefined()) {
+    return finalized.isBool() && finalized.getBool();
+  }
+  if (!refresh.isObject() ||
+      !refresh.getObject(rt).isFunction(rt) ||
+      !finalized.isBool() || finalized.getBool()) {
+    return false;
+  }
+
+  refresh.getObject(rt).asFunction(rt).call(rt);
+  auto finalizedAfter =
+      rt.global().getProperty(rt, "__ibexCompartmentBaselineFinalized");
+  auto refreshAfter =
+      rt.global().getProperty(rt, "__ibexRefreshCompartmentBaseline");
+  return finalizedAfter.isBool() && finalizedAfter.getBool() &&
+      refreshAfter.isUndefined();
+}
+
+void defineExactCapability(
+    facebook::jsi::Runtime& rt,
+    facebook::jsi::Object& exactObject,
+    const char* name,
+    facebook::jsi::Value value,
+    bool configurable) {
+  auto objectConstructor =
+      rt.global().getPropertyAsObject(rt, "Object");
+  auto defineProperty =
+      objectConstructor.getPropertyAsFunction(rt, "defineProperty");
+  facebook::jsi::Object descriptor(rt);
+  descriptor.setProperty(rt, "value", std::move(value));
+  descriptor.setProperty(rt, "writable", false);
+  descriptor.setProperty(rt, "enumerable", false);
+  descriptor.setProperty(rt, "configurable", configurable);
+  defineProperty.call(
+      rt,
+      exactObject,
+      facebook::jsi::String::createFromAscii(rt, name),
+      descriptor);
+}
+
 void installGlobals(struct ExactHermesRuntime* handle) {
   bool _tracing = startup_trace_enabled();
   bool sharedRuntimeInstalled = false;
@@ -3235,6 +3370,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   auto _t_console_globals = std::chrono::steady_clock::now();
   installConsoleGlobals(handle);
+  ensureExactEmbedderObject(handle);
   IG_TRACE_END(console_globals);
 
   bool skip_host_functions = env_flag_enabled("EX_SKIP_STARTUP_HOST_FUNCTIONS");
@@ -3336,14 +3472,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetEnv"),
       1,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value* args,
-         size_t count) -> facebook::jsi::Value {
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
         if (count == 0) {
           return facebook::jsi::Value::undefined();
         }
         auto key = args[0].toString(runtime).utf8(runtime);
+        if (handle->armed && isAndroidStorageHostPathEnvironmentKey(key)) {
+          return facebook::jsi::Value::undefined();
+        }
         authorizeTypedEnvironmentRead(runtime, key);
         auto value = getEnvValue(key);
         if (!value.has_value()) {
@@ -5041,9 +5180,17 @@ extern "C" uint32_t ex_hermes_bytecode_version() {
   // The root object is supplied by the same mapped Hermes image as the runtime
   // factory used above. Keep HBC compatibility bound to that engine instead of
   // inferring it from an independently discovered `hermes` executable.
+#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
+  // Hermes 0.11 / ReactNative.Hermes.Windows 0.71 exposes the bytecode
+  // version directly on HermesRuntime and has no IHermesRootAPI interface.
+  return facebook::hermes::HermesRuntime::getBytecodeVersion();
+#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
   auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
       facebook::hermes::makeHermesRootAPI());
   return root == nullptr ? 0 : root->getBytecodeVersion();
+#else
+  return 0;
+#endif
 }
 
 extern "C" uint64_t ex_host_claim_armed_context(const char* digest);
@@ -8584,6 +8731,7 @@ int evaluateLoweredPreparedSession(
 
 }  // namespace
 
+// @abi-output ex_hermes_evaluation_result_init result role=output kind=aggregate schema=ExHermesEvaluationResult members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
 extern "C" void ex_hermes_evaluation_result_init(
     ExHermesEvaluationResult* result) {
   if (result == nullptr) return;
@@ -8593,6 +8741,7 @@ extern "C" void ex_hermes_evaluation_result_init(
   result->throw_metadata_status = EX_HERMES_THROW_METADATA_UNAVAILABLE;
 }
 
+// @abi-output ex_hermes_evaluation_result_dispose result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
 extern "C" void ex_hermes_evaluation_result_dispose(
     ExHermesEvaluationResult* result) {
   if (result == nullptr) return;
@@ -8604,6 +8753,7 @@ extern "C" void ex_hermes_evaluation_result_dispose(
   ex_hermes_evaluation_result_init(result);
 }
 
+// @abi-output ex_hermes_eval_structured_diagnostic result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
 extern "C" int ex_hermes_eval_structured_diagnostic(
     ExactHermesRuntime* runtime,
     const uint8_t* source,
@@ -8907,6 +9057,7 @@ extern "C" uint32_t ex_hermes_structured_submission_settle(
   return EX_HERMES_EVAL_FAULT_NONE;
 }
 
+// @abi-output ex_hermes_take_work_unit_event event role=inout kind=aggregate schema=ExHermesWorkUnitEvent members=kind,phase,target_id,scheduling_id ownership=caller-storage
 extern "C" uint32_t ex_hermes_take_work_unit_event(
     ExactHermesRuntime* runtime,
     ExHermesWorkUnitEvent* event) {
@@ -8935,6 +9086,7 @@ extern "C" uint32_t ex_hermes_take_work_unit_event(
   return EX_HERMES_WORK_UNIT_EVENT_AVAILABLE;
 }
 
+// @abi-output ex_hermes_take_cancellation_event event role=inout kind=aggregate schema=ExHermesCancellationEvent members=resolution,target_id ownership=caller-storage
 extern "C" uint32_t ex_hermes_take_cancellation_event(
     ExactHermesRuntime* runtime,
     ExHermesCancellationEvent* event) {
@@ -8962,6 +9114,7 @@ extern "C" uint32_t ex_hermes_take_cancellation_event(
   return EX_HERMES_CANCELLATION_EVENT_AVAILABLE;
 }
 
+// @abi-output ex_hermes_take_async_failure_event event role=inout kind=aggregate schema=ExHermesAsyncFailureEvent members=kind,principal_status,value,host_context_id,owning_principal_id,event_id,associated_evaluation,dropped_count ownership=caller-storage
 extern "C" uint32_t ex_hermes_take_async_failure_event(
     ExactHermesRuntime* runtime,
     ExHermesAsyncFailureEvent* event) {
@@ -9165,6 +9318,7 @@ extern "C" uint32_t ex_hermes_cancel_structured_work_target(
   return EX_HERMES_CANCEL_ACCEPTED;
 }
 
+// @abi-output ex_hermes_eval_structured_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
 extern "C" int ex_hermes_eval_structured_session(
     ExactHermesRuntime* runtime,
     const ExHermesSessionCredential* credential,
@@ -9285,6 +9439,7 @@ extern "C" int ex_hermes_eval_structured_session(
       &evaluation);
 }
 
+// @abi-output ex_hermes_eval_lowered_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
 extern "C" int ex_hermes_eval_lowered_session(
     ExactHermesRuntime* runtime,
     const ExHermesSessionCredential* credential,
@@ -9703,6 +9858,7 @@ extern "C" int ex_hermes_eval_lowered_session(
   }
 }
 
+// @abi-output ex_hermes_resume_structured_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
 extern "C" int ex_hermes_resume_structured_session(
     ExactHermesRuntime* runtime,
     uint64_t work_target_id,
@@ -9922,6 +10078,8 @@ extern "C" uint32_t ex_hermes_value_stage1_text(
   }
 }
 
+// @abi-output ex_hermes_value_safe_throw_metadata message role=output kind=aggregate schema=ExHermesOwnedBytes members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_value_safe_throw_metadata stack role=output kind=aggregate schema=ExHermesOwnedBytes members=* ownership=caller-storage member-ownership=caller-frees:ex_hermes_free_string
 extern "C" uint32_t ex_hermes_value_safe_throw_metadata(
     ExactHermesRuntime* runtime,
     ExHermesValueHandle handle,
@@ -10546,6 +10704,7 @@ extern "C" int ibex_test_install_capsec_context_observer(
 }
 #endif
 
+// @abi-callback ex_hermes_set_host_call callback return-ownership=native-consumes
 extern "C" void ex_hermes_set_host_call(
     ExactHermesRuntime* runtime,
     char* (*callback)(const char* op, const char* args_json)) {
@@ -10702,7 +10861,6 @@ extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
     exactUnpinRuntimeNativeWorker(target);
     return;
   }
-
   std::string payloadCopy = payload ? payload : "";
   pushRuntimeCallback(
       target,
@@ -10723,6 +10881,312 @@ extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
         } catch (...) {
         }
       });
+  exactUnpinRuntimeNativeWorker(target);
+}
+
+namespace {
+
+constexpr size_t kMaxExactHostOperationCount = 4096;
+constexpr size_t kMaxExactHostPayloadBytes = 16 * 1024 * 1024;
+constexpr size_t kMaxExactPendingHostCalls = 1024;
+
+bool exactHostContextIsValid(uint32_t context) {
+  return context == EXACT_EMBEDDER_CONTEXT_APP ||
+      context == EXACT_EMBEDDER_CONTEXT_AGENT;
+}
+
+}  // namespace
+
+extern "C" int ex_hermes_set_exact_host_call_async(
+    ExactHermesRuntime* runtime,
+    ExactEmbedderContext context_kind,
+    const uint32_t* allowed_operation_ids,
+    size_t allowed_operation_count,
+    const char* operation_manifest_digest,
+    void (*callback)(ExactHermesRuntime* runtime,
+                     uint64_t call_id,
+                     uint32_t operation_id,
+                     const uint8_t* payload,
+                     size_t payload_len,
+                     void* context),
+    void* context) {
+  // @ref LLP 0002#the-exact-embedder-ingress — app and agent isolates receive
+  // an explicit operation endowment. UI worklets retain only their dedicated
+  // SharedValue/Motion ABI and can never acquire the host-operation channel.
+  if (!runtime || !runtime->runtime || !callback) return -1;
+  if (runtime->runtime_thread != std::this_thread::get_id()) return -7;
+  if (runtime->restricted) return -2;
+  auto rawContext = static_cast<uint32_t>(context_kind);
+  if (!exactHostContextIsValid(rawContext)) return -3;
+  if (!allowed_operation_ids || allowed_operation_count == 0 ||
+      allowed_operation_count > kMaxExactHostOperationCount) {
+    return -4;
+  }
+  if (runtime->exact_host_call_async_fn != nullptr ||
+      runtime->exact_host_context != 0 ||
+      !runtime->exact_host_operations.empty()) {
+    return -5;
+  }
+
+  std::unordered_set<uint32_t> operations;
+  operations.reserve(allowed_operation_count);
+  uint32_t previous = 0;
+  for (size_t index = 0; index < allowed_operation_count; ++index) {
+    uint32_t operation = allowed_operation_ids[index];
+    if (operation == 0 || (index > 0 && operation <= previous)) return -4;
+    operations.insert(operation);
+    previous = operation;
+  }
+  if (ex_host_authorize_exact_endowment(
+          runtime->host_context_id,
+          rawContext,
+          operation_manifest_digest,
+          allowed_operation_ids,
+          allowed_operation_count) != 1) {
+    return -8;
+  }
+
+  runtime->exact_host_context = rawContext;
+  runtime->exact_host_operations = std::move(operations);
+  runtime->exact_host_call_async_fn = callback;
+  runtime->exact_host_call_async_context = context;
+
+  try {
+    auto& rt = *runtime->runtime;
+    auto exactValue = rt.global().getProperty(rt, "exact");
+    if (!exactValue.isObject()) {
+      throw facebook::jsi::JSError(
+          rt, "exact.invokeHostAsync requires the predeclared Exact capability object");
+    }
+    auto exactObject = exactValue.getObject(rt);
+    auto invoke = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "invokeHostAsync"),
+        2,
+        [runtime](facebook::jsi::Runtime& rt,
+                  const facebook::jsi::Value&,
+                  const facebook::jsi::Value* args,
+                  size_t count) -> facebook::jsi::Value {
+          if (!runtime->exact_host_call_async_fn || count != 2 ||
+              !args[0].isNumber() || !args[1].isObject()) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync requires an operation ID and bytes");
+          }
+          double rawOperation = args[0].asNumber();
+          if (!std::isfinite(rawOperation) || rawOperation < 1.0 ||
+              rawOperation > static_cast<double>(UINT32_MAX) ||
+              std::floor(rawOperation) != rawOperation) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync operation ID must be a uint32");
+          }
+          auto operation = static_cast<uint32_t>(rawOperation);
+          if (runtime->exact_host_operations.find(operation) ==
+              runtime->exact_host_operations.end()) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync operation is not endowed");
+          }
+          auto payloadObject = args[1].asObject(rt);
+          const uint8_t* payloadData = nullptr;
+          size_t payloadLength = 0;
+          if (!extractArrayBufferView(
+                  rt, payloadObject, payloadData, payloadLength)) {
+            throw facebook::jsi::JSError(
+                rt,
+                "exact.invokeHostAsync payload must be an ArrayBuffer or view");
+          }
+          if (payloadLength > kMaxExactHostPayloadBytes) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync payload exceeds 16 MiB");
+          }
+          auto payload = std::make_shared<std::vector<uint8_t>>();
+          if (payloadLength > 0) {
+            payload->assign(payloadData, payloadData + payloadLength);
+          }
+
+          auto promiseConstructor =
+              rt.global().getPropertyAsFunction(rt, "Promise");
+          auto executor = facebook::jsi::Function::createFromHostFunction(
+              rt,
+              facebook::jsi::PropNameID::forAscii(rt, "executor"),
+              2,
+              [runtime, operation, payload](
+                  facebook::jsi::Runtime& rt,
+                  const facebook::jsi::Value&,
+                  const facebook::jsi::Value* args,
+                  size_t count) -> facebook::jsi::Value {
+                if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
+                  throw facebook::jsi::JSError(
+                      rt, "exact.invokeHostAsync malformed Promise executor");
+                }
+                auto resolve = std::make_shared<facebook::jsi::Function>(
+                    args[0].asObject(rt).asFunction(rt));
+                auto reject = std::make_shared<facebook::jsi::Function>(
+                    args[1].asObject(rt).asFunction(rt));
+                {
+                  std::lock_guard<std::mutex> lock(
+                      runtime->exactHostCallAsyncMutex);
+                  if (runtime->exactHostCallAsyncCallbacks.size() >=
+                      kMaxExactPendingHostCalls) {
+                    throw facebook::jsi::JSError(
+                        rt,
+                        "exact.invokeHostAsync pending-call budget exhausted");
+                  }
+                }
+                auto target = exactRuntimeCallbackTarget(runtime);
+                uint64_t callId = registerHostCallTarget(target);
+                if (callId == 0) {
+                  throw facebook::jsi::JSError(
+                      rt, "exact.invokeHostAsync call ID space exhausted");
+                }
+                {
+                  std::lock_guard<std::mutex> lock(
+                      runtime->exactHostCallAsyncMutex);
+                  runtime->exactHostCallAsyncCallbacks[callId] = {
+                      std::move(resolve), std::move(reject)};
+                }
+                runtime->exact_host_call_async_fn(
+                    runtime,
+                    callId,
+                    operation,
+                    payload->empty() ? nullptr : payload->data(),
+                    payload->size(),
+                    runtime->exact_host_call_async_context);
+                return facebook::jsi::Value::undefined();
+              });
+          return promiseConstructor.callAsConstructor(rt, executor);
+        });
+    // Keep the property removable until the package baseline refresh succeeds.
+    // The baseline retains this stable object identity, so sealing the property
+    // below is immediately visible through every package compartment too.
+    defineExactCapability(
+        rt, exactObject, "invokeHostAsync", std::move(invoke), true);
+    if (!finalizeCompartmentBaselineForEmbedder(runtime)) {
+      throw facebook::jsi::JSError(
+          rt,
+          "exact.invokeHostAsync could not finalize the package-compartment baseline");
+    }
+    auto installed = exactObject.getProperty(rt, "invokeHostAsync");
+    defineExactCapability(
+        rt, exactObject, "invokeHostAsync", std::move(installed), false);
+  } catch (...) {
+    try {
+      auto& rt = *runtime->runtime;
+      auto exactValue = rt.global().getProperty(rt, "exact");
+      if (exactValue.isObject()) {
+        auto exactObject = exactValue.getObject(rt);
+        auto descriptor = rt.global()
+                              .getPropertyAsObject(rt, "Object")
+                              .getPropertyAsFunction(rt, "getOwnPropertyDescriptor")
+                              .call(
+                                  rt,
+                                  exactObject,
+                                  facebook::jsi::String::createFromAscii(
+                                      rt, "invokeHostAsync"));
+        if (descriptor.isObject()) {
+          auto configurable = descriptor.getObject(rt).getProperty(
+              rt, "configurable");
+          if (configurable.isBool() && configurable.getBool()) {
+            rt.global()
+                .getPropertyAsObject(rt, "Reflect")
+                .getPropertyAsFunction(rt, "deleteProperty")
+                .call(
+                    rt,
+                    exactObject,
+                    facebook::jsi::String::createFromAscii(
+                        rt, "invokeHostAsync"));
+          }
+        }
+      }
+    } catch (...) {
+      // The primary failure still wins. A successfully sealed property is
+      // intentionally irreversible and can only occur after finalization.
+    }
+    runtime->exact_host_call_async_fn = nullptr;
+    runtime->exact_host_call_async_context = nullptr;
+    runtime->exact_host_context = 0;
+    runtime->exact_host_operations.clear();
+    return -6;
+  }
+  return 0;
+}
+
+extern "C" void ex_hermes_resolve_exact_host_call(
+    ExactHermesRuntime* runtime,
+    uint64_t call_id,
+    int32_t status,
+    const uint8_t* payload,
+    size_t payload_len) {
+  if (!runtime) return;
+  bool malformedPayload = payload_len > kMaxExactHostPayloadBytes ||
+      (payload_len > 0 && payload == nullptr);
+  auto target = takeHostCallTarget(runtime, call_id);
+  if (!target || !exactPinRuntimeNativeWorker(target)) return;
+
+  std::shared_ptr<facebook::jsi::Function> resolve;
+  std::shared_ptr<facebook::jsi::Function> reject;
+  bool extracted = withRuntimePinned(target, [&]() {
+    std::lock_guard<std::mutex> lock(runtime->exactHostCallAsyncMutex);
+    auto iterator = runtime->exactHostCallAsyncCallbacks.find(call_id);
+    if (iterator == runtime->exactHostCallAsyncCallbacks.end()) return;
+    resolve = std::move(iterator->second.resolve);
+    reject = std::move(iterator->second.reject);
+    runtime->exactHostCallAsyncCallbacks.erase(iterator);
+  });
+  if (!extracted || !resolve || !reject) {
+    exactUnpinRuntimeNativeWorker(target);
+    return;
+  }
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  g_exact_host_completion_targets_consumed.fetch_add(
+      1, std::memory_order_seq_cst);
+#endif
+
+  std::vector<uint8_t> payloadCopy;
+  int32_t completionStatus = status;
+  if (malformedPayload) {
+    completionStatus = -1;
+    constexpr char kMalformedCompletion[] =
+        "Exact host operation completion payload is invalid or exceeds 16 MiB";
+    payloadCopy.assign(
+        kMalformedCompletion,
+        kMalformedCompletion + sizeof(kMalformedCompletion) - 1);
+  } else if (payload_len > 0) {
+    payloadCopy.assign(payload, payload + payload_len);
+  }
+  bool callbackAccepted = false;
+  pushRuntimeCallback(
+      target,
+      [resolve, reject, completionStatus, payloadCopy = std::move(payloadCopy)](
+          facebook::jsi::Runtime& rt) mutable {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+        g_exact_host_completion_callbacks_delivered.fetch_add(
+            1, std::memory_order_seq_cst);
+#endif
+        try {
+          if (completionStatus == 0) {
+            resolve->call(rt, makeUint8Array(rt, std::move(payloadCopy)));
+            return;
+          }
+          std::string message(payloadCopy.begin(), payloadCopy.end());
+          if (message.empty()) message = "Exact host operation failed";
+          reject->call(rt, facebook::jsi::JSError(rt, message).value());
+        } catch (...) {
+          try {
+            reject->call(
+                rt,
+                facebook::jsi::JSError(
+                    rt, "Exact host operation completion failed").value());
+          } catch (...) {
+          }
+        }
+      },
+      &callbackAccepted);
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  if (callbackAccepted) {
+    g_exact_host_completion_callbacks_queued.fetch_add(
+        1, std::memory_order_seq_cst);
+  }
+#endif
   exactUnpinRuntimeNativeWorker(target);
 }
 
@@ -11250,6 +11714,7 @@ extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
       std::min<uint64_t>(backlog, std::numeric_limits<uint32_t>::max()));
 }
 
+// @abi-callback ex_hermes_schedule_watchdog_heartbeat callback delivery=none
 extern "C" void ex_hermes_schedule_watchdog_heartbeat(
     ExactHermesRuntime* runtime,
     void (*callback)(void* context),

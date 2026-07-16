@@ -193,11 +193,204 @@ const HERMES_WORKLET_FUNCTIONS = new Set([
   "ex_worklet_set_measure_callback",
 ]);
 
+// These are deliberately exact selector recipes rather than a general rule
+// for ABI buffers.  The native executor owns a bounded call for each row and
+// independently validates the resulting value class without reading the
+// disposition policy.
+const PATH_OUTPUT_OPERATIONS = new Map([
+  [
+    "ex_hermes_engine_binary_path\0out:out",
+    Object.freeze({
+      operation: Object.freeze({
+        kind: "native-hermes-stateless-path-output",
+        targetVariant: "default",
+      }),
+      output: Object.freeze({
+        kind: "buffer",
+        lengthParameter: "out_len",
+        ownership: Object.freeze({ kind: "caller-storage" }),
+        parameter: "out",
+        role: "output",
+        selector: "out:out",
+      }),
+    }),
+  ],
+  ...[
+    ["ex_host_vfs_chdir", "out:virtual", "out_virtual", "out_virtual_len"],
+    ["ex_host_vfs_get_cwd", "out:virtual", "out_virtual", "out_virtual_len"],
+    [
+      "ex_host_vfs_resolve_path",
+      "out:virtual",
+      "out_virtual",
+      "out_virtual_len",
+    ],
+    [
+      "ex_host_vfs_resolve_path",
+      "out:backing",
+      "out_backing",
+      "out_backing_len",
+    ],
+  ].map(([functionName, selector, parameter, lengthParameter]) => [
+    `${functionName}\0${selector}`,
+    Object.freeze({
+      operation: Object.freeze({
+        kind: "rust-host-authenticated-vfs-path-output",
+        targetVariant: "default",
+      }),
+      output: Object.freeze({
+        kind: "buffer",
+        lengthParameter,
+        ownership: Object.freeze({
+          kind: "caller-owned",
+          releaseFunction: "ex_host_free_buffer",
+        }),
+        parameter,
+        role: "output",
+        selector,
+      }),
+    }),
+  ]),
+]);
+
+const OWNED_HOST_STRING_RETURN = Object.freeze({
+  kind: "pointer",
+  ownership: Object.freeze({
+    kind: "caller-owned",
+    releaseFunction: "ex_host_free_string",
+  }),
+  role: "return",
+  selector: "[[return]]",
+});
+
+const LEGACY_HOST_PATH_FUNCTIONS = Object.freeze([
+  "ex_host_fs_mkdir_recursive_result",
+  "ex_host_fs_mkdtemp",
+  "ex_host_fs_realpath",
+]);
+
+const LEGACY_HOST_SOURCE_REQUIREMENTS = Object.freeze({
+  ex_host_fs_mkdir_recursive_result: Object.freeze({
+    armedRefusalBefore: Object.freeze([
+      "path.is_null()",
+      "CStr::from_ptr(path)",
+      "cursor.exists()",
+      "std::fs::create_dir_all(&path)",
+    ]),
+  }),
+  ex_host_fs_mkdtemp: Object.freeze({
+    armedRefusalBefore: Object.freeze([
+      "prefix.is_null()",
+      "CStr::from_ptr(prefix)",
+      "getrandom(&mut rng_bytes)",
+      "std::fs::create_dir(&dir_path)",
+    ]),
+  }),
+  ex_host_fs_realpath: Object.freeze({
+    armedRefusalBefore: Object.freeze([
+      "path.is_null()",
+      "CStr::from_ptr(path)",
+      "std::fs::canonicalize(&path)",
+    ]),
+  }),
+  ex_host_fs_readdir: Object.freeze({ armedRefusalBefore: Object.freeze([]) }),
+});
+
+const legacyHostOutputOperationKey = ({
+  functionName,
+  output,
+  alias,
+  mode,
+  returnVariant,
+}) => [functionName, output, alias, mode, returnVariant].join("\0");
+
+const LEGACY_HOST_OUTPUT_OPERATIONS = new Map([
+  ...LEGACY_HOST_PATH_FUNCTIONS.flatMap((functionName) =>
+    [
+      ["unarmed", "success"],
+      ["unarmed", "error"],
+      ["armed", "refused"],
+    ].map(([mode, returnVariant]) => [
+      legacyHostOutputOperationKey({
+        functionName,
+        output: "[[return]]",
+        alias: functionName,
+        mode,
+        returnVariant,
+      }),
+      Object.freeze({
+        operation: Object.freeze({
+          kind: "rust-host-legacy-path-output",
+          mode,
+          returnVariant,
+          sourceSelector: "[[return]]",
+          targetVariant: "default",
+        }),
+        output: Object.freeze({
+          ...OWNED_HOST_STRING_RETURN,
+          projection: Object.freeze({
+            catalogSelector: "[[return]]",
+            kind: "whole-return",
+          }),
+        }),
+      }),
+    ]),
+  ),
+  [
+    legacyHostOutputOperationKey({
+      functionName: "ex_host_fs_readdir",
+      output: "array-items",
+      alias: "ex_host_fs_readdir[]",
+      mode: "all",
+      returnVariant: "success",
+    }),
+    Object.freeze({
+      operation: Object.freeze({
+        kind: "rust-host-legacy-directory-output",
+        mode: "all",
+        returnVariant: "success",
+        sourceSelector: "[[return]]",
+        targetVariant: "default",
+      }),
+      output: Object.freeze({
+        ...OWNED_HOST_STRING_RETURN,
+        projection: Object.freeze({
+          catalogSelector: "array-items",
+          kind: "json-array-items",
+        }),
+      }),
+    }),
+  ],
+]);
+
 function requireCondition(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function operationFor(functionName) {
+function pathOutputOperationFor(functionName, outputSelector) {
+  return PATH_OUTPUT_OPERATIONS.get(`${functionName}\0${outputSelector}`) ?? null;
+}
+
+function legacyHostOutputOperationFor(functionName, key) {
+  if (!key) return null;
+  return (
+    LEGACY_HOST_OUTPUT_OPERATIONS.get(
+      legacyHostOutputOperationKey({
+        functionName,
+        output: key.output,
+        alias: key.alias,
+        mode: key.mode,
+        returnVariant: key.returnVariant,
+      }),
+    ) ?? null
+  );
+}
+
+function operationFor(functionName, outputSelector = "[[return]]", key = null) {
+  const legacyOutput = legacyHostOutputOperationFor(functionName, key);
+  if (legacyOutput) return structuredClone(legacyOutput.operation);
+  const pathOutput = pathOutputOperationFor(functionName, outputSelector);
+  if (pathOutput) return structuredClone(pathOutput.operation);
+  if (outputSelector !== "[[return]]") return null;
   if (HOST_FS_FUNCTIONS.has(functionName)) return { kind: "rust-host-fs-sandbox" };
   if (HOST_SQLITE_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-sqlite-memory" };
@@ -229,6 +422,65 @@ function operationFor(functionName) {
   return null;
 }
 
+function legacyHostSourceSafetyBinding(functionName, sourceRefs) {
+  const requirement = LEGACY_HOST_SOURCE_REQUIREMENTS[functionName];
+  if (!requirement) return null;
+  const sourceRef = `src/host/abi.rs#${functionName}`;
+  requireCondition(
+    sourceRefs.length === 1 && sourceRefs[0] === sourceRef,
+    `${functionName}: legacy Host output lost its exact Rust source ref`,
+  );
+  const sourcePath = "src/host/abi.rs";
+  const bytes = fs.readFileSync(path.join(repoRoot, sourcePath));
+  const source = bytes.toString("utf8");
+  const functionStart = source.indexOf(`fn ${functionName}(`);
+  requireCondition(
+    functionStart >= 0,
+    `${functionName}: legacy Host output definition is absent`,
+  );
+  const nextDefinition = source.indexOf("\n#[no_mangle]", functionStart + 1);
+  const functionSource = source.slice(
+    functionStart,
+    nextDefinition < 0 ? source.length : nextDefinition,
+  );
+  const ownershipWindow = source.slice(
+    Math.max(0, functionStart - 800),
+    nextDefinition < 0 ? source.length : nextDefinition,
+  );
+  requireCondition(
+    ownershipWindow.includes("ex_host_free_string"),
+    `${functionName}: returned string ownership is not source-annotated`,
+  );
+  if (requirement.armedRefusalBefore.length > 0) {
+    const guard = "if refuse_armed_legacy_path_output()";
+    const guardIndex = functionSource.indexOf(guard);
+    requireCondition(
+      guardIndex >= 0 &&
+        requirement.armedRefusalBefore.every(
+          (token) => functionSource.indexOf(token) > guardIndex,
+        ),
+      `${functionName}: armed refusal no longer precedes path decode, lookup, randomness, or mutation`,
+    );
+  }
+  return {
+    path: sourcePath,
+    rawContentDigest: taggedDigest(bytes),
+    returnOwnership: {
+      kind: "caller-owned",
+      releaseFunction: "ex_host_free_string",
+      sourceToken: "ex_host_free_string",
+    },
+    ...(requirement.armedRefusalBefore.length > 0
+      ? {
+          armedRefusalOrder: {
+            guard: "if refuse_armed_legacy_path_output()",
+            precedes: [...requirement.armedRefusalBefore],
+          },
+        }
+      : {}),
+  };
+}
+
 function sourceFileBindings(sourceRefs, functionName) {
   const files = [...new Set(sourceRefs.map((sourceRef) => sourceRef.split("#")[0]))]
     .sort(compareText);
@@ -256,8 +508,14 @@ function sourceFileBindings(sourceRefs, functionName) {
   });
 }
 
-function selectedReturnContracts(selectedDefinitions, functionName) {
-  return selectedDefinitions.map((definition) => {
+function selectedOutputContracts(
+  selectedDefinitions,
+  functionName,
+  outputSelector,
+) {
+  const outputContracts = [];
+  const selectedChannels = [];
+  for (const definition of selectedDefinitions) {
     const contract = definition.outputContract;
     requireCondition(
       contract?.schema === HOST_ABI_OUTPUT_CONTRACT_SCHEMA &&
@@ -268,21 +526,87 @@ function selectedReturnContracts(selectedDefinitions, functionName) {
         contract.return?.role,
       `${functionName}: selected definition lost its source-derived output contract`,
     );
-    const returnChannels = contract.outputChannels.filter(
-      (channel) =>
-        channel.selector === "[[return]]" && channel.role === "return",
+    const selected = contract.outputChannels.filter(
+      (channel) => channel.selector === outputSelector,
     );
-    requireCondition(
-      (contract.return.role === "none" && returnChannels.length === 0) ||
-        (contract.return.role === "value" && returnChannels.length === 1),
-      `${functionName}: syntactic return slot disagrees with output channels`,
+    if (outputSelector === "[[return]]") {
+      requireCondition(
+        (contract.return.role === "none" && selected.length === 0) ||
+          (contract.return.role === "value" &&
+            selected.length === 1 &&
+            selected[0].role === "return"),
+        `${functionName}: syntactic return slot disagrees with output channels`,
+      );
+    } else {
+      requireCondition(
+        selected.length === 1,
+        `${functionName}: selected output ${outputSelector} is not exact in the source contract`,
+      );
+    }
+    outputContracts.push(structuredClone(contract));
+    selectedChannels.push(
+      selected.length === 0 ? null : structuredClone(selected[0]),
     );
-    return structuredClone(contract);
-  });
+  }
+  return { outputContracts, selectedChannels };
+}
+
+function exactPathOutputBinding(functionName, outputSelector, selectedChannels) {
+  const binding = pathOutputOperationFor(functionName, outputSelector);
+  if (!binding) return null;
+  const expected = canonicalJson(binding.output);
+  requireCondition(
+    selectedChannels.length > 0 &&
+      selectedChannels.every((channel) => canonicalJson(channel) === expected),
+    `${functionName}: bounded path output ${outputSelector} lost its exact source ownership contract`,
+  );
+  return binding;
+}
+
+function exactLegacyHostOutputBinding({
+  functionName,
+  key,
+  outputContracts,
+  selectedChannels,
+  sourceRefs,
+}) {
+  const binding = legacyHostOutputOperationFor(functionName, key);
+  if (!binding) return null;
+  requireCondition(
+    key.contextId === "host.private-native-call-initialized",
+    `${functionName}: legacy Host output lost its private ABI execution context`,
+  );
+  requireCondition(
+    outputContracts.length > 0 &&
+      outputContracts.every(
+        (contract) =>
+          contract.return.role === "value" &&
+          contract.return.kind === "pointer" &&
+          contract.return.ownership?.kind === "unknown" &&
+          contract.status === "unresolved" &&
+          canonicalJson(contract.unresolved) ===
+            canonicalJson(["return-pointer-ownership"]),
+      ) &&
+      selectedChannels.every(
+        (channel) =>
+          channel?.selector === "[[return]]" &&
+          channel.role === "return" &&
+          channel.kind === "pointer" &&
+          channel.ownership?.kind === "unknown",
+      ),
+    `${functionName}: legacy Host pointer return contract drifted`,
+  );
+  return {
+    binding,
+    sourceSafetyBinding: legacyHostSourceSafetyBinding(
+      functionName,
+      sourceRefs,
+    ),
+  };
 }
 
 /**
- * Return one loaded-engine/native return-record probe, or null when this
+ * Return one loaded-engine/native output-record probe, or null when this
  * tranche has no sound bounded executor.  `targetAbsenceBinding` is an exact
  * binding from the separate target-absence author and always wins.
  */
@@ -304,9 +628,20 @@ export function authoredHostAbiOutputProbe({
       surface.observedKey === `host-abi:${functionName}`,
     `${key.surfaceId}: Host ABI output source/coverage identity drift`,
   );
-  if (key.output !== "[[return]]" || key.mode !== "all") return null;
-  const operation = operationFor(functionName);
+  const legacyOutput = legacyHostOutputOperationFor(functionName, key);
+  if (key.mode !== "all" && !legacyOutput) return null;
+  const operation = operationFor(functionName, key.output, key);
   if (!operation) return null;
+
+  const pathOutput = pathOutputOperationFor(functionName, key.output);
+  if (pathOutput) {
+    requireCondition(
+      key.alias === functionName &&
+        key.returnVariant === "default" &&
+        key.contextId === "host.private-native-call-initialized",
+      `${functionName}: bounded path output lost its exact private Host-ABI key`,
+    );
+  }
 
   const inventorySourceRefs = [
     ...new Set([
@@ -333,19 +668,66 @@ export function authoredHostAbiOutputProbe({
       (!isRustOperation || selectedDefinitions.length === definitions.length),
     `${functionName}: bounded Host ABI route lost its exact compiled definition`,
   );
-  const outputContracts = selectedReturnContracts(
+  const sourceOutputSelector = legacyOutput
+    ? legacyOutput.operation.sourceSelector
+    : key.output;
+  const { outputContracts, selectedChannels } = selectedOutputContracts(
     selectedDefinitions,
     functionName,
+    sourceOutputSelector,
   );
-  if (
-    !outputContracts.every(
-      (contract) =>
-        contract.return.role === "value" &&
-        contract.return.kind === "scalar" &&
-        contract.return.ownership?.kind === "not-applicable",
-    )
-  ) {
-    return null;
+  let selectedOutput;
+  let sourceSafetyBinding;
+  if (legacyOutput) {
+    const exact = exactLegacyHostOutputBinding({
+      functionName,
+      key,
+      outputContracts,
+      selectedChannels,
+      sourceRefs,
+    });
+    requireCondition(
+      exact,
+      `${functionName}: legacy Host output has no exact bounded binding`,
+    );
+    selectedOutput = structuredClone(exact.binding.output);
+    sourceSafetyBinding = exact.sourceSafetyBinding;
+  } else if (key.output === "[[return]]") {
+    if (
+      !outputContracts.every(
+        (contract) =>
+          contract.return.role === "value" &&
+          contract.return.kind === "scalar" &&
+          contract.return.ownership?.kind === "not-applicable",
+      )
+    ) {
+      return null;
+    }
+    selectedOutput = {
+      kind: "scalar",
+      ownership: "not-applicable",
+      selector: "[[return]]",
+    };
+  } else {
+    requireCondition(
+      outputContracts.every(
+        (contract) =>
+          contract.status === "resolved" &&
+          Array.isArray(contract.unresolved) &&
+          contract.unresolved.length === 0,
+      ),
+      `${functionName}: bounded path output contract is unresolved`,
+    );
+    const binding = exactPathOutputBinding(
+      functionName,
+      key.output,
+      selectedChannels,
+    );
+    requireCondition(
+      binding,
+      `${functionName}: non-return output has no bounded path binding`,
+    );
+    selectedOutput = structuredClone(binding.output);
   }
 
   const sourceDescriptor = {
@@ -362,11 +744,8 @@ export function authoredHostAbiOutputProbe({
     selectedDefinitions: structuredClone(selectedDefinitions),
     outputContractSchema: HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
     outputContracts,
-    selectedOutput: {
-      kind: "scalar",
-      ownership: "not-applicable",
-      selector: "[[return]]",
-    },
+    selectedOutput,
+    ...(sourceSafetyBinding ? { sourceSafetyBinding } : {}),
     operation,
   };
   const sourceDescriptorDigest = descriptorDigest(sourceDescriptor);
@@ -375,24 +754,29 @@ export function authoredHostAbiOutputProbe({
     fixtureId: `host-abi-output-${sourceDescriptorDigest.slice(7, 23)}`,
     sourceDescriptor,
     sourceDescriptorDigest,
-    recordPath: ["[[return]]"],
+    recordPath: [key.output],
   };
 }
 
-export function hostAbiOutputExecutorCoverage(functionName) {
-  const operation = operationFor(functionName);
+export function hostAbiOutputExecutorCoverage(
+  functionName,
+  outputSelector = "[[return]]",
+  key = null,
+) {
+  const operation = operationFor(functionName, outputSelector, key);
   return operation ? structuredClone(operation) : null;
 }
 
 export function hostAbiOutputResidualReason({ catalogRow, surface }) {
   if (catalogRow?.key?.sourceKind !== "host-abi") return null;
-  if (
-    catalogRow.key.output !== "[[return]]" ||
-    catalogRow.key.mode !== "all"
-  ) {
+  const operation = operationFor(
+    surface?.name,
+    catalogRow.key.output,
+    catalogRow.key,
+  );
+  if (catalogRow.key.mode !== "all" && !operation) {
     return "private-vfs-return-record-requires-authenticated-runtime-session";
   }
-  const operation = operationFor(surface?.name);
   if (operation) {
     const expectedLanguage = operation.kind.startsWith("rust-host-")
       ? "rust"
@@ -402,7 +786,39 @@ export function hostAbiOutputResidualReason({ catalogRow, surface }) {
         definition.targetVariant === (operation.targetVariant ?? "default") &&
         definition.language === expectedLanguage,
     );
-    const contracts = selectedReturnContracts(definitions, surface.name);
+    const legacyOutput = legacyHostOutputOperationFor(
+      surface.name,
+      catalogRow.key,
+    );
+    const sourceOutputSelector = legacyOutput
+      ? legacyOutput.operation.sourceSelector
+      : catalogRow.key.output;
+    const { outputContracts: contracts, selectedChannels } =
+      selectedOutputContracts(
+        definitions,
+        surface.name,
+        sourceOutputSelector,
+      );
+    if (legacyOutput) {
+      exactLegacyHostOutputBinding({
+        functionName: surface.name,
+        key: catalogRow.key,
+        outputContracts: contracts,
+        selectedChannels,
+        sourceRefs: [
+          ...new Set(definitions.map((definition) => definition.sourceRef)),
+        ].sort(compareText),
+      });
+      return null;
+    }
+    if (catalogRow.key.output !== "[[return]]") {
+      exactPathOutputBinding(
+        surface.name,
+        catalogRow.key.output,
+        selectedChannels,
+      );
+      return null;
+    }
     const returnKinds = new Set(
       contracts.map((contract) =>
         contract.return.role === "none" ? "void" : contract.return.kind,

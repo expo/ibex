@@ -134993,6 +134993,16 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
+            "id": "surface.callback.exact.host.call.async.resolve.0f9z2o3",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "callback",
+              "name": "exact-host-call-async-resolve"
+            },
+            "rationaleId": "callback-attribution-carrier",
+            "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
             "id": "surface.callback.fetch.delivery.09vuauz",
             "classification": "non-capability",
             "surface": {
@@ -135128,6 +135138,16 @@
             "surface": {
               "kind": "callback",
               "name": "producer:src/engine/hermes_runtime_android.cc:android_platform_event_available:pushRuntimeCallback"
+            },
+            "rationaleId": "callback-attribution-carrier",
+            "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
+            "id": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "callback",
+              "name": "producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
             },
             "rationaleId": "callback-attribution-carrier",
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
@@ -141063,6 +141083,36 @@
             "rationale": "Generic embedder event, host-call, and handle transfer is closed."
           },
           {
+            "id": "surface.host.abi.ex.hermes.dispatch.motion.rated.publish.0bbxbt5",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_dispatch_motion_rated_publish"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Generic embedder event, host-call, and handle transfer is closed."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_dispatch_worklet_calls"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Generic embedder event, host-call, and handle transfer is closed."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.dispatch.worklet.json.batch.0vpbf64",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_dispatch_worklet_json_batch"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Generic embedder event, host-call, and handle transfer is closed."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.emit.module.event.00w52n6",
             "classification": "closed",
             "surface": {
@@ -141263,6 +141313,16 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
+            "id": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_resolve_exact_host_call"
+            },
+            "rationaleId": "callback-attribution-carrier",
+            "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.resolve.host.call.01crbkh",
             "classification": "closed",
             "surface": {
@@ -141341,6 +141401,16 @@
             },
             "rationaleId": "callback-attribution-carrier",
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_set_exact_host_call_async"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
             "id": "surface.host.abi.ex.hermes.set.host.call.16xhko5",
@@ -141523,6 +141593,16 @@
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
+            "id": "surface.host.abi.ex.host.armed.bootstrap.compatibility.flags.1m94svg",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_armed_bootstrap_compatibility_flags"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.armed.endowments.19wlvvz",
             "classification": "non-capability",
             "surface": {
@@ -141533,11 +141613,31 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_authorize_exact_endowment"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv",
             "classification": "non-capability",
             "surface": {
               "kind": "host-abi",
               "name": "ex_host_authorize_typed_environment_read_stack"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.host.authorize.typed.environment.write.stack.1n3tv88",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_authorize_typed_environment_write_stack"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -145106,6 +145206,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_prepare_armed_embedder_artifacts"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.random.fill.0y4ny2g",
             "classification": "non-capability",
             "surface": {
@@ -146939,11 +147049,11 @@
             "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
           },
           {
-            "id": "surface.host.abi.ex.worklet.bind.shared.values.1vkss8f",
+            "id": "surface.host.abi.ex.worklet.bind.shared.value.accessors.0dpm31t",
             "classification": "closed",
             "surface": {
               "kind": "host-abi",
-              "name": "ex_worklet_bind_shared_values"
+              "name": "ex_worklet_bind_shared_value_accessors"
             },
             "cap": "ipc:channel",
             "rationale": "Worklet shared state, callback registration, and drain channels are closed."
@@ -146989,6 +147099,16 @@
             "rationale": "Worklet shared state, callback registration, and drain channels are closed."
           },
           {
+            "id": "surface.host.abi.ex.worklet.drain.scheduled.typed.1cd8ro0",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_drain_scheduled_typed"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet shared state, callback registration, and drain channels are closed."
+          },
+          {
             "id": "surface.host.abi.ex.worklet.generation.1c7z1ct",
             "classification": "non-capability",
             "surface": {
@@ -147009,11 +147129,41 @@
             "rationale": "Worklet creation, installation, and invocation are closed until principal isolation is proved."
           },
           {
+            "id": "surface.host.abi.ex.worklet.install.metrics.1d5ipuc",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_install_metrics"
+            },
+            "cap": "runtime:inspect",
+            "rationale": "Worklet diagnostic counters are closed in the initial profile."
+          },
+          {
+            "id": "surface.host.abi.ex.worklet.install.typed.11dea8d",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_install_typed"
+            },
+            "cap": "worker:create",
+            "rationale": "Worklet creation, installation, and invocation are closed until principal isolation is proved."
+          },
+          {
             "id": "surface.host.abi.ex.worklet.invoke.14qubev",
             "classification": "closed",
             "surface": {
               "kind": "host-abi",
               "name": "ex_worklet_invoke"
+            },
+            "cap": "worker:create",
+            "rationale": "Worklet creation, installation, and invocation are closed until principal isolation is proved."
+          },
+          {
+            "id": "surface.host.abi.ex.worklet.invoke.typed.0vm7ato",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_invoke_typed"
             },
             "cap": "worker:create",
             "rationale": "Worklet creation, installation, and invocation are closed until principal isolation is proved."
@@ -147037,6 +147187,16 @@
             },
             "cap": "ipc:channel",
             "rationale": "Worklet shared state, callback registration, and drain channels are closed."
+          },
+          {
+            "id": "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4",
+            "classification": "closed",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_worklet_take_scheduled_drop_count"
+            },
+            "cap": "runtime:inspect",
+            "rationale": "Worklet diagnostic counters are closed in the initial profile."
           },
           {
             "id": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.accessibilityflags.1m7g2yw",
@@ -195346,6 +195506,16 @@
             "rationale": "Compatibility evaluation and native-syntax switches are closed with the other dynamic-code surfaces."
           },
           {
+            "id": "surface.native.op.exactcompatmodes.0hzhmrx",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactCompatModes"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.native.op.exactcopyfile.0rn0zb2",
             "classification": "effects",
             "surface": {
@@ -200659,57 +200829,6 @@
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
-            "id": "surface.native.op.exacthostnavigator.15xlgzo",
-            "classification": "effects",
-            "surface": {
-              "kind": "native-op",
-              "name": "__exactHostNavigator"
-            },
-            "effects": [
-              {
-                "cap": "sys:read",
-                "selectorNormalizer": "system.info.selector.v1",
-                "occurrenceNormalizer": "system.info.occurrence.v1",
-                "stages": [
-                  "requested",
-                  "commit"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "static-floor"
-                ]
-              }
-            ],
-            "principalSources": [
-              "frame-set",
-              "schedule-time"
-            ],
-            "effectOwnerSource": "innermost-nontransparent-frame",
-            "gate": "reclassifies",
-            "effectMode": "conjunctive",
-            "atomicityGroup": "surface.native.op.exacthostnavigator.15xlgzo.decision",
-            "lifetimeContract": "operation",
-            "barriers": {
-              "authorizeBefore": [
-                "system-information-read"
-              ],
-              "recheckAt": [],
-              "cancelAt": [
-                "negative-generation-change"
-              ]
-            }
-          },
-          {
-            "id": "surface.native.op.exacthostnavigator.dynamic.table.host.navigator.properties.13lbyy8",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "__exactHostNavigator.[[dynamic-table:host-navigator-properties]]"
-            },
-            "cap": "runtime:inspect",
-            "rationale": "Opaque host-object overlays remain closed until the scanner and runtime replace them with exact typed member rows."
-          },
-          {
             "id": "surface.native.op.exacthttpaddress.0nnqyun",
             "classification": "effects",
             "surface": {
@@ -201837,16 +201956,6 @@
             },
             "rationaleId": "pure-in-memory-compute",
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
-          },
-          {
-            "id": "surface.native.op.exactkchannelhandlekey.0hsvxwe",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "__exactKChannelHandleKey"
-            },
-            "cap": "ipc:channel",
-            "rationale": "Private descriptor maps and IPC bootstrap state are shared ambient channels."
           },
           {
             "id": "surface.native.op.exactlanguage.0xcyrrr",
@@ -203088,6 +203197,16 @@
             }
           },
           {
+            "id": "surface.native.op.exactmotionratedpublish.17cxgfa",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactMotionRatedPublish"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
             "id": "surface.native.op.exactnativedialog.0qc9nk6",
             "classification": "closed",
             "surface": {
@@ -204093,6 +204212,16 @@
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
+            "id": "surface.native.op.exactrunonjs.0h77cb0",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactRunOnJS"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
             "id": "surface.native.op.exactruntime.0agzg87",
             "classification": "non-capability",
             "surface": {
@@ -204161,6 +204290,16 @@
             },
             "rationaleId": "runtime-bootstrap-state",
             "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
+            "id": "surface.native.op.exactscheduleonappruntime.0ev3zto",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactScheduleOnAppRuntime"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
           },
           {
             "id": "surface.native.op.exactscryptsync.0u89mot",
@@ -204247,6 +204386,48 @@
               "cancelAt": [
                 "negative-generation-change",
                 "object-identity-mismatch"
+              ]
+            }
+          },
+          {
+            "id": "surface.native.op.exactsetenv.1785yh6",
+            "classification": "effects",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactSetEnv"
+            },
+            "effects": [
+              {
+                "cap": "env:write",
+                "selectorNormalizer": "environment.name.selector.v1",
+                "occurrenceNormalizer": "environment.name.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "session",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "frame-set",
+              "schedule-time"
+            ],
+            "effectOwnerSource": "innermost-nontransparent-frame",
+            "gate": "reclassifies",
+            "effectMode": "conjunctive",
+            "atomicityGroup": "surface.native.op.exactsetenv.1785yh6.decision",
+            "lifetimeContract": "operation",
+            "barriers": {
+              "authorizeBefore": [
+                "environment-access"
+              ],
+              "recheckAt": [],
+              "cancelAt": [
+                "negative-generation-change"
               ]
             }
           },
@@ -212555,14 +212736,54 @@
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
-            "id": "surface.native.op.global.bun.cryptohasher.dynamic.table.call.result.3eca66b45491.propertie.1uke3y2",
-            "classification": "closed",
+            "id": "surface.native.op.global.bun.cryptohasher.hash.0x1oloa",
+            "classification": "non-capability",
             "surface": {
               "kind": "native-op",
-              "name": "global:Bun.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]"
+              "name": "global:Bun.CryptoHasher.hash"
             },
-            "cap": "runtime:inspect",
-            "rationale": "The exact IIFE call result has a source-bound dynamic property sentinel and remains closed until its returned namespace is enumerated."
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
+            "id": "surface.native.op.global.bun.cryptohasher.prototype.196r4jo",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:Bun.CryptoHasher.prototype"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
+            "id": "surface.native.op.global.bun.cryptohasher.prototype.copy.0jy6ik3",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:Bun.CryptoHasher.prototype.copy"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
+            "id": "surface.native.op.global.bun.cryptohasher.prototype.digest.0omiqri",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:Bun.CryptoHasher.prototype.digest"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
+            "id": "surface.native.op.global.bun.cryptohasher.prototype.update.03xz6uf",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:Bun.CryptoHasher.prototype.update"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
             "id": "surface.native.op.global.bun.cryptohasher.update.1m85pq7",
@@ -212730,23 +212951,13 @@
           },
           {
             "id": "surface.native.op.global.bun.env.18aagct",
-            "classification": "closed",
+            "classification": "non-capability",
             "surface": {
               "kind": "native-op",
               "name": "global:Bun.env"
             },
-            "cap": "env:process-write",
-            "rationale": "The Bun-compatible env object exposes mutable shared process environment state."
-          },
-          {
-            "id": "surface.native.op.global.bun.env.dynamic.table.call.result.83f13e6eeaf2.properties.1jdwsyt",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:Bun.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]"
-            },
-            "cap": "runtime:inspect",
-            "rationale": "The exact IIFE call result has a source-bound dynamic property sentinel and remains closed until its returned namespace is enumerated."
+            "rationaleId": "module-reachability-only",
+            "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
             "id": "surface.native.op.global.bun.escapehtml.18sh8c8",
@@ -219247,14 +219458,54 @@
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
-            "id": "surface.native.op.global.exact.cryptohasher.dynamic.table.call.result.3eca66b45491.propert.1qr95xs",
-            "classification": "closed",
+            "id": "surface.native.op.global.exact.cryptohasher.hash.0stwdvs",
+            "classification": "non-capability",
             "surface": {
               "kind": "native-op",
-              "name": "global:Exact.CryptoHasher.[[dynamic-table:call-result-3eca66b45491-properties]]"
+              "name": "global:Exact.CryptoHasher.hash"
             },
-            "cap": "runtime:inspect",
-            "rationale": "The exact IIFE call result has a source-bound dynamic property sentinel and remains closed until its returned namespace is enumerated."
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
+            "id": "surface.native.op.global.exact.cryptohasher.prototype.1aiqi3y",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:Exact.CryptoHasher.prototype"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
+            "id": "surface.native.op.global.exact.cryptohasher.prototype.copy.1ybwba5",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:Exact.CryptoHasher.prototype.copy"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
+            "id": "surface.native.op.global.exact.cryptohasher.prototype.digest.109sc4o",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:Exact.CryptoHasher.prototype.digest"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+          },
+          {
+            "id": "surface.native.op.global.exact.cryptohasher.prototype.update.1412pk1",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:Exact.CryptoHasher.prototype.update"
+            },
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
             "id": "surface.native.op.global.exact.cryptohasher.update.1e19bnd",
@@ -219452,23 +219703,13 @@
           },
           {
             "id": "surface.native.op.global.exact.env.09w4ouf",
-            "classification": "closed",
+            "classification": "non-capability",
             "surface": {
               "kind": "native-op",
               "name": "global:Exact.env"
             },
-            "cap": "env:process-write",
-            "rationale": "The Bun-compatible env object exposes mutable shared process environment state."
-          },
-          {
-            "id": "surface.native.op.global.exact.env.dynamic.table.call.result.83f13e6eeaf2.properties.015del3",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:Exact.env.[[dynamic-table:call-result-83f13e6eeaf2-properties]]"
-            },
-            "cap": "runtime:inspect",
-            "rationale": "The exact IIFE call result has a source-bound dynamic property sentinel and remains closed until its returned namespace is enumerated."
+            "rationaleId": "module-reachability-only",
+            "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
             "id": "surface.native.op.global.exact.escapehtml.0gy7hbq",
@@ -219733,6 +219974,16 @@
             },
             "cap": "runtime:inspect",
             "rationale": "Runtime heap inspection and unsafe process-wide controls are closed."
+          },
+          {
+            "id": "surface.native.op.global.exact.invokehostasync.0b92itq",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:exact.invokeHostAsync"
+            },
+            "cap": "ipc:channel",
+            "rationale": "The typed Exact embedder route remains closed until its app/agent operation manifest and context are authenticated by the armed artifact."
           },
           {
             "id": "surface.native.op.global.exact.ismainthread.0u4gec9",
@@ -229817,16 +230068,6 @@
             }
           },
           {
-            "id": "surface.native.op.global.intl.dynamic.table.host.intl.properties.04x4a70",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:Intl.[[dynamic-table:host-intl-properties]]"
-            },
-            "cap": "runtime:inspect",
-            "rationale": "Opaque host-object overlays remain closed until the scanner and runtime replace them with exact typed member rows."
-          },
-          {
             "id": "surface.native.op.global.intl.getcanonicallocales.0aoj0pj",
             "classification": "effects",
             "surface": {
@@ -238038,96 +238279,6 @@
             "rationale": "Process event and exception-handler surfaces use a shared process-wide listener registry."
           },
           {
-            "id": "surface.native.op.global.process.dynamic.table.channel.handle.key.0rs5cmu",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.[[dynamic-table:channel-handle-key]]"
-            },
-            "cap": "ipc:channel",
-            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
-          },
-          {
-            "id": "surface.native.op.global.process.dynamic.table.channel.handle.key.readstart.10t7ve8",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.[[dynamic-table:channel-handle-key]].readStart"
-            },
-            "cap": "ipc:channel",
-            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
-          },
-          {
-            "id": "surface.native.op.global.process.dynamic.table.channel.handle.key.readstop.16yh838",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.[[dynamic-table:channel-handle-key]].readStop"
-            },
-            "cap": "ipc:channel",
-            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
-          },
-          {
-            "id": "surface.native.op.global.process.dynamic.table.exact.channel.handle.key.0p7q3rc",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.[[dynamic-table:exact-channel-handle-key]]"
-            },
-            "cap": "ipc:channel",
-            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
-          },
-          {
-            "id": "surface.native.op.global.process.dynamic.table.host.process.own.properties.14sfc3f",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.[[dynamic-table:host-process-own-properties]]"
-            },
-            "cap": "runtime:inspect",
-            "rationale": "Opaque host-object overlays remain closed until the scanner and runtime replace them with exact typed member rows."
-          },
-          {
-            "id": "surface.native.op.global.process.dynamic.table.host.process.prototype.properties.0y4mfg1",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.[[dynamic-table:host-process-prototype-properties]]"
-            },
-            "cap": "runtime:inspect",
-            "rationale": "Opaque host-object overlays remain closed until the scanner and runtime replace them with exact typed member rows."
-          },
-          {
-            "id": "surface.native.op.global.process.dynamic.table.k.channel.handle.1bh6gpg",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.[[dynamic-table:k-channel-handle]]"
-            },
-            "cap": "ipc:channel",
-            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
-          },
-          {
-            "id": "surface.native.op.global.process.dynamic.table.k.channel.handle.readstart.0s0jsdi",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.[[dynamic-table:k-channel-handle]].readStart"
-            },
-            "cap": "ipc:channel",
-            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
-          },
-          {
-            "id": "surface.native.op.global.process.dynamic.table.k.channel.handle.readstop.079by32",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.[[dynamic-table:k-channel-handle]].readStop"
-            },
-            "cap": "ipc:channel",
-            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
-          },
-          {
             "id": "surface.native.op.global.process.emit.1ujq1p5",
             "classification": "closed",
             "surface": {
@@ -238149,13 +238300,13 @@
           },
           {
             "id": "surface.native.op.global.process.env.10hroep",
-            "classification": "closed",
+            "classification": "non-capability",
             "surface": {
               "kind": "native-op",
               "name": "global:process.env"
             },
-            "cap": "env:process-write",
-            "rationale": "The process.env object permits mutation of shared process environment state."
+            "rationaleId": "module-reachability-only",
+            "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
           },
           {
             "id": "surface.native.op.global.process.env.dynamic.table.env.obj.properties.161cd28",
@@ -238296,11 +238447,11 @@
             }
           },
           {
-            "id": "surface.native.op.global.process.env.dynamic.table.host.process.env.properties.17k5mxv",
+            "id": "surface.native.op.global.process.env.dynamic.table.principal.environment.overlay.propertie.0sncb00",
             "classification": "effects",
             "surface": {
               "kind": "native-op",
-              "name": "global:process.env.[[dynamic-table:host-process-env-properties]]"
+              "name": "global:process.env.[[dynamic-table:principal-environment-overlay-properties]]"
             },
             "effects": [
               {
@@ -238421,7 +238572,7 @@
                 }
               }
             ],
-            "atomicityGroup": "surface.native.op.global.process.env.dynamic.table.host.process.env.properties.17k5mxv.decision",
+            "atomicityGroup": "surface.native.op.global.process.env.dynamic.table.principal.environment.overlay.propertie.0sncb00.decision",
             "lifetimeContract": "operation",
             "barriers": {
               "authorizeBefore": [
@@ -238452,6 +238603,36 @@
             },
             "cap": "runtime:inspect",
             "rationale": "Private process compatibility and IPC patch markers are shared mutable runtime state."
+          },
+          {
+            "id": "surface.native.op.global.process.exactkchannelhandle.042io0p",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:process.__exactKChannelHandle"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
+          },
+          {
+            "id": "surface.native.op.global.process.exactkchannelhandle.readstart.1swhhov",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:process.__exactKChannelHandle.readStart"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
+          },
+          {
+            "id": "surface.native.op.global.process.exactkchannelhandle.readstop.14rjgk5",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:process.__exactKChannelHandle.readStop"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Process IPC channels and raw channel handles are shared ambient communication endpoints."
           },
           {
             "id": "surface.native.op.global.process.exactlateipclistenerpatch.1u6t4tb",
@@ -240218,16 +240399,6 @@
             "rationale": "Process event and exception-handler surfaces use a shared process-wide listener registry."
           },
           {
-            "id": "surface.native.op.global.process.once.dynamic.table.call.result.621e9ebb69c5.properties.01zbqkp",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.once.[[dynamic-table:call-result-621e9ebb69c5-properties]]"
-            },
-            "cap": "runtime:inspect",
-            "rationale": "The exact IIFE call result has a source-bound dynamic property sentinel and remains closed until its returned namespace is enumerated."
-          },
-          {
             "id": "surface.native.op.global.process.openstdin.1ob3vxo",
             "classification": "effects",
             "surface": {
@@ -240415,16 +240586,6 @@
             },
             "cap": "runtime:inspect",
             "rationale": "Process event and exception-handler surfaces use a shared process-wide listener registry."
-          },
-          {
-            "id": "surface.native.op.global.process.prependoncelistener.dynamic.table.call.result.f0b2d7f38e0.1psi5ui",
-            "classification": "closed",
-            "surface": {
-              "kind": "native-op",
-              "name": "global:process.prependOnceListener.[[dynamic-table:call-result-f0b2d7f38e0a-properties]]"
-            },
-            "cap": "runtime:inspect",
-            "rationale": "The exact IIFE call result has a source-bound dynamic property sentinel and remains closed until its returned namespace is enumerated."
           },
           {
             "id": "surface.native.op.global.process.rawlisteners.1bsxaa1",
@@ -250428,6 +250589,36 @@
             "rationale": "Worklet global reachability is closed until worker principal isolation is proved."
           },
           {
+            "id": "surface.native.op.global.worklet.capture.0yvdy3b",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.capture"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
+            "id": "surface.native.op.global.worklet.captureget.0a4t4gx",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.captureGet"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
+            "id": "surface.native.op.global.worklet.captureset.02i1hil",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.captureSet"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
             "id": "surface.native.op.global.worklet.clamp.10ckbeu",
             "classification": "non-capability",
             "surface": {
@@ -250448,6 +250639,26 @@
             "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
+            "id": "surface.native.op.global.worklet.output.1ij3raq",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.output"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
+            "id": "surface.native.op.global.worklet.runonjs.08g0zpi",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:worklet.runOnJS"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
+          },
+          {
             "id": "surface.native.op.global.worklet.sharedvalue.1jey6on",
             "classification": "closed",
             "surface": {
@@ -250455,7 +250666,7 @@
               "name": "global:worklet.sharedValue"
             },
             "cap": "ipc:channel",
-            "rationale": "Worklet shared values are a cross-runtime communication channel."
+            "rationale": "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels."
           },
           {
             "id": "surface.native.op.global.writablestream.0f653iv",
@@ -252162,6 +252373,56 @@
             },
             "cap": "ipc:channel",
             "rationale": "Cross-runtime shared-value access is closed until a typed shared-memory channel and ownership model exist."
+          },
+          {
+            "id": "surface.native.op.workletcapture.1qk72mm",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletCapture"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
+            "id": "surface.native.op.workletcaptureget.1nw8x5m",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletCaptureGet"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
+            "id": "surface.native.op.workletcaptureset.0khajo6",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletCaptureSet"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
+            "id": "surface.native.op.workletoutput.03umqr5",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletOutput"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
+          },
+          {
+            "id": "surface.native.op.workletrunonjs.12t14kb",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "__workletRunOnJS"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile."
           },
           {
             "id": "surface.startup.capability.hardening.seal.1bkrr89",
@@ -254762,205 +255023,13 @@
           },
           {
             "id": "surface.startup.env.exact.compat.bun.0fkz8pj",
-            "classification": "effects",
+            "classification": "non-capability",
             "surface": {
               "kind": "startup",
               "name": "env:EXACT_COMPAT_BUN"
             },
-            "effects": [
-              {
-                "cap": "env:read",
-                "selectorNormalizer": "environment.name.selector.v1",
-                "occurrenceNormalizer": "environment.name.occurrence.v1",
-                "stages": [
-                  "requested",
-                  "commit"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "session",
-                  "static-floor"
-                ]
-              },
-              {
-                "cap": "env:write",
-                "selectorNormalizer": "environment.name.selector.v1",
-                "occurrenceNormalizer": "environment.name.occurrence.v1",
-                "stages": [
-                  "requested",
-                  "commit"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "session",
-                  "static-floor"
-                ]
-              }
-            ],
-            "principalSources": [
-              "root"
-            ],
-            "effectOwnerSource": "root",
-            "gate": "reclassifies",
-            "effectMode": "conditional",
-            "logicalBranches": [
-              {
-                "id": "absent",
-                "when": [
-                  {
-                    "fact": "environment.startup.exact_compat_bun",
-                    "equals": "absent"
-                  }
-                ],
-                "effects": [
-                  {
-                    "cap": "env:read",
-                    "selectorNormalizer": "environment.name.selector.v1",
-                    "occurrenceNormalizer": "environment.name.occurrence.v1",
-                    "stages": [
-                      "requested",
-                      "commit"
-                    ],
-                    "positiveSources": [
-                      "ambient-root",
-                      "session",
-                      "static-floor"
-                    ]
-                  }
-                ],
-                "principalSources": [
-                  "root"
-                ],
-                "effectOwnerSource": "root",
-                "lifetimeContract": "operation",
-                "barriers": {
-                  "authorizeBefore": [
-                    "environment-access"
-                  ],
-                  "recheckAt": [],
-                  "cancelAt": [
-                    "negative-generation-change"
-                  ]
-                }
-              },
-              {
-                "id": "present",
-                "when": [
-                  {
-                    "fact": "environment.startup.exact_compat_bun",
-                    "equals": "present"
-                  }
-                ],
-                "effects": [
-                  {
-                    "cap": "env:read",
-                    "selectorNormalizer": "environment.name.selector.v1",
-                    "occurrenceNormalizer": "environment.name.occurrence.v1",
-                    "stages": [
-                      "requested",
-                      "commit"
-                    ],
-                    "positiveSources": [
-                      "ambient-root",
-                      "session",
-                      "static-floor"
-                    ]
-                  },
-                  {
-                    "cap": "env:write",
-                    "selectorNormalizer": "environment.name.selector.v1",
-                    "occurrenceNormalizer": "environment.name.occurrence.v1",
-                    "stages": [
-                      "requested",
-                      "commit"
-                    ],
-                    "positiveSources": [
-                      "ambient-root",
-                      "session",
-                      "static-floor"
-                    ]
-                  }
-                ],
-                "principalSources": [
-                  "root"
-                ],
-                "effectOwnerSource": "root",
-                "lifetimeContract": "operation",
-                "barriers": {
-                  "authorizeBefore": [
-                    "environment-access"
-                  ],
-                  "recheckAt": [],
-                  "cancelAt": [
-                    "negative-generation-change"
-                  ]
-                }
-              },
-              {
-                "id": "propagated",
-                "when": [
-                  {
-                    "fact": "environment.startup.exact_compat_bun",
-                    "equals": "propagated"
-                  }
-                ],
-                "effects": [
-                  {
-                    "cap": "env:read",
-                    "selectorNormalizer": "environment.name.selector.v1",
-                    "occurrenceNormalizer": "environment.name.occurrence.v1",
-                    "stages": [
-                      "requested",
-                      "commit"
-                    ],
-                    "positiveSources": [
-                      "ambient-root",
-                      "session",
-                      "static-floor"
-                    ]
-                  },
-                  {
-                    "cap": "env:write",
-                    "selectorNormalizer": "environment.name.selector.v1",
-                    "occurrenceNormalizer": "environment.name.occurrence.v1",
-                    "stages": [
-                      "requested",
-                      "commit"
-                    ],
-                    "positiveSources": [
-                      "ambient-root",
-                      "session",
-                      "static-floor"
-                    ]
-                  }
-                ],
-                "principalSources": [
-                  "root"
-                ],
-                "effectOwnerSource": "root",
-                "lifetimeContract": "operation",
-                "barriers": {
-                  "authorizeBefore": [
-                    "environment-access"
-                  ],
-                  "recheckAt": [],
-                  "cancelAt": [
-                    "negative-generation-change"
-                  ]
-                }
-              }
-            ],
-            "atomicityGroup": "surface.startup.env.exact.compat.bun.0fkz8pj.decision",
-            "lifetimeContract": "operation",
-            "barriers": {
-              "authorizeBefore": [
-                "environment-access"
-              ],
-              "recheckAt": [],
-              "cancelAt": [
-                "negative-generation-change"
-              ]
-            }
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
             "id": "surface.startup.env.exact.compat.exec.argv.1eqpi8a",
@@ -262459,16 +262528,6 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
-            "id": "surface.startup.install.route.installchildprocesshostfunctions.installunsupportedjsonfn.1p3byqi",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "install-route:installChildProcessHostFunctions:installUnsupportedJsonFn"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
             "id": "surface.startup.install.route.installcryptohostfunctions.installdnshostfunctions.0nh0q81",
             "classification": "non-capability",
             "surface": {
@@ -262489,31 +262548,21 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
-            "id": "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "install-route:installDnsHostFunctions:installUnsupportedGlobal"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "install-route:installFsHostFunctions:installSync"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
             "id": "surface.startup.install.route.installglobals.installandroidhostfunctions.02chgnh",
             "classification": "non-capability",
             "surface": {
               "kind": "startup",
               "name": "install-route:installGlobals:installAndroidHostFunctions"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.startup.install.route.installglobals.installbootstrapcompatibilitymodes.0icun8j",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "install-route:installGlobals:installBootstrapCompatibilityModes"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -262719,21 +262768,11 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
-            "id": "surface.startup.install.route.installnethostfunctions.installunsupportedmodule.0sbzn4c",
+            "id": "surface.startup.install.route.prepareandroidstoragepathsprojection.0qv3qsf.installstorag.091wgkm",
             "classification": "non-capability",
             "surface": {
               "kind": "startup",
-              "name": "install-route:installNetHostFunctions:installUnsupportedModule"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.install.route.installunsupportedmodule.installunsupportedglobal.1rdyzok",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "install-route:installUnsupportedModule:installUnsupportedGlobal"
+              "name": "install-route:prepareAndroidStoragePathsProjection:0qv3qsf:installStoragePathsGlobal"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -262774,6 +262813,16 @@
             "surface": {
               "kind": "startup",
               "name": "installer:installAndroidLocationBridge"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.startup.installer.installbootstrapcompatibilitymodes.1hw8pk1",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "installer:installBootstrapCompatibilityModes"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -262969,6 +263018,26 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.startup.installer.installstoragepathsglobal.15aev5x",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "installer:installStoragePathsGlobal"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.startup.installer.installstructuredlastvalueaccessor.1muk5xc",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "installer:installStructuredLastValueAccessor"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.startup.installer.installstructuredlifecycleaccessors.10as6ae",
             "classification": "non-capability",
             "surface": {
@@ -262994,26 +263063,6 @@
             "surface": {
               "kind": "startup",
               "name": "installer:installTlsHostFunctions"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.installer.installunsupportedglobal.1xmd2yf",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "installer:installUnsupportedGlobal"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.installer.installunsupportedmodule.1fi2axk",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "installer:installUnsupportedModule"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -267081,6 +267130,8 @@
           "rootBindings",
           "pathCanonicalizers",
           "principals",
+          "environmentBase",
+          "bootstrapCompatibilityModes",
           "processAuthorityCeiling",
           "generations",
           "protectedObjects",
@@ -267147,6 +267198,43 @@
             },
             "additionalProperties": false
           },
+          "exactEmbedder": {
+            "type": "object",
+            "required": [
+              "schema",
+              "operationManifestDigest",
+              "endowments"
+            ],
+            "properties": {
+              "schema": {
+                "const": "exact/host-operation-endowments/1"
+              },
+              "operationManifestDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "endowments": {
+                "type": "object",
+                "required": [
+                  "app",
+                  "agentIsolate",
+                  "uiWorklet"
+                ],
+                "properties": {
+                  "app": {
+                    "$ref": "#/$defs/exactOperationEndowment"
+                  },
+                  "agentIsolate": {
+                    "$ref": "#/$defs/exactOperationEndowment"
+                  },
+                  "uiWorklet": {
+                    "$ref": "#/$defs/exactOperationEndowment"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
           "runNonce": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/base64url"
           },
@@ -267186,6 +267274,24 @@
             "minItems": 1,
             "items": {
               "$ref": "#/$defs/principalAuthority"
+            }
+          },
+          "environmentBase": {
+            "description": "Explicitly empty armed session environment base. Values exist only in exact-name principal overlays admitted by the principal authority rows.",
+            "type": "array",
+            "maxItems": 0
+          },
+          "bootstrapCompatibilityModes": {
+            "description": "Digest-bound, authority-neutral compatibility controls consumed during trusted bootstrap. They are not environment entries and are removed before project code.",
+            "type": "array",
+            "maxItems": 3,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "bun",
+                "fixture",
+                "fixture:bun"
+              ]
             }
           },
           "processAuthorityCeiling": {
@@ -267263,6 +267369,7 @@
                   "enum": [
                     "armed-policy",
                     "engine-binary",
+                    "exact-operation-manifest",
                     "package-graph",
                     "registry"
                   ]
@@ -267524,6 +267631,16 @@
                 "additionalProperties": false
               }
             ]
+          },
+          "exactOperationEndowment": {
+            "type": "array",
+            "maxItems": 4096,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
           },
           "generation": {
             "type": "integer",
@@ -271502,7 +271619,7 @@
         ],
         "properties": {
           "outputDispositionEvidenceSchema": {
-            "const": "ibex/capsec-output-disposition-evidence/1"
+            "const": "ibex/capsec-output-disposition-evidence/2"
           },
           "profile": {
             "const": "ibex/capsec/1"
@@ -271613,7 +271730,8 @@
               "alias",
               "mode",
               "sourceKind",
-              "returnVariant"
+              "returnVariant",
+              "contextId"
             ],
             "properties": {
               "surfaceId": {
@@ -271634,6 +271752,10 @@
               },
               "returnVariant": {
                 "$ref": "#/$defs/nonEmptyString"
+              },
+              "contextId": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9.-]+$"
               }
             },
             "additionalProperties": false
@@ -271664,6 +271786,7 @@
             "required": [
               "key",
               "disposition",
+              "proofKind",
               "observation"
             ],
             "properties": {
@@ -271681,7 +271804,15 @@
                   "refused",
                   "typed-logical",
                   "reserved-constant",
+                  "private-native-path",
                   "non-path"
+                ]
+              },
+              "proofKind": {
+                "enum": [
+                  "compiled-runtime-return-record",
+                  "loaded-engine-descriptor",
+                  "loaded-engine-return-record"
                 ]
               },
               "observation": {
@@ -271710,7 +271841,7 @@
         ],
         "properties": {
           "outputDispositionPolicySchema": {
-            "const": "ibex/capsec-output-disposition-policy/1"
+            "const": "ibex/capsec-output-disposition-policy/2"
           },
           "profile": {
             "const": "ibex/capsec/1"
@@ -271749,7 +271880,8 @@
               "alias",
               "mode",
               "sourceKind",
-              "returnVariant"
+              "returnVariant",
+              "contextId"
             ],
             "properties": {
               "surfaceId": {
@@ -271770,6 +271902,10 @@
               },
               "returnVariant": {
                 "$ref": "#/$defs/nonEmptyString"
+              },
+              "contextId": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9.-]+$"
               }
             },
             "additionalProperties": false
@@ -271818,6 +271954,7 @@
                   "refused",
                   "typed-logical",
                   "reserved-constant",
+                  "private-native-path",
                   "non-path"
                 ]
               },
@@ -271851,7 +271988,7 @@
         ],
         "properties": {
           "outputDispositionDatasetSchema": {
-            "const": "ibex/capsec-output-dispositions/1"
+            "const": "ibex/capsec-output-dispositions/2"
           },
           "profile": {
             "const": "ibex/capsec/1"
@@ -271864,8 +272001,8 @@
           },
           "dispositions": {
             "type": "array",
-            "minItems": 10,
-            "maxItems": 10,
+            "minItems": 11,
+            "maxItems": 11,
             "uniqueItems": true,
             "items": {
               "$ref": "#/$defs/disposition"
@@ -271903,6 +272040,7 @@
               "refused",
               "typed-logical",
               "reserved-constant",
+              "private-native-path",
               "non-path"
             ]
           },
@@ -271914,7 +272052,8 @@
               "alias",
               "mode",
               "sourceKind",
-              "returnVariant"
+              "returnVariant",
+              "contextId"
             ],
             "properties": {
               "surfaceId": {
@@ -271935,6 +272074,10 @@
               },
               "returnVariant": {
                 "$ref": "#/$defs/nonEmptyString"
+              },
+              "contextId": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9.-]+$"
               }
             },
             "additionalProperties": false
@@ -272091,6 +272234,7 @@
                   "refused",
                   "typed-logical",
                   "reserved-constant",
+                  "private-native-path",
                   "non-path"
                 ],
                 "properties": {
@@ -272130,6 +272274,10 @@
                     "type": "integer",
                     "minimum": 1
                   },
+                  "private-native-path": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
                   "non-path": {
                     "type": "integer",
                     "minimum": 1
@@ -272154,12 +272302,17 @@
           "outputShapeCatalogSchema",
           "profile",
           "discovery",
+          "contexts",
+          "surfaceAccounts",
+          "parameterizedOutputBindings",
+          "parameterizedBindingDigest",
           "catalogKeyDigest",
+          "counts",
           "rows"
         ],
         "properties": {
           "outputShapeCatalogSchema": {
-            "const": "ibex/capsec-output-shape-catalog/1"
+            "const": "ibex/capsec-output-shape-catalog/2"
           },
           "profile": {
             "const": "ibex/capsec/1"
@@ -272167,8 +272320,34 @@
           "discovery": {
             "$ref": "#/$defs/discoveryState"
           },
+          "contexts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/executionContext"
+            }
+          },
+          "surfaceAccounts": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/surfaceAccount"
+            }
+          },
+          "parameterizedOutputBindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/parameterizedOutputBinding"
+            }
+          },
+          "parameterizedBindingDigest": {
+            "$ref": "#/$defs/digest"
+          },
           "catalogKeyDigest": {
             "$ref": "#/$defs/digest"
+          },
+          "counts": {
+            "$ref": "#/$defs/counts"
           },
           "rows": {
             "type": "array",
@@ -272204,7 +272383,8 @@
               "alias",
               "mode",
               "sourceKind",
-              "returnVariant"
+              "returnVariant",
+              "contextId"
             ],
             "properties": {
               "surfaceId": {
@@ -272225,6 +272405,297 @@
               },
               "returnVariant": {
                 "$ref": "#/$defs/nonEmptyString"
+              },
+              "contextId": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9.-]+$"
+              }
+            },
+            "additionalProperties": false
+          },
+          "executionContext": {
+            "type": "object",
+            "required": [
+              "contextId",
+              "principalClass",
+              "accessPhase",
+              "runtimeState",
+              "targetScope"
+            ],
+            "properties": {
+              "contextId": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9.-]+$"
+              },
+              "principalClass": {
+                "enum": [
+                  "host",
+                  "package",
+                  "runtime-bootstrap"
+                ]
+              },
+              "accessPhase": {
+                "enum": [
+                  "abi-call",
+                  "call",
+                  "callback-delivery",
+                  "import",
+                  "module-load",
+                  "property-read"
+                ]
+              },
+              "runtimeState": {
+                "enum": [
+                  "fresh",
+                  "initialized",
+                  "loaded"
+                ]
+              },
+              "targetScope": {
+                "const": "candidate-target-cell"
+              }
+            },
+            "additionalProperties": false
+          },
+          "surfaceAccount": {
+            "type": "object",
+            "required": [
+              "surfaceId",
+              "status",
+              "reasonCode",
+              "sourceRefs",
+              "outputKinds"
+            ],
+            "properties": {
+              "surfaceId": {
+                "type": "string",
+                "pattern": "^surface\\.[a-z0-9.]+$"
+              },
+              "status": {
+                "enum": [
+                  "output-bearing",
+                  "structural-only",
+                  "unresolved"
+                ]
+              },
+              "reasonCode": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "sourceRefs": {
+                "$ref": "#/$defs/nonEmptyStringSet"
+              },
+              "outputKinds": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/nonEmptyString"
+                }
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "output-bearing"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "outputKinds": {
+                      "type": "array",
+                      "minItems": 1
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "outputKinds": {
+                      "type": "array",
+                      "maxItems": 0
+                    }
+                  }
+                }
+              }
+            ],
+            "additionalProperties": false
+          },
+          "parameterizedOutputBinding": {
+            "type": "object",
+            "required": [
+              "bindingSchema",
+              "surfaceId",
+              "surfaceName",
+              "status",
+              "reasonCode",
+              "sourceRefs",
+              "outputKinds",
+              "accountSchema",
+              "accountSetSource",
+              "binding",
+              "terminalSurfaces",
+              "ordinaryCatalogRows"
+            ],
+            "properties": {
+              "bindingSchema": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "surfaceId": {
+                "type": "string",
+                "pattern": "^surface\\.[a-z0-9.]+$"
+              },
+              "surfaceName": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "status": {
+                "const": "output-bearing"
+              },
+              "reasonCode": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "sourceRefs": {
+                "$ref": "#/$defs/nonEmptyStringSet"
+              },
+              "outputKinds": {
+                "$ref": "#/$defs/nonEmptyStringSet"
+              },
+              "accountSchema": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "accountSetSource": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "binding": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "terminalSurfaces": {
+                "type": "object",
+                "required": [
+                  "enumerationRead",
+                  "scalarRead",
+                  "write"
+                ],
+                "properties": {
+                  "enumerationRead": {
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "readSurface",
+                      "surfaceId",
+                      "authorization"
+                    ],
+                    "properties": {
+                      "name": {
+                        "const": "__exactGetAllEnv"
+                      },
+                      "readSurface": {
+                        "const": 1
+                      },
+                      "surfaceId": {
+                        "type": "string",
+                        "pattern": "^surface\\.[a-z0-9.]+$"
+                      },
+                      "authorization": {
+                        "const": "nonempty-per-exact-name"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "scalarRead": {
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "readSurface",
+                      "surfaceId"
+                    ],
+                    "properties": {
+                      "name": {
+                        "const": "__exactGetEnv"
+                      },
+                      "readSurface": {
+                        "const": 0
+                      },
+                      "surfaceId": {
+                        "type": "string",
+                        "pattern": "^surface\\.[a-z0-9.]+$"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "write": {
+                    "type": "object",
+                    "required": [
+                      "name",
+                      "surfaceId"
+                    ],
+                    "properties": {
+                      "name": {
+                        "const": "__exactSetEnv"
+                      },
+                      "surfaceId": {
+                        "type": "string",
+                        "pattern": "^surface\\.[a-z0-9.]+$"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              "ordinaryCatalogRows": {
+                "const": "forbidden"
+              }
+            },
+            "additionalProperties": false
+          },
+          "counts": {
+            "type": "object",
+            "required": [
+              "coverageSurfaces",
+              "outputBearingSurfaces",
+              "structuralOnlySurfaces",
+              "unresolvedSurfaces",
+              "catalogRows",
+              "parameterizedBindings",
+              "sourceInventoryRows",
+              "structuredRows"
+            ],
+            "properties": {
+              "coverageSurfaces": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "outputBearingSurfaces": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "structuralOnlySurfaces": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unresolvedSurfaces": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "catalogRows": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "parameterizedBindings": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sourceInventoryRows": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "structuredRows": {
+                "type": "integer",
+                "minimum": 0
               }
             },
             "additionalProperties": false
@@ -272244,7 +272715,7 @@
                 ]
               },
               "method": {
-                "const": "source-inventory-plus-source-asserted-structured-outputs"
+                "const": "source-inventory-surface-accounting-plus-source-asserted-structured-outputs"
               },
               "requiredExecutor": {
                 "$ref": "#/$defs/nonEmptyString"
@@ -272320,11 +272791,15 @@
             "type": "object",
             "required": [
               "key",
-              "discovery"
+              "discovery",
+              "requiredValueProof"
             ],
             "properties": {
               "key": {
                 "$ref": "#/$defs/key"
+              },
+              "requiredValueProof": {
+                "const": "live-value-observation"
               },
               "discovery": {
                 "oneOf": [

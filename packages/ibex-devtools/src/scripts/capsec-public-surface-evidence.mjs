@@ -349,6 +349,35 @@ const isTaggedDigest = (value) =>
 const isTaggedRuntimeNonce = (value) =>
   typeof value === "string" && /^u64:[1-9][0-9]*$/u.test(value);
 
+const EXACT_OPERATION_MANIFEST_DIGEST =
+  "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
+const EXACT_EMBEDDER_NON_CAPABILITY_SURFACES = new Map([
+  [
+    "callback:exact-host-call-async-resolve",
+    ["callback-attribution-carrier", "exact-host-call-round-trip"],
+  ],
+  [
+    "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
+    ["callback-attribution-carrier", "exact-host-call-round-trip"],
+  ],
+  [
+    "host-abi:ex_hermes_resolve_exact_host_call",
+    ["callback-attribution-carrier", "exact-host-call-round-trip"],
+  ],
+  [
+    "host-abi:ex_hermes_set_exact_host_call_async",
+    ["authority-control-plane", "exact-endowment-install"],
+  ],
+  [
+    "host-abi:ex_host_authorize_exact_endowment",
+    ["authority-control-plane", "exact-endowment-authorize"],
+  ],
+  [
+    "host-abi:ex_host_prepare_armed_embedder_artifacts",
+    ["authority-control-plane", "exact-artifact-prepare-round-trip"],
+  ],
+]);
+
 function validateGenerationSet(value, label) {
   exactKeys(value, ["negative", "dynamic", "handle"], label);
   if (
@@ -555,6 +584,129 @@ function validateCallbackInvariantResult(result, authored, fixtureId) {
       throw new Error(`${label} did not prove the post-lockdown invariant`);
     }
     return;
+  }
+  if (authored.scenario === "non-capability") {
+    const mechanism = authored.sourceDescriptor?.executionMechanism;
+    if (checks.executionMechanism !== mechanism) {
+      throw new Error(`${label} did not execute its source-bound mechanism`);
+    }
+    if (mechanism === "exact-host-call-round-trip") {
+      exactKeys(
+        checks,
+        [
+          "executionMechanism",
+          "setterInstalled",
+          "immutableCapability",
+          "genericBridgeAbsent",
+          "callbackExecuted",
+          "operationId",
+          "payloadLength",
+          "completion",
+          "completionTargetsConsumed",
+          "completionCallbacksQueued",
+          "completionCallbacksDelivered",
+          "singleUseCompletion",
+        ],
+        label,
+      );
+      if (
+        checks.setterInstalled !== true ||
+        checks.immutableCapability !== true ||
+        checks.genericBridgeAbsent !== true ||
+        checks.callbackExecuted !== true ||
+        checks.operationId !== 7 ||
+        checks.payloadLength !== 3 ||
+        checks.completion !== "9,8" ||
+        checks.completionTargetsConsumed !== 1 ||
+        checks.completionCallbacksQueued !== 1 ||
+        checks.completionCallbacksDelivered !== 1 ||
+        checks.singleUseCompletion !== true
+      ) {
+        throw new Error(`${label} did not prove the single-use Exact completion route`);
+      }
+      return;
+    }
+    if (mechanism === "exact-endowment-install") {
+      exactKeys(
+        checks,
+        [
+          "executionMechanism",
+          "setterInstalled",
+          "immutableCapability",
+          "genericBridgeAbsent",
+          "baselineFinalized",
+          "refreshHookRemoved",
+          "callbackExecuted",
+        ],
+        label,
+      );
+      if (
+        checks.setterInstalled !== true ||
+        checks.immutableCapability !== true ||
+        checks.genericBridgeAbsent !== true ||
+        checks.baselineFinalized !== true ||
+        checks.refreshHookRemoved !== true ||
+        checks.callbackExecuted !== false
+      ) {
+        throw new Error(`${label} did not prove immutable Exact endowment installation`);
+      }
+      return;
+    }
+    if (mechanism === "exact-endowment-authorize") {
+      exactKeys(
+        checks,
+        [
+          "executionMechanism",
+          "contextClaimed",
+          "endowmentAuthorized",
+          "narrowedEndowmentRejected",
+          "contextKind",
+          "operationIds",
+          "operationManifestDigest",
+        ],
+        label,
+      );
+      if (
+        checks.contextClaimed !== true ||
+        checks.endowmentAuthorized !== true ||
+        checks.narrowedEndowmentRejected !== true ||
+        checks.contextKind !== "app" ||
+        canonicalJson(checks.operationIds) !== canonicalJson([7, 11]) ||
+        checks.operationManifestDigest !== EXACT_OPERATION_MANIFEST_DIGEST
+      ) {
+        throw new Error(`${label} did not prove exact-set authorization`);
+      }
+      return;
+    }
+    if (mechanism === "exact-artifact-prepare-round-trip") {
+      exactKeys(
+        checks,
+        [
+          "executionMechanism",
+          "artifactPrepared",
+          "artifactSchema",
+          "nonceFreshened",
+          "digestRebound",
+          "sourceDigest",
+          "preparedDigest",
+          "preparedPairAuthenticated",
+        ],
+        label,
+      );
+      if (
+        checks.artifactPrepared !== true ||
+        checks.artifactSchema !== "ibex/armed-embedder-artifacts/1" ||
+        checks.nonceFreshened !== true ||
+        checks.digestRebound !== true ||
+        !isTaggedDigest(checks.sourceDigest) ||
+        !isTaggedDigest(checks.preparedDigest) ||
+        checks.sourceDigest === checks.preparedDigest ||
+        checks.preparedPairAuthenticated !== true
+      ) {
+        throw new Error(`${label} did not prove authenticated artifact freshening`);
+      }
+      return;
+    }
   }
   throw new Error(`${fixtureId}: unsupported callback invariant scenario`);
 }
@@ -908,6 +1060,68 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "exact-unendowed-operation") {
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          "memberName",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed Exact source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        [
+          "kind",
+          "contextKind",
+          "operationManifestDigest",
+          "endowedOperationIds",
+          "selectedOperationId",
+          "expectedError",
+        ],
+        `${recipe.fixtureId}: closed Exact operation`,
+      );
+      if (
+        authored.surfaceKind !== "native-op" ||
+        authored.surfaceName !== "global:exact.invokeHostAsync" ||
+        recipe.terminalObservedKey !==
+          "native-op:global:exact.invokeHostAsync" ||
+        descriptor.kind !== "closed-exact-unendowed-operation" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.globalName !== "exact" ||
+        descriptor.memberName !== "invokeHostAsync" ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([
+            "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync",
+          ]) ||
+        descriptor.sourceMetadata?.surfaceType !== "global-api" ||
+        descriptor.sourceMetadata?.sourceKey !== "native_jsi_global" ||
+        descriptor.sourceMetadata?.globalName !== "exact" ||
+        descriptor.sourceMetadata?.memberName !== "invokeHostAsync" ||
+        canonicalJson(descriptor.sourceMetadata?.memberKinds) !==
+          canonicalJson(["native-object-member"]) ||
+        authored.operation.contextKind !== "app" ||
+        authored.operation.operationManifestDigest !==
+          EXACT_OPERATION_MANIFEST_DIGEST ||
+        canonicalJson(authored.operation.endowedOperationIds) !==
+          canonicalJson([7, 11]) ||
+        authored.operation.selectedOperationId !== 8 ||
+        authored.operation.endowedOperationIds.includes(
+          authored.operation.selectedOperationId,
+        ) ||
+        authored.operation.expectedError !==
+          "exact.invokeHostAsync operation is not endowed"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: closed Exact invocation is not bound to the authenticated unendowed operation`,
+        );
+      }
+    }
   } else if (
     invocation?.invocationSchema ===
     "ibex/capsec-callback-invariant-invocation/1"
@@ -926,6 +1140,57 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(
         `${recipe.fixtureId}: callback invariant runtime invocation descriptor drift`,
       );
+    }
+    if (authored.scenario === "non-capability") {
+      const expected = EXACT_EMBEDDER_NON_CAPABILITY_SURFACES.get(
+        recipe.publicSurfaceProbe.surfaceObservedKey,
+      );
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "scenario",
+          "rationaleId",
+          "surfaceObservedKey",
+          "edgeId",
+          "branchId",
+          "sourceRefs",
+          "coverageEdge",
+          "implementationBranch",
+          "liveSurface",
+          "executionMechanism",
+          "auxiliaryDecisionEdgeId",
+        ],
+        `${recipe.fixtureId}: Exact non-capability source descriptor`,
+      );
+      if (
+        recipe.classification !== "non-capability" ||
+        expected === undefined ||
+        descriptor.kind !== "callback-security-invariant" ||
+        descriptor.scenario !== "non-capability" ||
+        descriptor.rationaleId !== expected[0] ||
+        descriptor.executionMechanism !== expected[1] ||
+        descriptor.surfaceObservedKey !==
+          recipe.publicSurfaceProbe.surfaceObservedKey ||
+        descriptor.edgeId !== recipe.edgeIds[0] ||
+        descriptor.branchId !== recipe.implementationBranchIds[0] ||
+        descriptor.auxiliaryDecisionEdgeId !== null ||
+        descriptor.coverageEdge?.id !== recipe.edgeIds[0] ||
+        descriptor.implementationBranch?.branchId !==
+          recipe.implementationBranchIds[0] ||
+        descriptor.liveSurface?.observedKey !==
+          recipe.publicSurfaceProbe.surfaceObservedKey ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        !descriptor.sourceRefs.some((sourceRef) =>
+          descriptor.liveSurface?.sourceRefs?.includes(sourceRef),
+        )
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: Exact non-capability invocation is not source-bound`,
+        );
+      }
     }
   } else {
     throw new Error(
@@ -1338,6 +1603,15 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: evaluator was not closed by the reviewed loaded-engine taming path`,
+      );
+    }
+    if (
+      authored.operation?.kind === "exact-unendowed-operation" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: Exact invocation did not fail closed before the embedder callback`,
       );
     }
     const loaderExecutableExpectation = new Map([

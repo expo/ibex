@@ -13,6 +13,10 @@ import { IDBOpenDBRequest } from './IDBRequest';
 import { IDBTransaction } from './IDBTransaction';
 import { compareKeys } from './IDBKeyRange';
 import { DOMException } from './utils';
+import {
+  captureAndroidStorageRoot,
+  resolveNativeStorageRoot,
+} from '../storage/native-root';
 
 /**
  * Interface for creating SQLite database instances.
@@ -57,24 +61,10 @@ class DefaultSQLiteProvider implements SQLiteDatabaseProvider {
   }
 }
 
-function trimTrailingSlash(path: string): string {
-  return path.replace(/\/+$/, '') || '/';
-}
+const androidStorageRoot = captureAndroidStorageRoot(globalThis as any);
 
-function indexedDbRoot(): string {
-  const g = globalThis as any;
-  const androidFilesDir = g.__exactAndroidStoragePaths?.filesDir;
-  if (typeof androidFilesDir === 'string' && androidFilesDir.length > 0) {
-    return trimTrailingSlash(androidFilesDir);
-  }
-
-  const env = g.process?.env;
-  const envFilesDir = env?.EXACT_ANDROID_FILES_DIR ?? env?.HOME;
-  if (typeof envFilesDir === 'string' && envFilesDir.length > 0) {
-    return trimTrailingSlash(envFilesDir);
-  }
-
-  return '/tmp';
+function indexedDbRoot(): string | null {
+  return resolveNativeStorageRoot(globalThis as any, androidStorageRoot);
 }
 
 function ensureIndexedDbDirectory(directory: string): void {
@@ -91,7 +81,18 @@ function ensureIndexedDbDirectory(directory: string): void {
 
 function indexedDbPath(name: string): string {
   // @ref LLP 0008#android-backend-matrix — IndexedDB persists under Android app filesDir.
-  const directory = `${indexedDbRoot()}/.ibex/indexeddb`;
+  const root = indexedDbRoot();
+  if (root === null) {
+    // The armed Android projection is an explicit closed sentinel. Refuse
+    // before SQLite/filesystem code can consume seeded host env values, `/tmp`,
+    // or a project mutation of the public compatibility object.
+    // @ref LLP 0023#6-path-bearing-observables
+    throw new DOMException(
+      'IndexedDB persistent storage is unavailable in this runtime.',
+      'NotAllowedError',
+    );
+  }
+  const directory = `${root}/.ibex/indexeddb`;
   ensureIndexedDbDirectory(directory);
   const encodedName = encodeURIComponent(String(name)) || 'default';
   return `${directory}/${encodedName}.sqlite`;

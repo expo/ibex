@@ -5,6 +5,8 @@
 // its owning ABI.
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
 // executor rechecks exact source identities and records only actual returns.
+// @ref LLP 0023#6-path-bearing-observables — private native path bytes never
+// enter the evidence artifact; the executor records only their validated class.
 
 use super::*;
 use base64::Engine as _;
@@ -15,6 +17,284 @@ use std::path::{Path, PathBuf};
 const DESCRIPTOR_KIND: &str = "source-bound-host-abi-output";
 const INVOCATION_SCHEMA: &str = "ibex/capsec-host-abi-output-invocation/1";
 const OUTPUT_CONTRACT_SCHEMA: &str = "ibex/host-abi-output-contract/1";
+const PRIVATE_NATIVE_PATH_CLASS: &str = "private-native-path";
+const VIRTUAL_ABSOLUTE_CLASS: &str = "virtual-absolute";
+const HOST_ABI_EACCES: &str = "HOST_ABI_EACCES";
+const HOST_ABI_EEXIST: &str = "HOST_ABI_EEXIST";
+const HOST_ABI_ENOENT: &str = "HOST_ABI_ENOENT";
+const HOST_ABI_EPERM: &str = "HOST_ABI_EPERM";
+
+#[derive(Clone, Copy)]
+struct ExpectedPathOutputContract {
+    kind: &'static str,
+    length_parameter: &'static str,
+    normalized_class: &'static str,
+    operation: &'static str,
+    ownership_kind: &'static str,
+    parameter: &'static str,
+    release_function: Option<&'static str>,
+}
+
+#[derive(Clone, Copy)]
+struct ExpectedLegacyOutputContract {
+    alias: &'static str,
+    catalog_selector: &'static str,
+    mode: &'static str,
+    operation: &'static str,
+    projection_kind: &'static str,
+    return_variant: &'static str,
+}
+
+fn expected_legacy_output_contract(
+    function_name: &str,
+    selector: &str,
+    alias: &str,
+    mode: &str,
+    return_variant: &str,
+) -> Option<ExpectedLegacyOutputContract> {
+    let contract = match (function_name, selector, alias, mode, return_variant) {
+        (
+            "ex_host_fs_mkdir_recursive_result",
+            "[[return]]",
+            "ex_host_fs_mkdir_recursive_result",
+            mode @ ("unarmed" | "armed"),
+            return_variant @ ("success" | "error" | "refused"),
+        ) if (mode, return_variant) != ("armed", "success")
+            && (mode, return_variant) != ("armed", "error")
+            && (mode, return_variant) != ("unarmed", "refused") =>
+        {
+            ExpectedLegacyOutputContract {
+                alias: "ex_host_fs_mkdir_recursive_result",
+                catalog_selector: "[[return]]",
+                mode,
+                operation: "rust-host-legacy-path-output",
+                projection_kind: "whole-return",
+                return_variant,
+            }
+        }
+        (
+            "ex_host_fs_mkdtemp",
+            "[[return]]",
+            "ex_host_fs_mkdtemp",
+            mode @ ("unarmed" | "armed"),
+            return_variant @ ("success" | "error" | "refused"),
+        ) if (mode, return_variant) != ("armed", "success")
+            && (mode, return_variant) != ("armed", "error")
+            && (mode, return_variant) != ("unarmed", "refused") =>
+        {
+            ExpectedLegacyOutputContract {
+                alias: "ex_host_fs_mkdtemp",
+                catalog_selector: "[[return]]",
+                mode,
+                operation: "rust-host-legacy-path-output",
+                projection_kind: "whole-return",
+                return_variant,
+            }
+        }
+        (
+            "ex_host_fs_realpath",
+            "[[return]]",
+            "ex_host_fs_realpath",
+            mode @ ("unarmed" | "armed"),
+            return_variant @ ("success" | "error" | "refused"),
+        ) if (mode, return_variant) != ("armed", "success")
+            && (mode, return_variant) != ("armed", "error")
+            && (mode, return_variant) != ("unarmed", "refused") =>
+        {
+            ExpectedLegacyOutputContract {
+                alias: "ex_host_fs_realpath",
+                catalog_selector: "[[return]]",
+                mode,
+                operation: "rust-host-legacy-path-output",
+                projection_kind: "whole-return",
+                return_variant,
+            }
+        }
+        ("ex_host_fs_readdir", "array-items", "ex_host_fs_readdir[]", "all", "success") => {
+            ExpectedLegacyOutputContract {
+                alias: "ex_host_fs_readdir[]",
+                catalog_selector: "array-items",
+                mode: "all",
+                operation: "rust-host-legacy-directory-output",
+                projection_kind: "json-array-items",
+                return_variant: "success",
+            }
+        }
+        _ => return None,
+    };
+    Some(contract)
+}
+
+fn expected_legacy_selected_output(contract: ExpectedLegacyOutputContract) -> Value {
+    json!({
+        "kind": "pointer",
+        "ownership": {
+            "kind": "caller-owned",
+            "releaseFunction": "ex_host_free_string",
+        },
+        "role": "return",
+        "selector": "[[return]]",
+        "projection": {
+            "catalogSelector": contract.catalog_selector,
+            "kind": contract.projection_kind,
+        },
+    })
+}
+
+fn legacy_source_requirements(function_name: &str) -> Option<&'static [&'static str]> {
+    match function_name {
+        "ex_host_fs_mkdir_recursive_result" => Some(&[
+            "path.is_null()",
+            "CStr::from_ptr(path)",
+            "cursor.exists()",
+            "std::fs::create_dir_all(&path)",
+        ]),
+        "ex_host_fs_mkdtemp" => Some(&[
+            "prefix.is_null()",
+            "CStr::from_ptr(prefix)",
+            "getrandom(&mut rng_bytes)",
+            "std::fs::create_dir(&dir_path)",
+        ]),
+        "ex_host_fs_realpath" => Some(&[
+            "path.is_null()",
+            "CStr::from_ptr(path)",
+            "std::fs::canonicalize(&path)",
+        ]),
+        "ex_host_fs_readdir" => Some(&[]),
+        _ => None,
+    }
+}
+
+fn expected_legacy_source_safety_binding(function_name: &str) -> Result<Value, String> {
+    let precedes = legacy_source_requirements(function_name)
+        .ok_or_else(|| format!("{function_name}: no legacy source requirements"))?;
+    let source_path = "src/host/abi.rs";
+    let bytes = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(source_path))
+        .map_err(|error| format!("{function_name}: read {source_path}: {error}"))?;
+    let source = std::str::from_utf8(&bytes)
+        .map_err(|_| format!("{function_name}: {source_path} is not UTF-8"))?;
+    let function_token = format!("fn {function_name}(");
+    let function_start = source
+        .find(&function_token)
+        .ok_or_else(|| format!("{function_name}: legacy definition is absent"))?;
+    let remaining = &source[function_start..];
+    let function_end = remaining
+        .get(1..)
+        .and_then(|tail| tail.find("\n#[no_mangle]").map(|offset| offset + 1))
+        .unwrap_or(remaining.len());
+    let function_source = &remaining[..function_end];
+    let ownership_start = function_start.saturating_sub(800);
+    let ownership_window = &source[ownership_start..function_start + function_end];
+    if !ownership_window.contains("ex_host_free_string") {
+        return Err(format!(
+            "{function_name}: returned string ownership is not source-annotated"
+        ));
+    }
+    if !precedes.is_empty() {
+        let guard = "if refuse_armed_legacy_path_output()";
+        let guard_index = function_source
+            .find(guard)
+            .ok_or_else(|| format!("{function_name}: armed refusal guard is absent"))?;
+        if precedes.iter().any(|token| {
+            function_source
+                .find(token)
+                .map_or(true, |index| index <= guard_index)
+        }) {
+            return Err(format!(
+                "{function_name}: armed refusal no longer precedes path decode, lookup, randomness, or mutation"
+            ));
+        }
+    }
+    let mut binding = json!({
+        "path": source_path,
+        "rawContentDigest": tagged_bytes_digest(&bytes),
+        "returnOwnership": {
+            "kind": "caller-owned",
+            "releaseFunction": "ex_host_free_string",
+            "sourceToken": "ex_host_free_string",
+        },
+    });
+    if !precedes.is_empty() {
+        binding["armedRefusalOrder"] = json!({
+            "guard": "if refuse_armed_legacy_path_output()",
+            "precedes": precedes,
+        });
+    }
+    Ok(binding)
+}
+
+fn expected_path_output_contract(
+    function_name: &str,
+    selector: &str,
+) -> Option<ExpectedPathOutputContract> {
+    let contract = match (function_name, selector) {
+        ("ex_hermes_engine_binary_path", "out:out") => ExpectedPathOutputContract {
+            kind: "buffer",
+            length_parameter: "out_len",
+            normalized_class: PRIVATE_NATIVE_PATH_CLASS,
+            operation: "native-hermes-stateless-path-output",
+            ownership_kind: "caller-storage",
+            parameter: "out",
+            release_function: None,
+        },
+        ("ex_host_vfs_chdir", "out:virtual") => ExpectedPathOutputContract {
+            kind: "buffer",
+            length_parameter: "out_virtual_len",
+            normalized_class: VIRTUAL_ABSOLUTE_CLASS,
+            operation: "rust-host-authenticated-vfs-path-output",
+            ownership_kind: "caller-owned",
+            parameter: "out_virtual",
+            release_function: Some("ex_host_free_buffer"),
+        },
+        ("ex_host_vfs_get_cwd", "out:virtual") => ExpectedPathOutputContract {
+            kind: "buffer",
+            length_parameter: "out_virtual_len",
+            normalized_class: VIRTUAL_ABSOLUTE_CLASS,
+            operation: "rust-host-authenticated-vfs-path-output",
+            ownership_kind: "caller-owned",
+            parameter: "out_virtual",
+            release_function: Some("ex_host_free_buffer"),
+        },
+        ("ex_host_vfs_resolve_path", "out:virtual") => ExpectedPathOutputContract {
+            kind: "buffer",
+            length_parameter: "out_virtual_len",
+            normalized_class: VIRTUAL_ABSOLUTE_CLASS,
+            operation: "rust-host-authenticated-vfs-path-output",
+            ownership_kind: "caller-owned",
+            parameter: "out_virtual",
+            release_function: Some("ex_host_free_buffer"),
+        },
+        ("ex_host_vfs_resolve_path", "out:backing") => ExpectedPathOutputContract {
+            kind: "buffer",
+            length_parameter: "out_backing_len",
+            normalized_class: PRIVATE_NATIVE_PATH_CLASS,
+            operation: "rust-host-authenticated-vfs-path-output",
+            ownership_kind: "caller-owned",
+            parameter: "out_backing",
+            release_function: Some("ex_host_free_buffer"),
+        },
+        _ => return None,
+    };
+    Some(contract)
+}
+
+fn expected_path_selected_output(contract: ExpectedPathOutputContract, selector: &str) -> Value {
+    let ownership = match contract.release_function {
+        Some(release_function) => json!({
+            "kind": contract.ownership_kind,
+            "releaseFunction": release_function,
+        }),
+        None => json!({ "kind": contract.ownership_kind }),
+    };
+    json!({
+        "kind": contract.kind,
+        "lengthParameter": contract.length_parameter,
+        "ownership": ownership,
+        "parameter": contract.parameter,
+        "role": "output",
+        "selector": selector,
+    })
+}
 
 extern "C" {
     fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
@@ -113,6 +393,18 @@ fn returned_object() -> Value {
     raw("return", "object", Value::Null)
 }
 
+// The sweep's error outcome is named `throw` because most executors observe
+// JavaScript. For this C ABI tranche it carries the actual NULL return shape
+// plus the errno that the executor independently read immediately afterward.
+fn failed_with_error_code(error_code: &str) -> Value {
+    json!({
+        "kind": "throw",
+        "rawValueShape": "null",
+        "value": null,
+        "errorCode": error_code,
+    })
+}
+
 fn c_string(path: &Path) -> CString {
     CString::new(path.to_string_lossy().as_bytes()).expect("Host ABI fixture path contains NUL")
 }
@@ -163,6 +455,8 @@ impl FsSandbox {
         );
         let root = std::env::temp_dir().join(nonce);
         std::fs::create_dir(&root).expect("create Host ABI output fixture directory");
+        let root =
+            std::fs::canonicalize(root).expect("canonicalize Host ABI output fixture directory");
         Self { root }
     }
 
@@ -177,6 +471,506 @@ impl Drop for FsSandbox {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+fn validate_virtual_absolute(bytes: &[u8]) -> Result<(), String> {
+    let value = std::str::from_utf8(bytes).map_err(|_| "VFS output was not UTF-8".to_string())?;
+    if value != "/project" && !value.starts_with("/project/") {
+        return Err("VFS output was not rooted in the virtual project namespace".into());
+    }
+    if value.contains('\\')
+        || value
+            .split('/')
+            .any(|component| matches!(component, "." | ".."))
+    {
+        return Err("VFS output was not a normalized virtual absolute path".into());
+    }
+    Ok(())
+}
+
+fn validate_private_native_path(bytes: &[u8], expected_root: Option<&Path>) -> Result<(), String> {
+    if bytes.is_empty() || bytes.contains(&0) {
+        return Err("private native path output was empty or contained NUL".into());
+    }
+
+    #[cfg(unix)]
+    let path = {
+        use std::os::unix::ffi::OsStrExt as _;
+        Path::new(std::ffi::OsStr::from_bytes(bytes))
+    };
+    #[cfg(not(unix))]
+    let decoded = std::str::from_utf8(bytes)
+        .map_err(|_| "private native path output was not platform UTF-8".to_string())?;
+    #[cfg(not(unix))]
+    let path = Path::new(decoded);
+
+    if !path.is_absolute() {
+        return Err("private native path output was not absolute".into());
+    }
+    if let Some(root) = expected_root {
+        if !path.starts_with(root) {
+            return Err("private VFS backing path escaped its authenticated mount".into());
+        }
+    } else if std::fs::metadata(path).is_err() {
+        return Err("private engine path did not identify a mapped filesystem object".into());
+    }
+    Ok(())
+}
+
+unsafe fn take_owned_host_buffer(data: *mut u8, len: u64) -> Result<Vec<u8>, String> {
+    let len_usize = usize::try_from(len).map_err(|_| "Host output length overflow".to_string())?;
+    if data.is_null() {
+        return if len == 0 {
+            Ok(Vec::new())
+        } else {
+            Err("Host output pointer was null for a non-zero length".into())
+        };
+    }
+    // SAFETY: a successful Host ABI call transfers exactly `len` readable
+    // bytes, and this helper releases that same allocation before returning.
+    let bytes = unsafe { std::slice::from_raw_parts(data, len_usize) }.to_vec();
+    crate::host::abi::ex_host_free_buffer(data, len);
+    Ok(bytes)
+}
+
+struct OwnedAuthenticatedVfsRuntime {
+    raw: *mut HermesRuntimeOpaque,
+    root: PathBuf,
+    _reset: super::HostResetGuard,
+    _engine_lock: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl OwnedAuthenticatedVfsRuntime {
+    fn new(sandbox: &FsSandbox) -> Result<Self, String> {
+        let engine_lock = hermes_engine_test_lock().blocking_lock();
+        std::fs::create_dir_all(sandbox.root.join("node_modules/image-lib"))
+            .map_err(|_| "create authenticated VFS package fixture".to_string())?;
+        let (reset, digest) =
+            install_armed_test_host_at(Some(&sandbox.root), true, true, true, Vec::new());
+        let digest =
+            CString::new(digest).map_err(|_| "armed Host digest contained NUL".to_string())?;
+        let raw = unsafe { ex_hermes_create_armed(digest.as_ptr()) };
+        if raw.is_null() {
+            return Err("authenticated Hermes/VFS runtime construction was rejected".into());
+        }
+        let runtime_nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+        if runtime_nonce == 0 {
+            unsafe { ex_hermes_destroy(raw) };
+            return Err("authenticated Hermes/VFS runtime has no generation nonce".into());
+        }
+        Ok(Self {
+            raw,
+            root: sandbox.root.clone(),
+            _reset: reset,
+            _engine_lock: engine_lock,
+        })
+    }
+
+    fn runtime_nonce(&self) -> u64 {
+        unsafe { ex_hermes_runtime_nonce(self.raw) }
+    }
+}
+
+impl Drop for OwnedAuthenticatedVfsRuntime {
+    fn drop(&mut self) {
+        if !self.raw.is_null() {
+            unsafe { ex_hermes_destroy(self.raw) };
+            self.raw = std::ptr::null_mut();
+        }
+    }
+}
+
+fn execute_engine_path_output(function_name: &str, selector: &str) -> Result<Value, String> {
+    if (function_name, selector) != ("ex_hermes_engine_binary_path", "out:out") {
+        return Err(format!(
+            "unsupported stateless Hermes path output {function_name}:{selector}"
+        ));
+    }
+    let mut output = [0_i8; 4096];
+    let status = unsafe { ex_hermes_engine_binary_path(output.as_mut_ptr(), output.len()) };
+    let length = usize::try_from(status)
+        .ok()
+        .filter(|length| *length < output.len())
+        .ok_or("engine binary path output failed or exceeded its bounded buffer")?;
+    if output[length] != 0 {
+        return Err("engine binary path output was not NUL terminated".into());
+    }
+    let bytes = output[..length]
+        .iter()
+        .map(|byte| *byte as u8)
+        .collect::<Vec<_>>();
+    validate_private_native_path(&bytes, None)?;
+    Ok(returned_string(PRIVATE_NATIVE_PATH_CLASS.into()))
+}
+
+fn execute_vfs_path_output(
+    runtime: &OwnedAuthenticatedVfsRuntime,
+    function_name: &str,
+    selector: &str,
+) -> Result<Value, String> {
+    let runtime_nonce = runtime.runtime_nonce();
+    if runtime_nonce == 0 {
+        return Err("authenticated VFS runtime became stale".into());
+    }
+    let root_principals = [0_u64];
+    let mut backing_data = std::ptr::null_mut();
+    let mut backing_len = 0_u64;
+    let mut virtual_data = std::ptr::null_mut();
+    let mut virtual_len = 0_u64;
+    let mut host_errno = 0_i32;
+    let status = match function_name {
+        "ex_host_vfs_chdir" => {
+            let input = b"/project";
+            unsafe {
+                crate::host::abi::ex_host_vfs_chdir(
+                    runtime_nonce,
+                    0,
+                    root_principals.as_ptr(),
+                    root_principals.len(),
+                    input.as_ptr(),
+                    input.len() as u64,
+                    &mut virtual_data,
+                    &mut virtual_len,
+                    &mut host_errno,
+                )
+            }
+        }
+        "ex_host_vfs_get_cwd" => unsafe {
+            crate::host::abi::ex_host_vfs_get_cwd(
+                runtime_nonce,
+                0,
+                root_principals.as_ptr(),
+                root_principals.len(),
+                &mut virtual_data,
+                &mut virtual_len,
+                &mut host_errno,
+            )
+        },
+        "ex_host_vfs_resolve_path" => {
+            let input = b"/project/host-abi-output.js";
+            unsafe {
+                crate::host::abi::ex_host_vfs_resolve_path(
+                    runtime_nonce,
+                    input.as_ptr(),
+                    input.len() as u64,
+                    &mut backing_data,
+                    &mut backing_len,
+                    &mut virtual_data,
+                    &mut virtual_len,
+                    &mut host_errno,
+                )
+            }
+        }
+        other => return Err(format!("unsupported authenticated VFS path output {other}")),
+    };
+    let backing = unsafe { take_owned_host_buffer(backing_data, backing_len) }?;
+    let virtual_path = unsafe { take_owned_host_buffer(virtual_data, virtual_len) }?;
+    if status != crate::host::abi::EX_HOST_VFS_RESULT_OK || host_errno != 0 {
+        return Err(format!(
+            "authenticated VFS output call failed with status {status} and errno {host_errno}"
+        ));
+    }
+    let normalized_class = match selector {
+        "out:virtual" => {
+            validate_virtual_absolute(&virtual_path)?;
+            VIRTUAL_ABSOLUTE_CLASS
+        }
+        "out:backing" if function_name == "ex_host_vfs_resolve_path" => {
+            validate_private_native_path(&backing, Some(&runtime.root))?;
+            PRIVATE_NATIVE_PATH_CLASS
+        }
+        _ => {
+            return Err(format!(
+                "unsupported authenticated VFS selector {function_name}:{selector}"
+            ))
+        }
+    };
+    Ok(returned_string(normalized_class.into()))
+}
+
+fn expect_null_host_string_with_errno(
+    pointer: *mut std::ffi::c_char,
+    expected_errno: i32,
+    function_name: &str,
+) -> Result<(), String> {
+    if !pointer.is_null() {
+        crate::host::abi::ex_host_free_string(pointer);
+        return Err(format!(
+            "{function_name}: error fixture unexpectedly returned an owned string"
+        ));
+    }
+    let observed = crate::host::abi::ex_host_fs_last_error();
+    if observed != expected_errno {
+        return Err(format!(
+            "{function_name}: expected errno {expected_errno}, observed {observed}"
+        ));
+    }
+    Ok(())
+}
+
+fn prime_non_eperm_fs_error(sandbox: &FsSandbox) -> Result<(), String> {
+    fresh_legacy_host();
+    let missing = sandbox.root.join("prime-non-eperm-missing");
+    let missing = c_string(&missing);
+    expect_null_host_string_with_errno(
+        crate::host::abi::ex_host_fs_realpath(missing.as_ptr()),
+        libc::ENOENT,
+        "armed-refusal-primer",
+    )
+}
+
+fn install_legacy_armed_fixture(sandbox: &FsSandbox) -> Result<super::HostResetGuard, String> {
+    std::fs::create_dir_all(sandbox.root.join("node_modules/image-lib"))
+        .map_err(|error| format!("create armed legacy Host package fixture: {error}"))?;
+    let (reset, _digest) =
+        install_armed_test_host_at(Some(&sandbox.root), true, true, true, Vec::new());
+    if crate::host::abi::ex_host_is_armed() != 1 {
+        return Err("legacy Host refusal fixture did not install an armed Host".into());
+    }
+    Ok(reset)
+}
+
+fn execute_legacy_path_success(function_name: &str, sandbox: &FsSandbox) -> Result<Value, String> {
+    fresh_legacy_host();
+    let returned = match function_name {
+        "ex_host_fs_mkdir_recursive_result" => {
+            let first_created = sandbox.root.join("legacy-mkdir-success");
+            let target = first_created.join("child");
+            if target.exists() || first_created.exists() {
+                return Err("recursive mkdir success fixture was not fresh".into());
+            }
+            let target_c = c_string(&target);
+            let returned = take_host_string(crate::host::abi::ex_host_fs_mkdir_recursive_result(
+                target_c.as_ptr(),
+            ))
+            .ok_or("recursive mkdir success returned NULL")?;
+            if Path::new(&returned) != first_created || !target.is_dir() {
+                return Err("recursive mkdir success returned the wrong first-created path".into());
+            }
+            returned
+        }
+        "ex_host_fs_mkdtemp" => {
+            let prefix = sandbox.root.join("legacy-mkdtemp-success-");
+            let prefix_text = prefix.to_string_lossy().into_owned();
+            let prefix_c = CString::new(prefix_text.as_bytes())
+                .map_err(|_| "mkdtemp success prefix contained NUL".to_string())?;
+            let returned =
+                take_host_string(crate::host::abi::ex_host_fs_mkdtemp(prefix_c.as_ptr(), 0))
+                    .ok_or("mkdtemp success returned NULL")?;
+            let returned_path = Path::new(&returned);
+            if !returned_path.is_dir()
+                || !returned.starts_with(&prefix_text)
+                || returned.len() != prefix_text.len() + 6
+            {
+                return Err("mkdtemp success returned an invalid owned directory".into());
+            }
+            std::fs::remove_dir(returned_path)
+                .map_err(|error| format!("remove mkdtemp success fixture: {error}"))?;
+            returned
+        }
+        "ex_host_fs_realpath" => {
+            let input = sandbox.reset_file("legacy-realpath-success.txt");
+            let expected = std::fs::canonicalize(&input)
+                .map_err(|error| format!("canonicalize realpath fixture: {error}"))?;
+            let input_c = c_string(&input);
+            let returned =
+                take_host_string(crate::host::abi::ex_host_fs_realpath(input_c.as_ptr()))
+                    .ok_or("realpath success returned NULL")?;
+            if Path::new(&returned) != expected {
+                return Err("realpath success returned a different canonical target".into());
+            }
+            returned
+        }
+        other => return Err(format!("unsupported legacy path success route {other}")),
+    };
+    validate_private_native_path(returned.as_bytes(), Some(&sandbox.root))?;
+    Ok(returned_string(PRIVATE_NATIVE_PATH_CLASS.into()))
+}
+
+fn execute_legacy_path_error(function_name: &str, sandbox: &FsSandbox) -> Result<Value, String> {
+    let error_code = match function_name {
+        "ex_host_fs_mkdir_recursive_result" => {
+            fresh_legacy_host();
+            let target = sandbox.reset_file("legacy-mkdir-error-existing-file");
+            let before = std::fs::read(&target)
+                .map_err(|error| format!("read recursive mkdir error fixture: {error}"))?;
+            let target_c = c_string(&target);
+            expect_null_host_string_with_errno(
+                crate::host::abi::ex_host_fs_mkdir_recursive_result(target_c.as_ptr()),
+                libc::EEXIST,
+                function_name,
+            )?;
+            if std::fs::read(&target).ok().as_deref() != Some(before.as_slice()) {
+                return Err("recursive mkdir error mutated its existing-file target".into());
+            }
+            HOST_ABI_EEXIST
+        }
+        "ex_host_fs_mkdtemp" => {
+            crate::host::abi::install_host(crate::host::Host::strict());
+            if crate::host::abi::ex_host_is_armed() != 0 {
+                return Err("mkdtemp error fixture unexpectedly installed an armed Host".into());
+            }
+            let prefix = format!("legacy-mkdtemp-denied-{}-", std::process::id());
+            let before = std::fs::read_dir(std::env::temp_dir())
+                .map_err(|error| format!("read temp directory before mkdtemp error: {error}"))?
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+                .count();
+            let prefix_c = CString::new(prefix.as_bytes())
+                .map_err(|_| "mkdtemp error prefix contained NUL".to_string())?;
+            expect_null_host_string_with_errno(
+                crate::host::abi::ex_host_fs_mkdtemp(prefix_c.as_ptr(), 0),
+                libc::EACCES,
+                function_name,
+            )?;
+            let after = std::fs::read_dir(std::env::temp_dir())
+                .map_err(|error| format!("read temp directory after mkdtemp error: {error}"))?
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+                .count();
+            if before != after {
+                return Err("mkdtemp denial created an unexpected directory".into());
+            }
+            HOST_ABI_EACCES
+        }
+        "ex_host_fs_realpath" => {
+            fresh_legacy_host();
+            let missing = sandbox.root.join("legacy-realpath-error-missing");
+            if missing.exists() {
+                return Err("realpath error fixture unexpectedly exists".into());
+            }
+            let missing_c = c_string(&missing);
+            expect_null_host_string_with_errno(
+                crate::host::abi::ex_host_fs_realpath(missing_c.as_ptr()),
+                libc::ENOENT,
+                function_name,
+            )?;
+            if missing.exists() {
+                return Err("realpath error mutated its missing target".into());
+            }
+            HOST_ABI_ENOENT
+        }
+        other => return Err(format!("unsupported legacy path error route {other}")),
+    };
+    Ok(failed_with_error_code(error_code))
+}
+
+fn execute_legacy_path_refusal(function_name: &str, sandbox: &FsSandbox) -> Result<Value, String> {
+    prime_non_eperm_fs_error(sandbox)?;
+    let _reset = install_legacy_armed_fixture(sandbox)?;
+    let nonce = format!("{}-{}", std::process::id(), function_name);
+    match function_name {
+        "ex_host_fs_mkdir_recursive_result" => {
+            let target = sandbox
+                .root
+                .join(format!("armed-recursive-mkdir-refused-{nonce}"));
+            if target.exists() {
+                return Err("armed recursive mkdir target was not fresh".into());
+            }
+            let target_c = c_string(&target);
+            expect_null_host_string_with_errno(
+                crate::host::abi::ex_host_fs_mkdir_recursive_result(target_c.as_ptr()),
+                libc::EPERM,
+                function_name,
+            )?;
+            if target.exists() {
+                return Err("armed recursive mkdir refusal mutated its target".into());
+            }
+        }
+        "ex_host_fs_mkdtemp" => {
+            let prefix = format!("armed-mkdtemp-refused-{nonce}-");
+            let matching_entries = || -> Result<usize, String> {
+                Ok(std::fs::read_dir(std::env::temp_dir())
+                    .map_err(|error| format!("read temp directory for armed mkdtemp: {error}"))?
+                    .filter_map(Result::ok)
+                    .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+                    .count())
+            };
+            let before = matching_entries()?;
+            let prefix_c = CString::new(prefix.as_bytes())
+                .map_err(|_| "armed mkdtemp prefix contained NUL".to_string())?;
+            expect_null_host_string_with_errno(
+                crate::host::abi::ex_host_fs_mkdtemp(prefix_c.as_ptr(), 0),
+                libc::EPERM,
+                function_name,
+            )?;
+            if matching_entries()? != before {
+                return Err("armed mkdtemp refusal consumed randomness into a directory".into());
+            }
+        }
+        "ex_host_fs_realpath" => {
+            let target = sandbox.root.join(format!("armed-realpath-refused-{nonce}"));
+            if target.exists() {
+                return Err("armed realpath target was not fresh".into());
+            }
+            let target_c = c_string(&target);
+            expect_null_host_string_with_errno(
+                crate::host::abi::ex_host_fs_realpath(target_c.as_ptr()),
+                libc::EPERM,
+                function_name,
+            )?;
+            if target.exists() {
+                return Err("armed realpath refusal mutated its lookup target".into());
+            }
+        }
+        other => return Err(format!("unsupported armed legacy path refusal {other}")),
+    }
+    Ok(failed_with_error_code(HOST_ABI_EPERM))
+}
+
+fn execute_legacy_readdir(sandbox: &FsSandbox) -> Result<Value, String> {
+    fresh_legacy_host();
+    let directory = sandbox.root.join("legacy-readdir-success");
+    std::fs::create_dir(&directory).map_err(|error| format!("create readdir fixture: {error}"))?;
+    std::fs::write(directory.join("alpha"), b"alpha")
+        .map_err(|error| format!("write readdir alpha fixture: {error}"))?;
+    std::fs::write(directory.join("beta.txt"), b"beta")
+        .map_err(|error| format!("write readdir beta fixture: {error}"))?;
+    let directory_c = c_string(&directory);
+    let payload = take_host_string(crate::host::abi::ex_host_fs_readdir(directory_c.as_ptr()))
+        .ok_or("readdir success returned NULL")?;
+    let mut names: Vec<String> = serde_json::from_str(&payload)
+        .map_err(|error| format!("parse actual readdir JSON: {error}"))?;
+    names.sort();
+    if names != ["alpha", "beta.txt"]
+        || names.iter().any(|name| {
+            name.is_empty()
+                || matches!(name.as_str(), "." | "..")
+                || name.contains('/')
+                || name.contains('\\')
+        })
+    {
+        return Err("readdir success did not return the exact basename fixture".into());
+    }
+    Ok(raw("return", "array", json!(names)))
+}
+
+fn execute_legacy_output(validated: &ValidatedRow, sandbox: &FsSandbox) -> Result<Value, String> {
+    let result = match (
+        validated.operation.as_str(),
+        validated.mode.as_str(),
+        validated.return_variant.as_str(),
+    ) {
+        ("rust-host-legacy-path-output", "unarmed", "success") => {
+            execute_legacy_path_success(&validated.function_name, sandbox)
+        }
+        ("rust-host-legacy-path-output", "unarmed", "error") => {
+            execute_legacy_path_error(&validated.function_name, sandbox)
+        }
+        ("rust-host-legacy-path-output", "armed", "refused") => {
+            execute_legacy_path_refusal(&validated.function_name, sandbox)
+        }
+        ("rust-host-legacy-directory-output", "all", "success") => execute_legacy_readdir(sandbox),
+        _ => Err(format!(
+            "{}: unsupported bounded legacy Host output mode/variant",
+            validated.function_name
+        )),
+    };
+    // These compatibility probes deliberately replace the process Host. Do
+    // not let a strict/armed case influence ordinary rows that follow it in
+    // catalog order.
+    fresh_legacy_host();
+    result
 }
 
 fn open_fixture(path: &Path, flags: u32) -> *mut crate::host::abi::ExactFileHandle {
@@ -1009,7 +1803,16 @@ fn compiled_host_abi_edges() -> std::collections::BTreeMap<String, String> {
         .collect()
 }
 
-fn validate_row(row: &Value) -> Result<(&str, &str), String> {
+#[derive(Clone)]
+struct ValidatedRow {
+    function_name: String,
+    mode: String,
+    operation: String,
+    return_variant: String,
+    selector: String,
+}
+
+fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
     let key = row
         .get("key")
         .and_then(Value::as_object)
@@ -1018,9 +1821,23 @@ fn validate_row(row: &Value) -> Result<(&str, &str), String> {
         .get("probe")
         .and_then(Value::as_object)
         .ok_or("missing output probe")?;
+    let selector = key
+        .get("output")
+        .and_then(Value::as_str)
+        .ok_or("missing output selector")?;
+    let alias = key
+        .get("alias")
+        .and_then(Value::as_str)
+        .ok_or("missing output alias")?;
+    let mode = key
+        .get("mode")
+        .and_then(Value::as_str)
+        .ok_or("missing output mode")?;
+    let return_variant = key
+        .get("returnVariant")
+        .and_then(Value::as_str)
+        .ok_or("missing return variant")?;
     if key.get("sourceKind").and_then(Value::as_str) != Some("host-abi")
-        || key.get("output").and_then(Value::as_str) != Some("[[return]]")
-        || key.get("mode").and_then(Value::as_str) != Some("all")
         || probe.get("kind").and_then(Value::as_str) != Some("loaded-engine-return-record")
     {
         return Err("Host ABI output row selected an unsupported key or proof kind".into());
@@ -1031,10 +1848,47 @@ fn validate_row(row: &Value) -> Result<(&str, &str), String> {
     let function_name = descriptor["functionName"]
         .as_str()
         .ok_or("missing function name")?;
+    let expected_path_contract = expected_path_output_contract(function_name, selector);
+    let expected_legacy_contract =
+        expected_legacy_output_contract(function_name, selector, alias, mode, return_variant);
+    if mode != "all" && expected_legacy_contract.is_none() {
+        return Err(format!(
+            "{function_name}: non-default Host ABI mode has no bounded native executor"
+        ));
+    }
+    if selector != "[[return]]"
+        && expected_path_contract.is_none()
+        && expected_legacy_contract.is_none()
+    {
+        return Err(format!(
+            "{function_name}: output selector has no bounded native executor"
+        ));
+    }
+    if expected_path_contract.is_some()
+        && (key.get("alias").and_then(Value::as_str) != Some(function_name)
+            || key.get("returnVariant").and_then(Value::as_str) != Some("default")
+            || key.get("contextId").and_then(Value::as_str)
+                != Some("host.private-native-call-initialized"))
+    {
+        return Err(format!("{function_name}: bounded path output key drift"));
+    }
+    if let Some(expected) = expected_legacy_contract {
+        if alias != expected.alias
+            || mode != expected.mode
+            || return_variant != expected.return_variant
+            || key.get("contextId").and_then(Value::as_str)
+                != Some("host.private-native-call-initialized")
+        {
+            return Err(format!("{function_name}: bounded legacy output key drift"));
+        }
+    }
     if descriptor["kind"] != DESCRIPTOR_KIND
         || descriptor["invocationSchema"] != INVOCATION_SCHEMA
+        || descriptor["catalogOutput"] != selector
+        || descriptor["catalogMode"] != key["mode"]
+        || descriptor["returnVariant"] != key["returnVariant"]
         || probe["sourceDescriptorDigest"] != tagged_jcs_digest(descriptor)
-        || probe["recordPath"] != json!(["[[return]]"])
+        || probe["recordPath"] != json!([selector])
     {
         return Err(format!("{function_name}: source descriptor drift"));
     }
@@ -1045,10 +1899,13 @@ fn validate_row(row: &Value) -> Result<(&str, &str), String> {
     if compiled_host_abi_edges().get(edge_id).map(String::as_str) != Some(function_name) {
         return Err(format!("{function_name}: compiled coverage identity drift"));
     }
-    for binding in descriptor["sourceFiles"]
+    let source_files = descriptor["sourceFiles"]
         .as_array()
-        .ok_or("missing source files")?
-    {
+        .ok_or("missing source files")?;
+    if source_files.is_empty() {
+        return Err(format!("{function_name}: source file binding is empty"));
+    }
+    for binding in source_files {
         let source_path = binding["path"].as_str().ok_or("missing source path")?;
         let bytes = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(source_path))
             .map_err(|error| format!("{function_name}: read {source_path}: {error}"))?;
@@ -1063,6 +1920,36 @@ fn validate_row(row: &Value) -> Result<(&str, &str), String> {
     let operation = descriptor["operation"]["kind"]
         .as_str()
         .ok_or("missing operation")?;
+    if let Some(expected) = expected_path_contract {
+        if operation != expected.operation || descriptor["operation"]["targetVariant"] != "default"
+        {
+            return Err(format!(
+                "{function_name}: bounded path operation binding drift"
+            ));
+        }
+    }
+    if let Some(expected) = expected_legacy_contract {
+        if operation != expected.operation
+            || descriptor["operation"]["targetVariant"] != "default"
+            || descriptor["operation"]["mode"] != expected.mode
+            || descriptor["operation"]["returnVariant"] != expected.return_variant
+            || descriptor["operation"]["sourceSelector"] != "[[return]]"
+        {
+            return Err(format!(
+                "{function_name}: bounded legacy output operation binding drift"
+            ));
+        }
+        let expected_source_binding = expected_legacy_source_safety_binding(function_name)?;
+        if descriptor.get("sourceSafetyBinding") != Some(&expected_source_binding) {
+            return Err(format!(
+                "{function_name}: legacy ownership/refusal source binding drift"
+            ));
+        }
+    } else if descriptor.get("sourceSafetyBinding").is_some() {
+        return Err(format!(
+            "{function_name}: non-legacy output carried a legacy source binding"
+        ));
+    }
     let expected_language = if operation.starts_with("rust-host-") {
         "rust"
     } else if operation.starts_with("native-hermes-") {
@@ -1089,13 +1976,19 @@ fn validate_row(row: &Value) -> Result<(&str, &str), String> {
     let output_contracts = descriptor["outputContracts"]
         .as_array()
         .ok_or("missing source-derived output contracts")?;
+    let expected_selected_output = if let Some(contract) = expected_path_contract {
+        expected_path_selected_output(contract, selector)
+    } else if let Some(contract) = expected_legacy_contract {
+        expected_legacy_selected_output(contract)
+    } else {
+        json!({
+            "kind": "scalar",
+            "ownership": "not-applicable",
+            "selector": "[[return]]"
+        })
+    };
     if descriptor["outputContractSchema"] != OUTPUT_CONTRACT_SCHEMA
-        || descriptor["selectedOutput"]
-            != json!({
-                "kind": "scalar",
-                "ownership": "not-applicable",
-                "selector": "[[return]]"
-            })
+        || descriptor["selectedOutput"] != expected_selected_output
         || output_contracts.len() != selected_definitions.len()
     {
         return Err(format!(
@@ -1103,27 +1996,69 @@ fn validate_row(row: &Value) -> Result<(&str, &str), String> {
         ));
     }
     for (definition, contract) in selected_definitions.iter().zip(output_contracts) {
-        if contract["schema"] != OUTPUT_CONTRACT_SCHEMA
+        let base_drift = contract["schema"] != OUTPUT_CONTRACT_SCHEMA
             || contract["functionName"] != function_name
             || contract["sourceRef"] != definition["sourceRef"]
             || contract["language"] != definition["language"]
-            || contract["return"]["role"] != "value"
-            || contract["return"]["kind"] != "scalar"
-            || contract["return"]["ownership"]["kind"] != "not-applicable"
-            || !contract["outputChannels"].as_array().is_some_and(|channels| {
-                channels.iter().any(|channel| {
-                    channel["selector"] == "[[return]]"
-                        && channel["role"] == "return"
-                        && channel["kind"] == "scalar"
+            || definition.get("outputContract") != Some(contract);
+        let source_selector = if expected_legacy_contract.is_some() {
+            "[[return]]"
+        } else {
+            selector
+        };
+        let selected_channel = contract["outputChannels"].as_array().and_then(|channels| {
+            let selected = channels
+                .iter()
+                .filter(|channel| channel["selector"] == source_selector)
+                .collect::<Vec<_>>();
+            (selected.len() == 1).then_some(selected[0])
+        });
+        let output_drift = if let Some(expected) = expected_path_contract {
+            contract["status"] != "resolved"
+                || contract["unresolved"] != json!([])
+                || selected_channel.map_or(true, |channel| {
+                    channel["kind"] != expected.kind
+                        || channel["role"] != "output"
+                        || channel["parameter"] != expected.parameter
+                        || channel["lengthParameter"] != expected.length_parameter
+                        || channel["ownership"]["kind"] != expected.ownership_kind
+                        || match expected.release_function {
+                            Some(release) => channel["ownership"]["releaseFunction"] != release,
+                            None => channel["ownership"].get("releaseFunction").is_some(),
+                        }
                 })
-            })
-        {
+        } else if expected_legacy_contract.is_some() {
+            contract["status"] != "unresolved"
+                || contract["unresolved"] != json!(["return-pointer-ownership"])
+                || contract["return"]["role"] != "value"
+                || contract["return"]["kind"] != "pointer"
+                || contract["return"]["ownership"]["kind"] != "unknown"
+                || selected_channel.map_or(true, |channel| {
+                    channel["role"] != "return"
+                        || channel["kind"] != "pointer"
+                        || channel["ownership"]["kind"] != "unknown"
+                })
+        } else {
+            contract["return"]["role"] != "value"
+                || contract["return"]["kind"] != "scalar"
+                || contract["return"]["ownership"]["kind"] != "not-applicable"
+                || selected_channel.map_or(true, |channel| {
+                    channel["role"] != "return" || channel["kind"] != "scalar"
+                })
+        };
+        if base_drift || output_drift {
             return Err(format!(
-                "{function_name}: source-derived scalar return contract drift"
+                "{function_name}: source-derived selected output contract drift"
             ));
         }
     }
-    Ok((function_name, operation))
+    Ok(ValidatedRow {
+        function_name: function_name.to_owned(),
+        mode: mode.to_owned(),
+        operation: operation.to_owned(),
+        return_variant: return_variant.to_owned(),
+        selector: selector.to_owned(),
+    })
 }
 
 fn return_record_result(row: &Value, raw: Value) -> Value {
@@ -1142,35 +2077,189 @@ fn return_record_result(row: &Value, raw: Value) -> Value {
     })
 }
 
+fn validate_bounded_observation(validated: &ValidatedRow, raw: Value) -> Result<Value, String> {
+    if validated.operation == "rust-host-legacy-path-output" {
+        let expected_error = match (
+            validated.function_name.as_str(),
+            validated.mode.as_str(),
+            validated.return_variant.as_str(),
+        ) {
+            (_, "unarmed", "success") => None,
+            ("ex_host_fs_mkdir_recursive_result", "unarmed", "error") => Some(HOST_ABI_EEXIST),
+            ("ex_host_fs_mkdtemp", "unarmed", "error") => Some(HOST_ABI_EACCES),
+            ("ex_host_fs_realpath", "unarmed", "error") => Some(HOST_ABI_ENOENT),
+            (_, "armed", "refused") => Some(HOST_ABI_EPERM),
+            _ => {
+                return Err(format!(
+                    "{}: unsupported legacy path observation variant",
+                    validated.function_name
+                ))
+            }
+        };
+        if let Some(error_code) = expected_error {
+            if raw["kind"] != "throw"
+                || raw["rawValueShape"] != "null"
+                || !raw["value"].is_null()
+                || raw["errorCode"] != error_code
+            {
+                return Err(format!(
+                    "{}: legacy path failure lost its observed null/errno result",
+                    validated.function_name
+                ));
+            }
+        } else if raw["kind"] != "return"
+            || raw["rawValueShape"] != "string"
+            || raw["value"] != PRIVATE_NATIVE_PATH_CLASS
+            || !raw["errorCode"].is_null()
+        {
+            return Err(format!(
+                "{}: legacy path success persisted native bytes instead of its validated class",
+                validated.function_name
+            ));
+        }
+        return Ok(raw);
+    }
+
+    if validated.operation == "rust-host-legacy-directory-output" {
+        let names = raw["value"]
+            .as_array()
+            .ok_or_else(|| "legacy readdir output was not an actual JSON array".to_string())?;
+        if raw["kind"] != "return"
+            || raw["rawValueShape"] != "array"
+            || !raw["errorCode"].is_null()
+            || names.is_empty()
+            || names.iter().any(|name| {
+                name.as_str().map_or(true, |name| {
+                    name.is_empty()
+                        || matches!(name, "." | "..")
+                        || name.contains('/')
+                        || name.contains('\\')
+                })
+            })
+        {
+            return Err("legacy readdir output did not contain only nonempty basenames".into());
+        }
+        return Ok(raw);
+    }
+
+    if validated.selector == "[[return]]" {
+        if raw["kind"] != "return" || raw["rawValueShape"] != "number" {
+            return Err(format!(
+                "{}: scalar return contract produced a non-number runtime fact",
+                validated.function_name
+            ));
+        }
+        return Ok(raw);
+    }
+
+    let expected = expected_path_output_contract(&validated.function_name, &validated.selector)
+        .ok_or_else(|| {
+            format!(
+                "{}: selected path output has no native class validator",
+                validated.function_name
+            )
+        })?;
+    if raw["kind"] != "return"
+        || raw["rawValueShape"] != "string"
+        || raw["value"] != expected.normalized_class
+        || !raw["errorCode"].is_null()
+    {
+        return Err(format!(
+            "{}: path output executor did not emit only its normalized class",
+            validated.function_name
+        ));
+    }
+    Ok(raw)
+}
+
+fn execute_immediate_host_abi_output(
+    validated: &ValidatedRow,
+    sandbox: &FsSandbox,
+) -> Result<Value, String> {
+    let function_name = validated.function_name.as_str();
+    let raw = match validated.operation.as_str() {
+        "rust-host-fs-sandbox" => execute_fs(function_name, sandbox),
+        "rust-host-sqlite-memory" => execute_sqlite(function_name, sandbox),
+        "rust-host-terminal-inert" => execute_terminal(function_name),
+        "rust-host-bounded-basic" => execute_basic(function_name),
+        "native-hermes-stateless-current-target" => execute_hermes_stateless(function_name),
+        "native-hermes-diagnostic-runtime" => execute_hermes_diagnostic(function_name),
+        "native-hermes-worklet-runtime" => execute_worklet(function_name),
+        "native-hermes-stateless-path-output" => {
+            execute_engine_path_output(function_name, &validated.selector)
+        }
+        "rust-host-authenticated-vfs-path-output" => {
+            return Err(format!(
+                "{function_name}: authenticated VFS output was scheduled as an immediate call"
+            ))
+        }
+        "rust-host-legacy-path-output" | "rust-host-legacy-directory-output" => {
+            execute_legacy_output(validated, sandbox)
+        }
+        other => Err(format!(
+            "{function_name}: unsupported Host ABI operation {other}"
+        )),
+    }?;
+    validate_bounded_observation(validated, raw)
+}
+
 pub(super) fn execute_host_abi_output_rows(rows: &[Value]) -> (Vec<Value>, Vec<Value>) {
     if rows.is_empty() {
         return (Vec::new(), Vec::new());
     }
     let sandbox = FsSandbox::new();
+    let validated = rows.iter().map(validate_row).collect::<Vec<_>>();
+    let mut executions = (0..rows.len()).map(|_| None).collect::<Vec<_>>();
+
+    // Execute all compatibility/default-host rows first. They may install a
+    // diagnostic Host. The authenticated VFS runtime is then constructed once
+    // and remains the selected armed Host for the entire VFS tranche.
+    for (index, validation) in validated.iter().enumerate() {
+        match validation {
+            Err(reason) => executions[index] = Some(Err(reason.clone())),
+            Ok(row) if row.operation != "rust-host-authenticated-vfs-path-output" => {
+                executions[index] = Some(execute_immediate_host_abi_output(row, &sandbox));
+            }
+            Ok(_) => {}
+        }
+    }
+
+    let vfs_indices = validated
+        .iter()
+        .enumerate()
+        .filter_map(|(index, validation)| {
+            validation
+                .as_ref()
+                .ok()
+                .filter(|row| row.operation == "rust-host-authenticated-vfs-path-output")
+                .map(|_| index)
+        })
+        .collect::<Vec<_>>();
+    if !vfs_indices.is_empty() {
+        match OwnedAuthenticatedVfsRuntime::new(&sandbox) {
+            Ok(runtime) => {
+                for index in vfs_indices {
+                    let row = validated[index]
+                        .as_ref()
+                        .expect("VFS index was selected from validated rows");
+                    let execution =
+                        execute_vfs_path_output(&runtime, &row.function_name, &row.selector)
+                            .and_then(|raw| validate_bounded_observation(row, raw));
+                    executions[index] = Some(execution);
+                }
+            }
+            Err(reason) => {
+                for index in vfs_indices {
+                    executions[index] = Some(Err(reason.clone()));
+                }
+            }
+        }
+    }
+
     let mut observations = Vec::with_capacity(rows.len());
     let mut unexercisable = Vec::new();
-    for row in rows {
-        let execution = validate_row(row).and_then(|(function_name, operation)| {
-            let raw = match operation {
-                "rust-host-fs-sandbox" => execute_fs(function_name, &sandbox),
-                "rust-host-sqlite-memory" => execute_sqlite(function_name, &sandbox),
-                "rust-host-terminal-inert" => execute_terminal(function_name),
-                "rust-host-bounded-basic" => execute_basic(function_name),
-                "native-hermes-stateless-current-target" => execute_hermes_stateless(function_name),
-                "native-hermes-diagnostic-runtime" => execute_hermes_diagnostic(function_name),
-                "native-hermes-worklet-runtime" => execute_worklet(function_name),
-                other => Err(format!(
-                    "{function_name}: unsupported Host ABI operation {other}"
-                )),
-            }?;
-            if raw["kind"] != "return" || raw["rawValueShape"] != "number" {
-                return Err(format!(
-                    "{function_name}: scalar return contract produced a non-number runtime fact"
-                ));
-            }
-            Ok(raw)
-        });
-        match execution {
+    for (row, execution) in rows.iter().zip(executions) {
+        match execution.expect("every Host ABI output row must receive an execution result") {
             Ok(raw) => observations.push(return_record_result(row, raw)),
             Err(reason) => unexercisable.push(json!({ "key": row["key"], "reason": reason })),
         }
@@ -1178,32 +2267,414 @@ pub(super) fn execute_host_abi_output_rows(rows: &[Value]) -> (Vec<Value>, Vec<V
     (observations, unexercisable)
 }
 
-#[test]
-fn host_abi_output_executor_rejects_an_unbound_source_digest() {
-    let row = json!({
+fn authored_path_test_row(function_name: &str, selector: &str) -> Value {
+    let expected = expected_path_output_contract(function_name, selector)
+        .expect("test row must select a bounded path output");
+    let (language, source_path) = if function_name.starts_with("ex_host_") {
+        ("rust", "src/host/abi.rs")
+    } else {
+        ("c++", "src/engine/hermes_runtime.cc")
+    };
+    let source_ref = format!("{source_path}#{function_name}");
+    let source_bytes =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(source_path)).unwrap();
+    let ownership = match expected.release_function {
+        Some(release_function) => json!({
+            "kind": expected.ownership_kind,
+            "releaseFunction": release_function,
+        }),
+        None => json!({ "kind": expected.ownership_kind }),
+    };
+    let output_contract = json!({
+        "bufferLengthPairs": [{
+            "bufferParameter": expected.parameter,
+            "direction": "output",
+            "lengthParameter": expected.length_parameter,
+        }],
+        "functionName": function_name,
+        "language": language,
+        "outputChannels": [
+            {
+                "kind": "scalar",
+                "ownership": {"kind": "not-applicable"},
+                "role": "return",
+                "selector": "[[return]]",
+            },
+            {
+                "kind": expected.kind,
+                "lengthParameter": expected.length_parameter,
+                "ownership": ownership,
+                "parameter": expected.parameter,
+                "role": "output",
+                "selector": selector,
+            }
+        ],
+        "parameters": [],
+        "return": {
+            "kind": "scalar",
+            "ownership": {"kind": "not-applicable"},
+            "role": "value",
+            "type": {"canonical": "test-scalar", "tokens": ["test-scalar"]},
+        },
+        "schema": OUTPUT_CONTRACT_SCHEMA,
+        "sourceRef": source_ref,
+        "status": "resolved",
+        "unresolved": [],
+    });
+    let definition = json!({
+        "language": language,
+        "outputContract": output_contract,
+        "sourceRef": source_ref,
+        "targetVariant": "default",
+        "unsafe": language == "rust",
+        "weak": false,
+    });
+    let descriptor = json!({
+        "kind": DESCRIPTOR_KIND,
+        "invocationSchema": INVOCATION_SCHEMA,
+        "functionName": function_name,
+        "catalogOutput": selector,
+        "catalogMode": "all",
+        "returnVariant": "default",
+        "inventorySourceRefs": [source_ref],
+        "sourceRefs": [source_ref],
+        "sourceFiles": [{
+            "path": source_path,
+            "rawContentDigest": tagged_bytes_digest(&source_bytes),
+        }],
+        "definitions": [definition],
+        "selectedDefinitions": [definition],
+        "outputContractSchema": OUTPUT_CONTRACT_SCHEMA,
+        "outputContracts": [output_contract],
+        "selectedOutput": expected_path_selected_output(expected, selector),
+        "operation": {
+            "kind": expected.operation,
+            "targetVariant": "default",
+        },
+    });
+    let edge_id = compiled_host_abi_edges()
+        .into_iter()
+        .find_map(|(id, name)| (name == function_name).then_some(id))
+        .expect("bounded path output has a compiled coverage edge");
+    json!({
         "key": {
-            "surfaceId": "surface.host.abi.ex.host.version.1xgws98",
-            "output": "[[return]]",
-            "alias": "ex_host_version",
+            "surfaceId": edge_id,
+            "output": selector,
+            "alias": function_name,
             "mode": "all",
             "sourceKind": "host-abi",
-            "returnVariant": "default"
+            "returnVariant": "default",
+            "contextId": "host.private-native-call-initialized",
         },
         "probe": {
             "kind": "loaded-engine-return-record",
-            "fixtureId": "host-abi-output-invalid",
-            "sourceDescriptor": {
-                "kind": DESCRIPTOR_KIND,
-                "invocationSchema": INVOCATION_SCHEMA,
-                "functionName": "ex_host_version",
-                "sourceFiles": [],
-                "operation": {"kind": "rust-host-bounded-basic"}
+            "fixtureId": format!("host-abi-output-test-{function_name}-{selector}"),
+            "sourceDescriptorDigest": tagged_jcs_digest(&descriptor),
+            "sourceDescriptor": descriptor,
+            "recordPath": [selector],
+        },
+    })
+}
+
+fn authored_legacy_test_row(
+    function_name: &str,
+    selector: &str,
+    alias: &str,
+    mode: &str,
+    return_variant: &str,
+) -> Value {
+    let expected =
+        expected_legacy_output_contract(function_name, selector, alias, mode, return_variant)
+            .expect("test row must select an exact bounded legacy Host output");
+    let source_path = "src/host/abi.rs";
+    let source_ref = format!("{source_path}#{function_name}");
+    let source_bytes =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(source_path)).unwrap();
+    let output_contract = json!({
+        "bufferLengthPairs": [],
+        "functionName": function_name,
+        "language": "rust",
+        "outputChannels": [{
+            "kind": "pointer",
+            "ownership": {"kind": "unknown"},
+            "role": "return",
+            "selector": "[[return]]",
+        }],
+        "parameters": [],
+        "return": {
+            "kind": "pointer",
+            "ownership": {"kind": "unknown"},
+            "role": "value",
+            "type": {
+                "canonical": "* mut c_char",
+                "tokens": ["*", "mut", "c_char"],
             },
-            "sourceDescriptorDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            "recordPath": ["[[return]]"]
-        }
+        },
+        "schema": OUTPUT_CONTRACT_SCHEMA,
+        "sourceRef": source_ref,
+        "status": "unresolved",
+        "unresolved": ["return-pointer-ownership"],
     });
+    let definition = json!({
+        "language": "rust",
+        "outputContract": output_contract,
+        "sourceRef": source_ref,
+        "targetVariant": "default",
+        "unsafe": false,
+        "weak": false,
+    });
+    let descriptor = json!({
+        "kind": DESCRIPTOR_KIND,
+        "invocationSchema": INVOCATION_SCHEMA,
+        "functionName": function_name,
+        "catalogOutput": selector,
+        "catalogMode": mode,
+        "returnVariant": return_variant,
+        "inventorySourceRefs": [source_ref],
+        "sourceRefs": [source_ref],
+        "sourceFiles": [{
+            "path": source_path,
+            "rawContentDigest": tagged_bytes_digest(&source_bytes),
+        }],
+        "definitions": [definition],
+        "selectedDefinitions": [definition],
+        "outputContractSchema": OUTPUT_CONTRACT_SCHEMA,
+        "outputContracts": [output_contract],
+        "selectedOutput": expected_legacy_selected_output(expected),
+        "sourceSafetyBinding": expected_legacy_source_safety_binding(function_name).unwrap(),
+        "operation": {
+            "kind": expected.operation,
+            "mode": expected.mode,
+            "returnVariant": expected.return_variant,
+            "sourceSelector": "[[return]]",
+            "targetVariant": "default",
+        },
+    });
+    let edge_id = compiled_host_abi_edges()
+        .into_iter()
+        .find_map(|(id, name)| (name == function_name).then_some(id))
+        .expect("bounded legacy Host output has a compiled coverage edge");
+    json!({
+        "key": {
+            "surfaceId": edge_id,
+            "output": selector,
+            "alias": alias,
+            "mode": mode,
+            "sourceKind": "host-abi",
+            "returnVariant": return_variant,
+            "contextId": "host.private-native-call-initialized",
+        },
+        "probe": {
+            "kind": "loaded-engine-return-record",
+            "fixtureId": format!(
+                "host-abi-output-test-{function_name}-{mode}-{return_variant}-{selector}"
+            ),
+            "sourceDescriptorDigest": tagged_jcs_digest(&descriptor),
+            "sourceDescriptor": descriptor,
+            "recordPath": [selector],
+        },
+    })
+}
+
+#[test]
+fn host_abi_output_executor_rejects_an_unbound_source_digest() {
+    let mut row = authored_path_test_row("ex_hermes_engine_binary_path", "out:out");
+    row["probe"]["sourceDescriptorDigest"] =
+        Value::String("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into());
     assert!(validate_row(&row).is_err());
+}
+
+#[test]
+fn host_abi_output_executor_rejects_rewritten_path_ownership_even_when_resigned() {
+    let mut row = authored_path_test_row("ex_host_vfs_resolve_path", "out:backing");
+    row["probe"]["sourceDescriptor"]["selectedOutput"]["ownership"] =
+        json!({"kind": "caller-storage"});
+    row["probe"]["sourceDescriptor"]["selectedDefinitions"][0]["outputContract"]
+        ["outputChannels"][1]["ownership"] = json!({"kind": "caller-storage"});
+    row["probe"]["sourceDescriptor"]["outputContracts"][0]["outputChannels"][1]["ownership"] =
+        json!({"kind": "caller-storage"});
+    row["probe"]["sourceDescriptorDigest"] =
+        Value::String(tagged_jcs_digest(&row["probe"]["sourceDescriptor"]));
+    let error = validate_row(&row)
+        .err()
+        .expect("rewritten source ownership must fail closed");
+    assert!(error.contains("output contract binding drift"));
+}
+
+#[test]
+fn host_abi_path_outputs_persist_only_validated_class_markers() {
+    let rows = [
+        ("ex_hermes_engine_binary_path", "out:out"),
+        ("ex_host_vfs_chdir", "out:virtual"),
+        ("ex_host_vfs_get_cwd", "out:virtual"),
+        ("ex_host_vfs_resolve_path", "out:virtual"),
+        ("ex_host_vfs_resolve_path", "out:backing"),
+    ]
+    .into_iter()
+    .map(|(function_name, selector)| authored_path_test_row(function_name, selector))
+    .collect::<Vec<_>>();
+    let (results, unexercisable) = execute_host_abi_output_rows(&rows);
+    assert!(
+        unexercisable.is_empty(),
+        "bounded path outputs were not executable: {unexercisable:?}"
+    );
+    assert_eq!(results.len(), rows.len());
+    let markers = results
+        .iter()
+        .map(|result| result["raw"]["value"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        markers,
+        [
+            PRIVATE_NATIVE_PATH_CLASS,
+            VIRTUAL_ABSOLUTE_CLASS,
+            VIRTUAL_ABSOLUTE_CLASS,
+            VIRTUAL_ABSOLUTE_CLASS,
+            PRIVATE_NATIVE_PATH_CLASS,
+        ]
+    );
+    for result in &results {
+        assert_eq!(result["raw"]["kind"], "return");
+        assert_eq!(result["raw"]["rawValueShape"], "string");
+        assert!(matches!(
+            result["raw"]["value"].as_str(),
+            Some(PRIVATE_NATIVE_PATH_CLASS | VIRTUAL_ABSOLUTE_CLASS)
+        ));
+    }
+}
+
+#[test]
+fn legacy_host_path_variants_and_readdir_emit_only_bounded_observations() {
+    let rows = [
+        (
+            "ex_host_fs_mkdir_recursive_result",
+            "[[return]]",
+            "ex_host_fs_mkdir_recursive_result",
+            "unarmed",
+            "success",
+        ),
+        (
+            "ex_host_fs_mkdir_recursive_result",
+            "[[return]]",
+            "ex_host_fs_mkdir_recursive_result",
+            "unarmed",
+            "error",
+        ),
+        (
+            "ex_host_fs_mkdir_recursive_result",
+            "[[return]]",
+            "ex_host_fs_mkdir_recursive_result",
+            "armed",
+            "refused",
+        ),
+        (
+            "ex_host_fs_mkdtemp",
+            "[[return]]",
+            "ex_host_fs_mkdtemp",
+            "unarmed",
+            "success",
+        ),
+        (
+            "ex_host_fs_mkdtemp",
+            "[[return]]",
+            "ex_host_fs_mkdtemp",
+            "unarmed",
+            "error",
+        ),
+        (
+            "ex_host_fs_mkdtemp",
+            "[[return]]",
+            "ex_host_fs_mkdtemp",
+            "armed",
+            "refused",
+        ),
+        (
+            "ex_host_fs_realpath",
+            "[[return]]",
+            "ex_host_fs_realpath",
+            "unarmed",
+            "success",
+        ),
+        (
+            "ex_host_fs_realpath",
+            "[[return]]",
+            "ex_host_fs_realpath",
+            "unarmed",
+            "error",
+        ),
+        (
+            "ex_host_fs_realpath",
+            "[[return]]",
+            "ex_host_fs_realpath",
+            "armed",
+            "refused",
+        ),
+        (
+            "ex_host_fs_readdir",
+            "array-items",
+            "ex_host_fs_readdir[]",
+            "all",
+            "success",
+        ),
+    ]
+    .into_iter()
+    .map(|(function_name, selector, alias, mode, return_variant)| {
+        authored_legacy_test_row(function_name, selector, alias, mode, return_variant)
+    })
+    .collect::<Vec<_>>();
+    let (results, unexercisable) = execute_host_abi_output_rows(&rows);
+    assert!(
+        unexercisable.is_empty(),
+        "bounded legacy Host outputs were not executable: {unexercisable:?}"
+    );
+    assert_eq!(results.len(), rows.len());
+    let observations = results
+        .iter()
+        .map(|result| result["raw"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(observations[0]["value"], PRIVATE_NATIVE_PATH_CLASS);
+    assert_eq!(observations[1]["errorCode"], HOST_ABI_EEXIST);
+    assert_eq!(observations[2]["errorCode"], HOST_ABI_EPERM);
+    assert_eq!(observations[3]["value"], PRIVATE_NATIVE_PATH_CLASS);
+    assert_eq!(observations[4]["errorCode"], HOST_ABI_EACCES);
+    assert_eq!(observations[5]["errorCode"], HOST_ABI_EPERM);
+    assert_eq!(observations[6]["value"], PRIVATE_NATIVE_PATH_CLASS);
+    assert_eq!(observations[7]["errorCode"], HOST_ABI_ENOENT);
+    assert_eq!(observations[8]["errorCode"], HOST_ABI_EPERM);
+    assert_eq!(
+        observations[9],
+        raw("return", "array", json!(["alpha", "beta.txt"]))
+    );
+    for success in [&observations[0], &observations[3], &observations[6]] {
+        assert_eq!(success["rawValueShape"], "string");
+        assert_eq!(success["value"], PRIVATE_NATIVE_PATH_CLASS);
+        assert!(success["value"]
+            .as_str()
+            .is_some_and(|value| !value.contains('/') && !value.contains('\\')));
+    }
+}
+
+#[test]
+fn legacy_host_output_executor_rejects_a_resigned_mode_variant_mismatch() {
+    let mut row = authored_legacy_test_row(
+        "ex_host_fs_realpath",
+        "[[return]]",
+        "ex_host_fs_realpath",
+        "armed",
+        "refused",
+    );
+    row["key"]["mode"] = Value::String("unarmed".into());
+    row["probe"]["sourceDescriptor"]["catalogMode"] = Value::String("unarmed".into());
+    row["probe"]["sourceDescriptorDigest"] =
+        Value::String(tagged_jcs_digest(&row["probe"]["sourceDescriptor"]));
+    let error = validate_row(&row)
+        .err()
+        .expect("rewritten legacy Host mode must fail closed");
+    assert!(
+        error.contains("source descriptor drift")
+            || error.contains("operation binding drift")
+            || error.contains("no bounded native executor")
+    );
 }
 
 #[test]

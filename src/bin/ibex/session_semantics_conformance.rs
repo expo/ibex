@@ -245,6 +245,43 @@ fn expected_display(value: &Value) -> (AuthenticatedDisplayKind, String) {
     }
 }
 
+fn throw_message_matches(expected: &str, actual: &str) -> bool {
+    if let Some((_, binding_name)) = expected
+        .strip_prefix("assignment to read-only ")
+        .and_then(|description| description.rsplit_once(' '))
+    {
+        // LLP 0024 fixes the read-only cell semantics, not engine-specific
+        // TypeError prose. Hermes reports these cells as constant bindings;
+        // the reference model additionally records whether the cell was a
+        // `const` or an `import`. Preserve the semantic/name check without
+        // making the conformance gate depend on either spelling.
+        let lower = actual.to_ascii_lowercase();
+        return actual.contains(binding_name)
+            && (lower.contains("constant binding") || lower.contains("read-only"));
+    }
+    actual.contains(expected)
+}
+
+#[test]
+fn read_only_binding_diagnostics_compare_semantics_not_engine_prose() {
+    assert!(throw_message_matches(
+        "assignment to read-only import imported",
+        "Assignment to constant binding 'imported'",
+    ));
+    assert!(throw_message_matches(
+        "assignment to read-only const c",
+        "assignment to read-only const c",
+    ));
+    assert!(!throw_message_matches(
+        "assignment to read-only import imported",
+        "Assignment to constant binding 'other'",
+    ));
+    assert!(!throw_message_matches(
+        "initializer failed",
+        "another failure"
+    ));
+}
+
 fn rename_model_name(value: &Value, from: &str, to: &str) -> Value {
     match value {
         Value::String(value) if value == from => Value::String(to.to_owned()),
@@ -311,7 +348,7 @@ async fn assert_evaluation(
                     actual
                         .metadata
                         .message()
-                        .is_some_and(|actual| actual.contains(message)),
+                        .is_some_and(|actual| throw_message_matches(message, actual)),
                     "{label}: expected throw containing {message:?}, got {actual:?}"
                 );
             }

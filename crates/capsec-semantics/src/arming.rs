@@ -201,6 +201,7 @@ fn uppercase_hex(byte: u8) -> Option<u8> {
 pub enum ProtectedArtifactRole {
     ArmedPolicy,
     EngineBinary,
+    ExactOperationManifest,
     PackageGraph,
     Registry,
 }
@@ -212,6 +213,22 @@ pub struct ExpectedProtectedArtifact {
     pub host_path: LogicalPath,
     pub object: ObjectIdentity,
     pub content_digest: Digest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExactEmbedderEndowments {
+    pub app: Vec<u32>,
+    pub agent_isolate: Vec<u32>,
+    pub ui_worklet: Vec<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExactEmbedderBinding {
+    pub schema: String,
+    pub operation_manifest_digest: Digest,
+    pub endowments: ExactEmbedderEndowments,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -428,6 +445,19 @@ impl ArmedSnapshot {
     /// checks both object identity and content digest before runtime creation.
     pub fn protected_artifacts(&self) -> &[ExpectedProtectedArtifact] {
         &self.protected_artifacts
+    }
+
+    /// Optional Exact-specific ingress identity authenticated by the armed
+    /// snapshot and its protected operation-manifest artifact. Generic Ibex
+    /// snapshots omit this binding; an armed Exact ingress may not.
+    pub fn exact_embedder_binding(&self) -> Result<Option<ExactEmbedderBinding>> {
+        let Some(value) = self.document.get("exactEmbedder") else {
+            return Ok(None);
+        };
+        let binding: ExactEmbedderBinding = serde_json::from_value(value.clone())
+            .map_err(|error| invalid(format!("invalid Exact embedder binding: {error}")))?;
+        validate_exact_embedder_binding(&binding)?;
+        Ok(Some(binding))
     }
 
     /// Convert an absolute host path into the most-specific authenticated
@@ -809,6 +839,12 @@ fn validate_snapshot_invariants(
 ) -> Result<()> {
     validate_protected_object_rows(document)?;
 
+    if let Some(value) = document.get("exactEmbedder") {
+        let binding: ExactEmbedderBinding = serde_json::from_value(value.clone())
+            .map_err(|error| invalid(format!("invalid Exact embedder binding: {error}")))?;
+        validate_exact_embedder_binding(&binding)?;
+    }
+
     let root_identity: Principal =
         serde_json::from_value(value_at(document, &["rootIdentity"])?.clone())
             .map_err(|error| invalid(format!("invalid root identity: {error}")))?;
@@ -1057,14 +1093,18 @@ fn validate_protected_object_rows(document: &Value) -> Result<()> {
     let rows: Vec<SnapshotProtectedObject> =
         serde_json::from_value(value_at(document, &["protectedObjects"])?.clone())
             .map_err(|error| invalid(format!("invalid protected objects: {error}")))?;
-    const REQUIRED: [ProtectedArtifactRole; 4] = [
+    let mut required = vec![
         ProtectedArtifactRole::ArmedPolicy,
         ProtectedArtifactRole::EngineBinary,
         ProtectedArtifactRole::PackageGraph,
         ProtectedArtifactRole::Registry,
     ];
-    if rows.len() != REQUIRED.len() {
-        return refused("armed snapshot must protect exactly four mandatory artifacts");
+    if document.get("exactEmbedder").is_some() {
+        required.push(ProtectedArtifactRole::ExactOperationManifest);
+        required.sort();
+    }
+    if rows.len() != required.len() {
+        return refused("armed snapshot protected artifact count does not match its bindings");
     }
     let mut roles = Vec::with_capacity(rows.len());
     let mut objects = Vec::with_capacity(rows.len());
@@ -1076,7 +1116,7 @@ fn validate_protected_object_rows(document: &Value) -> Result<()> {
         objects.push(row.object);
     }
     roles.sort();
-    if roles != REQUIRED {
+    if roles != required {
         return refused("protected artifact roles are missing, duplicate, or mislabeled");
     }
     objects.sort();
@@ -1090,14 +1130,25 @@ fn validate_expected_protected_artifacts(
     document: &Value,
     expected: &ExpectedArmingIdentity,
 ) -> Result<()> {
-    const REQUIRED: [ProtectedArtifactRole; 4] = [
+    let mut required = vec![
         ProtectedArtifactRole::ArmedPolicy,
         ProtectedArtifactRole::EngineBinary,
         ProtectedArtifactRole::PackageGraph,
         ProtectedArtifactRole::Registry,
     ];
-    if expected.protected_artifacts.len() != REQUIRED.len() {
-        return refused("arming identity must authenticate exactly four protected artifacts");
+    let exact_binding = document
+        .get("exactEmbedder")
+        .map(|value| {
+            serde_json::from_value::<ExactEmbedderBinding>(value.clone())
+                .map_err(|error| invalid(format!("invalid Exact embedder binding: {error}")))
+        })
+        .transpose()?;
+    if exact_binding.is_some() {
+        required.push(ProtectedArtifactRole::ExactOperationManifest);
+        required.sort();
+    }
+    if expected.protected_artifacts.len() != required.len() {
+        return refused("arming identity protected artifact count does not match its bindings");
     }
     let mut authenticated = expected.protected_artifacts.clone();
     authenticated.sort_by_key(|artifact| artifact.role);
@@ -1105,7 +1156,7 @@ fn validate_expected_protected_artifacts(
         .iter()
         .map(|artifact| artifact.role)
         .collect::<Vec<_>>()
-        != REQUIRED
+        != required
     {
         return refused("arming identity protected artifact roles are incomplete or duplicated");
     }
@@ -1132,6 +1183,15 @@ fn validate_expected_protected_artifacts(
                 "protected engine content digest differs from the loaded engine digest",
             );
         }
+        if artifact.role == ProtectedArtifactRole::ExactOperationManifest
+            && exact_binding
+                .as_ref()
+                .is_none_or(|binding| artifact.content_digest != binding.operation_manifest_digest)
+        {
+            return refused(
+                "protected Exact operation manifest digest differs from its armed binding",
+            );
+        }
     }
 
     let rows: Vec<SnapshotProtectedObject> =
@@ -1147,6 +1207,38 @@ fn validate_expected_protected_artifacts(
                 "protected object does not match the independently authenticated artifact role",
             );
         }
+    }
+    Ok(())
+}
+
+fn validate_exact_embedder_binding(binding: &ExactEmbedderBinding) -> Result<()> {
+    if binding.schema != "exact/host-operation-endowments/1" {
+        return refused("Exact embedder binding schema is unsupported");
+    }
+    let contexts = [
+        (&binding.endowments.app, "app"),
+        (&binding.endowments.agent_isolate, "agent isolate"),
+        (&binding.endowments.ui_worklet, "UI worklet"),
+    ];
+    let mut all = BTreeSet::new();
+    for (operations, label) in contexts {
+        if operations.len() > 4096
+            || operations.contains(&0)
+            || operations.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return refused(format!(
+                "Exact {label} operation endowment is not a bounded sorted unique uint32 set"
+            ));
+        }
+        if operations.iter().any(|operation| !all.insert(*operation)) {
+            return refused("Exact operation is endowed to more than one runtime context");
+        }
+    }
+    if binding.endowments.app.is_empty() || binding.endowments.agent_isolate.is_empty() {
+        return refused("Exact app and agent-isolate endowments must be non-empty");
+    }
+    if !binding.endowments.ui_worklet.is_empty() {
+        return refused("Exact UI worklet endowment must remain empty");
     }
     Ok(())
 }
@@ -1581,6 +1673,9 @@ mod tests {
                     serde_json::from_value(row["role"].clone()).unwrap();
                 let content_digest = match role {
                     ProtectedArtifactRole::EngineBinary => digest_at(&["engine", "binaryDigest"]),
+                    ProtectedArtifactRole::ExactOperationManifest => {
+                        digest_at(&["exactEmbedder", "operationManifestDigest"])
+                    }
                     ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
                     ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
                     ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
@@ -2206,6 +2301,77 @@ mod tests {
             compute_checked_contract_digest(DigestKind::ArmedSnapshot, &duplicate).unwrap(),
         );
         assert!(ArmedSnapshot::load(&serde_json::to_vec(&duplicate).unwrap(), &expected).is_err());
+    }
+
+    #[test]
+    fn authenticates_exact_operation_manifest_and_endowment_projection() {
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        let manifest_digest =
+            Digest::new("sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA").unwrap();
+        value["exactEmbedder"] = serde_json::json!({
+            "schema": "exact/host-operation-endowments/1",
+            "operationManifestDigest": manifest_digest,
+            "endowments": {
+                "app": [7, 11],
+                "agentIsolate": [19],
+                "uiWorklet": [],
+            }
+        });
+        let object = serde_json::json!({
+            "platform": "unix",
+            "volume": "fixture-volume",
+            "file": "exact-operation-manifest"
+        });
+        value["protectedObjects"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "role": "exact-operation-manifest",
+                "object": object,
+                "deniedActions": ["fs:write"]
+            }));
+        expected
+            .protected_artifacts
+            .push(ExpectedProtectedArtifact {
+                role: ProtectedArtifactRole::ExactOperationManifest,
+                host_path: serde_json::from_value(serde_json::json!({
+                    "root": "absolute",
+                    "components": [
+                        {"encoding": "utf8", "value": "fixture"},
+                        {"encoding": "utf8", "value": "exact-operation-manifest"}
+                    ],
+                    "hostBound": true
+                }))
+                .unwrap(),
+                object: serde_json::from_value(object).unwrap(),
+                content_digest: manifest_digest.clone(),
+            });
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+
+        let armed = ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
+        let binding = armed.exact_embedder_binding().unwrap().unwrap();
+        assert_eq!(binding.operation_manifest_digest, manifest_digest);
+        assert_eq!(binding.endowments.app, [7, 11]);
+        assert_eq!(binding.endowments.agent_isolate, [19]);
+        assert!(binding.endowments.ui_worklet.is_empty());
+
+        let mut wrong_manifest = expected;
+        wrong_manifest
+            .protected_artifacts
+            .iter_mut()
+            .find(|artifact| artifact.role == ProtectedArtifactRole::ExactOperationManifest)
+            .unwrap()
+            .content_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &wrong_manifest)
+                .unwrap_err()
+                .to_string()
+                .contains("manifest digest differs")
+        );
     }
 
     #[test]

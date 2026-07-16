@@ -24,6 +24,7 @@ import {
   validateOutputShapeCatalogAccounts,
   validateOutputValueProofKind,
 } from "./capsec-output-dispositions.mjs";
+import { CALLBACK_OUTPUT_CONTRACT_SCHEMA } from "./capsec-surface-inventory.mjs";
 import { authoredNonCapabilityBuiltinOutputInvocation } from "./capsec-builtin-public-probe-templates.mjs";
 import {
   authoredBuiltinNoncapClosedOutputProbe,
@@ -49,6 +50,11 @@ import {
   authoredCliOutputInvocation,
   compiledCliEvidenceTypes,
 } from "./capsec-cli-output-templates.mjs";
+import {
+  authoredNativeFreezeOutputInvocation,
+  NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
+  validateNativeFreezeOutputInvocation,
+} from "./capsec-native-freeze-output-templates.mjs";
 
 export const OUTPUT_SHAPE_SWEEP_EXECUTOR =
   "ibex-public-surface-harness/output-shape-sweep-v2";
@@ -74,8 +80,34 @@ const VALUE_TYPES = new Set([
   "symbol",
   "undefined",
 ]);
-const RAW_VALUE_SHAPES = new Set([...VALUE_TYPES, "absent", "throw", "array"]);
+const RAW_VALUE_SHAPES = new Set([
+  ...VALUE_TYPES,
+  "absent",
+  "throw",
+  "array",
+  "argument-identity",
+]);
 const DESCRIPTOR_SOURCE_KINDS = new Set(["builtin", "native-op"]);
+const CALLBACK_OUTPUT_DIRECTIONS = new Set([
+  "javascript-to-native",
+  "native-to-javascript",
+]);
+const CALLBACK_OUTPUT_ROLES = new Set(["error", "payload", "return"]);
+const CALLBACK_OUTPUT_VALUE_SHAPES = new Set([
+  "array-buffer",
+  "boolean",
+  "bytes",
+  "error",
+  "float32x4",
+  "json-string",
+  "json-value",
+  "null",
+  "number",
+  "object",
+  "string",
+  "uint8-array",
+  "undefined",
+]);
 const STRUCTURED_DISCOVERY_KIND = "source-asserted-structured-output";
 const SAFE_THROW_METADATA_ALIAS = "ex_hermes_value_safe_throw_metadata";
 const FORBIDDEN_PLAN_FIELDS = new Set([
@@ -473,6 +505,31 @@ function validateProbe(probe, key, label) {
         throw new Error(
           `${label}: source descriptor digest does not match route`,
         );
+      }
+      if (
+        probe.sourceDescriptor.kind ===
+        NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND
+      ) {
+        if (probe.kind !== "loaded-engine-return-record") {
+          throw new Error(`${label}: native freeze requires loaded Hermes`);
+        }
+        exactKeys(
+          probe.sourceDescriptor,
+          ["kind", "surfaceObservedKey", "invocation"],
+          `${label}.sourceDescriptor`,
+        );
+        validateNativeFreezeOutputInvocation(
+          probe.sourceDescriptor.invocation,
+          {
+            catalogKey: key,
+            surfaceObservedKey: probe.sourceDescriptor.surfaceObservedKey,
+          },
+        );
+        if (
+          canonicalJson(probe.recordPath) !== canonicalJson(["[[return]]"])
+        ) {
+          throw new Error(`${label}: native freeze requires its return record`);
+        }
       }
       if (
         probe.sourceDescriptor.kind ===
@@ -1781,6 +1838,17 @@ function validateCatalogProbeMechanism(catalogRow, probe, label) {
   }
   validateOutputValueProofKind(probe.kind, `${label}.kind`);
   if (
+    new Set(["__exactDeepFreeze", "__exactNativeFreeze"]).has(
+      catalogRow.key.alias,
+    ) &&
+    probe.sourceDescriptor?.kind !==
+      NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND
+  ) {
+    throw new Error(
+      `${label}: native freeze identity requires its exact authored route`,
+    );
+  }
+  if (
     catalogRow.discovery?.kind === "source-asserted-structured-output" &&
     probe.kind !== "loaded-engine-return-record"
   ) {
@@ -1842,6 +1910,12 @@ export function outputShapeProbeKindForCatalogRow(
     rootGlobalClosed,
   } = {},
 ) {
+  if (
+    catalogRow?.discovery?.kind === "source-inventory-surface" &&
+    catalogRow?.key?.sourceKind === "callback"
+  ) {
+    return "loaded-engine-descriptor";
+  }
   if (catalogRow?.key?.alias === SAFE_THROW_METADATA_ALIAS) {
     return "loaded-engine-return-record";
   }
@@ -1895,7 +1969,7 @@ export function outputShapeProbeKindForCatalogRow(
     (coverageEdge?.classification === "closed" || rootGlobalClosed === true) &&
     catalogRow?.discovery?.kind === "source-inventory-surface" &&
     catalogRow?.key?.sourceKind === "native-op" &&
-    catalogRow?.key?.output === "[[return]]" &&
+    catalogRow?.key?.output === "[[value]]" &&
     sourceSurface?.metadata?.surfaceType === "global-api" &&
     sourceSurface?.metadata?.valueShape === "accessor"
   ) {
@@ -1904,7 +1978,9 @@ export function outputShapeProbeKindForCatalogRow(
   if (
     catalogRow?.discovery?.kind === "source-inventory-surface" &&
     catalogRow?.key?.sourceKind === "native-op" &&
-    catalogRow?.key?.output === "[[return]]" &&
+    catalogRow?.key?.output === "[[value]]" &&
+    sourceSurface?.metadata?.sourceKey === "shared_runtime" &&
+    sourceSurface?.metadata?.publicReadAccessSourceProven !== true &&
     !Object.hasOwn(DESCRIPTOR_EXERCISES, catalogRow.key.alias) &&
     authoredGlobalAccessorOutputInvocation({
       surface: sourceSurface,
@@ -2077,6 +2153,90 @@ function descriptorSourceRoute(
   coverageEdge,
   rootGlobalClosed = false,
 ) {
+  if (row.key.sourceKind === "callback") {
+    if (
+      surface.kind !== "callback" ||
+      surface.metadata?.callbackOutputContractSchema !==
+        CALLBACK_OUTPUT_CONTRACT_SCHEMA ||
+      !Array.isArray(surface.metadata?.callbackOutputContracts)
+    ) {
+      throw new Error(
+        `${row.key.surfaceId}: callback output has no source-bound contract`,
+      );
+    }
+    const matching = surface.metadata.callbackOutputContracts.filter(
+      (contract) =>
+        contract?.selector === row.key.output &&
+        contract?.returnVariant === row.key.returnVariant,
+    );
+    if (matching.length !== 1) {
+      throw new Error(
+        `${row.key.surfaceId}: callback output contract selection is not exact`,
+      );
+    }
+    const selectedOutput = matching[0];
+    exactKeys(
+      selectedOutput,
+      [
+        "direction",
+        "returnVariant",
+        "role",
+        "selector",
+        "sourceRefs",
+        "valueShape",
+      ],
+      `${row.key.surfaceId}.callbackOutputContract`,
+    );
+    if (
+      !Array.isArray(selectedOutput.sourceRefs) ||
+      selectedOutput.sourceRefs.length === 0 ||
+      typeof selectedOutput.selector !== "string" ||
+      !/^callback:[A-Za-z_$][A-Za-z0-9_$-]*\/(?:[0-9]+|return)$/u.test(
+        selectedOutput.selector,
+      ) ||
+      typeof selectedOutput.returnVariant !== "string" ||
+      !/^[a-z][a-z0-9-]*$/u.test(selectedOutput.returnVariant) ||
+      !CALLBACK_OUTPUT_DIRECTIONS.has(selectedOutput.direction) ||
+      !CALLBACK_OUTPUT_ROLES.has(selectedOutput.role) ||
+      !CALLBACK_OUTPUT_VALUE_SHAPES.has(selectedOutput.valueShape) ||
+      canonicalJson(selectedOutput.sourceRefs) !==
+        canonicalJson(
+          [...new Set(selectedOutput.sourceRefs)].sort(compareText),
+        ) ||
+      !selectedOutput.sourceRefs.every((sourceRef) =>
+        surface.sourceRefs?.includes(sourceRef),
+      ) ||
+      canonicalJson(selectedOutput.sourceRefs) !==
+        canonicalJson(row.discovery.sourceRefs)
+    ) {
+      throw new Error(
+        `${row.key.surfaceId}: callback output contract does not match catalog discovery`,
+      );
+    }
+    const platformSurface =
+      surface.name.startsWith("ios-") ||
+      surface.name.startsWith("android-") ||
+      surface.name.startsWith("worklet-");
+    const reasonCode =
+      surface.name === "exact-host-call-async-resolve"
+        ? "exact-host-callback-probe-not-output-sweep-adapted"
+        : platformSurface
+          ? "platform-callback-output-has-no-bound-live-fixture"
+          : "callback-output-has-no-bound-live-fixture";
+    return {
+      kind: "callback-output",
+      surfaceName: surface.name,
+      callbackOutputContractSchema: CALLBACK_OUTPUT_CONTRACT_SCHEMA,
+      selectedOutput: structuredClone(selectedOutput),
+      contextId: row.key.contextId,
+      observedKeys: structuredClone(row.discovery.observedKeys),
+      sourceRefs: structuredClone(row.discovery.sourceRefs),
+      exercise: {
+        kind: "unexercisable",
+        reasonCode,
+      },
+    };
+  }
   const authoredExercise = DESCRIPTOR_EXERCISES[row.key.alias];
   const invocationContext = new Set([
     "host.private-native-call-initialized",
@@ -2273,10 +2433,25 @@ export function buildOutputShapeSweepProbes({
               coverageEdge,
             })
           : null;
+      const authoredNativeFreezeInvocation =
+        row.discovery.kind === STRUCTURED_DISCOVERY_KIND &&
+        row.key.sourceKind === "native-op" &&
+        row.key.output === "[[return]]" &&
+        new Set(["__exactDeepFreeze", "__exactNativeFreeze"]).has(
+          row.key.alias,
+        )
+          ? authoredNativeFreezeOutputInvocation({
+              catalogRow: row,
+              surface: sourceSurface,
+              coverageEdge,
+            })
+          : null;
       const authoredGlobalAccessorInvocation =
         row.discovery.kind === "source-inventory-surface" &&
         row.key.sourceKind === "native-op" &&
-        row.key.output === "[[return]]" &&
+        row.key.output === "[[value]]" &&
+        sourceSurface.metadata?.sourceKey === "shared_runtime" &&
+        sourceSurface.metadata?.publicReadAccessSourceProven !== true &&
         coverageEdge.classification !== "closed" &&
         !rootGlobalClosed &&
         !Object.hasOwn(DESCRIPTOR_EXERCISES, row.key.alias)
@@ -2336,44 +2511,50 @@ export function buildOutputShapeSweepProbes({
               symbol: SAFE_THROW_METADATA_ALIAS,
               variant: "rooted-error",
             }
-          : authoredBuiltinInvocation
+          : authoredNativeFreezeInvocation
             ? {
-                kind: "authored-public-builtin-invocation",
+                kind: NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
                 surfaceObservedKey: sourceSurface.observedKey,
-                invocation: authoredBuiltinInvocation,
+                invocation: authoredNativeFreezeInvocation,
               }
-            : authoredClosedControlInvocation
+            : authoredBuiltinInvocation
               ? {
-                  kind: "authored-closed-control-output",
+                  kind: "authored-public-builtin-invocation",
                   surfaceObservedKey: sourceSurface.observedKey,
-                  invocation: authoredClosedControlInvocation,
+                  invocation: authoredBuiltinInvocation,
                 }
-              : authoredCompiledCliInvocation
+              : authoredClosedControlInvocation
                 ? {
-                    kind: "authored-cli-output",
+                    kind: "authored-closed-control-output",
                     surfaceObservedKey: sourceSurface.observedKey,
-                    invocation: authoredCompiledCliInvocation,
+                    invocation: authoredClosedControlInvocation,
                   }
-                : authoredGlobalAccessorInvocation
+                : authoredCompiledCliInvocation
                   ? {
-                      kind: "authored-global-accessor-get",
+                      kind: "authored-cli-output",
                       surfaceObservedKey: sourceSurface.observedKey,
-                      invocation: authoredGlobalAccessorInvocation,
+                      invocation: authoredCompiledCliInvocation,
                     }
-                  : authoredGlobalCallableInvocation
+                  : authoredGlobalAccessorInvocation
                     ? {
-                        kind: "authored-global-callable-invocation",
+                        kind: "authored-global-accessor-get",
                         surfaceObservedKey: sourceSurface.observedKey,
-                        invocation: authoredGlobalCallableInvocation,
+                        invocation: authoredGlobalAccessorInvocation,
                       }
-                    : kind === "loaded-engine-descriptor"
-                      ? descriptorSourceRoute(
-                          row,
-                          sourceSurface,
-                          coverageEdge,
-                          rootGlobalClosed,
-                        )
-                      : structuredSourceRoute(row, sourceSurface);
+                    : authoredGlobalCallableInvocation
+                      ? {
+                          kind: "authored-global-callable-invocation",
+                          surfaceObservedKey: sourceSurface.observedKey,
+                          invocation: authoredGlobalCallableInvocation,
+                        }
+                      : kind === "loaded-engine-descriptor"
+                        ? descriptorSourceRoute(
+                            row,
+                            sourceSurface,
+                            coverageEdge,
+                            rootGlobalClosed,
+                          )
+                        : structuredSourceRoute(row, sourceSurface);
       const sourceDescriptorDigest =
         outputShapeSourceDescriptorDigest(sourceDescriptor);
       if (kind === "loaded-engine-descriptor") {
@@ -2401,6 +2582,7 @@ export function buildOutputShapeSweepProbes({
           sourceDescriptorDigest,
           recordPath:
             row.key.alias === SAFE_THROW_METADATA_ALIAS ||
+            authoredNativeFreezeInvocation ||
             authoredBuiltinInvocation ||
             authoredClosedControlInvocation ||
             authoredCompiledCliInvocation ||
@@ -2941,6 +3123,19 @@ function validateRawExecutorObservation(raw, label) {
   if (!RAW_VALUE_SHAPES.has(raw.rawValueShape)) {
     throw new Error(`${label}.rawValueShape: unsupported raw value shape`);
   }
+  if (raw.rawValueShape === "argument-identity") {
+    if (
+      raw.kind !== "return" ||
+      raw.value !== "same-as-argument-0" ||
+      raw.errorCode !== null ||
+      hasErrorName
+    ) {
+      throw new Error(
+        `${label}: argument identity must be an exact successful return class`,
+      );
+    }
+    return;
+  }
   if (raw.kind === "absent") {
     if (
       raw.rawValueShape !== "absent" ||
@@ -3025,6 +3220,17 @@ function isVirtualAbsolute(value) {
 
 function normalizedStringValue(key, value) {
   const alias = key.alias;
+  if (value === "private-native-path") {
+    if (
+      key.sourceKind !== "host-abi" ||
+      key.contextId !== "host.private-native-call-initialized"
+    ) {
+      throw new Error(
+        `loaded-engine output used a private native path marker outside authenticated Host-ABI context for ${alias}`,
+      );
+    }
+    return "private-native-path";
+  }
   if (alias === "process.execArgv[]" || alias === "exact:process.execArgv[]") {
     return "non-path:runtime-flags-with-no-runtime-originated-host-path";
   }
@@ -3082,7 +3288,11 @@ function normalizedStringValue(key, value) {
     }
     return "virtual-absolute";
   }
-  if (alias === "Dirent.name" || alias === "import.meta.file") {
+  if (
+    alias === "Dirent.name" ||
+    alias === "import.meta.file" ||
+    alias === "ex_host_fs_readdir[]"
+  ) {
     return "virtual-basename";
   }
   if (alias === "fs.watch event path") {
@@ -3112,7 +3322,7 @@ function normalizedStringValue(key, value) {
   return "non-path";
 }
 
-function normalizeExecutorObservation(key, raw) {
+export function normalizeExecutorObservation(key, raw) {
   if (raw.kind === "absent") {
     return { outcome: "absent", normalizedValue: "absent" };
   }
@@ -3137,6 +3347,26 @@ function normalizeExecutorObservation(key, raw) {
       normalizedValue:
         raw.errorCode ??
         (raw.errorName ? `error-name:${raw.errorName}` : "throw-without-code"),
+    };
+  }
+  if (raw.rawValueShape === "argument-identity") {
+    if (
+      raw.kind !== "return" ||
+      raw.value !== "same-as-argument-0" ||
+      key.output !== "[[return]]" ||
+      !new Set(["__exactDeepFreeze", "__exactNativeFreeze"]).has(key.alias) ||
+      !new Set(["primitive-sentinel", "object-sentinel"]).has(key.mode) ||
+      key.sourceKind !== "native-op" ||
+      key.returnVariant !== "same-as-argument-0" ||
+      key.contextId !== "runtime.bootstrap-native-call-loaded"
+    ) {
+      throw new Error(
+        `${key.alias}: argument identity is not bound to an exact native freeze route`,
+      );
+    }
+    return {
+      outcome: "return",
+      normalizedValue: "same-as-argument-0",
     };
   }
   const value = raw.value;
@@ -3187,6 +3417,35 @@ function normalizeExecutorObservation(key, raw) {
         );
       }
       return { outcome: "return", normalizedValue: normalized[0] };
+    }
+    if (key.alias === "ex_host_fs_readdir[]") {
+      if (strings.length === 0) {
+        throw new Error(
+          `${key.alias}: an empty directory cannot prove item shape`,
+        );
+      }
+      if (
+        strings.some(
+          (item) =>
+            item.length === 0 ||
+            item === "." ||
+            item === ".." ||
+            item.includes("/") ||
+            item.includes("\\"),
+        )
+      ) {
+        throw new Error(`${key.alias}: directory items are not basenames`);
+      }
+      const normalized = strings.map((item) =>
+        normalizedStringValue(key, item),
+      );
+      if (normalized.some((item) => item !== "virtual-basename")) {
+        throw new Error(`${key.alias}: directory items are not basenames`);
+      }
+      return {
+        outcome: "return",
+        normalizedValue: "array:virtual-basename",
+      };
     }
     if (
       key.alias === "fs.glob" ||

@@ -337,7 +337,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_882);
+    expect(callbackRecipes).toHaveLength(2_906);
     expect(
       Object.fromEntries(
         [
@@ -347,6 +347,7 @@ describe("exact-target CapSec executable recipes", () => {
           "snapshot-mismatch-deny",
           "cannot-widen-authority",
           "post-lockdown-invariant",
+          "non-capability",
         ].map((scenario) => [
           scenario,
           callbackRecipes.filter((recipe) => recipe.scenario === scenario)
@@ -354,12 +355,13 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 553,
-      "generation-recheck": 553,
-      "principal-restore": 553,
-      "snapshot-mismatch-deny": 553,
-      "cannot-widen-authority": 335,
-      "post-lockdown-invariant": 335,
+      "attribution-missing-deny": 556,
+      "generation-recheck": 556,
+      "principal-restore": 556,
+      "snapshot-mismatch-deny": 556,
+      "cannot-widen-authority": 338,
+      "post-lockdown-invariant": 338,
+      "non-capability": 6,
     });
     for (const terminalObservedKey of [
       "native-op:__exactOnRejectionHandled",
@@ -491,6 +493,64 @@ describe("exact-target CapSec executable recipes", () => {
         auxiliaryDecisionEdgeId: null,
       },
     });
+    const exactMechanisms = new Map([
+      [
+        "callback:exact-host-call-async-resolve",
+        "exact-host-call-round-trip",
+      ],
+      [
+        "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
+        "exact-host-call-round-trip",
+      ],
+      [
+        "host-abi:ex_hermes_resolve_exact_host_call",
+        "exact-host-call-round-trip",
+      ],
+      [
+        "host-abi:ex_hermes_set_exact_host_call_async",
+        "exact-endowment-install",
+      ],
+      [
+        "host-abi:ex_host_authorize_exact_endowment",
+        "exact-endowment-authorize",
+      ],
+      [
+        "host-abi:ex_host_prepare_armed_embedder_artifacts",
+        "exact-artifact-prepare-round-trip",
+      ],
+    ]);
+    const exactRows = callbackRecipes.filter(
+      (recipe) => recipe.scenario === "non-capability",
+    );
+    expect(exactRows).toHaveLength(exactMechanisms.size);
+    for (const recipe of exactRows) {
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        actionIds: [],
+        publicSurfaceProbe: {
+          invocation: {
+            expectedResult: "invariant-passed",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+            expectedTypedOutcomes: [],
+            expectedTypedReasons: [],
+            allowedCoverageEdgeIds: [],
+            expectedActionIds: [],
+            sourceDescriptor: {
+              scenario: "non-capability",
+              surfaceObservedKey: recipe.terminalObservedKey,
+              executionMechanism: exactMechanisms.get(
+                recipe.terminalObservedKey,
+              ),
+              auxiliaryDecisionEdgeId: null,
+            },
+          },
+        },
+      });
+      expect(exactMechanisms.has(recipe.terminalObservedKey)).toBe(true);
+    }
   });
 
   test("binds native public probes to source-derived JSI descriptors", () => {
@@ -845,6 +905,53 @@ describe("exact-target CapSec executable recipes", () => {
         },
       });
     }
+  });
+
+  test("binds Exact IPC closure to an authenticated unendowed operation", () => {
+    const recipe = recipes.recipes.find(
+      (candidate) =>
+        candidate.fixtureId ===
+        "surface.native.op.global.exact.invokehostasync.0b92itq.default.closed",
+    );
+    expect(recipe).toMatchObject({
+      classification: "closed",
+      scenario: "closed",
+      terminalObservedKey: "native-op:global:exact.invokeHostAsync",
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        surfaceObservedKey: "native-op:global:exact.invokeHostAsync",
+        invocation: {
+          invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+          kind: "closed-surface",
+          surfaceKind: "native-op",
+          surfaceName: "global:exact.invokeHostAsync",
+          sourceDescriptor: {
+            kind: "closed-exact-unendowed-operation",
+            surfaceObservedKey: "native-op:global:exact.invokeHostAsync",
+            globalName: "exact",
+            memberName: "invokeHostAsync",
+            sourceRefs: [
+              "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync",
+            ],
+          },
+          operation: {
+            kind: "exact-unendowed-operation",
+            contextKind: "app",
+            endowedOperationIds: [7, 11],
+            selectedOperationId: 8,
+            expectedError: "exact.invokeHostAsync operation is not endowed",
+          },
+          expectedResult: "closed",
+          expectedTypedDecisionCount: 0,
+          allowedCoverageEdgeIds: [],
+          expectedActionIds: [],
+        },
+      },
+    });
+    expect(
+      recipe.publicSurfaceProbe.invocation.sourceDescriptorDigest,
+    ).toMatch(/^sha256-/u);
   });
 
   test("binds curated structural startup stages to loaded-engine postconditions", () => {

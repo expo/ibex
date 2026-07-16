@@ -653,74 +653,20 @@
     return Promise.resolve().then(function() { g.__exactWriteFile(path, b); return b.length; });
   });
   E.gc = function() {};
-  E.env = (function() {
-    var _store = {};
-    return new Proxy(_store, {
-      get: function(target, prop) {
-        if (typeof prop === 'symbol') return undefined;
-        if (prop === 'toJSON') {
-          return function() {
-            var all = {};
-            var k;
-            for (k in target) { if (Object.prototype.hasOwnProperty.call(target, k)) all[k] = target[k]; }
-            if (typeof g.__exactGetAllEnv === 'function') {
-              var native = g.__exactGetAllEnv();
-              for (k in native) { if (Object.prototype.hasOwnProperty.call(native, k)) all[k] = native[k]; }
-            }
-            return all;
-          };
-        }
-        if (prop === 'get') {
-          return function(k) {
-            if (typeof g.__exactGetEnv === 'function') { var v = g.__exactGetEnv(k); if (v !== undefined) return v; }
-            return target[k];
-          };
-        }
-        if (typeof g.__exactGetEnv === 'function') {
-          var v = g.__exactGetEnv(prop);
-          if (v !== undefined) return v;
-        }
-        return target[prop];
-      },
-      set: function(target, prop, value) {
-        if (typeof prop === 'symbol') return false;
-        target[prop] = String(value);
-        return true;
-      },
-      has: function(target, prop) {
-        if (typeof prop === 'symbol') return false;
-        if (typeof g.__exactGetEnv === 'function') {
-          if (g.__exactGetEnv(prop) !== undefined) return true;
-        }
-        return prop in target;
-      },
-      deleteProperty: function(target, prop) {
-        if (typeof prop === 'symbol') return false;
-        delete target[prop];
-        return true;
-      },
-      ownKeys: function(target) {
-        var keys = new Set(Object.keys(target));
-        if (typeof g.__exactGetAllEnv === 'function') {
-          var native = g.__exactGetAllEnv();
-          Object.keys(native).forEach(function(k) { keys.add(k); });
-        }
-        return Array.from(keys);
-      },
-      getOwnPropertyDescriptor: function(target, prop) {
-        if (typeof prop === 'symbol') return undefined;
-        var val;
-        if (typeof g.__exactGetEnv === 'function') {
-          val = g.__exactGetEnv(prop);
-          if (val !== undefined) return { value: val, writable: true, enumerable: true, configurable: true };
-        }
-        if (Object.prototype.hasOwnProperty.call(target, prop)) {
-          return { value: target[prop], writable: true, enumerable: true, configurable: true };
-        }
-        return undefined;
-      }
+  // Exact.env and Bun.env are aliases, not independent environment stores.
+  // Keeping one object identity preserves process.env's exact-name read
+  // mediation, JS-local overlay precedence/tombstones, and closed armed
+  // enumeration without introducing a native environment setter.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  try {
+    Object.defineProperty(E, 'env', {
+      configurable: true,
+      enumerable: true,
+      get: function() { return g.process && g.process.env; }
     });
-  })();
+  } catch (err) {
+    defineExactValue('env', g.process && g.process.env);
+  }
   E.sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms || 0); }); };
   E.sleepSync = function() {};
   E.nanoseconds = function() { return Date.now() * 1e6; };

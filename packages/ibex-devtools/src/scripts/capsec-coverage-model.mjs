@@ -195,6 +195,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactLutimesSync",
   "__exactMkdir",
   "__exactMkdtemp",
+  "__exactMotionRatedPublish",
   "__exactModuleEvent",
   "__exactModuleResolve",
   "__exactModuleResolveMeta",
@@ -206,8 +207,6 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactNotifyTypedAuthorityChange",
   "__exactOnRejectionHandled",
   "__exactOnUnhandledRejection",
-  "__exactOSRelease",
-  "__exactOSVersion",
   "__exactOpendir",
   "__exactPbkdf2",
   "__exactPerformanceNow",
@@ -236,11 +235,14 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactRmdir",
   "__exactRsaOaepDecrypt",
   "__exactRsaOaepEncrypt",
+  "__exactRunOnJS",
   "__exactRuntimeLoaded",
+  "__exactScheduleOnAppRuntime",
   "__exactScryptSync",
   "__exactSetActiveModuleId",
   "__exactSetCompartmentFor",
   "__exactSetCwd",
+  "__exactSetEnv",
   "__exactSetPendingPackageId",
   "__exactSignSync",
   "__exactSignalNumbers",
@@ -348,6 +350,11 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__nativeFetchSync",
   "__svGet",
   "__svSet",
+  "__workletCapture",
+  "__workletCaptureGet",
+  "__workletCaptureSet",
+  "__workletOutput",
+  "__workletRunOnJS",
   "native_fetch_cancel",
   "native_fetch_perform",
   "native_ws_close",
@@ -361,6 +368,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
 ]);
 
 const REVIEWED_CALLBACK_PRODUCER_NAMES = new Set([
+  "producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_host_call:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime.cc:ex_hermes_schedule_watchdog_heartbeat_for_generation:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_android.cc:android_animation_frame_callback:pushRuntimeCallback",
@@ -2835,9 +2843,10 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "__exactHttpAwaitWritableExecutor",
   "__exactHttpWaitExecutor",
   "__exactModuleEvent",
+  "__exactMotionRatedPublish",
   "__exactNativeFreeze",
-  "__exactOSRelease",
-  "__exactOSVersion",
+  "__exactRunOnJS",
+  "__exactScheduleOnAppRuntime",
   "__exactSetCompartmentFor",
   "__ibex",
   "__ibexCapsecContextObserver_",
@@ -2853,6 +2862,15 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "native_ws_resume",
   "native_ws_send",
   "native_ws_set_flow_controlled",
+]);
+
+// These Android-native string tokens are source-bound to concrete public
+// process property reads by the inventory. They are global API surfaces, not
+// callable private-native operations, but retain their historical observed
+// keys so the source join cannot silently fork one token into two boundaries.
+const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
+  "__exactOSRelease",
+  "__exactOSVersion",
 ]);
 
 // Keep this approval independent from inventory discovery. Changing a Hermes
@@ -3131,6 +3149,11 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "CryptoHasher",
     "CryptoHasher.algorithms",
     "CryptoHasher.digest",
+    "CryptoHasher.hash",
+    "CryptoHasher.prototype",
+    "CryptoHasher.prototype.copy",
+    "CryptoHasher.prototype.digest",
+    "CryptoHasher.prototype.update",
     "CryptoHasher.update",
     "MD5",
     "MD5.digest",
@@ -3386,6 +3409,11 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "CryptoHasher",
     "CryptoHasher.algorithms",
     "CryptoHasher.digest",
+    "CryptoHasher.hash",
+    "CryptoHasher.prototype",
+    "CryptoHasher.prototype.copy",
+    "CryptoHasher.prototype.digest",
+    "CryptoHasher.prototype.update",
     "CryptoHasher.update",
     "MD5",
     "MD5.digest",
@@ -3911,7 +3939,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "Segmenter.resolvedOptions",
     "Segmenter.segment",
     "Segmenter.supportedLocalesOf",
-    "[[dynamic-table:host-intl-properties]]",
     "getCanonicalLocales",
   ],
   Iterator: [
@@ -4593,12 +4620,10 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactFinalVersionsSame: [""],
   __exactGeneratedImportGrantKeys: [""],
   __exactHasDecompressionUnhandledFilter: [""],
-  __exactHostNavigator: ["", "[[dynamic-table:host-navigator-properties]]"],
   __exactInstallAsyncIpcListenerPatch: [""],
   __exactInstallProcessIpcBootstrap: [""],
   __exactInstallReadableStreamIteratorCompat: [""],
   __exactIsReadableStream: [""],
-  __exactKChannelHandleKey: [""],
   __exactLoadTimings: ["", "installGlobalsEnd", "installGlobalsStart"],
   __exactLocaleChanged: [""],
   __exactLocaleSnapshot: ["tag", "tags", "uses24Hour"],
@@ -4721,6 +4746,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "getStateMirror",
     "hasKernelInspector",
     "hitTest",
+    "invokeHostAsync",
     "nodeExists",
     "runtime",
     "runtime.detectEngine",
@@ -4776,16 +4802,10 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   process: [
     "",
     "[[Symbol.toStringTag]]",
-    "[[dynamic-table:channel-handle-key]]",
-    "[[dynamic-table:channel-handle-key]].readStart",
-    "[[dynamic-table:channel-handle-key]].readStop",
-    "[[dynamic-table:exact-channel-handle-key]]",
-    "[[dynamic-table:host-process-own-properties]]",
-    "[[dynamic-table:host-process-prototype-properties]]",
-    "[[dynamic-table:k-channel-handle]]",
-    "[[dynamic-table:k-channel-handle]].readStart",
-    "[[dynamic-table:k-channel-handle]].readStop",
     "__exactAsyncIpcListenerPatch",
+    "__exactKChannelHandle",
+    "__exactKChannelHandle.readStart",
+    "__exactKChannelHandle.readStop",
     "__exactLateIpcListenerPatch",
     "__exactProcessIpcBootstrapInstalled",
     "__exactStreamPinned",
@@ -4824,7 +4844,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "emitWarning",
     "env",
     "env.[[dynamic-table:env-obj-properties]]",
-    "env.[[dynamic-table:host-process-env-properties]]",
+    "env.[[dynamic-table:principal-environment-overlay-properties]]",
     "eventNames",
     "execArgv",
     "execPath",
@@ -5006,7 +5026,17 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   setTimeout: [""],
   structuredClone: [""],
   window: [""],
-  worklet: ["", "clamp", "lerp", "sharedValue"],
+  worklet: [
+    "",
+    "capture",
+    "captureGet",
+    "captureSet",
+    "clamp",
+    "lerp",
+    "output",
+    "runOnJS",
+    "sharedValue",
+  ],
 });
 
 function reviewedGlobalSurfaceName(globalName, memberName) {
@@ -5025,6 +5055,7 @@ function buildReviewedGlobalApiNames() {
     ...[...REVIEWED_NATIVE_OPERATION_NAMES].filter(
       (name) => !REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES.has(name),
     ),
+    ...REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES,
   ];
   for (const [globalName, memberNames] of Object.entries(
     REVIEWED_GLOBAL_API_MEMBER_NAMES,
@@ -5094,6 +5125,9 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_debugger_set_breakpoint",
     "ex_hermes_destroy",
     "ex_hermes_dispatch_event",
+    "ex_hermes_dispatch_motion_rated_publish",
+    "ex_hermes_dispatch_worklet_calls",
+    "ex_hermes_dispatch_worklet_json_batch",
     "ex_hermes_emit_module_event",
     "ex_hermes_emit_module_view_event",
     "ex_hermes_engine_binary_path",
@@ -5114,6 +5148,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_notify_callback",
     "ex_hermes_now_ms",
     "ex_hermes_poll",
+    "ex_hermes_resolve_exact_host_call",
     "ex_hermes_resolve_host_call",
     "ex_hermes_resume_structured_session",
     "ex_hermes_runtime_nonce",
@@ -5122,6 +5157,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_session_display_ack",
     "ex_hermes_set_dispatch_callback",
     "ex_hermes_set_dispatch_with_debug_context_callback",
+    "ex_hermes_set_exact_host_call_async",
     "ex_hermes_set_host_call",
     "ex_hermes_set_host_call_async",
     "ex_hermes_set_host_wake_hook",
@@ -5141,7 +5177,9 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_value_safe_throw_metadata",
     "ex_hermes_value_stage1_text",
     "ex_host_armed_endowments",
+    "ex_host_authorize_exact_endowment",
     "ex_host_authorize_typed_environment_read_stack",
+    "ex_host_authorize_typed_environment_write_stack",
     "ex_host_authorize_typed_fs_stack",
     "ex_host_authorize_typed_lifecycle_exit_stack",
     "ex_host_authorize_typed_listen_stack",
@@ -5241,6 +5279,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_permission_request",
     "ex_host_permission_revoke",
     "ex_host_permission_status",
+    "ex_host_prepare_armed_embedder_artifacts",
     "ex_host_random_fill",
     "ex_host_register_module_package",
     "ex_host_release_context",
@@ -5281,16 +5320,21 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_vfs_get_cwd",
     "ex_host_vfs_resolve_path",
     "ex_host_vfs_unbind_runtime",
-    "ex_worklet_bind_shared_values",
+    "ex_worklet_bind_shared_value_accessors",
     "ex_worklet_create",
     "ex_worklet_destroy",
     "ex_worklet_drain_logs",
     "ex_worklet_drain_scheduled",
+    "ex_worklet_drain_scheduled_typed",
     "ex_worklet_generation",
     "ex_worklet_install",
+    "ex_worklet_install_metrics",
+    "ex_worklet_install_typed",
     "ex_worklet_invoke",
+    "ex_worklet_invoke_typed",
     "ex_worklet_set_generation",
     "ex_worklet_set_measure_callback",
+    "ex_worklet_take_scheduled_drop_count",
     "java:dev.ibex.runtime.IbexNetworking.CameraHostProvider.cameraHostCall",
     "java:dev.ibex.runtime.IbexNetworking.DialogHostProvider.dialog",
     "java:dev.ibex.runtime.IbexNetworking.accessibilityFlags",
@@ -6578,11 +6622,8 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:installAndroidHostFunctions:installAndroidCameraBridge",
     "install-route:installAndroidHostFunctions:installAndroidEnvironmentGlobals",
     "install-route:installAndroidHostFunctions:installAndroidLocationBridge",
-    "install-route:installChildProcessHostFunctions:installUnsupportedJsonFn",
     "install-route:installCryptoHostFunctions:installDnsHostFunctions",
     "install-route:installCryptoHostFunctions:installZlibHostFunctions",
-    "install-route:installDnsHostFunctions:installUnsupportedGlobal",
-    "install-route:installFsHostFunctions:installSync",
     "install-route:installGlobals:installAndroidHostFunctions",
     "install-route:installGlobals:installChildProcessHostFunctions",
     "install-route:installGlobals:installConsoleGlobals",
@@ -6604,8 +6645,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:installGlobals:installWebSocketGlobals",
     "install-route:installModuleLoader:installSharedRuntimeBundle",
     "install-route:installNetHostFunctions:installTlsHostFunctions",
-    "install-route:installNetHostFunctions:installUnsupportedModule",
-    "install-route:installUnsupportedModule:installUnsupportedGlobal",
+    "install-route:prepareAndroidStoragePathsProjection:0qv3qsf:installStoragePathsGlobal",
     "installer:installAndroidCameraBridge",
     "installer:installAndroidEnvironmentGlobals",
     "installer:installAndroidHostFunctions",
@@ -6629,11 +6669,11 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "installer:installProcessSetup",
     "installer:installSharedRuntimeBundle",
     "installer:installSqliteHostFunctions",
+    "installer:installStoragePathsGlobal",
+    "installer:installStructuredLastValueAccessor",
     "installer:installStructuredLifecycleAccessors",
     "installer:installTimerGlobals",
     "installer:installTlsHostFunctions",
-    "installer:installUnsupportedGlobal",
-    "installer:installUnsupportedModule",
     "installer:installWebSocketGlobals",
     "installer:installWebStreamsPolyfill",
     "installer:installWorkletGlobals",
@@ -6828,14 +6868,16 @@ export function assertReviewedSurfaceInventory(surfaces) {
       "builtin roots",
       REVIEWED_BUILTIN_ROOT_NAMES,
       names(
-        (row) => row.kind === "builtin" && row.metadata?.surfaceType !== "export",
+        (row) =>
+          row.kind === "builtin" && row.metadata?.surfaceType !== "export",
       ),
     ],
     [
       "builtin exports",
       REVIEWED_BUILTIN_EXPORT_NAMES,
       names(
-        (row) => row.kind === "builtin" && row.metadata?.surfaceType === "export",
+        (row) =>
+          row.kind === "builtin" && row.metadata?.surfaceType === "export",
       ),
     ],
     [
@@ -6863,15 +6905,29 @@ export function assertReviewedSurfaceInventory(surfaces) {
       REVIEWED_GLOBAL_API_NAMES,
       names((row) => row.metadata?.surfaceType === "global-api"),
     ],
-    ["host ABIs", REVIEWED_HOST_ABI_NAMES, names((row) => row.kind === "host-abi")],
+    [
+      "host ABIs",
+      REVIEWED_HOST_ABI_NAMES,
+      names((row) => row.kind === "host-abi"),
+    ],
     [
       "inspector natives",
       REVIEWED_INSPECTOR_NATIVE_NAMES,
-      names((row) => row.kind === "native-op" && row.name.startsWith("inspector.")),
+      names(
+        (row) => row.kind === "native-op" && row.name.startsWith("inspector."),
+      ),
     ],
     ["CLI surfaces", REVIEWED_CLI_NAMES, names((row) => row.kind === "cli")],
-    ["loader surfaces", REVIEWED_LOADER_NAMES, names((row) => row.kind === "loader")],
-    ["startup surfaces", REVIEWED_STARTUP_NAMES, names((row) => row.kind === "startup")],
+    [
+      "loader surfaces",
+      REVIEWED_LOADER_NAMES,
+      names((row) => row.kind === "loader"),
+    ],
+    [
+      "startup surfaces",
+      REVIEWED_STARTUP_NAMES,
+      names((row) => row.kind === "startup"),
+    ],
   ];
   for (const [label, reviewed, discovered] of inventories) {
     const missing = [...reviewed].filter((name) => !discovered.has(name));
@@ -6961,17 +7017,17 @@ export function enforcementBranchIdentity(edge, branch) {
     stubDisposition: branch.stubDisposition ?? null,
     semantics: enforcementSemanticShape(edge),
   });
-  const anchor = stableComponent(sourceRefs[0] ?? "effect-boundary")
-    .slice(-64)
-    .replace(/^\.+/u, "") || "effect.boundary";
+  const anchor =
+    stableComponent(sourceRefs[0] ?? "effect-boundary")
+      .slice(-64)
+      .replace(/^\.+/u, "") || "effect.boundary";
   return {
     id: validateStableId(
       `enforcement.${anchor}.${fnv1a32(key)}`,
       "enforcement branch id",
     ),
     key,
-    routeKind:
-      branch.enforcementRoute?.kind ?? "exact-source-and-semantics",
+    routeKind: branch.enforcementRoute?.kind ?? "exact-source-and-semantics",
   };
 }
 
@@ -9258,6 +9314,10 @@ function callbackClassification(surface) {
     );
   }
 
+  if (name === "exact-host-call-async-resolve") {
+    return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+  }
+
   if (name === "websocket-context-release") {
     return nonCapabilitySpec("authority-release", "WP8");
   }
@@ -9391,7 +9451,9 @@ function loaderClassification(surface) {
 
   if (name.startsWith("operation:")) {
     const operation = name.split(":").at(-1);
-    if (/^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(operation)) {
+    if (
+      /^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(operation)
+    ) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (/^(?:read|read_link|read_to_string)$/u.test(operation)) {
@@ -9511,12 +9573,7 @@ function loaderClassification(surface) {
         functionName,
       )
     ) {
-      return effectSpec(
-        ["fs:list", "fs:read"],
-        "loader",
-        "WP7",
-        loaderOptions,
-      );
+      return effectSpec(["fs:list", "fs:read"], "loader", "WP7", loaderOptions);
     }
     if (functionName === "drop") {
       return effectSpec(
@@ -9604,12 +9661,7 @@ function loaderClassification(surface) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (name === "function:rust:resolve_package_link") {
-      return effectSpec(
-        ["fs:list", "fs:read"],
-        "loader",
-        "WP7",
-        loaderOptions,
-      );
+      return effectSpec(["fs:list", "fs:read"], "loader", "WP7", loaderOptions);
     }
     if (
       new Set([
@@ -9784,9 +9836,7 @@ function cliClassification(surface) {
         principalSources: ["frame-set"],
       });
     }
-    if (
-      relation("non-capability-rationale", "authenticated-code-ingress")
-    ) {
+    if (relation("non-capability-rationale", "authenticated-code-ingress")) {
       return nonCapabilitySpec("authenticated-code-ingress", "WP7");
     }
     if (relations.length === 0) {
@@ -10420,6 +10470,8 @@ function startupClassification(surface) {
         "installer:installprocesssetup",
         "installer:installsharedruntimebundle",
         "installer:installsqlitehostfunctions",
+        "installer:installstoragepathsglobal",
+        "installer:installstructuredlastvalueaccessor",
         "installer:installstructuredlifecycleaccessors",
         "installer:installtimerglobals",
         "installer:installtlshostfunctions",
@@ -10575,6 +10627,46 @@ function reviewedDynamicGlobalCallShape(surface) {
   );
 }
 
+function reviewedPrincipalEnvironmentOverlay(surface) {
+  const contract = surface.metadata?.principalEnvironmentOverlaySourceContract;
+  const trapRoutes = new Map(
+    Array.isArray(contract?.proxyTraps)
+      ? contract.proxyTraps.map((route) => [
+          route?.name,
+          Array.isArray(route?.nativeBridges) ? route.nativeBridges : [],
+        ])
+      : [],
+  );
+  const routeHas = (trap, bridge) =>
+    trapRoutes.get(trap)?.includes(bridge) === true;
+  return Boolean(
+    contract?.schema ===
+      "ibex/principal-environment-overlay-source-contract/1" &&
+    contract.surfaceName === surface.name &&
+    contract.dynamicMember ===
+      "[[dynamic-table:principal-environment-overlay-properties]]" &&
+    contract.globalPath === "process.env" &&
+    contract.binding?.factory === "createEnvProxy" &&
+    contract.binding?.member === "Process.prototype.env" &&
+    contract.factory?.name === "createEnvProxy" &&
+    JSON.stringify(contract.nativeBridges) ===
+      JSON.stringify(["__exactGetAllEnv", "__exactGetEnv", "__exactSetEnv"]) &&
+    trapRoutes.size === 4 &&
+    routeHas("get", "__exactGetEnv") &&
+    routeHas("set", "__exactSetEnv") &&
+    routeHas("deleteProperty", "__exactSetEnv") &&
+    routeHas("ownKeys", "__exactGetAllEnv") &&
+    routeHas("ownKeys", "__exactGetEnv") &&
+    JSON.stringify(contract.sourceRefs) ===
+      JSON.stringify(surface.sourceRefs) &&
+    Array.isArray(surface.metadata?.memberKinds) &&
+    surface.metadata.memberKinds.includes("dynamic-table") &&
+    Array.isArray(surface.metadata?.semanticRoles) &&
+    surface.metadata.semanticRoles.includes("principal-environment-overlay") &&
+    surface.metadata.semanticRoles.includes("runtime-property-overlay"),
+  );
+}
+
 function globalApiClassification(surface, dualNativeSpecification = null) {
   const authoredGlobalName = String(surface.metadata?.globalName ?? "");
   const authoredMember = String(surface.metadata?.memberName ?? "");
@@ -10583,14 +10675,21 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     : authoredGlobalName;
   const internalGlobal = authoredGlobalName.startsWith("__");
   const dualRole = isDualRoleGlobalNativeOperation(surface);
+  const sourceBoundNativePropertyAlias =
+    surface.metadata?.sourceKey === "native_jsi_global" &&
+    surface.metadata?.publicReadAccessSourceProven === true &&
+    surface.metadata?.publicOutputAccess?.kind === "property-read" &&
+    surface.metadata.publicOutputAccess.alias === expectedExportName &&
+    surface.name === authoredMember;
   const expectedSurfaceName =
-    internalGlobal || dualRole
+    internalGlobal || dualRole || sourceBoundNativePropertyAlias
       ? expectedExportName
       : `global:${expectedExportName}`;
   if (
     !authoredGlobalName ||
     surface.metadata?.exportName !== expectedExportName ||
-    surface.name !== expectedSurfaceName
+    surface.name !==
+      (sourceBoundNativePropertyAlias ? authoredMember : expectedSurfaceName)
   ) {
     return null;
   }
@@ -10655,9 +10754,9 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
 
   if (
     globalName === "process" &&
-    member === "env.[[dynamic-table:host-process-env-properties]]"
+    member === "env.[[dynamic-table:principal-environment-overlay-properties]]"
   ) {
-    if (!dynamicHostOverlay) return null;
+    if (!reviewedPrincipalEnvironmentOverlay(surface)) return null;
     return dynamicEnvironmentPropertyEffectSpec();
   }
 
@@ -10883,11 +10982,7 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       return cwdDependentPathEffectSpec();
     }
     if (member === "env") {
-      return closedSpec(
-        "env:process-write",
-        "WP7",
-        "The Bun-compatible env object exposes mutable shared process environment state.",
-      );
+      return nonCapabilitySpec("module-reachability-only", "WP7");
     }
     if (member === "stdin") return effectSpec(["stdio:read"], "stdio", "WP7");
     if (/^(?:stdout|stderr)$/u.test(member)) {
@@ -10976,6 +11071,13 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
         "Kernel-inspector reachability reveals shared runtime diagnostic state.",
       );
     }
+    if (member === "invokehostasync") {
+      return closedSpec(
+        "ipc:channel",
+        "WP8",
+        "The typed Exact embedder route remains closed until its app/agent operation manifest and context are authenticated by the armed artifact.",
+      );
+    }
     return closedSpec(
       "ipc:channel",
       "WP7",
@@ -11018,6 +11120,9 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       return nonCapabilitySpec("module-reachability-only", "WP7");
     }
     if (/^env(?:\.|$)/u.test(member)) {
+      if (member === "env") {
+        return nonCapabilitySpec("module-reachability-only", "WP7");
+      }
       if (member === "env.[[dynamic-table:env-obj-properties]]") {
         return dynamicEnvironmentPropertyEffectSpec();
       }
@@ -11074,7 +11179,7 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       return processLaunchEffectSpec();
     }
     if (
-      /^(?:channel(?:\.|$)|connected|disconnect|send|\[\[dynamic-table:(?:channel-handle-key|exact-channel-handle-key|k-channel-handle)\]\](?:\.|$))/u.test(
+      /^(?:channel(?:\.|$)|connected|disconnect|send|__exactkchannelhandle(?:\.|$)|\[\[dynamic-table:(?:channel-handle-key|exact-channel-handle-key|k-channel-handle)\]\](?:\.|$))/u.test(
         member,
       )
     ) {
@@ -11203,7 +11308,7 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       );
     }
     if (
-      /^(?:allowednodeenvironmentflags|arch|argv|argv0|assert|availablememory|browser|config(?:\..+)?|constrainedmemory|constructor\.prototype|cpuusage|cwd|debugport|execargv|execpath|features(?:\..+)?|getactiveresourcesinfo|getegid|geteuid|getgid|getgroups|getuid|memoryusage(?:\..+)?|nodeprecation|pid|platform|ppid|release(?:\..+)?|resourceusage|throwdeprecation|tracedeprecation|uptime|version|versions)$/u.test(
+      /^(?:__exactosrelease|__exactosversion|allowednodeenvironmentflags|arch|argv|argv0|assert|availablememory|browser|config(?:\..+)?|constrainedmemory|constructor\.prototype|cpuusage|cwd|debugport|execargv|execpath|features(?:\..+)?|getactiveresourcesinfo|getegid|geteuid|getgid|getgroups|getuid|memoryusage(?:\..+)?|nodeprecation|pid|platform|ppid|release(?:\..+)?|resourceusage|throwdeprecation|tracedeprecation|uptime|version|versions)$/u.test(
         member,
       )
     ) {
@@ -11404,11 +11509,15 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     if (member === "clamp" || member === "lerp") {
       return nonCapabilitySpec("pure-in-memory-compute", "WP1");
     }
-    if (member === "sharedvalue") {
+    if (
+      /^(?:capture|captureget|captureset|output|runonjs|sharedvalue)$/u.test(
+        member,
+      )
+    ) {
       return closedSpec(
         "ipc:channel",
         "WP7",
-        "Worklet shared values are a cross-runtime communication channel.",
+        "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels.",
       );
     }
     return closedSpec(
@@ -11938,9 +12047,18 @@ function abiEscapeClassification(name) {
 
 function embedderAbiClassification(name) {
   if (/^exhermes/u.test(name)) {
+    if (name === "exhermessetexacthostcallasync") {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
+    if (name === "exhermesresolveexacthostcall") {
+      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
     if (
       new Set([
         "exhermesdispatchevent",
+        "exhermesdispatchmotionratedpublish",
+        "exhermesdispatchworkletcalls",
+        "exhermesdispatchworkletjsonbatch",
         "exhermesemitmoduleevent",
         "exhermesemitmoduleviewevent",
         "exhermesresolvehostcall",
@@ -12017,9 +12135,13 @@ function embedderAbiClassification(name) {
       return nonCapabilitySpec("authority-release", "WP8");
     }
     if (
-      new Set(["exworkletcreate", "exworkletinstall", "exworkletinvoke"]).has(
-        name,
-      )
+      new Set([
+        "exworkletcreate",
+        "exworkletinstall",
+        "exworkletinstalltyped",
+        "exworkletinvoke",
+        "exworkletinvoketyped",
+      ]).has(name)
     ) {
       return closedSpec(
         "worker:create",
@@ -12029,9 +12151,10 @@ function embedderAbiClassification(name) {
     }
     if (
       new Set([
-        "exworkletbindsharedvalues",
+        "exworkletbindsharedvalueaccessors",
         "exworkletdrainlogs",
         "exworkletdrainscheduled",
+        "exworkletdrainscheduledtyped",
         "exworkletsetmeasurecallback",
       ]).has(name)
     ) {
@@ -12043,6 +12166,18 @@ function embedderAbiClassification(name) {
     }
     if (new Set(["exworkletgeneration", "exworkletsetgeneration"]).has(name)) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
+    }
+    if (
+      new Set([
+        "exworkletinstallmetrics",
+        "exworklettakescheduleddropcount",
+      ]).has(name)
+    ) {
+      return closedSpec(
+        "runtime:inspect",
+        "WP7",
+        "Worklet diagnostic counters are closed in the initial profile.",
+      );
     }
     return null;
   }
@@ -12065,7 +12200,7 @@ function hostAbiClassification(name) {
   }
 
   if (
-    /^(?:exhostauthorizetypedenvironmentreadstack|exhostauthorizetypedfsstack|exhostauthorizetypedlistenstack|exhostauthorizetypednetworkstack|exhostauthorizetypedprintstack|exhostauthorizetypedsysteminfostack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostauthorizetypedenvironment(?:read|write)stack|exhostauthorizetypedfsstack|exhostauthorizetypedlistenstack|exhostauthorizetypednetworkstack|exhostauthorizetypedprintstack|exhostauthorizetypedsysteminfostack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {
@@ -12074,8 +12209,10 @@ function hostAbiClassification(name) {
   if (
     new Set([
       "exhostarmedendowments",
+      "exhostauthorizeexactendowment",
       "exhostinstallarmed",
       "exhostmatchesarmedsnapshotdigest",
+      "exhostpreparearmedembedderartifacts",
     ]).has(name)
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
@@ -12127,7 +12264,11 @@ function hostAbiClassification(name) {
     if (/^exhostfscopy(?:exclusive)?$/u.test(name)) {
       return effectSpec(["fs:read", "fs:write"], "filesystem", "WP5");
     }
-    if (/^exhostfs(?:access|fstat|lstat|readdir|realpath|stat|statfs)$/u.test(name)) {
+    if (
+      /^exhostfs(?:access|fstat|lstat|readdir|realpath|stat|statfs)$/u.test(
+        name,
+      )
+    ) {
       return effectSpec(["fs:list"], "filesystem", "WP5", descriptorOptions);
     }
     if (/^exhostfs(?:pread|read)$/u.test(name)) {
@@ -12226,7 +12367,11 @@ function hostAbiClassification(name) {
   // @ref LLP 0023#6-path-bearing-observables — these ABI callbacks implement
   // the session-local virtual namespace behind private native adapters; no
   // callback is a JavaScript authority or host-path disclosure surface.
-  if (/^exhostvfs(?:bindruntime|chdir|getcwd|resolvepath|unbindruntime)$/u.test(name)) {
+  if (
+    /^exhostvfs(?:bindruntime|chdir|getcwd|resolvepath|unbindruntime)$/u.test(
+      name,
+    )
+  ) {
     return nonCapabilitySpec("terminal-session-control", "WP7");
   }
   if (/^exhost(?:init|install|version)$/u.test(name)) {
@@ -12474,8 +12619,7 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
     }
     if (
-      surface.name ===
-      "ex_hermes_schedule_watchdog_heartbeat_for_generation"
+      surface.name === "ex_hermes_schedule_watchdog_heartbeat_for_generation"
     ) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
@@ -12521,6 +12665,24 @@ function classifyConcreteSurface(surface) {
     }
     if (surface.name === "__exactFsMutationGuard") {
       return nonCapabilitySpec("authority-control-plane", "WP5");
+    }
+    if (
+      new Set([
+        "__exactMotionRatedPublish",
+        "__exactRunOnJS",
+        "__exactScheduleOnAppRuntime",
+        "__workletCapture",
+        "__workletCaptureGet",
+        "__workletCaptureSet",
+        "__workletOutput",
+        "__workletRunOnJS",
+      ]).has(surface.name)
+    ) {
+      return closedSpec(
+        "ipc:channel",
+        "WP7",
+        "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile.",
+      );
     }
     const nativeNetworkBackend = nativeNetworkBackendClassification(
       surface.name,
@@ -12612,9 +12774,7 @@ function classifyConcreteSurface(surface) {
       "Process exception and rejection handlers invoke the shared process-wide listener registry.",
     );
   }
-  if (
-    /^(?:exactonrejectionhandled|exactonunhandledrejection)$/u.test(name)
-  ) {
+  if (/^(?:exactonrejectionhandled|exactonunhandledrejection)$/u.test(name)) {
     return nonCapabilitySpec("callback-attribution-carrier", "WP8");
   }
   if (/^exactdispatchpendingsignals$/u.test(name)) {
@@ -12721,6 +12881,9 @@ function classifyConcreteSurface(surface) {
       "WP7",
       "Process umask mutation is closed.",
     );
+  }
+  if (name === "exactsetenv") {
+    return effectSpec(["env:write"], "environment", "WP7");
   }
   if (/setenv|putenv|unsetenv|processenvwrite/u.test(name)) {
     return closedSpec(
@@ -13712,21 +13875,22 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
       continue;
     }
     const terminalObservedKey = `native-op:${evidence.terminals[0]}`;
-    const candidates = (terminalRowsByObservedKey.get(terminalObservedKey) ?? [])
-      .filter((candidate) => {
-        const terminalEdge = edgeById.get(candidate.edgeId);
-        return (
-          JSON.stringify(enforcementSemanticShape(terminalEdge)) ===
-            JSON.stringify(enforcementSemanticShape(edge)) &&
-          candidate.targetVariant === row.targetVariant &&
-          JSON.stringify(candidate.targetApplicability) ===
-            JSON.stringify(row.targetApplicability) &&
-          (candidate.backend ?? null) === (row.backend ?? null) &&
-          (candidate.implementationDisposition ?? null) ===
-            (row.implementationDisposition ?? null) &&
-          (candidate.stubDisposition ?? null) === (row.stubDisposition ?? null)
-        );
-      });
+    const candidates = (
+      terminalRowsByObservedKey.get(terminalObservedKey) ?? []
+    ).filter((candidate) => {
+      const terminalEdge = edgeById.get(candidate.edgeId);
+      return (
+        JSON.stringify(enforcementSemanticShape(terminalEdge)) ===
+          JSON.stringify(enforcementSemanticShape(edge)) &&
+        candidate.targetVariant === row.targetVariant &&
+        JSON.stringify(candidate.targetApplicability) ===
+          JSON.stringify(row.targetApplicability) &&
+        (candidate.backend ?? null) === (row.backend ?? null) &&
+        (candidate.implementationDisposition ?? null) ===
+          (row.implementationDisposition ?? null) &&
+        (candidate.stubDisposition ?? null) === (row.stubDisposition ?? null)
+      );
+    });
     if (candidates.length !== 1) continue;
     const terminal = candidates[0];
     row.enforcementRoute = {
@@ -13738,10 +13902,7 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     };
     const enforcement = enforcementBranchIdentity(edge, row);
     row.enforcementBranchId = enforcement.id;
-    row.fixtureObligations = fixtureObligationsForBranch(
-      edge,
-      enforcement.id,
-    );
+    row.fixtureObligations = fixtureObligationsForBranch(edge, enforcement.id);
   }
   const enforcementKeys = new Map();
   for (const row of implementationRows) {
@@ -13754,9 +13915,7 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     }
     const prior = enforcementKeys.get(enforcement.id);
     if (prior !== undefined && prior !== enforcement.key) {
-      throw new Error(
-        `enforcement branch id collision ${enforcement.id}`,
-      );
+      throw new Error(`enforcement branch id collision ${enforcement.id}`);
     }
     enforcementKeys.set(enforcement.id, enforcement.key);
   }

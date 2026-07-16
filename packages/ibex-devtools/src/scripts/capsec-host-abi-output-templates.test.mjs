@@ -23,6 +23,8 @@ let catalog;
 let coverage;
 let surfaces;
 let authored;
+let pathOutputCases;
+let legacyOutputCases;
 
 beforeAll(async () => {
   catalog = read("capsec/generated/output-shape-catalog.json");
@@ -37,15 +39,133 @@ beforeAll(async () => {
     const probe = authoredHostAbiOutputProbe({ catalogRow, surface, coverageEdge: edge });
     return probe ? [{ catalogRow, edge, surface, probe }] : [];
   });
+  pathOutputCases = [
+    ["ex_hermes_engine_binary_path", "out:out"],
+    ["ex_host_vfs_chdir", "out:virtual"],
+    ["ex_host_vfs_get_cwd", "out:virtual"],
+    ["ex_host_vfs_resolve_path", "out:virtual"],
+    ["ex_host_vfs_resolve_path", "out:backing"],
+  ].map(([functionName, output]) => {
+    const edge = [...byEdge.values()].find(
+      (candidate) => candidate.surface.name === functionName,
+    );
+    const surface = byObserved.get(`host-abi:${functionName}`);
+    const catalogRow = {
+      key: {
+        surfaceId: edge.id,
+        output,
+        alias: functionName,
+        mode: "all",
+        sourceKind: "host-abi",
+        returnVariant: "default",
+        contextId: "host.private-native-call-initialized",
+      },
+      discovery: {
+        kind: "source-inventory-surface",
+        observedKeys: [surface.observedKey],
+        sourceRefs: [...surface.sourceRefs],
+      },
+    };
+    return {
+      catalogRow,
+      edge,
+      surface,
+      probe: authoredHostAbiOutputProbe({
+        catalogRow,
+        surface,
+        coverageEdge: edge,
+      }),
+    };
+  });
+  legacyOutputCases = [
+    ...[
+      "ex_host_fs_mkdir_recursive_result",
+      "ex_host_fs_mkdtemp",
+      "ex_host_fs_realpath",
+    ].flatMap((functionName) => [
+      [functionName, "[[return]]", functionName, "unarmed", "success"],
+      [functionName, "[[return]]", functionName, "unarmed", "error"],
+      [functionName, "[[return]]", functionName, "armed", "refused"],
+    ]),
+    [
+      "ex_host_fs_readdir",
+      "array-items",
+      "ex_host_fs_readdir[]",
+      "all",
+      "success",
+    ],
+  ].map(([functionName, output, alias, mode, returnVariant]) => {
+    const edge = [...byEdge.values()].find(
+      (candidate) => candidate.surface.name === functionName,
+    );
+    const surface = byObserved.get(`host-abi:${functionName}`);
+    const catalogRow = {
+      key: {
+        surfaceId: edge.id,
+        output,
+        alias,
+        mode,
+        sourceKind: "host-abi",
+        returnVariant,
+        contextId: "host.private-native-call-initialized",
+      },
+      discovery: {
+        kind: "source-inventory-surface",
+        observedKeys: [surface.observedKey],
+        sourceRefs: [...surface.sourceRefs],
+      },
+    };
+    return {
+      catalogRow,
+      edge,
+      surface,
+      probe: authoredHostAbiOutputProbe({
+        catalogRow,
+        surface,
+        coverageEdge: edge,
+      }),
+    };
+  });
 });
 
 describe("source-bound Host ABI output templates", () => {
   test("authors exact bounded native tranches without promoting platform or registrar presence", () => {
-    expect(authored).toHaveLength(77);
-    expect(new Set(authored.map(({ edge }) => edge.surface.name)).size).toBe(77);
+    const scalarAuthored = authored.filter(
+      ({ catalogRow }) => catalogRow.key.output === "[[return]]",
+    );
+    const legacyNames = new Set([
+      "ex_host_fs_mkdir_recursive_result",
+      "ex_host_fs_mkdtemp",
+      "ex_host_fs_realpath",
+    ]);
+    const ordinaryScalarAuthored = scalarAuthored.filter(
+      ({ edge }) => !legacyNames.has(edge.surface.name),
+    );
+    const legacyScalarAuthored = scalarAuthored.filter(({ edge }) =>
+      legacyNames.has(edge.surface.name),
+    );
+    expect(ordinaryScalarAuthored).toHaveLength(77);
+    expect(
+      new Set(ordinaryScalarAuthored.map(({ edge }) => edge.surface.name)).size,
+    ).toBe(77);
+    expect(legacyScalarAuthored.length).toBe(
+      catalog.rows.filter(
+        (row) =>
+          row.key.sourceKind === "host-abi" &&
+          legacyNames.has(row.key.alias) &&
+          new Set(["success", "error", "refused"]).has(
+            row.key.returnVariant,
+          ),
+      ).length,
+    );
     expect(
       Object.fromEntries(
-        [...Map.groupBy(authored, ({ probe }) => probe.sourceDescriptor.operation.kind)]
+        [
+          ...Map.groupBy(
+            ordinaryScalarAuthored,
+            ({ probe }) => probe.sourceDescriptor.operation.kind,
+          ),
+        ]
           .map(([kind, rows]) => [kind, rows.length])
           .sort(),
       ),
@@ -58,8 +178,18 @@ describe("source-bound Host ABI output templates", () => {
       "native-hermes-stateless-current-target": 6,
       "native-hermes-worklet-runtime": 4,
     });
+    if (legacyScalarAuthored.length > 0) {
+      expect(legacyScalarAuthored).toHaveLength(9);
+      expect(
+        legacyScalarAuthored.every(
+          ({ probe }) =>
+            probe.sourceDescriptor.operation.kind ===
+            "rust-host-legacy-path-output",
+        ),
+      ).toBe(true);
+    }
     expect(
-      authored.every(({ probe }) =>
+      scalarAuthored.every(({ probe }) =>
         probe.sourceDescriptor.selectedDefinitions.every(
           (definition) => definition.targetVariant === "default",
         ),
@@ -67,10 +197,185 @@ describe("source-bound Host ABI output templates", () => {
     ).toBe(true);
   });
 
+  test("authors only the five exact source-bound path buffer selectors", () => {
+    expect(pathOutputCases.map(({ probe }) => probe).every(Boolean)).toBe(true);
+    expect(
+      pathOutputCases.map(({ catalogRow, probe }) => ({
+        functionName: probe.sourceDescriptor.functionName,
+        operation: probe.sourceDescriptor.operation.kind,
+        output: catalogRow.key.output,
+        recordPath: probe.recordPath,
+        selectedOutput: probe.sourceDescriptor.selectedOutput,
+      })),
+    ).toEqual([
+      {
+        functionName: "ex_hermes_engine_binary_path",
+        operation: "native-hermes-stateless-path-output",
+        output: "out:out",
+        recordPath: ["out:out"],
+        selectedOutput: {
+          kind: "buffer",
+          lengthParameter: "out_len",
+          ownership: { kind: "caller-storage" },
+          parameter: "out",
+          role: "output",
+          selector: "out:out",
+        },
+      },
+      ...[
+        ["ex_host_vfs_chdir", "out:virtual", "out_virtual", "out_virtual_len"],
+        ["ex_host_vfs_get_cwd", "out:virtual", "out_virtual", "out_virtual_len"],
+        [
+          "ex_host_vfs_resolve_path",
+          "out:virtual",
+          "out_virtual",
+          "out_virtual_len",
+        ],
+        [
+          "ex_host_vfs_resolve_path",
+          "out:backing",
+          "out_backing",
+          "out_backing_len",
+        ],
+      ].map(([functionName, output, parameter, lengthParameter]) => ({
+        functionName,
+        operation: "rust-host-authenticated-vfs-path-output",
+        output,
+        recordPath: [output],
+        selectedOutput: {
+          kind: "buffer",
+          lengthParameter,
+          ownership: {
+            kind: "caller-owned",
+            releaseFunction: "ex_host_free_buffer",
+          },
+          parameter,
+          role: "output",
+          selector: output,
+        },
+      })),
+    ]);
+  });
+
+  test("authors the ten exact legacy path and directory output variants", () => {
+    expect(legacyOutputCases.map(({ probe }) => probe).every(Boolean)).toBe(
+      true,
+    );
+    expect(
+      legacyOutputCases.map(({ catalogRow, probe }) => ({
+        alias: catalogRow.key.alias,
+        catalogOutput: probe.sourceDescriptor.catalogOutput,
+        mode: probe.sourceDescriptor.catalogMode,
+        operation: probe.sourceDescriptor.operation.kind,
+        projection: probe.sourceDescriptor.selectedOutput.projection,
+        recordPath: probe.recordPath,
+        returnVariant: probe.sourceDescriptor.returnVariant,
+        sourceSelector: probe.sourceDescriptor.selectedOutput.selector,
+      })),
+    ).toEqual([
+      ...[
+        "ex_host_fs_mkdir_recursive_result",
+        "ex_host_fs_mkdtemp",
+        "ex_host_fs_realpath",
+      ].flatMap((functionName) =>
+        [
+          ["unarmed", "success"],
+          ["unarmed", "error"],
+          ["armed", "refused"],
+        ].map(([mode, returnVariant]) => ({
+          alias: functionName,
+          catalogOutput: "[[return]]",
+          mode,
+          operation: "rust-host-legacy-path-output",
+          projection: {
+            catalogSelector: "[[return]]",
+            kind: "whole-return",
+          },
+          recordPath: ["[[return]]"],
+          returnVariant,
+          sourceSelector: "[[return]]",
+        })),
+      ),
+      {
+        alias: "ex_host_fs_readdir[]",
+        catalogOutput: "array-items",
+        mode: "all",
+        operation: "rust-host-legacy-directory-output",
+        projection: {
+          catalogSelector: "array-items",
+          kind: "json-array-items",
+        },
+        recordPath: ["array-items"],
+        returnVariant: "success",
+        sourceSelector: "[[return]]",
+      },
+    ]);
+    for (const { probe } of legacyOutputCases) {
+      expect(probe.sourceDescriptor.selectedOutput).toMatchObject({
+        kind: "pointer",
+        ownership: {
+          kind: "caller-owned",
+          releaseFunction: "ex_host_free_string",
+        },
+        role: "return",
+        selector: "[[return]]",
+      });
+      expect(probe.sourceDescriptor.sourceSafetyBinding).toMatchObject({
+        path: "src/host/abi.rs",
+        returnOwnership: {
+          kind: "caller-owned",
+          releaseFunction: "ex_host_free_string",
+          sourceToken: "ex_host_free_string",
+        },
+      });
+    }
+
+    const drifted = structuredClone(legacyOutputCases[0]);
+    drifted.surface.metadata.definitions[0].outputContract.return.ownership = {
+      kind: "caller-owned",
+      releaseFunction: "ex_host_free_string",
+    };
+    expect(() =>
+      authoredHostAbiOutputProbe({
+        catalogRow: drifted.catalogRow,
+        surface: drifted.surface,
+        coverageEdge: drifted.edge,
+      }),
+    ).toThrow("legacy Host pointer return contract drifted");
+  });
+
+  test("fails closed when a bounded path selector loses its source ownership contract", () => {
+    const original = pathOutputCases.find(
+      ({ catalogRow }) => catalogRow.key.output === "out:backing",
+    );
+    const surface = structuredClone(original.surface);
+    const channel = surface.metadata.definitions[0].outputContract.outputChannels.find(
+      (candidate) => candidate.selector === "out:backing",
+    );
+    channel.ownership = { kind: "caller-storage" };
+    expect(() =>
+      authoredHostAbiOutputProbe({
+        catalogRow: original.catalogRow,
+        surface,
+        coverageEdge: original.edge,
+      }),
+    ).toThrow("lost its exact source ownership contract");
+
+    const unownedSelector = structuredClone(original.catalogRow);
+    unownedSelector.key.output = "out:errno";
+    expect(
+      authoredHostAbiOutputProbe({
+        catalogRow: unownedSelector,
+        surface: original.surface,
+        coverageEdge: original.edge,
+      }),
+    ).toBeNull();
+  });
+
   test("binds every probe to exact symbols, source refs, and current raw file digests", () => {
     for (const { catalogRow, edge, probe } of authored) {
       expect(probe.kind).toBe("loaded-engine-return-record");
-      expect(probe.recordPath).toEqual(["[[return]]"]);
+      expect(probe.recordPath).toEqual([catalogRow.key.output]);
       expect(probe.sourceDescriptor.kind).toBe(HOST_ABI_OUTPUT_SOURCE_DESCRIPTOR_KIND);
       expect(probe.sourceDescriptor.invocationSchema).toBe(
         HOST_ABI_OUTPUT_INVOCATION_SCHEMA,
@@ -80,21 +385,44 @@ describe("source-bound Host ABI output templates", () => {
       expect(probe.sourceDescriptor.outputContractSchema).toBe(
         HOST_ABI_OUTPUT_CONTRACT_SCHEMA,
       );
-      expect(probe.sourceDescriptor.selectedOutput).toEqual({
-        kind: "scalar",
-        ownership: "not-applicable",
-        selector: "[[return]]",
-      });
+      if (probe.sourceDescriptor.selectedOutput.kind === "scalar") {
+        expect(probe.sourceDescriptor.selectedOutput).toEqual({
+          kind: "scalar",
+          ownership: "not-applicable",
+          selector: "[[return]]",
+        });
+      } else if (probe.sourceDescriptor.selectedOutput.kind === "buffer") {
+        expect(probe.sourceDescriptor.selectedOutput.selector).toBe(
+          catalogRow.key.output,
+        );
+        expect(probe.sourceDescriptor.selectedOutput.kind).toBe("buffer");
+      } else {
+        expect(probe.sourceDescriptor.selectedOutput).toMatchObject({
+          kind: "pointer",
+          ownership: {
+            kind: "caller-owned",
+            releaseFunction: "ex_host_free_string",
+          },
+          role: "return",
+          selector: "[[return]]",
+        });
+      }
       expect(probe.sourceDescriptor.outputContracts.length).toBeGreaterThan(0);
       expect(
-        probe.sourceDescriptor.outputContracts.every(
-          (contract) =>
-            contract.schema === HOST_ABI_OUTPUT_CONTRACT_SCHEMA &&
-            contract.functionName === edge.surface.name &&
-            contract.return.role === "value" &&
-            contract.return.kind === "scalar" &&
-            contract.return.ownership.kind === "not-applicable",
-        ),
+        probe.sourceDescriptor.outputContracts.every((contract) => {
+          if (
+            contract.schema !== HOST_ABI_OUTPUT_CONTRACT_SCHEMA ||
+            contract.functionName !== edge.surface.name ||
+            contract.return.role !== "value"
+          ) {
+            return false;
+          }
+          return probe.sourceDescriptor.selectedOutput.kind === "pointer"
+            ? contract.return.kind === "pointer" &&
+                contract.return.ownership.kind === "unknown"
+            : contract.return.kind === "scalar" &&
+                contract.return.ownership.kind === "not-applicable";
+        }),
       ).toBe(true);
       expect(probe.sourceDescriptor.sourceFiles.length).toBeGreaterThan(0);
       for (const binding of probe.sourceDescriptor.sourceFiles) {
@@ -124,7 +452,14 @@ describe("source-bound Host ABI output templates", () => {
       "ex_hermes_create_diagnostic",
       "ex_worklet_drain_logs",
     ]) {
-      expect(names.has(nonPromotable), nonPromotable).toBe(false);
+      expect(
+        authored.some(
+          ({ edge, catalogRow }) =>
+            edge.surface.name === nonPromotable &&
+            catalogRow.key.returnVariant === "default",
+        ),
+        nonPromotable,
+      ).toBe(false);
     }
   });
 
@@ -140,7 +475,7 @@ describe("source-bound Host ABI output templates", () => {
     ).toBeNull();
   });
 
-  test("partitions the Host ABI catalog bidirectionally by exact six-part keys", () => {
+  test("partitions the Host ABI catalog bidirectionally by exact seven-part keys", () => {
     const partition = buildHostAbiOutputProbePartition({
       catalog,
       coverage,
@@ -150,8 +485,17 @@ describe("source-bound Host ABI output templates", () => {
       HOST_ABI_OUTPUT_PARTITION_SCHEMA,
     );
     expect(partition.targetAbsenceBindings).toEqual([]);
-    expect(partition.rows).toHaveLength(77);
-    expect(partition.residuals).toHaveLength(196);
+    expect(partition.rows).toHaveLength(authored.length);
+    expect(partition.residuals).toHaveLength(
+      catalog.rows.filter((row) => row.key.sourceKind === "host-abi").length -
+        authored.length,
+    );
+    const hasStructuredLegacyRows = catalog.rows.some(
+      (row) =>
+        row.key.sourceKind === "host-abi" &&
+        row.key.alias === "ex_host_fs_realpath" &&
+        row.key.returnVariant === "success",
+    );
     expect(
       Object.fromEntries(
         [...Map.groupBy(partition.residuals, (row) => row.reason)]
@@ -165,7 +509,9 @@ describe("source-bound Host ABI output templates", () => {
           .sort(),
       ),
     ).toEqual({
-      "pointer-return-ownership-is-not-source-bound": 28,
+      "pointer-return-ownership-is-not-source-bound": hasStructuredLegacyRows
+        ? 25
+        : 28,
       "void-abi-has-no-syntactic-return-slot": 26,
     });
     const catalogKeys = catalog.rows
@@ -188,8 +534,8 @@ describe("source-bound Host ABI output templates", () => {
       targetAbsenceBindings: [exactAbsence],
     });
     expect(withAbsence.targetAbsenceBindings).toEqual([exactAbsence]);
-    expect(withAbsence.rows).toHaveLength(76);
-    expect(withAbsence.residuals).toHaveLength(196);
+    expect(withAbsence.rows).toHaveLength(authored.length - 1);
+    expect(withAbsence.residuals).toHaveLength(partition.residuals.length);
     expect(() =>
       buildHostAbiOutputProbePartition({
         catalog,

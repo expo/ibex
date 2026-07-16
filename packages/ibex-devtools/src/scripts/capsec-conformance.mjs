@@ -21,6 +21,30 @@ const digest = (value) =>
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
 
+export function selectCandidateTarget(rules, requestedTriple) {
+  const candidates = rules?.initialProfile?.candidateTargets;
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    throw new Error("no candidate target is declared");
+  }
+  if (requestedTriple === undefined) {
+    if (candidates.length !== 1) {
+      throw new Error(
+        "--target is required when more than one candidate target is declared",
+      );
+    }
+    return candidates[0];
+  }
+  const matches = candidates.filter(
+    (candidate) => candidate?.triple === requestedTriple,
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `--target ${JSON.stringify(requestedTriple)} must select exactly one declared candidate target`,
+    );
+  }
+  return matches[0];
+}
+
 function validateLoadedEngineBinding(engine, target) {
   const object = engine?.object;
   if (

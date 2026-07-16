@@ -24,6 +24,7 @@ use std::sync::OnceLock;
 extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
+    #[cfg(target_os = "macos")]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
 }
 
@@ -129,9 +130,9 @@ pub fn loaded_engine_structural_features() -> Vec<String> {
 fn engine_object_identity(
     metadata: &std::fs::Metadata,
 ) -> Result<capsec_semantics::model::ObjectIdentity, String> {
-    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
     #[cfg(unix)]
     {
+        use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
         use std::os::unix::fs::MetadataExt;
         Ok(ObjectIdentity {
             platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
@@ -147,15 +148,11 @@ fn engine_object_identity(
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        Ok(ObjectIdentity {
-            platform: ObjectPlatform::Windows,
-            volume: NonEmptyString::new(format!(
-                "volume:{}",
-                metadata.volume_serial_number().unwrap_or(0)
-            ))?,
-            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))?,
-        })
+        let _ = metadata;
+        Err(
+            "Windows cannot derive a stable loaded-engine object identity on this build; refusing pathname-only identity"
+                .into(),
+        )
     }
 }
 
@@ -350,6 +347,7 @@ pub fn take_callback_pending() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
 
     #[test]
@@ -423,6 +421,163 @@ mod tests {
     const CAPABILITY_SAFE_THROW: u32 = 1 << 1;
     const CAPABILITY_SOURCE_POSITIONS: u32 = 1 << 2;
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    #[repr(C)]
+    struct WorkletSharedValueHandle {
+        slot: u32,
+        generation: u32,
+        epoch: u32,
+    }
+
+    const WORKLET_CAPTURE_F32: u32 = 1;
+    const WORKLET_CAPTURE_BOOL: u32 = 2;
+    const WORKLET_CAPTURE_SHARED_VALUE: u32 = 3;
+    const WORKLET_INSTALL_SOURCE_UTF8: u32 = 1;
+    const WORKLET_RUN_ON_JS_SLOTS: usize = 8;
+
+    #[derive(Clone, Copy)]
+    #[repr(C)]
+    struct WorkletCapture {
+        kind: u32,
+        scalar: f32,
+        shared_value: WorkletSharedValueHandle,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    #[repr(C)]
+    struct WorkletScheduledCall {
+        source_identity: u64,
+        source_sequence: u64,
+        generation: u64,
+        callback_identity: u32,
+        argument_count: u32,
+        arguments: [f32; WORKLET_RUN_ON_JS_SLOTS],
+    }
+
+    impl Default for WorkletScheduledCall {
+        fn default() -> Self {
+            Self {
+                source_identity: 0,
+                source_sequence: 0,
+                generation: 0,
+                callback_identity: 0,
+                argument_count: 0,
+                arguments: [0.0; WORKLET_RUN_ON_JS_SLOTS],
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Default)]
+    #[repr(C)]
+    struct WorkletInstallMetrics {
+        source_install_count: u64,
+        reused_install_count: u64,
+        source_install_total_ns: u64,
+        source_install_max_ns: u64,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6EvidenceSource {
+        path: String,
+        sha256: String,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6Transaction {
+        epoch: u32,
+        motion_seq: String,
+        root_instance: u32,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6CaptureEvidence {
+        kind: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        descriptor_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        generation: Option<u32>,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6CallbackEvidence {
+        identity: u32,
+        action: String,
+        payload_keys: Vec<String>,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6ArtifactEvidence {
+        schema_version: u32,
+        descriptor_id: String,
+        node_id: u32,
+        phase: String,
+        generation: u64,
+        compiler_id: String,
+        install_format: String,
+        source: String,
+        source_identity: String,
+        callback_identity: String,
+        captures: Vec<MotionM6CaptureEvidence>,
+        input_slots: Vec<String>,
+        output_slots: Vec<String>,
+        callbacks: Vec<MotionM6CallbackEvidence>,
+        source_sha256: String,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6TierEvidence {
+        tier: String,
+        root_id: u32,
+        transaction: MotionM6Transaction,
+        artifacts: Vec<MotionM6ArtifactEvidence>,
+    }
+
+    #[derive(Clone, Debug, serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct MotionM6GeneratedEvidence {
+        schema_version: u32,
+        generated_at_unix_ms: u64,
+        generator: String,
+        sources: Vec<MotionM6EvidenceSource>,
+        tiers: Vec<MotionM6TierEvidence>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6EvidenceFile {
+        schema_version: u32,
+        generated_at_unix_ms: u64,
+        generator: String,
+        sources: Vec<MotionM6EvidenceSource>,
+        tiers: Vec<MotionM6TierEvidence>,
+        evidence_sha256: String,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    #[repr(C)]
+    struct MotionRatedPublishSample {
+        channel_identity: u64,
+        dirty_generation: u64,
+        sample_time_ns: u64,
+        value_count: u32,
+        flags: u32,
+        values: [f32; WORKLET_RUN_ON_JS_SLOTS],
+    }
+
+    type WorkletSharedValueReadCallback =
+        extern "C" fn(WorkletSharedValueHandle, *mut f32, *mut c_void) -> u32;
+    type WorkletSharedValueWriteCallback =
+        extern "C" fn(WorkletSharedValueHandle, f32, *mut c_void) -> u32;
+
     extern "C" {
         fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
         fn ex_hermes_create_diagnostic() -> *mut HermesRuntimeOpaque;
@@ -456,6 +611,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
+        fn ex_hermes_get_gc_stats(runtime: *mut HermesRuntimeOpaque) -> *mut c_char;
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
         fn ex_hermes_set_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque, enabled: i32);
         fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
@@ -473,6 +629,828 @@ mod tests {
             callback: extern "C" fn(*mut std::ffi::c_void),
             context: *mut std::ffi::c_void,
         );
+        fn ex_worklet_create() -> *mut HermesRuntimeOpaque;
+        fn ex_worklet_destroy(runtime: *mut HermesRuntimeOpaque);
+        fn ex_worklet_set_generation(runtime: *mut HermesRuntimeOpaque, generation: u64);
+        fn ex_worklet_install(
+            runtime: *mut HermesRuntimeOpaque,
+            worklet_id: *const c_char,
+            source: *const u8,
+            source_len: usize,
+            generation: u64,
+            out_error: *mut *mut c_char,
+        ) -> i32;
+        fn ex_worklet_invoke(
+            runtime: *mut HermesRuntimeOpaque,
+            worklet_id: *const c_char,
+            args_json: *const c_char,
+            out_result_json: *mut *mut c_char,
+        ) -> i32;
+        fn ex_worklet_install_typed(
+            runtime: *mut HermesRuntimeOpaque,
+            install_format: u32,
+            artifact: *const u8,
+            artifact_len: usize,
+            captures: *const WorkletCapture,
+            capture_count: u32,
+            generation: u64,
+            out_identity: *mut u64,
+            out_error: *mut *mut c_char,
+        ) -> i32;
+        fn ex_worklet_invoke_typed(
+            runtime: *mut HermesRuntimeOpaque,
+            identity: u64,
+            inputs: *const f32,
+            input_count: u32,
+            outputs: *mut f32,
+            output_capacity: u32,
+            out_output_count: *mut u32,
+        ) -> i32;
+        fn ex_worklet_install_metrics(
+            runtime: *mut HermesRuntimeOpaque,
+            out_metrics: *mut WorkletInstallMetrics,
+        ) -> i32;
+        fn ex_worklet_drain_scheduled_typed(
+            runtime: *mut HermesRuntimeOpaque,
+            out_calls: *mut WorkletScheduledCall,
+            capacity: u32,
+        ) -> u32;
+        fn ex_worklet_take_scheduled_drop_count(runtime: *mut HermesRuntimeOpaque) -> u64;
+        fn ex_hermes_dispatch_worklet_calls(
+            runtime: *mut HermesRuntimeOpaque,
+            calls: *const WorkletScheduledCall,
+            count: u32,
+            out_delivered: *mut u32,
+        ) -> i32;
+        fn ex_hermes_dispatch_worklet_json_batch(
+            runtime: *mut HermesRuntimeOpaque,
+            batch_json: *const u8,
+            batch_len: usize,
+            generation: u64,
+        ) -> i32;
+        fn ex_hermes_dispatch_motion_rated_publish(
+            runtime: *mut HermesRuntimeOpaque,
+            sample: *const MotionRatedPublishSample,
+        ) -> i32;
+        fn ex_worklet_bind_shared_value_accessors(
+            runtime: *mut HermesRuntimeOpaque,
+            read_callback: Option<WorkletSharedValueReadCallback>,
+            write_callback: Option<WorkletSharedValueWriteCallback>,
+            context: *mut c_void,
+        ) -> i32;
+    }
+
+    #[derive(Debug)]
+    struct SharedValueHost {
+        expected: WorkletSharedValueHandle,
+        value: f32,
+        reads: u32,
+        writes: u32,
+        rejected_reads: u32,
+        rejected_writes: u32,
+    }
+
+    extern "C" fn read_shared_value(
+        handle: WorkletSharedValueHandle,
+        out_value: *mut f32,
+        context: *mut c_void,
+    ) -> u32 {
+        if context.is_null() || out_value.is_null() {
+            return 2;
+        }
+        // SAFETY: the test keeps the boxed host alive until after it unbinds
+        // the callbacks and destroys the single-owner worklet runtime.
+        let host = unsafe { &mut *context.cast::<SharedValueHost>() };
+        if handle != host.expected {
+            host.rejected_reads += 1;
+            return 1;
+        }
+        host.reads += 1;
+        // SAFETY: the C++ bridge supplies a non-null pointer to one float.
+        unsafe { *out_value = host.value };
+        0
+    }
+
+    extern "C" fn write_shared_value(
+        handle: WorkletSharedValueHandle,
+        value: f32,
+        context: *mut c_void,
+    ) -> u32 {
+        if context.is_null() {
+            return 2;
+        }
+        // SAFETY: see read_shared_value; callback invocation is synchronous.
+        let host = unsafe { &mut *context.cast::<SharedValueHost>() };
+        if handle != host.expected {
+            host.rejected_writes += 1;
+            return 1;
+        }
+        host.writes += 1;
+        host.value = value;
+        0
+    }
+
+    fn install_worklet(
+        runtime: *mut HermesRuntimeOpaque,
+        id: &CString,
+        source: &str,
+        generation: u64,
+    ) {
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_worklet_install(
+                runtime,
+                id.as_ptr(),
+                source.as_ptr(),
+                source.len(),
+                generation,
+                &mut error,
+            )
+        };
+        let message = if error.is_null() {
+            None
+        } else {
+            let text = unsafe { CStr::from_ptr(error) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { ex_hermes_free_string(error) };
+            Some(text)
+        };
+        assert_eq!(status, 0, "worklet install failed: {message:?}");
+    }
+
+    fn invoke_worklet(runtime: *mut HermesRuntimeOpaque, id: &CString) -> String {
+        let mut result = std::ptr::null_mut();
+        let status =
+            unsafe { ex_worklet_invoke(runtime, id.as_ptr(), std::ptr::null(), &mut result) };
+        assert_eq!(status, 0, "worklet invoke failed");
+        assert!(!result.is_null(), "worklet result must be JSON encoded");
+        let text = unsafe { CStr::from_ptr(result) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { ex_hermes_free_string(result) };
+        text
+    }
+
+    unsafe fn install_typed_worklet(
+        runtime: *mut HermesRuntimeOpaque,
+        source: &str,
+        captures: &[WorkletCapture],
+        generation: u64,
+    ) -> u64 {
+        let mut identity = 0;
+        let mut error = std::ptr::null_mut();
+        let status = ex_worklet_install_typed(
+            runtime,
+            WORKLET_INSTALL_SOURCE_UTF8,
+            source.as_ptr(),
+            source.len(),
+            captures.as_ptr(),
+            captures.len() as u32,
+            generation,
+            &mut identity,
+            &mut error,
+        );
+        let message = if error.is_null() {
+            None
+        } else {
+            let text = CStr::from_ptr(error).to_string_lossy().into_owned();
+            ex_hermes_free_string(error);
+            Some(text)
+        };
+        assert_eq!(status, 0, "typed worklet install failed: {message:?}");
+        assert_ne!(identity, 0);
+        identity
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        use sha2::{Digest as _, Sha256};
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
+    fn load_motion_m6_evidence() -> Option<MotionM6GeneratedEvidence> {
+        let evidence_path = std::env::var_os("EXACT_MOTION_M6_ARTIFACTS")?;
+        let bytes = std::fs::read(&evidence_path).unwrap_or_else(|error| {
+            panic!(
+                "failed to read EXACT_MOTION_M6_ARTIFACTS {}: {error}",
+                std::path::Path::new(&evidence_path).display(),
+            )
+        });
+        let evidence: MotionM6EvidenceFile =
+            serde_json::from_slice(&bytes).expect("Motion M6 evidence must be strict JSON");
+        let generated = MotionM6GeneratedEvidence {
+            schema_version: evidence.schema_version,
+            generated_at_unix_ms: evidence.generated_at_unix_ms,
+            generator: evidence.generator,
+            sources: evidence.sources,
+            tiers: evidence.tiers,
+        };
+        assert_eq!(
+            generated.schema_version, 1,
+            "unsupported Motion M6 evidence schema"
+        );
+        assert_eq!(
+            generated.generator, "scripts/check-motion-m6-authoring.ts",
+            "Motion M6 evidence must come from the registered authoring twin",
+        );
+        let canonical_bytes =
+            serde_json::to_vec(&generated).expect("Motion M6 evidence must reserialize");
+        assert_eq!(
+            sha256_hex(&canonical_bytes),
+            evidence.evidence_sha256,
+            "Motion M6 evidence digest does not authenticate the generated payload",
+        );
+
+        let max_age_ms = std::env::var("EXACT_MOTION_M6_ARTIFACT_MAX_AGE_MS")
+            .unwrap_or_else(|_| "300000".to_owned())
+            .parse::<u64>()
+            .expect("EXACT_MOTION_M6_ARTIFACT_MAX_AGE_MS must be a u64");
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock must be after the Unix epoch")
+            .as_millis() as u64;
+        assert!(
+            generated.generated_at_unix_ms <= now_ms.saturating_add(10_000),
+            "Motion M6 evidence timestamp is implausibly in the future",
+        );
+        assert!(
+            now_ms.saturating_sub(generated.generated_at_unix_ms) <= max_age_ms,
+            "Motion M6 evidence is stale (generated={}, now={}, maxAgeMs={})",
+            generated.generated_at_unix_ms,
+            now_ms,
+            max_age_ms,
+        );
+
+        const EXPECTED_SOURCES: [&str; 5] = [
+            "scripts/check-motion-m6-authoring.ts",
+            "tests/motion/m6-authoring-twin.contract",
+            "tests/motion/m6-authoring-twin.react.ts",
+            "packages/exact-contract/src/compiler/motion-worklet-source.ts",
+            "packages/exact-devtools/src/worklet-source-plugin.ts",
+        ];
+        assert_eq!(
+            generated
+                .sources
+                .iter()
+                .map(|source| source.path.as_str())
+                .collect::<Vec<_>>(),
+            EXPECTED_SOURCES,
+            "Motion M6 provenance source set drifted",
+        );
+        let exact_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("Ibex must be vendored under Exact/vendor");
+        for source in &generated.sources {
+            let source_bytes =
+                std::fs::read(exact_root.join(&source.path)).unwrap_or_else(|error| {
+                    panic!("failed to read provenance source {}: {error}", source.path)
+                });
+            assert_eq!(
+                sha256_hex(&source_bytes),
+                source.sha256,
+                "Motion M6 provenance source {} changed after evidence generation",
+                source.path,
+            );
+        }
+
+        assert_eq!(
+            generated.tiers.len(),
+            2,
+            "expected Contract and React evidence"
+        );
+        assert_eq!(generated.tiers[0].tier, "contract");
+        assert_eq!(generated.tiers[0].root_id, 2_470_401);
+        assert_eq!(generated.tiers[1].tier, "react");
+        assert_eq!(generated.tiers[1].root_id, 2_470_402);
+        for tier in &generated.tiers {
+            assert!(tier.transaction.epoch > 0);
+            assert!(tier.transaction.root_instance > 0);
+            assert!(
+                tier.transaction
+                    .motion_seq
+                    .parse::<u64>()
+                    .is_ok_and(|sequence| sequence > 0),
+                "{} Motion transaction sequence must be positive",
+                tier.tier,
+            );
+            assert_eq!(
+                tier.artifacts.len(),
+                4,
+                "{} must emit four artifacts",
+                tier.tier
+            );
+            let phase_count = |phase: &str| {
+                tier.artifacts
+                    .iter()
+                    .filter(|artifact| artifact.phase == phase)
+                    .count()
+            };
+            assert_eq!(
+                phase_count("derive"),
+                2,
+                "{} must emit two projections",
+                tier.tier
+            );
+            assert_eq!(
+                phase_count("update"),
+                1,
+                "{} must emit one update",
+                tier.tier
+            );
+            assert_eq!(
+                phase_count("end"),
+                1,
+                "{} must emit one terminal callback",
+                tier.tier
+            );
+            for artifact in &tier.artifacts {
+                assert_eq!(artifact.schema_version, 2);
+                assert_eq!(artifact.install_format, "source-utf8");
+                assert!(artifact.node_id > 0);
+                assert!(artifact.generation > 0);
+                assert!(!artifact.compiler_id.is_empty());
+                assert!(
+                    artifact
+                        .descriptor_id
+                        .parse::<u64>()
+                        .is_ok_and(|identity| identity > 0),
+                    "{} descriptor identity must be a positive u64",
+                    artifact.compiler_id,
+                );
+                assert!(artifact.source_identity.parse::<u64>().is_ok());
+                assert!(artifact.callback_identity.parse::<u64>().is_ok());
+                assert_eq!(
+                    sha256_hex(artifact.source.as_bytes()),
+                    artifact.source_sha256,
+                    "{} artifact source digest mismatch",
+                    artifact.compiler_id,
+                );
+                assert!(artifact.input_slots.len() <= 16);
+                assert!(artifact.output_slots.len() <= 16);
+                match artifact.phase.as_str() {
+                    "derive" => {
+                        assert!(artifact.input_slots.is_empty());
+                        assert_eq!(artifact.output_slots, ["return.value"]);
+                        assert_eq!(artifact.captures.len(), 1);
+                        assert!(artifact.callbacks.is_empty());
+                    }
+                    "update" => {
+                        assert_eq!(artifact.input_slots.len(), 1);
+                        assert!(artifact.output_slots.is_empty());
+                        assert_eq!(artifact.captures.len(), 1);
+                        assert!(artifact.callbacks.is_empty());
+                    }
+                    "end" => {
+                        assert_eq!(artifact.input_slots.len(), 2);
+                        assert!(artifact.output_slots.is_empty());
+                        assert!(artifact.captures.is_empty());
+                        assert_eq!(artifact.callbacks.len(), 1);
+                        assert_eq!(artifact.callbacks[0].action, "observe");
+                        assert_eq!(artifact.callbacks[0].payload_keys, ["x", "velocity"]);
+                    }
+                    other => panic!("unexpected Motion M6 artifact phase {other}"),
+                }
+            }
+        }
+        Some(generated)
+    }
+
+    unsafe fn worklet_total_allocated_bytes(runtime: *mut HermesRuntimeOpaque) -> u64 {
+        let stats = ex_hermes_get_gc_stats(runtime);
+        assert!(!stats.is_null(), "Hermes GC stats must be available");
+        let text = CStr::from_ptr(stats).to_string_lossy().into_owned();
+        ex_hermes_free_string(stats);
+        let marker = "\"totalAllocatedBytes\":";
+        let cursor = text
+            .find(marker)
+            .map(|offset| offset + marker.len())
+            .expect("Hermes GC stats must include totalAllocatedBytes");
+        let digits = text[cursor..]
+            .trim_start()
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .collect::<Vec<_>>();
+        assert!(!digits.is_empty(), "totalAllocatedBytes must be an integer");
+        std::str::from_utf8(&digits)
+            .expect("allocation counter digits must be UTF-8")
+            .parse::<u64>()
+            .expect("totalAllocatedBytes must fit in u64")
+    }
+
+    unsafe fn invoke_typed_repeatedly(
+        runtime: *mut HermesRuntimeOpaque,
+        identity: u64,
+        input_count: usize,
+        output_capacity: usize,
+        expected_output_count: u32,
+        sample_count: u64,
+    ) {
+        let inputs = vec![2.0_f32; input_count];
+        let mut outputs = vec![0.0_f32; output_capacity];
+        let input_ptr = if inputs.is_empty() {
+            std::ptr::null()
+        } else {
+            inputs.as_ptr()
+        };
+        let output_ptr = if outputs.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            outputs.as_mut_ptr()
+        };
+        for _ in 0..sample_count {
+            let mut output_count = 0;
+            assert_eq!(
+                ex_worklet_invoke_typed(
+                    runtime,
+                    identity,
+                    input_ptr,
+                    input_count as u32,
+                    output_ptr,
+                    output_capacity as u32,
+                    &mut output_count,
+                ),
+                0,
+            );
+            assert_eq!(output_count, expected_output_count);
+        }
+    }
+
+    unsafe fn typed_allocation_slope(
+        runtime: *mut HermesRuntimeOpaque,
+        identity: u64,
+        input_count: usize,
+        output_capacity: usize,
+        expected_output_count: u32,
+        sample_count: u64,
+    ) -> u64 {
+        let before = worklet_total_allocated_bytes(runtime);
+        invoke_typed_repeatedly(
+            runtime,
+            identity,
+            input_count,
+            output_capacity,
+            expected_output_count,
+            sample_count,
+        );
+        let after = worklet_total_allocated_bytes(runtime);
+        assert!(
+            after >= before,
+            "Hermes' cumulative allocation counter must be monotonic"
+        );
+        after - before
+    }
+
+    fn motion_m6_worklet_captures(
+        artifact: &MotionM6ArtifactEvidence,
+        epoch: u32,
+    ) -> Vec<WorkletCapture> {
+        artifact
+            .captures
+            .iter()
+            .map(|capture| match capture.kind.as_str() {
+                "f32" => {
+                    assert!(capture.descriptor_id.is_none());
+                    assert!(capture.generation.is_none());
+                    let value = capture
+                        .value
+                        .as_ref()
+                        .and_then(serde_json::Value::as_f64)
+                        .expect("f32 capture must carry a numeric value");
+                    assert!(value.is_finite());
+                    assert!(value >= f32::MIN as f64 && value <= f32::MAX as f64);
+                    WorkletCapture {
+                        kind: WORKLET_CAPTURE_F32,
+                        scalar: value as f32,
+                        shared_value: WorkletSharedValueHandle {
+                            slot: 0,
+                            generation: 0,
+                            epoch: 0,
+                        },
+                    }
+                }
+                "bool" => {
+                    assert!(capture.descriptor_id.is_none());
+                    assert!(capture.generation.is_none());
+                    WorkletCapture {
+                        kind: WORKLET_CAPTURE_BOOL,
+                        scalar: if capture
+                            .value
+                            .as_ref()
+                            .and_then(serde_json::Value::as_bool)
+                            .expect("bool capture must carry a boolean value")
+                        {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        shared_value: WorkletSharedValueHandle {
+                            slot: 0,
+                            generation: 0,
+                            epoch: 0,
+                        },
+                    }
+                }
+                "sharedValue" => {
+                    assert!(capture.value.is_none());
+                    let descriptor_id = capture
+                        .descriptor_id
+                        .as_deref()
+                        .expect("SharedValue capture must carry descriptorId")
+                        .parse::<u64>()
+                        .expect("SharedValue descriptorId must fit u64");
+                    assert!(descriptor_id > 0);
+                    let folded_slot = (descriptor_id ^ (descriptor_id >> 32)) as u32;
+                    WorkletCapture {
+                        kind: WORKLET_CAPTURE_SHARED_VALUE,
+                        scalar: 0.0,
+                        shared_value: WorkletSharedValueHandle {
+                            slot: folded_slot.max(1),
+                            generation: capture
+                                .generation
+                                .expect("SharedValue capture must carry generation"),
+                            epoch,
+                        },
+                    }
+                }
+                other => panic!("unsupported Motion M6 capture kind {other}"),
+            })
+            .collect()
+    }
+
+    fn motion_m6_matched_control(artifact: &MotionM6ArtifactEvidence) -> String {
+        match artifact.phase.as_str() {
+            "derive" if artifact.source.contains("worklet.clamp") => {
+                "(function(){worklet.output(0,worklet.clamp((Math.abs(worklet.captureGet(0))/320),0,1));})".to_owned()
+            }
+            "derive" if artifact.source.contains("Math.max") => {
+                "()=>{worklet.output(0,Math.max(0,Math.min(1,Math.abs(worklet.captureGet(0))/320)));return;}".to_owned()
+            }
+            "derive" if artifact.source.starts_with("()=>") => {
+                "()=>{worklet.output(0,worklet.captureGet(0)+0);return;}".to_owned()
+            }
+            "derive" => {
+                "(function(){worklet.output(0,worklet.captureGet(0)+0);})".to_owned()
+            }
+            "update" if artifact.source.contains("=>") => {
+                "__exactInput0=>{worklet.captureSet(0,__exactInput0+0);}".to_owned()
+            }
+            "update" => {
+                "(function(__exactInput0){worklet.captureSet(0,__exactInput0+0);})".to_owned()
+            }
+            "end" if artifact.source.contains("=>") => {
+                "(__exactInput0,__exactInput1)=>{worklet.runOnJS(1,__exactInput0,__exactInput1);}".to_owned()
+            }
+            "end" => {
+                "(function(__exactInput0,__exactInput1){worklet.runOnJS(1,__exactInput0,__exactInput1);})".to_owned()
+            }
+            other => panic!("unsupported Motion M6 artifact phase {other}"),
+        }
+    }
+
+    unsafe fn measure_motion_m6_tier(tier: &MotionM6TierEvidence) {
+        const WARMUP: u64 = 128;
+        const SAMPLES: u64 = 2_048;
+        let generation = tier.artifacts[0].generation;
+        assert!(tier
+            .artifacts
+            .iter()
+            .all(|artifact| artifact.generation == generation));
+
+        let captures = tier
+            .artifacts
+            .iter()
+            .map(|artifact| {
+                (
+                    artifact,
+                    motion_m6_worklet_captures(artifact, tier.transaction.epoch),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut shared_handles = captures
+            .iter()
+            .flat_map(|(_, captures)| captures)
+            .filter(|capture| capture.kind == WORKLET_CAPTURE_SHARED_VALUE)
+            .map(|capture| capture.shared_value)
+            .collect::<Vec<_>>();
+        shared_handles.dedup();
+        assert_eq!(
+            shared_handles.len(),
+            1,
+            "{} fixture must project one SharedValue identity",
+            tier.tier,
+        );
+
+        let runtime = ex_worklet_create();
+        assert!(!runtime.is_null());
+        let mut host = Box::new(SharedValueHost {
+            expected: shared_handles[0],
+            value: 80.0,
+            reads: 0,
+            writes: 0,
+            rejected_reads: 0,
+            rejected_writes: 0,
+        });
+        let context = (&mut *host as *mut SharedValueHost).cast::<c_void>();
+        assert_eq!(
+            ex_worklet_bind_shared_value_accessors(
+                runtime,
+                Some(read_shared_value),
+                Some(write_shared_value),
+                context,
+            ),
+            0,
+        );
+        ex_worklet_set_generation(runtime, generation);
+
+        for (artifact, captures) in &captures {
+            let candidate =
+                install_typed_worklet(runtime, &artifact.source, captures, artifact.generation);
+            let control = install_typed_worklet(
+                runtime,
+                &motion_m6_matched_control(artifact),
+                captures,
+                artifact.generation,
+            );
+            invoke_typed_repeatedly(
+                runtime,
+                candidate,
+                artifact.input_slots.len(),
+                artifact.output_slots.len(),
+                artifact.output_slots.len() as u32,
+                WARMUP,
+            );
+            invoke_typed_repeatedly(
+                runtime,
+                control,
+                artifact.input_slots.len(),
+                artifact.output_slots.len(),
+                artifact.output_slots.len() as u32,
+                WARMUP,
+            );
+            let candidate_bytes = typed_allocation_slope(
+                runtime,
+                candidate,
+                artifact.input_slots.len(),
+                artifact.output_slots.len(),
+                artifact.output_slots.len() as u32,
+                SAMPLES,
+            );
+            let control_bytes = typed_allocation_slope(
+                runtime,
+                control,
+                artifact.input_slots.len(),
+                artifact.output_slots.len(),
+                artifact.output_slots.len() as u32,
+                SAMPLES,
+            );
+            eprintln!(
+                concat!(
+                    "motion-worklet-generated-artifact: tier={} compiler={} phase={} ",
+                    "samples={} raw-control={} raw-candidate={} semantic-excess={}",
+                ),
+                tier.tier,
+                artifact.compiler_id,
+                artifact.phase,
+                SAMPLES,
+                control_bytes,
+                candidate_bytes,
+                candidate_bytes.saturating_sub(control_bytes),
+            );
+            assert!(control_bytes > 0, "retain raw Hermes ABI allocation truth");
+            assert_eq!(
+                candidate_bytes, control_bytes,
+                "{} {} generated artifact must have zero semantic/excess allocation bytes",
+                tier.tier, artifact.compiler_id,
+            );
+        }
+
+        let (derive, derive_captures) = captures
+            .iter()
+            .find(|(artifact, _)| {
+                artifact.phase == "derive"
+                    && !artifact.source.contains("worklet.clamp")
+                    && !artifact.source.contains("Math.max")
+            })
+            .expect("Motion M6 evidence must include the direct scalar projection");
+        let negative = install_typed_worklet(
+            runtime,
+            "(function(){var box={value:worklet.captureGet(0)};worklet.output(0,box.value);})",
+            derive_captures,
+            derive.generation,
+        );
+        let control = install_typed_worklet(
+            runtime,
+            &motion_m6_matched_control(derive),
+            derive_captures,
+            derive.generation,
+        );
+        invoke_typed_repeatedly(runtime, negative, 0, 1, 1, WARMUP);
+        invoke_typed_repeatedly(runtime, control, 0, 1, 1, WARMUP);
+        let negative_bytes = typed_allocation_slope(runtime, negative, 0, 1, 1, SAMPLES);
+        let control_bytes = typed_allocation_slope(runtime, control, 0, 1, 1, SAMPLES);
+        assert!(
+            negative_bytes > control_bytes,
+            "{} negative object-allocation control must exceed its matched control",
+            tier.tier,
+        );
+        eprintln!(
+            "motion-worklet-generated-negative: tier={} samples={} raw-control={} raw-negative={} semantic-excess={}",
+            tier.tier,
+            SAMPLES,
+            control_bytes,
+            negative_bytes,
+            negative_bytes.saturating_sub(control_bytes),
+        );
+
+        assert_eq!(host.rejected_reads, 0);
+        assert_eq!(host.rejected_writes, 0);
+        assert_eq!(
+            ex_worklet_bind_shared_value_accessors(runtime, None, None, std::ptr::null_mut()),
+            0,
+        );
+        ex_worklet_destroy(runtime);
+    }
+
+    /// LLP 0099 M6 forbids object/string allocation in the hot math path; it
+    /// does not pretend Hermes' fixed JSI call cells disappear. Compare raw
+    /// cumulative slopes in one warmed runtime with identical input/output
+    /// host-call shapes, and require zero candidate excess. The allocating
+    /// control proves that this counter detects the object-literal regression
+    /// the compiler is required to exclude.
+    #[test]
+    fn motion_worklet_semantic_allocation_slope_is_flat() {
+        if let Some(evidence) = load_motion_m6_evidence() {
+            unsafe {
+                for tier in &evidence.tiers {
+                    measure_motion_m6_tier(tier);
+                }
+            }
+            return;
+        }
+
+        // The standalone Ibex suite has no Exact authoring toolchain. Retain
+        // one local source-shape sentinel there; the registered Exact M6
+        // acceptance wrapper always supplies authenticated generated evidence
+        // and therefore takes the branch above.
+        unsafe {
+            const WARMUP: u64 = 128;
+            const SAMPLES: u64 = 2_048;
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+            ex_worklet_set_generation(runtime, 1);
+
+            let control = install_typed_worklet(
+                runtime,
+                "(function (input) { worklet.output(0, input); })",
+                &[],
+                1,
+            );
+            let candidate = install_typed_worklet(
+                runtime,
+                "(function (input) { worklet.output(0, input * 2 + 1); })",
+                &[],
+                1,
+            );
+            let allocating_control = install_typed_worklet(
+                runtime,
+                "(function (input) { var box = { value: input * 2 + 1 }; worklet.output(0, box.value); })",
+                &[],
+                1,
+            );
+
+            for identity in [control, candidate, allocating_control] {
+                invoke_typed_repeatedly(runtime, identity, 1, 1, 1, WARMUP);
+            }
+
+            let control_bytes = typed_allocation_slope(runtime, control, 1, 1, 1, SAMPLES);
+            let candidate_bytes = typed_allocation_slope(runtime, candidate, 1, 1, 1, SAMPLES);
+            let allocating_bytes =
+                typed_allocation_slope(runtime, allocating_control, 1, 1, 1, SAMPLES);
+
+            eprintln!(
+                concat!(
+                    "motion-worklet-allocation: samples={} raw-control={} ",
+                    "raw-candidate={} semantic-excess={} allocating-control={}",
+                ),
+                SAMPLES,
+                control_bytes,
+                candidate_bytes,
+                candidate_bytes.saturating_sub(control_bytes),
+                allocating_bytes,
+            );
+
+            assert!(control_bytes > 0, "retain raw Hermes ABI allocation truth");
+            assert_eq!(
+                candidate_bytes, control_bytes,
+                "scalar math must have zero semantic/excess allocation bytes"
+            );
+            assert!(
+                allocating_bytes > control_bytes,
+                "the paired counter must detect an object-literal allocation"
+            );
+            ex_worklet_destroy(runtime);
+        }
     }
 
     fn eval(runtime: *mut HermesRuntimeOpaque, source: &str) -> (i32, Option<String>) {
@@ -525,6 +1503,344 @@ mod tests {
             0
         );
         result
+    }
+
+    /// Restricted worklets must cross the SharedValue boundary with the full
+    /// typed identity. Stale identities are host-rejected no-ops, and values
+    /// that cannot be represented as finite f32 never reach the host callback.
+    #[test]
+    fn worklet_shared_values_use_validating_typed_accessors() {
+        unsafe {
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+
+            let mut host = Box::new(SharedValueHost {
+                expected: WorkletSharedValueHandle {
+                    slot: 2,
+                    generation: 7,
+                    epoch: 3,
+                },
+                value: 41.0,
+                reads: 0,
+                writes: 0,
+                rejected_reads: 0,
+                rejected_writes: 0,
+            });
+            let context = (&mut *host as *mut SharedValueHost).cast::<c_void>();
+            assert_eq!(
+                ex_worklet_bind_shared_value_accessors(
+                    runtime,
+                    Some(read_shared_value),
+                    Some(write_shared_value),
+                    context,
+                ),
+                0
+            );
+            ex_worklet_set_generation(runtime, 1);
+
+            let live_id = CString::new("typed-live").expect("worklet id");
+            install_worklet(
+                runtime,
+                &live_id,
+                "(function () { var s = worklet.sharedValue(2, 7, 3); s.set(s.get() + 1); return s.get(); })",
+                1,
+            );
+            assert_eq!(invoke_worklet(runtime, &live_id), "42");
+            assert_eq!(host.value, 42.0);
+            assert_eq!((host.reads, host.writes), (2, 1));
+
+            let stale_id = CString::new("typed-stale").expect("worklet id");
+            install_worklet(
+                runtime,
+                &stale_id,
+                "(function () { var s = worklet.sharedValue(2, 8, 3); s.set(99); return s.get() === undefined; })",
+                1,
+            );
+            assert_eq!(invoke_worklet(runtime, &stale_id), "true");
+            assert_eq!(host.value, 42.0, "stale write must be a no-op");
+            assert_eq!((host.rejected_reads, host.rejected_writes), (1, 1));
+
+            // A durable handle keeps its last successfully observed value
+            // when the host later rejects that same typed identity. The raw
+            // accessor still fails closed; only the language handle owns the
+            // stale shadow required by LLP 0099 M1.
+            let shadow_id = CString::new("typed-stale-shadow").expect("worklet id");
+            install_worklet(
+                runtime,
+                &shadow_id,
+                "(function () { var s = worklet.sharedValue(2, 7, 3); return function () { return s.get(); }; })()",
+                1,
+            );
+            assert_eq!(invoke_worklet(runtime, &shadow_id), "42");
+            host.expected.generation = 8;
+            assert_eq!(invoke_worklet(runtime, &shadow_id), "42");
+            assert_eq!(host.rejected_reads, 2);
+            host.expected.generation = 7;
+
+            let non_finite_id = CString::new("typed-non-finite").expect("worklet id");
+            install_worklet(
+                runtime,
+                &non_finite_id,
+                "(function () { worklet.sharedValue(2, 7, 3).set(Infinity); return 1; })",
+                1,
+            );
+            assert_eq!(invoke_worklet(runtime, &non_finite_id), "1");
+            assert_eq!(host.writes, 1, "non-finite value must not reach the host");
+            assert_eq!(host.value, 42.0);
+
+            assert_eq!(
+                ex_worklet_bind_shared_value_accessors(runtime, None, None, std::ptr::null_mut(),),
+                0
+            );
+            ex_worklet_destroy(runtime);
+        }
+    }
+
+    /// LLP 0099 M6: the hot Motion worklet ABI is fixed f32 slots, captures
+    /// are install-time scalars or full SharedValue identities, unchanged
+    /// artifacts retain a stable callback identity, and runOnJS uses a
+    /// bounded drop-oldest ring drained on the app runtime.
+    #[test]
+    fn motion_worklet_typed_abi_captures_and_run_on_js_are_bounded() {
+        unsafe {
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+            let mut host = Box::new(SharedValueHost {
+                expected: WorkletSharedValueHandle {
+                    slot: 3,
+                    generation: 9,
+                    epoch: 4,
+                },
+                value: 41.0,
+                reads: 0,
+                writes: 0,
+                rejected_reads: 0,
+                rejected_writes: 0,
+            });
+            let context = (&mut *host as *mut SharedValueHost).cast::<c_void>();
+            assert_eq!(
+                ex_worklet_bind_shared_value_accessors(
+                    runtime,
+                    Some(read_shared_value),
+                    Some(write_shared_value),
+                    context,
+                ),
+                0
+            );
+            ex_worklet_set_generation(runtime, 7);
+            let captures = [
+                WorkletCapture {
+                    kind: WORKLET_CAPTURE_F32,
+                    scalar: 2.0,
+                    shared_value: WorkletSharedValueHandle {
+                        slot: 0,
+                        generation: 0,
+                        epoch: 0,
+                    },
+                },
+                WorkletCapture {
+                    kind: WORKLET_CAPTURE_BOOL,
+                    scalar: 1.0,
+                    shared_value: WorkletSharedValueHandle {
+                        slot: 0,
+                        generation: 0,
+                        epoch: 0,
+                    },
+                },
+                WorkletCapture {
+                    kind: WORKLET_CAPTURE_SHARED_VALUE,
+                    scalar: 0.0,
+                    shared_value: host.expected,
+                },
+            ];
+            let source = r#"(function (input) {
+              var shared = worklet.captureGet(2);
+              worklet.output(0, input * worklet.capture(0));
+              worklet.output(1, shared);
+              worklet.output(2, worklet.capture(1) ? 1 : 0);
+              worklet.captureSet(2, shared + 1);
+              worklet.runOnJS(77, input, shared);
+            })"#;
+            let identity = install_typed_worklet(runtime, source, &captures, 7);
+            assert_eq!(
+                install_typed_worklet(runtime, source, &captures, 7),
+                identity,
+                "content + capture identity must be stable across re-renders"
+            );
+
+            let mut output = [f32::NAN; 3];
+            let input = [3.0_f32];
+            let mut output_count = 0;
+            assert_eq!(
+                ex_worklet_invoke_typed(
+                    runtime,
+                    identity,
+                    input.as_ptr(),
+                    input.len() as u32,
+                    output.as_mut_ptr(),
+                    output.len() as u32,
+                    &mut output_count,
+                ),
+                0
+            );
+            assert_eq!(output_count, 3);
+            assert_eq!(output, [6.0, 41.0, 1.0]);
+            assert_eq!(host.value, 42.0);
+
+            // The install-time SharedValue capture owns the same stale shadow
+            // contract as worklet.sharedValue(...). A host-rejected handle
+            // reads its last observed value and rejects the write.
+            host.expected.generation = 10;
+            assert_eq!(
+                ex_worklet_invoke_typed(
+                    runtime,
+                    identity,
+                    input.as_ptr(),
+                    1,
+                    output.as_mut_ptr(),
+                    3,
+                    &mut output_count,
+                ),
+                0
+            );
+            assert_eq!(output[1], 42.0);
+            assert_eq!(host.rejected_reads, 1);
+            assert_eq!(host.rejected_writes, 1);
+            host.expected.generation = 9;
+
+            // Fill past the fixed ring. The oldest four calls are evicted;
+            // per-source sequence remains monotonic and makes the gap clear.
+            for _ in 0..254 {
+                assert_eq!(
+                    ex_worklet_invoke_typed(
+                        runtime,
+                        identity,
+                        input.as_ptr(),
+                        1,
+                        output.as_mut_ptr(),
+                        3,
+                        &mut output_count,
+                    ),
+                    0
+                );
+            }
+            let mut calls = [WorkletScheduledCall::default(); 256];
+            assert_eq!(
+                ex_worklet_drain_scheduled_typed(runtime, calls.as_mut_ptr(), 256),
+                256
+            );
+            assert_eq!(ex_worklet_take_scheduled_drop_count(runtime), 0);
+            // Two calls occurred before the 254-fill loop: the stale-shadow
+            // invocation is still a valid runOnJS enqueue, so capacity is
+            // reached exactly without a drop.
+            assert_eq!(calls[0].source_sequence, 1);
+            assert_eq!(calls[255].source_sequence, 256);
+            assert!(calls.iter().all(|call| {
+                call.source_identity == identity
+                    && call.generation == 7
+                    && call.callback_identity == 77
+                    && call.argument_count == 2
+            }));
+            for _ in 0..260 {
+                assert_eq!(
+                    ex_worklet_invoke_typed(
+                        runtime,
+                        identity,
+                        input.as_ptr(),
+                        1,
+                        output.as_mut_ptr(),
+                        3,
+                        &mut output_count,
+                    ),
+                    0
+                );
+            }
+            assert_eq!(
+                ex_worklet_drain_scheduled_typed(runtime, calls.as_mut_ptr(), 256),
+                256
+            );
+            assert_eq!(ex_worklet_take_scheduled_drop_count(runtime), 4);
+            assert_eq!(calls[0].source_sequence, 261);
+            assert_eq!(calls[255].source_sequence, 516);
+
+            let app = ex_hermes_create_diagnostic();
+            assert!(!app.is_null());
+            assert_eq!(
+                eval(
+                    app,
+                    "globalThis.__runOnJSSeen=[]; globalThis.__exactRunOnJS=function(id,meta,a,b){ __runOnJSSeen.push([id,meta.sourceSequence,a,b]); }; 'ready'",
+                )
+                .0,
+                0
+            );
+            let mut delivered = 0;
+            assert_eq!(
+                ex_hermes_dispatch_worklet_calls(
+                    app,
+                    calls.as_ptr(),
+                    calls.len() as u32,
+                    &mut delivered,
+                ),
+                0
+            );
+            assert_eq!(delivered, 256);
+            assert_eq!(
+                eval(
+                    app,
+                    "JSON.stringify([__runOnJSSeen.length,__runOnJSSeen[0],__runOnJSSeen[255]])",
+                )
+                .1
+                .as_deref(),
+                Some("[256,[77,\"261\",3,300],[77,\"516\",3,555]]")
+            );
+
+            let mut metrics = WorkletInstallMetrics::default();
+            assert_eq!(ex_worklet_install_metrics(runtime, &mut metrics), 0);
+            assert_eq!(metrics.source_install_count, 1);
+            assert_eq!(metrics.reused_install_count, 1);
+            assert!(metrics.source_install_total_ns > 0);
+            assert!(metrics.source_install_max_ns > 0);
+
+            ex_hermes_destroy(app);
+            assert_eq!(
+                ex_worklet_bind_shared_value_accessors(runtime, None, None, std::ptr::null_mut(),),
+                0
+            );
+            ex_worklet_destroy(runtime);
+        }
+    }
+
+    /// The source-install choice is deliberate for M6: the shipped build
+    /// plugin already emits function-expression source, and warm installs
+    /// must remain immaterial beside the 1ms per-frame execution budget.
+    #[test]
+    fn motion_worklet_source_install_p95_is_measured() {
+        unsafe {
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+            ex_worklet_set_generation(runtime, 1);
+            let mut samples = Vec::new();
+            for index in 0..64_u32 {
+                let source =
+                    format!("(function (value) {{ worklet.output(0, value + {index}); }})");
+                let started = std::time::Instant::now();
+                let _ = install_typed_worklet(runtime, &source, &[], 1);
+                samples.push(started.elapsed().as_nanos() as u64);
+            }
+            samples.sort_unstable();
+            let p50 = samples[samples.len() / 2];
+            let p95 = samples[(samples.len() * 95 / 100).min(samples.len() - 1)];
+            eprintln!(
+                "M6 source install: p50={:.3}ms p95={:.3}ms",
+                p50 as f64 / 1_000_000.0,
+                p95 as f64 / 1_000_000.0,
+            );
+            assert!(
+                p95 < 5_000_000,
+                "warm source install p95 must stay below the 5ms mount-time ceiling"
+            );
+            ex_worklet_destroy(runtime);
+        }
     }
 
     #[test]
@@ -800,6 +2116,68 @@ mod tests {
             assert_eq!(status, 0, "owner-host selector probe failed: {value:?}");
             assert_eq!(value.as_deref(), Some("true:true:true"));
             ex_hermes_destroy(runtime);
+        }
+    }
+
+    #[test]
+    fn schedule_on_app_runtime_json_dispatches_on_app_runtime() {
+        unsafe {
+            let app = ex_hermes_create_diagnostic();
+            assert!(!app.is_null());
+            assert_eq!(
+                eval(
+                    app,
+                    "globalThis.__scheduled=null; globalThis.__exactScheduleOnAppRuntime=function(batch,generation){ __scheduled=[batch,generation]; }; 'ready'",
+                )
+                .0,
+                0
+            );
+            let batch = br#"[{"name":"refreshBadge","args":{"count":3}}]"#;
+            assert_eq!(
+                ex_hermes_dispatch_worklet_json_batch(app, batch.as_ptr(), batch.len(), 11,),
+                0
+            );
+            assert_eq!(
+                eval(app, "JSON.stringify(__scheduled)").1.as_deref(),
+                Some("[[{\"name\":\"refreshBadge\",\"args\":{\"count\":3}}],11]")
+            );
+            ex_hermes_destroy(app);
+        }
+    }
+
+    #[test]
+    fn motion_rated_publish_dispatches_fixed_sample_on_app_runtime() {
+        unsafe {
+            let app = ex_hermes_create_diagnostic();
+            assert!(!app.is_null());
+            assert_eq!(
+                eval(
+                    app,
+                    "globalThis.__rated=null; globalThis.__exactMotionRatedPublish=function(id,values,metadata){ __rated=[id,values,metadata]; }; 'ready'",
+                )
+                .0,
+                0
+            );
+            let sample = MotionRatedPublishSample {
+                channel_identity: 91,
+                dirty_generation: 7,
+                sample_time_ns: 123_456,
+                value_count: 2,
+                flags: 3,
+                values: [4.5, -2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            };
+            assert_eq!(ex_hermes_dispatch_motion_rated_publish(app, &sample), 0);
+            assert_eq!(
+                eval(app, "JSON.stringify(__rated)").1.as_deref(),
+                Some(
+                    "[\"91\",[4.5,-2],{\"dirtyGeneration\":\"7\",\"sampleTimeNs\":\"123456\",\"heartbeat\":true,\"programmatic\":true}]"
+                )
+            );
+
+            let mut invalid = sample;
+            invalid.values[0] = f32::NAN;
+            assert_eq!(ex_hermes_dispatch_motion_rated_publish(app, &invalid), 1);
+            ex_hermes_destroy(app);
         }
     }
 
