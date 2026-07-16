@@ -134,7 +134,7 @@ jobs:
             platform: win32
             arch: x64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     steps:
       - name: Check out repository
@@ -195,9 +195,16 @@ jobs:
             --expect-arch "${{ matrix.arch }}" \
             --write "$RUNNER_TEMP/${{ matrix.report }}.json"
 
+          node packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs \
+            --samples 5 \
+            --target-dir "$RUNNER_TEMP/module-loader-default-target" \
+            --expect-os "${{ matrix.platform }}" \
+            --expect-arch "${{ matrix.arch }}" \
+            --write "$RUNNER_TEMP/default-${{ matrix.report }}.json"
+
           IBEX_MODULE_RUNNER_PERF_OUTPUT="$RUNNER_TEMP/native-${{ matrix.report }}.json" \
           IBEX_MODULE_RUNNER_PERF_SAMPLES=5 \
-          CARGO_TARGET_DIR="$RUNNER_TEMP/module-loader-target" \
+          CARGO_TARGET_DIR="$RUNNER_TEMP/module-loader-default-target" \
             cargo test --release --lib \
               host::tests::module_runner_performance_baseline -- \
               --ignored --exact --nocapture
@@ -208,6 +215,7 @@ jobs:
           name: ${{ matrix.report }}
           path: |
             ${{ runner.temp }}/${{ matrix.report }}.json
+            ${{ runner.temp }}/default-${{ matrix.report }}.json
             ${{ runner.temp }}/native-${{ matrix.report }}.json
           if-no-files-found: error
           retention-days: 30
