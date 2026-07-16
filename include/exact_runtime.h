@@ -115,14 +115,16 @@ typedef struct ExactGpuSemanticCallV1 {
     uint32_t abi_version;
     uint32_t operation_id;
     uint32_t flags;
-    /// Nonzero and strictly increasing within one realm across every accepted
-    /// submit. Cancellation or completion does not make an earlier accepted
-    /// ID reusable. This is an identity allocator contract, not a device/queue
-    /// ordering domain.
+    /// Nonzero and strictly increasing within one realm across every call that
+    /// reaches the provider, including an admission rejection. Cancellation,
+    /// rejection, or completion never makes an earlier ID reusable. This is
+    /// an identity allocator contract, not a device/queue ordering domain.
     uint64_t completion_id;
     uint64_t device_ordinal;
     uint64_t queue_ordinal;
     ExactGpuAccountTokenV1 account_token;
+    /// Borrowed only for the duration of `submit`; copy before returning if the
+    /// provider needs the bytes later. Ibex bounds this payload to 16 MiB.
     const uint8_t* payload;
     size_t payload_len;
 } ExactGpuSemanticCallV1;
@@ -130,6 +132,7 @@ typedef struct ExactGpuSemanticCallV1 {
 typedef struct ExactGpuRetireBatchV1 {
     uint32_t struct_size;
     uint32_t abi_version;
+    /// Unique nonzero handles, borrowed only for the duration of `retire`.
     const uint64_t* logical_handles;
     size_t logical_handle_count;
 } ExactGpuRetireBatchV1;
@@ -144,6 +147,11 @@ typedef struct ExactGpuServiceEventV1 {
     uint64_t completion_id;
     int32_t status;
     uint32_t reserved;
+    /// Borrowed only for the duration of `on_event`. Ibex validates the whole
+    /// prefix and copies at most 16 MiB before returning ACCEPTED. Operation
+    /// complete/device-error events must identify one pending
+    /// operation/completion pair. Device-lost/realm-closed events use zero for
+    /// both IDs and reduce the realm's authority.
     const uint8_t* payload;
     size_t payload_len;
 } ExactGpuServiceEventV1;
@@ -153,6 +161,10 @@ typedef struct ExactGpuClientSinkV1 {
     uint32_t abi_version;
     void (*retain_client)(void* client_context);
     void (*release_client)(void* client_context);
+    /// May be invoked synchronously from `submit` or later from a service
+    /// thread. It never enters JSI inline: it copies into a bounded native
+    /// mailbox and schedules at most one owner-thread drain. The service must
+    /// not hold its own locks while calling this sink.
     int32_t (*on_event)(void* client_context,
                         const ExactGpuServiceEventV1* event);
 } ExactGpuClientSinkV1;
@@ -172,12 +184,20 @@ typedef struct ExactGpuServiceApiV1 {
                           ExactGpuAccountTokenV1* out_account);
     void (*activate_realm)(void* service_context,
                            ExactGpuRealmTokenV1 realm);
+    /// Called on the runtime owner thread without Ibex mailbox/JS locks held.
+    /// Return promptly. A synchronous `on_event` is safe and is drained later.
+    /// Returning nonzero after such a callback is a provider contradiction:
+    /// Ibex reports protocol violation, quarantines/closes the realm, cancels
+    /// outstanding work, and rejects the receipt exactly once.
     int32_t (*submit)(void* service_context,
                       ExactGpuRealmTokenV1 realm,
                       const ExactGpuSemanticCallV1* call);
+    /// Best-effort logical-handle retirement; called without Ibex locks held.
     int32_t (*retire)(void* service_context,
                       ExactGpuRealmTokenV1 realm,
                       const ExactGpuRetireBatchV1* batch);
+    /// Best-effort cancellation. Teardown can call this once per pending
+    /// completion after the mailbox has stopped admitting events.
     int32_t (*cancel)(void* service_context,
                       ExactGpuRealmTokenV1 realm,
                       uint64_t completion_id);
@@ -243,7 +263,12 @@ size_t ex_hermes_gpu_provider_descriptor_size_v1(void);
 /// Register one authenticated provider-independent Exact GPU service. The
 /// descriptor and function table are copied. The function returns
 /// EXACT_GPU_PROVIDER_UNSUPPORTED when Ibex was built without
-/// `webgpu-binding`. It never publishes navigator.gpu or another JS surface.
+/// `webgpu-binding`. It never publishes navigator.gpu or an app-visible bridge
+/// global. On successful finalization, native code hands a low-level bridge to
+/// the already-loaded runtime-js module graph through a one-shot construction
+/// callback, verifies that callback was deleted, and seals the module-private
+/// slot. App package/deep/filesystem imports of that source directory are
+/// rejected; this checkpoint makes no public WebGPU-support claim.
 /// Must run inside the additive capability transaction on the runtime owner
 /// thread. Registration retains and copies provisional service state;
 /// open_realm runs once during transaction finalization, after all setters have
@@ -252,10 +277,15 @@ size_t ex_hermes_gpu_provider_descriptor_size_v1(void);
 /// release_client for plain-native mailbox ownership; retaining is required
 /// before storing the sink/context beyond the call. It must not invoke
 /// on_event or publish an event-producing path until Ibex calls the one-way
-/// activate_realm hook. During that hook only a synchronous callback on the
-/// runtime owner thread is admitted; service-thread delivery is admitted after
-/// the hook returns and Ibex publishes Live. Service calls must return
-/// promptly. Any earlier or competing callback is a protocol error.
+/// activate_realm hook. Its invocation boundary (the Installing -> Activating
+/// transition) is the callback-admission point: during Activating, callbacks
+/// from any provider thread are admitted, including after the hook returns but
+/// before Ibex publishes Live. A callback observed before that boundary is a
+/// protocol error. A submit callback may be synchronous or service-threaded
+/// after Live. Service calls must return promptly and must not wait on the
+/// runtime thread. Runtime teardown transitions the
+/// mailbox Closing -> Detached without waiting, cancels pending completions,
+/// rejects their receipts on-owner, closes the realm, and discards late events.
 int32_t ex_hermes_set_gpu_provider_v1(
     ExactHermesRuntime* runtime,
     const ExactHermesGpuProviderDescriptorV1* descriptor);

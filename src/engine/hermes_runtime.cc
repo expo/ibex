@@ -4855,10 +4855,21 @@ extern "C" int32_t ex_hermes_finalize_embedder_capabilities_v1(
     runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
     return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
   }
+  // Publish the low-level GPU bridge only after the authenticated realm is
+  // live. Its module-private capture remains revocable until the package
+  // baseline and every other provisional capability have finalized, so every
+  // failure leg below can remove it before the runtime becomes user-drivable.
+  if (!exactGpuPublishPrivateBridge(runtime)) {
+    rollbackExactHostIngress(runtime);
+    exactGpuRollbackInstall(runtime);
+    runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+    return EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED;
+  }
 
   try {
     if (!finalizeCompartmentBaselineForEmbedder(runtime) ||
-        !sealExactHostIngress(runtime)) {
+        !sealExactHostIngress(runtime) ||
+        !exactGpuSealPrivateBridge(runtime)) {
       throw std::runtime_error("embedder capability finalization failed");
     }
   } catch (...) {
@@ -5198,6 +5209,12 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms) {
   cleanupFetchCallbacks(runtime);
   drainRuntimeFinalizers(runtime);
 
+  // GPU provider callbacks normally arrive through callbackQueue. If that
+  // queue cannot allocate while publishing a drain, the mailbox raises this
+  // durable allocation-free owner flag instead so polling still retires every
+  // Promise exactly once.
+  executed += exactGpuDrainOwnerFallback(runtime);
+
   // Drain cross-thread callback queue (HTTP server responses, etc.)
   executed += drainCallbackQueue(runtime);
 
@@ -5429,6 +5446,9 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
   if (!runtime->next_tick.empty()) {
     return 1;
   }
+  if (exactGpuOwnerDrainPending(runtime)) {
+    return 1;
+  }
   if (runtime->active_spawn_processes.load(std::memory_order_relaxed) > 0) {
     return 1;
   }
@@ -5471,9 +5491,12 @@ extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
   }
 
   uint64_t backlog = 0;
+  if (exactGpuOwnerDrainPending(runtime)) {
+    backlog = 1;
+  }
   {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
-    backlog = runtime->callbackQueue.size();
+    backlog += runtime->callbackQueue.size();
   }
   {
     std::lock_guard<std::mutex> lock(runtime->finalizerMutex);

@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-16 (adds the optional Exact GPU service mailbox and non-waiting detached teardown); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Revised:** 2026-07-16 (adds the construction-private low-level GPU bridge, bounded Promise receipt drain, and cancellation/retirement lifecycle without publishing a WebGPU JS API); 2026-07-16 (adds the optional Exact GPU service mailbox and non-waiting detached teardown); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline); LLP 0026 (module runner)
 
 ## Summary
@@ -232,22 +232,78 @@ only the runtime pointer-plus-nonce identity, atomic lifecycle state, and
 bounded event metadata `[observed]` (`src/engine/hermes_runtime_gpu.cc`;
 [LLP 0002 §The optional Exact GPU service registration seam](./0002-host-embedding-abi.spec.md#the-optional-exact-gpu-service-registration-seam)).
 
-The mailbox moves `Installing -> Activating -> Live -> Closing -> Detached`. The provider
-may call the sink's plain-native `retain_client`/`release_client` ownership
-hooks during `open_realm`, and must retain before storing the sink/context
-beyond that call. It may not call `on_event` or publish an event-producing
-path until Ibex invokes the required one-way `activate_realm` hook. During
-`Activating`, only a synchronous callback on the runtime owner thread is
-admitted; service-thread callbacks are admitted after the hook returns and
-Ibex publishes `Live`. A live callback
-may never touch JSI on the service thread; this first checkpoint
-records/discards the event and publishes no JS surface. Runtime destruction marks the mailbox
-`Closing`, issues the nonblocking realm close, then marks it `Detached`, and
-never waits for a terminal provider callback. A service-retained mailbox can
+The mailbox moves `Installing -> Activating -> Live`, with
+`ProtocolViolation` as a terminal authority-reduction branch, then
+`Closing -> Detached`. The provider may call the sink's plain-native
+`retain_client`/`release_client` ownership hooks during `open_realm`, and must
+retain before storing the sink/context beyond that call. It may not call
+`on_event` or publish an event-producing path until Ibex invokes the required
+one-way `activate_realm` hook. Its invocation boundary is represented by the
+`Installing -> Activating` transition and is the first event-admission point.
+During `Activating`, any provider thread may deliver; this includes the
+post-hook-return race before Ibex's `Live` compare-exchange. Delivery observed
+while still `Installing` remains a protocol violation.
+
+A live callback never touches JSI on the service thread. It validates the ABI
+prefix, flags, realm, event kind, operation/completion pairing, and fixed byte/
+count budgets, then copies borrowed payload bytes into the mailbox. A
+pointer-plus-nonce pin is held only while publishing at most one callback-queue
+drain. The owner drain resolves operation completions or rejects structured
+operation/device/loss/realm/protocol errors. Pending Promise roots exist before
+the provider `submit` call, so synchronous delivery is race-safe; recent
+terminal tracking makes duplicate and stale events no-ops rather than a second
+settlement. The complete success return carrier is also built before those
+roots and submission records become observable. After successful provider
+admission, returning that prebuilt carrier performs no fallible property
+allocation. A pre-admission allocation failure reaches neither provider nor
+maps; provider rejection rolls the records back before constructing its failure
+carrier. If the provider synchronously publishes an accepted event and then
+returns nonzero, those signals contradict each other. The owner path returns a
+prebuilt `-8` protocol carrier, keeps the pending record for its scheduled
+drain, and quarantines exactly once: queued events/payload are cleared,
+outstanding work is cancelled, the realm is closed, and the receipt is rejected
+as a protocol violation. It never uses ordinary admission rejection or event
+discard for the contradiction. The completion is terminal before return, so a
+late duplicate is merely stale and cannot trigger another reduction or
+settlement.
+
+Drain publication is fail-closed without being lossy. Allocation failure while
+retaining the mailbox, pinning the runtime generation, materializing the
+callback, or appending it to the callback queue is caught at the provider
+boundary. Ibex leaves the copied event in place, poisons the realm, raises an
+allocation-free owner-drain flag, and wakes the host; pending-work and callback-
+backlog probes observe the same flag, and the next owner poll drains it before
+the ordinary callback queue. Runtime teardown remains the final owner-thread
+settler if the generation is already closing. No failure leg throws across the
+C ABI, strands a Promise, or settles one twice.
+
+Terminal fanout also has an aggregate bound: for as many as 1,024 pending
+receipts, the owner creates one at-most-16-MiB opaque diagnostic JSI value and
+attaches that shared read-only-by-contract value to each Error. Allocation work
+is therefore O(payload bytes + receipts). If the optional diagnostic allocation
+fails, every rejection still occurs exactly once with `payload: undefined`;
+Ibex does not retry a maximum-size allocation once per receipt.
+
+Successful finalization also creates a low-level JSI object with
+`submit`/`cancel`/`retire`, passes it directly through a one-shot construction
+callback installed by the shared runtime bundle, verifies deletion of that
+callback, and keeps the value in a module-private runtime-js slot. The capture
+is closed by the common eval/debugger/module user-entry fence if unused.
+Successful capture, feature-off/no-provider finalization, rollback, and that
+common fence all verify that the construction property is actually absent;
+throwing, non-callable, or non-configurable hostile replacements fail the
+capability transaction and cannot advance the user-execution marker. The
+package exports omit this module and the app loader refuses both deep and
+filesystem paths into its directory. This is private plumbing for a future
+generated wrapper, not `navigator.gpu`, an app global, or a WebGPU support
+claim.
+
+Runtime destruction revokes that module slot, marks the mailbox `Closing`,
+clears queued events, cancels pending completions and rejects their receipts on
+the owner thread, issues the nonblocking realm close, then marks it `Detached`.
+It never waits for a terminal provider callback. A service-retained mailbox can
 therefore receive a late callback safely, report it discarded, and release
-itself after the runtime and address are gone. A later WebGPU wrapper may use the ordinary callback queue
-only after taking a short pointer-plus-nonce pin for the enqueue; it may not
-change this detached native ownership model.
+itself after the runtime and address are gone.
 
 ### Inspector resource discipline
 
@@ -350,7 +406,7 @@ functions / globals for one subsystem and carries per-OS implementations behind
 | Console/IPC/timers | `hermes_runtime_console.cc`, `_ipc.cc`, `_timers.cc` | |
 | OS info / iOS | `hermes_runtime_osinfo.cc`, `hermes_runtime_ios.cc` | |
 | Debugger | `hermes_runtime_debugger.cc` | gated on `HERMES_ENABLE_DEBUGGER` |
-| Optional Exact GPU service | `hermes_runtime_gpu.cc` | versioned registration/lifecycle seam only; no WebGPU JS globals |
+| Optional Exact GPU service | `hermes_runtime_gpu.cc` | versioned service + construction-private bridge/receipt mailbox; no public WebGPU JS globals or support claim |
 
 The `native_fetch_*` / `native_websocket_*` files are per-OS. macOS/iOS use
 Foundation/NSURLSession implementations `[observed]`

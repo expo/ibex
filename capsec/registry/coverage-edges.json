@@ -134580,6 +134580,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.callback.ingress.src.engine.hermes.runtime.gpu.cc.exactgpuclientsinkv1.on.event.r.1fte4gg",
+      "classification": "closed",
+      "surface": {
+        "kind": "callback",
+        "name": "ingress:src/engine/hermes_runtime_gpu.cc:ExactGpuClientSinkV1.on_event:receiveGpuEvent"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The versioned GPU client callback table is a provider-to-runtime data channel and remains closed until its event attribution and lifecycle checks authorize delivery."
+    },
+    {
       "id": "surface.callback.ios.dispatch.0j6pity",
       "classification": "closed",
       "surface": {
@@ -134745,6 +134755,16 @@
       "surface": {
         "kind": "callback",
         "name": "producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
+      "id": "surface.callback.producer.src.engine.hermes.runtime.gpu.cc.schedulegpumailboxdrain.pushru.0tdubwi",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "callback",
+        "name": "producer:src/engine/hermes_runtime_gpu.cc:scheduleGpuMailboxDrain:pushRuntimeCallback"
       },
       "rationaleId": "callback-attribution-carrier",
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
@@ -174334,6 +174354,209 @@
       }
     },
     {
+      "id": "surface.loader.route.load.rust.ensure.public.runtime.source.1pb5bvc",
+      "classification": "effects",
+      "surface": {
+        "kind": "loader",
+        "name": "route:load:rust:ensure_public_runtime_source"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:read",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "loader-referrer"
+      ],
+      "effectOwnerSource": "loader-referrer",
+      "gate": "loader-admission",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "builtin-or-memory",
+          "when": [
+            {
+              "fact": "loader.source.kind",
+              "equals": "builtin-or-memory"
+            }
+          ],
+          "effects": [],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "metadata",
+          "when": [
+            {
+              "fact": "loader.source.kind",
+              "equals": "metadata"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "on-disk",
+          "when": [
+            {
+              "fact": "loader.source.kind",
+              "equals": "on-disk"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:read",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        }
+      ],
+      "atomicityGroup": "surface.loader.route.load.rust.ensure.public.runtime.source.1pb5bvc.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "module-resolution",
+          "source-read",
+          "module-admission"
+        ],
+        "recheckAt": [
+          "dynamic-import"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
       "id": "surface.loader.route.load.rust.ensure.transpile.cache.dir.1m9lcbl",
       "classification": "effects",
       "surface": {
@@ -174582,6 +174805,16 @@
       "surface": {
         "kind": "loader",
         "name": "route:load:rust:from_value"
+      },
+      "rationaleId": "internal-data-transform",
+      "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+    },
+    {
+      "id": "surface.loader.route.load.rust.is.private.runtime.source.029pjeo",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "route:load:rust:is_private_runtime_source"
       },
       "rationaleId": "internal-data-transform",
       "rationale": "Transforming already-held bytes or strings carries no independent external authority."
@@ -180426,6 +180659,209 @@
       }
     },
     {
+      "id": "surface.loader.route.resolution.rust.ensure.public.runtime.source.14nz1py",
+      "classification": "effects",
+      "surface": {
+        "kind": "loader",
+        "name": "route:resolution:rust:ensure_public_runtime_source"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:read",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "loader-referrer"
+      ],
+      "effectOwnerSource": "loader-referrer",
+      "gate": "loader-admission",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "builtin-or-memory",
+          "when": [
+            {
+              "fact": "loader.source.kind",
+              "equals": "builtin-or-memory"
+            }
+          ],
+          "effects": [],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "metadata",
+          "when": [
+            {
+              "fact": "loader.source.kind",
+              "equals": "metadata"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "on-disk",
+          "when": [
+            {
+              "fact": "loader.source.kind",
+              "equals": "on-disk"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:read",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        }
+      ],
+      "atomicityGroup": "surface.loader.route.resolution.rust.ensure.public.runtime.source.14nz1py.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "module-resolution",
+          "source-read",
+          "module-admission"
+        ],
+        "recheckAt": [
+          "dynamic-import"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
       "id": "surface.loader.route.resolution.rust.ensure.transpile.cache.dir.0cyny3j",
       "classification": "effects",
       "surface": {
@@ -180722,6 +181158,16 @@
       "surface": {
         "kind": "loader",
         "name": "route:resolution:rust:from_value"
+      },
+      "rationaleId": "internal-data-transform",
+      "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+    },
+    {
+      "id": "surface.loader.route.resolution.rust.is.private.runtime.source.0b473ea",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "route:resolution:rust:is_private_runtime_source"
       },
       "rationaleId": "internal-data-transform",
       "rationale": "Transforming already-held bytes or strings carries no independent external authority."
@@ -193479,6 +193925,36 @@
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.native.op.construction.private.gpunativebridge.cancel.0xsazz3",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridge.cancel"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
+      "id": "surface.native.op.construction.private.gpunativebridge.retire.0rdydxm",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridge.retire"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
+      "id": "surface.native.op.construction.private.gpunativebridge.submit.0msz5eh",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridge.submit"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
     },
     {
       "id": "surface.native.op.dirname.11h8rni",
@@ -250263,6 +250739,16 @@
       },
       "rationaleId": "callback-attribution-carrier",
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
+      "id": "surface.native.op.ibexcapturegpunativebridge.1no4kru",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexCaptureGpuNativeBridge"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn",

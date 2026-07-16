@@ -903,6 +903,12 @@ extern "C" int32_t ex_hermes_module_compile_factory(
 
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  if (!exactRuntimeEnterUserExecution(runtime)) {
+    writeError(
+        out_error,
+        "module factory compile refused before embedder capability finalization");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 3 ||
       out_factory == nullptr ||
       semantic_digest == nullptr || factory_source == nullptr ||
@@ -1071,6 +1077,12 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
 
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  if (!exactRuntimeEnterUserExecution(runtime)) {
+    writeError(
+        out_error,
+        "module carrier load refused before embedder capability finalization");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 3 ||
       carrier_encoding > 1 || out_factory == nullptr ||
       semantic_digest == nullptr || source_id == nullptr || source_id_len == 0 ||
@@ -1424,6 +1436,12 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  if (!exactRuntimeEnterUserExecution(runtime)) {
+    writeError(
+        out_error,
+        "CommonJS evaluation refused before embedder capability finalization");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   if (out_evicted == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
   auto* entry = commonJsRecordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
@@ -1866,6 +1884,12 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  if (!exactRuntimeEnterUserExecution(runtime)) {
+    writeError(
+        out_error,
+        "module instantiate refused before embedder capability finalization");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state == NativeModuleRecordState::Errored) {
@@ -2090,6 +2114,12 @@ extern "C" int32_t ex_hermes_module_record_run_declare(
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  if (!exactRuntimeEnterUserExecution(runtime)) {
+    writeError(
+        out_error,
+        "module declaration refused before embedder capability finalization");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state == NativeModuleRecordState::Errored) {
@@ -2123,6 +2153,12 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  if (!exactRuntimeEnterUserExecution(runtime)) {
+    writeError(
+        out_error,
+        "module evaluation refused before embedder capability finalization");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state == NativeModuleRecordState::Errored) {

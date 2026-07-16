@@ -5,8 +5,8 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction; the checkpoint publishes no WebGPU JS surface); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
-**Revised:** 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-16 (defines synchronous GPU callback followed by provider rejection as a quarantining protocol contradiction); 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
 ## Summary
@@ -386,22 +386,88 @@ opening, and it must retain the sink before storing the sink/context beyond
 that call, but it may neither call `on_event` nor publish an event-producing
 path yet. After a successful open, Ibex validates the returned identities and
 enters `Activating` immediately before invoking the required one-way
-`activate_realm` hook. `Activating` admits only a synchronous callback on the
-runtime owner thread; after the hook returns, Ibex publishes `Live` and admits
-service-thread delivery. An earlier callback, including a competing
-service-thread callback before the hook returns, is an unambiguous protocol
-violation. This explicit handshake closes the race between `open_realm`
-returning and asynchronous event admission. This foundation
-checkpoint records and discards those plain events only; it does not install
-`navigator.gpu`, `createImageBitmap`, or any other JavaScript API. Presence of
-the C ABI is therefore neither WebGPU support nor conformance evidence.
+`activate_realm` hook. That invocation boundary, represented by the
+`Installing -> Activating` transition, is the callback-admission linearization
+point: once it has been crossed, `Activating` admits callbacks from any provider
+thread, including a worker that wins the race after the hook returns but before
+Ibex publishes `Live`. A callback observed while still `Installing` is an
+unambiguous protocol violation. This explicit handshake closes the race between
+`open_realm` returning and asynchronous event admission without imposing a
+provider-thread-affinity requirement.
 
-Each accepted `ExactGpuSemanticCallV1.completion_id` is nonzero and strictly
-increasing within its realm. Completion, cancellation, and retirement never
-make an earlier accepted value reusable. A call rejected before admission does
-not consume its candidate ID. This is a bounded anti-ABA identity allocator
-contract; it does not stand in for the independent realm, device, queue, or
-physical-provider sequencing domains owned by Exact.
+The Ibex binding does own owner-thread-only JSI roots for the low-level bridge
+and pending Promise resolvers. During successful construction, runtime-js
+installs a one-shot non-enumerable capture callback. Native finalization passes
+the bridge object directly to that callback, verifies the callback deleted
+itself, and retains the returned revoker. No app/module/eval/debugger entry can
+run while the callback is open: the common user-execution fence closes an
+unused callback first, and the native module-runner compile/carrier/instantiate/
+declare/execute and CommonJS-record evaluation entries use that same fence.
+Closing is verified, not best effort: successful capture, feature-off and
+no-provider finalization, provider rollback, and the common user-entry fence
+all prove that the construction property is absent. A throwing, non-callable,
+or non-configurable hostile replacement marks capability construction failed
+and leaves `user_execution_started` false. The captured value lives only in the
+bootstrap module graph. `@ibex/runtime-js` exports no accessor, and Ibex's app
+module loader rejects package-deep and filesystem paths into `src/webgpu/`. A
+future generated wrapper must import the same bundled internal module rather
+than acquire a second slot.
+
+The bridge accepts only an authenticated operation ID, canonical decimal
+uint64 strings for device/queue/account identities, and an ArrayBuffer or view
+bounded to 16 MiB. It publishes no `navigator.gpu`, `createImageBitmap`, global
+bridge, or other app API. Presence of either the C ABI or this private bridge
+is therefore neither WebGPU support nor conformance evidence.
+
+Each `ExactGpuSemanticCallV1.completion_id` that reaches the provider is
+nonzero and strictly increasing within its realm. Completion, cancellation,
+provider admission rejection, and retirement never make an earlier value
+reusable. Validation that rejects before the provider call does not allocate
+an ID. This is a bounded anti-ABA identity allocator contract; it does not
+stand in for the independent realm, device, queue, or physical-provider
+sequencing domains owned by Exact.
+
+Before either the pending maps or provider can observe an accepted call, Ibex
+fully materializes the Promise success carrier (`completionId`, zero admission
+status, and receipt). Promise resolvers and the mailbox submission record are
+then installed before calling the provider, so a synchronous `on_event` cannot
+race an absent receipt. If the provider admits the call, publishing the already
+constructed carrier is the only remaining JSI step and is non-fallible; no
+post-admission property allocation can turn accepted native work into a thrown
+JavaScript call. Allocation failure before admission reaches neither the maps
+nor the provider, while provider rejection first rolls back both records and
+then constructs its failure carrier. A provider that synchronously calls
+`on_event` and subsequently returns nonzero has contradicted its own admission
+signal. Ibex detects the queued event, returns a separately prebuilt `-8`
+protocol carrier without allocating, and leaves the receipt/submission for the
+already-scheduled owner drain. That drain purges the event payload, reduces
+authority once, cancels outstanding work, closes the realm, and rejects the
+receipt once as `protocol-violation`; it does not take the ordinary
+admission-rejection/discard path. The completion is recorded terminal, so late
+duplicates are discarded without another reduction or settlement. `on_event` performs
+prefix/realm/operation/completion validation,
+copies bounded payload bytes into plain-native storage, and takes only a short
+generation pin while enqueueing at most one owner-thread drain. If retaining the
+mailbox, pinning the runtime generation, materializing the callback, or
+publishing it to the callback queue fails, the callback never throws across the
+C ABI or discards the accepted event: it poisons authority, raises a durable
+allocation-free owner-drain flag, wakes the host, and makes that flag visible to
+pending-work/backlog probes. Owner polling consumes the flag and settles every
+receipt; teardown is the final on-owner settler if the generation is already
+closing. The ordinary or fallback drain settles each receipt exactly once.
+Duplicate/stale/wrong-realm events are
+discarded; malformed future IDs, mismatched operations, invalid prefixes, or
+budget overflow poison the realm and reject/cancel all pending receipts.
+Pending receipts, queued events, queued bytes, recent terminal IDs, retire
+batches, and per-event payloads all have fixed bounds.
+
+A terminal device-loss, realm-close, or protocol event may fan out to all 1,024
+pending receipts. The owner drain materializes its at-most-16-MiB opaque
+diagnostic payload exactly once and attaches that same read-only-by-contract JSI
+value to every structured Error, so fanout is O(payload bytes + receipts), not
+O(payload bytes × receipts). If that one optional diagnostic allocation fails,
+each Error carries `payload: undefined`; rejection and cancellation still run
+exactly once and the drain never retries the large allocation per receipt.
 
 The previous Exact setter finalized the package baseline immediately because it
 was the only package-visible native addition. Multi-capability embedders use an
@@ -416,9 +482,10 @@ additive owner-thread transaction:
    not open a realm.
 3. `ex_hermes_finalize_embedder_capabilities_v1` verifies that the installed
    capability set exactly equals the armed snapshot, opens the GPU realm with
-   the now-final app/agent context, refreshes the compartment baseline once,
-   and seals the Exact method. Thus GPU-first and Exact-ingress-first
-   installation cannot select different realm identities.
+   the now-final app/agent context, captures and deletes the construction-only
+   runtime-js bridge handoff, refreshes the compartment baseline once, and
+   seals the Exact method and private bridge. Thus GPU-first and
+   Exact-ingress-first installation cannot select different realm identities.
 
 Every user-code-driving entry point refuses while the transaction is
 `Configuring` or failed; poll preserves queued callbacks without executing
@@ -429,10 +496,12 @@ do not call `begin` retain the legacy single-setter auto-finalization behavior;
 an armed snapshot that expects more than that Exact ingress cannot use the
 legacy path.
 
-GPU teardown is a nonblocking release path. Runtime destruction changes the
-plain callback mailbox to `Closing`, calls `close_realm` once, changes the
-mailbox to `Detached`, releases its service reference, and proceeds without
-waiting for a provider terminal event.
+GPU teardown is a nonblocking release path. Runtime destruction revokes the
+runtime-js module slot, changes the plain callback mailbox to `Closing`, clears
+queued events, calls `cancel` once for each pending completion outside internal
+locks, rejects each receipt on the owner thread, calls `close_realm` once,
+changes the mailbox to `Detached`, releases its service reference, and proceeds
+without waiting for a provider terminal event.
 The service may finish or quarantine backend work in native state and release
 its retained mailbox later. Late callbacks observe `Detached` and are discarded
 without dereferencing a runtime address. No realm-long native-worker pin is

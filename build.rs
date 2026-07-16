@@ -969,6 +969,9 @@ fn main() {
     if std::env::var_os("CARGO_FEATURE_WEBGPU_BINDING").is_some() {
         build.define("IBEX_ENABLE_WEBGPU_BINDING", None);
     }
+    if std::env::var_os("CARGO_FEATURE_GPU_BRIDGE_TEST_HOOKS").is_some() {
+        build.define("IBEX_GPU_BRIDGE_TEST_HOOKS", None);
+    }
 
     if target_os == "windows" {
         let hermes_jsi_cpp = hermes_include_dir.join("jsi").join("jsi.cpp");

@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  assertReviewedSurfaceInventory,
   buildCoverageModel,
   classifyObservedSurface,
   deriveEffectTemplate,
@@ -14,6 +15,7 @@ import {
   logicalBranchConditionsOverlap,
   reviewedBuiltinExportNames,
   reviewedBuiltinRootNames,
+  reviewedCallbackIngressNames,
   reviewedCallbackProducerNames,
   reviewedCliNames,
   reviewedGlobalApiNames,
@@ -27,6 +29,8 @@ import {
 import {
   discoverRepositorySurfaces,
   HERMES_EVALUATOR_REVIEW_ID,
+  scanCppConstructionPrivateBridgeSurfaces,
+  scanCppVersionedCallbackTableIngresses,
 } from "./capsec-surface-inventory.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -44,6 +48,60 @@ const rules = JSON.parse(
   ),
 );
 const context = { definitions, rules };
+const GPU_TERMINAL_IDENTITY_EVIDENCE = {
+  bindingConditionalContext: "webgpu-enabled-else",
+  conditionalStackAuthenticated: true,
+  definitionConditionalContext: "webgpu-enabled-if",
+  externalFeatureGate: "IBEX_ENABLE_WEBGPU_BINDING",
+  externalFeatureGateSourceMutationCount: 0,
+  identityGuardCount: 4,
+  identityGuardError:
+    "Ibex CapSec GPU terminal handlers must not be preprocessor macros",
+  identityGuardIdentifiers: [
+    "submitGpuBridgeCall",
+    "cancelGpuBridgeCall",
+    "retireGpuBridgeCall",
+  ],
+  identityGuardLifetime: "guard-definitions-and-bindings",
+  interveningDirectiveCount: 0,
+  includeDirectiveCount: 20,
+  includeInventory: "hermes-runtime-gpu-exact-v1",
+  physicalGuardFormat: "exact-lf-physical-lines",
+  protectedIdentifierTokenCounts: {
+    submitGpuBridgeCall: 6,
+    cancelGpuBridgeCall: 6,
+    retireGpuBridgeCall: 6,
+  },
+  sourceAliasCount: 0,
+  translationPhaseAuthenticated: true,
+  terminalHandlerBindingCount: 1,
+  terminalHandlerDefinitionCount: 1,
+};
+const GPU_CALLBACK_IDENTITY_EVIDENCE = {
+  callbackDefinitionCount: 1,
+  conditionalContext: "webgpu-enabled-if",
+  conditionalStackAuthenticated: true,
+  externalFeatureGate: "IBEX_ENABLE_WEBGPU_BINDING",
+  externalFeatureGateSourceMutationCount: 0,
+  identityGuardCount: 1,
+  identityGuardError:
+    "Ibex CapSec GPU callback identifiers must not be preprocessor macros",
+  identityGuardIdentifiers: [
+    "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS",
+    "receiveGpuEvent",
+  ],
+  identityGuardLifetime: "guard-callback-definition-table-undef",
+  interveningDirectiveCount: 0,
+  includeDirectiveCount: 20,
+  includeInventory: "hermes-runtime-gpu-exact-v1",
+  physicalGuardFormat: "exact-lf-physical-lines",
+  protectedIdentifierTokenCounts: {
+    IBEX_CAPSEC_CALLBACK_TABLE_INGRESS: 4,
+    receiveGpuEvent: 3,
+  },
+  sourceAliasCount: 0,
+  translationPhaseAuthenticated: true,
+};
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
 
@@ -598,9 +656,323 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "module-runner-prepared-carrier-access",
       "module-runner-trusted-source-acquisition",
     ]) {
-      expect(classifyObservedSurface(surface("loader", name), context).edge).toMatchObject({
+      expect(
+        classifyObservedSurface(surface("loader", name), context).edge,
+      ).toMatchObject({
         classification: "non-capability",
         rationaleId: "trusted-loader-source-acquisition",
+      });
+    }
+  });
+
+  test("classifies the GPU drain producer and construction-private loader fences", () => {
+    const producerName =
+      "producer:src/engine/hermes_runtime_gpu.cc:scheduleGpuMailboxDrain:pushRuntimeCallback";
+    const producer = classifyObservedSurface(
+      surface("callback", producerName, {
+        enclosingDefinition: "scheduleGpuMailboxDrain",
+        evidenceType: "push-runtime-callback-producer",
+        occurrenceCount: 1,
+        producer: "pushRuntimeCallback",
+      }),
+      context,
+    );
+    expect(producer.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "callback-attribution-carrier",
+    });
+
+    const captureName = "__ibexCaptureGpuNativeBridge";
+    const capture = classifyObservedSurface(
+      surface("native-op", captureName, {
+        exportName: captureName,
+        globalName: captureName,
+        memberName: null,
+        semanticRoles: ["global-api-installation", "private-native-operation"],
+        sourceKey: "runtime_entry",
+        surfaceType: "global-api",
+        surfaceTypes: ["global-api", "private-native-operation"],
+      }),
+      context,
+    );
+    expect(capture.edge).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+
+    for (const [name, arity, terminalHandler] of [
+      ["construction-private:gpuNativeBridge.cancel", 1, "cancelGpuBridgeCall"],
+      ["construction-private:gpuNativeBridge.retire", 1, "retireGpuBridgeCall"],
+      ["construction-private:gpuNativeBridge.submit", 5, "submitGpuBridgeCall"],
+    ]) {
+      const memberName = name.slice(
+        "construction-private:gpuNativeBridge.".length,
+      );
+      const operation = classifyObservedSurface(
+        surface("native-op", name, {
+          ...GPU_TERMINAL_IDENTITY_EVIDENCE,
+          arity,
+          bridgeOwner: "gpuNativeBridge",
+          evidenceType: "construction-private-host-function",
+          functionVariable: memberName,
+          memberName,
+          occurrenceCount: 1,
+          semanticRoles: ["construction-private-native-operation"],
+          surfaceType: "construction-private-bridge",
+          terminalHandler,
+        }),
+        context,
+      );
+      expect(operation.edge, name).toMatchObject({
+        classification: "closed",
+        cap: "ipc:channel",
+      });
+      expect(operation.implementationRows[0].implementationOwner, name).toBe(
+        "WP4",
+      );
+    }
+
+    const [ingressName] = reviewedCallbackIngressNames();
+    expect(ingressName).toBe(
+      "ingress:src/engine/hermes_runtime_gpu.cc:ExactGpuClientSinkV1.on_event:receiveGpuEvent",
+    );
+    const ingress = classifyObservedSurface(
+      surface("callback", ingressName, {
+        ...GPU_CALLBACK_IDENTITY_EVIDENCE,
+        abiVersionExpression: "EXACT_GPU_SERVICE_ABI_VERSION_V1",
+        callback: "receiveGpuEvent",
+        effectiveCallbackExpression: "receiveGpuEvent",
+        callbackFieldCount: 5,
+        callbackFieldIndex: 4,
+        evidenceType: "versioned-callback-table-ingress",
+        fieldName: "on_event",
+        initializerVariable: "kGpuClientSink",
+        macroConditionalDirectiveCount: 0,
+        macroDefinitionCount: 1,
+        macroInvocationCount: 1,
+        macroLifetimeOrder: "define-invocation-undef",
+        macroName: "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS",
+        macroParameters: ["table_type", "field_name", "callback"],
+        macroReplacement: "callback",
+        macroUndefCount: 1,
+        occurrenceCount: 1,
+        releaseCallback: "releaseGpuClient",
+        retainCallback: "retainGpuClient",
+        structSizeExpression: "sizeof(ExactGpuClientSinkV1)",
+        tableType: "ExactGpuClientSinkV1",
+      }),
+      context,
+    );
+    expect(ingress.edge).toMatchObject({
+      classification: "closed",
+      cap: "ipc:channel",
+    });
+    expect(ingress.implementationRows[0].implementationOwner).toBe("WP4");
+
+    for (const [name, arity, terminalHandler, crossedHandler] of [
+      [
+        "construction-private:gpuNativeBridge.cancel",
+        1,
+        "cancelGpuBridgeCall",
+        "retireGpuBridgeCall",
+      ],
+      [
+        "construction-private:gpuNativeBridge.retire",
+        1,
+        "retireGpuBridgeCall",
+        "submitGpuBridgeCall",
+      ],
+      [
+        "construction-private:gpuNativeBridge.submit",
+        5,
+        "submitGpuBridgeCall",
+        "cancelGpuBridgeCall",
+      ],
+    ]) {
+      const memberName = name.slice(
+        "construction-private:gpuNativeBridge.".length,
+      );
+      const crossed = surface("native-op", name, {
+        ...GPU_TERMINAL_IDENTITY_EVIDENCE,
+        arity,
+        bridgeOwner: "gpuNativeBridge",
+        evidenceType: "construction-private-host-function",
+        functionVariable: memberName,
+        memberName,
+        occurrenceCount: 1,
+        semanticRoles: ["construction-private-native-operation"],
+        surfaceType: "construction-private-bridge",
+        terminalHandler: crossedHandler,
+      });
+      expect(crossed.metadata.terminalHandler).not.toBe(terminalHandler);
+      expect(
+        () => classifyObservedSurface(crossed, context),
+        `${memberName} classifier cross-wire`,
+      ).toThrow(/unclassified observed surface/u);
+      expect(
+        () => buildCoverageModel([crossed], context),
+        `${memberName} generation cross-wire`,
+      ).toThrow(/unclassified observed surface/u);
+    }
+
+    const terminalMetadata = {
+      ...GPU_TERMINAL_IDENTITY_EVIDENCE,
+      arity: 5,
+      bridgeOwner: "gpuNativeBridge",
+      evidenceType: "construction-private-host-function",
+      functionVariable: "submit",
+      memberName: "submit",
+      occurrenceCount: 1,
+      semanticRoles: ["construction-private-native-operation"],
+      surfaceType: "construction-private-bridge",
+      terminalHandler: "submitGpuBridgeCall",
+    };
+    for (const mutation of [
+      { bindingConditionalContext: "unconditional" },
+      { conditionalStackAuthenticated: false },
+      { definitionConditionalContext: "unconditional" },
+      { externalFeatureGate: "IBEX_ENABLE_WEBGPU_BINDING_ALIAS" },
+      { externalFeatureGateSourceMutationCount: 1 },
+      { identityGuardCount: 1 },
+      { identityGuardError: "compatible guard" },
+      {
+        identityGuardIdentifiers: [
+          "compatibleGpuBridgeCall",
+          "cancelGpuBridgeCall",
+          "retireGpuBridgeCall",
+        ],
+      },
+      { identityGuardLifetime: "guard-bindings-only" },
+      { interveningDirectiveCount: 1 },
+      { includeDirectiveCount: 19 },
+      { includeInventory: "hermes-runtime-gpu-compatible-v1" },
+      { physicalGuardFormat: "semantic-tokens-only" },
+      {
+        protectedIdentifierTokenCounts: {
+          submitGpuBridgeCall: 7,
+          cancelGpuBridgeCall: 6,
+          retireGpuBridgeCall: 6,
+        },
+      },
+      { sourceAliasCount: 1 },
+      { translationPhaseAuthenticated: false },
+      { terminalHandlerBindingCount: 0 },
+      { terminalHandlerDefinitionCount: 0 },
+    ]) {
+      const disconnected = surface(
+        "native-op",
+        "construction-private:gpuNativeBridge.submit",
+        { ...terminalMetadata, ...mutation },
+      );
+      expect(
+        () => classifyObservedSurface(disconnected, context),
+        JSON.stringify(mutation),
+      ).toThrow(/unclassified observed surface/u);
+      expect(
+        () => buildCoverageModel([disconnected], context),
+        `generation ${JSON.stringify(mutation)}`,
+      ).toThrow(/unclassified observed surface/u);
+    }
+
+    const ingressMetadata = {
+      ...GPU_CALLBACK_IDENTITY_EVIDENCE,
+      abiVersionExpression: "EXACT_GPU_SERVICE_ABI_VERSION_V1",
+      callback: "receiveGpuEvent",
+      effectiveCallbackExpression: "receiveGpuEvent",
+      callbackFieldCount: 5,
+      callbackFieldIndex: 4,
+      evidenceType: "versioned-callback-table-ingress",
+      fieldName: "on_event",
+      initializerVariable: "kGpuClientSink",
+      macroConditionalDirectiveCount: 0,
+      macroDefinitionCount: 1,
+      macroInvocationCount: 1,
+      macroLifetimeOrder: "define-invocation-undef",
+      macroName: "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS",
+      macroParameters: ["table_type", "field_name", "callback"],
+      macroReplacement: "callback",
+      macroUndefCount: 1,
+      occurrenceCount: 1,
+      releaseCallback: "releaseGpuClient",
+      retainCallback: "retainGpuClient",
+      structSizeExpression: "sizeof(ExactGpuClientSinkV1)",
+      tableType: "ExactGpuClientSinkV1",
+    };
+    for (const mutation of [
+      { callback: "receiveOtherEvent" },
+      { callbackDefinitionCount: 0 },
+      { conditionalContext: "unconditional" },
+      { conditionalStackAuthenticated: false },
+      { externalFeatureGate: "IBEX_ENABLE_WEBGPU_BINDING_ALIAS" },
+      { externalFeatureGateSourceMutationCount: 1 },
+      { effectiveCallbackExpression: "receiveOtherEvent" },
+      { callbackFieldCount: 6 },
+      { callbackFieldIndex: 3 },
+      { fieldName: "release_client" },
+      { initializerVariable: "disconnectedMarker" },
+      { identityGuardCount: 0 },
+      { identityGuardError: "compatible guard" },
+      {
+        identityGuardIdentifiers: [
+          "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS",
+          "receiveOtherEvent",
+        ],
+      },
+      { identityGuardLifetime: "guard-table-only" },
+      { interveningDirectiveCount: 1 },
+      { includeDirectiveCount: 21 },
+      { includeInventory: "hermes-runtime-gpu-compatible-v1" },
+      { macroConditionalDirectiveCount: 1 },
+      { macroDefinitionCount: 2 },
+      { macroInvocationCount: 2 },
+      { macroLifetimeOrder: "define-undef-invocation" },
+      { macroName: "IBEX_CAPSEC_CALLBACK_TABLE_ALIAS" },
+      { macroParameters: ["table_type", "callback", "field_name"] },
+      { macroReplacement: "receiveOtherEvent" },
+      { macroUndefCount: 0 },
+      { physicalGuardFormat: "semantic-tokens-only" },
+      {
+        protectedIdentifierTokenCounts: {
+          IBEX_CAPSEC_CALLBACK_TABLE_INGRESS: 4,
+          receiveGpuEvent: 4,
+        },
+      },
+      { releaseCallback: "receiveGpuEvent" },
+      { sourceAliasCount: 1 },
+      { translationPhaseAuthenticated: false },
+    ]) {
+      const disconnected = surface("callback", ingressName, {
+        ...ingressMetadata,
+        ...mutation,
+      });
+      expect(
+        () => classifyObservedSurface(disconnected, context),
+        JSON.stringify(mutation),
+      ).toThrow(/unclassified observed surface/u);
+      expect(
+        () => buildCoverageModel([disconnected], context),
+        `generation ${JSON.stringify(mutation)}`,
+      ).toThrow(/unclassified observed surface/u);
+    }
+
+    for (const category of ["load", "resolution"]) {
+      const guard = classifyObservedSurface(
+        surface(
+          "loader",
+          `route:${category}:rust:ensure_public_runtime_source`,
+        ),
+        context,
+      );
+      expect(guard.edge.classification).toBe("effects");
+      expect(edgeActions(guard)).toEqual(["fs:list", "fs:read"]);
+
+      const predicate = classifyObservedSurface(
+        surface("loader", `route:${category}:rust:is_private_runtime_source`),
+        context,
+      );
+      expect(predicate.edge).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "internal-data-transform",
       });
     }
   });
@@ -1956,12 +2328,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toEqual(["fs:list", "fs:write"]);
 
-    for (const category of [
-      "cache",
-      "load",
-      "resolution",
-      "transform",
-    ]) {
+    for (const category of ["cache", "load", "resolution", "transform"]) {
       const name = `operation:${category}:env-var`;
       expect(
         edgeActions(classifyObservedSurface(surface("loader", name), context)),
@@ -2674,10 +3041,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
 
     const auditFileParser = classifyObservedSurface(
-      surface(
-        "cli",
-        "argument-parser:ibex%20capsec%20audit:file:utf8-string",
-      ),
+      surface("cli", "argument-parser:ibex%20capsec%20audit:file:utf8-string"),
       context,
     );
     expect(auditFileParser.edge.classification).toBe("non-capability");
@@ -3222,7 +3586,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ).implementationRows[0];
     expect(sync.branchId).not.toBe(asynchronous.branchId);
     expect(sync.enforcementBranchId).not.toBe(asynchronous.enforcementBranchId);
-    expect(sync.fixtureObligations).not.toEqual(asynchronous.fixtureObligations);
+    expect(sync.fixtureObligations).not.toEqual(
+      asynchronous.fixtureObligations,
+    );
 
     const distinctSource = classifyObservedSurface(
       surface("native-op", "__exactTcpConnectStart", undefined, [
@@ -3230,16 +3596,15 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ]),
       context,
     ).implementationRows[0];
-    expect(distinctSource.enforcementBranchId).not.toBe(sync.enforcementBranchId);
+    expect(distinctSource.enforcementBranchId).not.toBe(
+      sync.enforcementBranchId,
+    );
   });
 
   test("static builtin call routes join the exact native terminal and fail on mutation", () => {
-    const terminal = surface(
-      "native-op",
-      "__exactClipboardRead",
-      undefined,
-      ["src/engine/hermes_runtime_device.cc#__exactClipboardRead"],
-    );
+    const terminal = surface("native-op", "__exactClipboardRead", undefined, [
+      "src/engine/hermes_runtime_device.cc#__exactClipboardRead",
+    ]);
     const facade = (terminalName) =>
       surface(
         "builtin",
@@ -3251,9 +3616,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           enforcementRouteEvidence: {
             ambiguousCallees: [],
             kind: "static-builtin-call-graph",
-            paths: [
-              `export:readText -> readText -> ${terminalName}`,
-            ],
+            paths: [`export:readText -> readText -> ${terminalName}`],
             terminals: [terminalName],
           },
         },
@@ -3269,18 +3632,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     const terminalRow = model.implementationRows.find(
       (row) => row.observedKey === "native-op:__exactClipboardRead",
     );
-    expect(facadeRow.enforcementBranchId).toBe(
-      terminalRow.enforcementBranchId,
-    );
+    expect(facadeRow.enforcementBranchId).toBe(terminalRow.enforcementBranchId);
     expect(facadeRow.enforcementRoute).toEqual({
       kind: "static-builtin-call-graph",
-      proofPaths: [
-        "export:readText -> readText -> __exactClipboardRead",
-      ],
+      proofPaths: ["export:readText -> readText -> __exactClipboardRead"],
       proofSourceRefs: ["src/builtins/clipboard.js#exports:readText"],
-      sourceRefs: [
-        "src/engine/hermes_runtime_device.cc#__exactClipboardRead",
-      ],
+      sourceRefs: ["src/engine/hermes_runtime_device.cc#__exactClipboardRead"],
       terminalObservedKey: "native-op:__exactClipboardRead",
     });
 
@@ -3621,6 +3978,735 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback",
     );
     expect(reviewedCallbackProducerNames()).toEqual(liveCallbackProducers);
+    const liveCallbackIngresses = inventory.surfaces
+      .filter(
+        (row) =>
+          row.kind === "callback" &&
+          row.metadata?.evidenceType === "versioned-callback-table-ingress",
+      )
+      .map((row) => row.name)
+      .sort();
+    expect(reviewedCallbackIngressNames()).toEqual(liveCallbackIngresses);
+    assertReviewedSurfaceInventory(inventory.surfaces);
+
+    const gpuSourcePath = "src/engine/hermes_runtime_gpu.cc";
+    const gpuSource = fs.readFileSync(
+      path.join(repoRoot, gpuSourcePath),
+      "utf8",
+    );
+    const macroDefinition = String.raw`#define IBEX_CAPSEC_CALLBACK_TABLE_INGRESS(table_type, field_name, callback) \
+  callback`;
+    const macroWithReplacement = (replacement) =>
+      macroDefinition.replace(/\n  callback$/u, `\n  ${replacement}`);
+    const macroUndef = "#undef IBEX_CAPSEC_CALLBACK_TABLE_INGRESS";
+    const initializer = "const ExactGpuClientSinkV1 kGpuClientSink = {";
+    const callbackGuard = String.raw`#if defined(IBEX_CAPSEC_CALLBACK_TABLE_INGRESS) || \
+    defined(receiveGpuEvent)
+#error "Ibex CapSec GPU callback identifiers must not be preprocessor macros"
+#endif`;
+    const callbackDefinition = "int32_t receiveGpuEvent(";
+    const terminalGuard = String.raw`#if defined(submitGpuBridgeCall) || defined(cancelGpuBridgeCall) || \
+    defined(retireGpuBridgeCall)
+#error "Ibex CapSec GPU terminal handlers must not be preprocessor macros"
+#endif`;
+    const terminalDefinition = "facebook::jsi::Value submitGpuBridgeCall(";
+    expect(
+      scanCppVersionedCallbackTableIngresses(gpuSource, gpuSourcePath),
+    ).toHaveLength(1);
+    expect(
+      scanCppConstructionPrivateBridgeSurfaces(gpuSource, gpuSourcePath),
+    ).toHaveLength(3);
+
+    const firstGpuInclude = '#include "hermes_runtime_internal.h"';
+    const secondGpuInclude = '#include "../../include/exact_runtime.h"';
+    const firstGpuSystemInclude = "#include <algorithm>";
+    const lastGpuInclude = "#include <vector>";
+    const includeBlockStart = gpuSource.indexOf(firstGpuInclude);
+    const includeBlockEnd =
+      gpuSource.indexOf(lastGpuInclude, includeBlockStart) +
+      lastGpuInclude.length;
+    const canonicalIncludeBlock = gpuSource.slice(
+      includeBlockStart,
+      includeBlockEnd,
+    );
+    const insertBefore = (needle, insertion) => {
+      expect(gpuSource, `live GPU insertion anchor: ${needle}`).toContain(
+        needle,
+      );
+      return gpuSource.replace(needle, `${insertion}\n${needle}`);
+    };
+    const inactiveRegionWithAlternateInclude = (
+      startNeedle,
+      endNeedle,
+      includeName,
+    ) => {
+      const start = gpuSource.indexOf(startNeedle);
+      const end = gpuSource.indexOf(endNeedle, start + startNeedle.length);
+      expect(
+        start,
+        `${includeName}: inactive region start`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(end, `${includeName}: inactive region end`).toBeGreaterThan(start);
+      return `${gpuSource.slice(0, start)}#if 0\n${gpuSource.slice(
+        start,
+        end,
+      )}#else\n#include "${includeName}"\n#endif\n${gpuSource.slice(end)}`;
+    };
+    const commonGpuPreprocessorMutations = [
+      [
+        "alternate include before canonical block",
+        insertBefore(firstGpuInclude, '#include "alternate-before.h"'),
+      ],
+      [
+        "alternate include among local includes",
+        insertBefore(secondGpuInclude, '#include "alternate-among.h"'),
+      ],
+      [
+        "alternate include between local and system inventories",
+        insertBefore(firstGpuSystemInclude, '#include "alternate-boundary.h"'),
+      ],
+      [
+        "alternate include after canonical block",
+        gpuSource.replace(
+          lastGpuInclude,
+          `${lastGpuInclude}\n#include "alternate-after.h"`,
+        ),
+      ],
+      [
+        "alternate include after protected source",
+        `${gpuSource}\n#include "alternate-late.h"\n`,
+      ],
+      [
+        "altered canonical include path",
+        gpuSource.replace(
+          firstGpuInclude,
+          '#include "hermes_runtime_internal_alias.h"',
+        ),
+      ],
+      [
+        "include_next canonical path",
+        gpuSource.replace(
+          firstGpuInclude,
+          '#include_next "hermes_runtime_internal.h"',
+        ),
+      ],
+      [
+        "import canonical path",
+        gpuSource.replace(
+          firstGpuInclude,
+          '#import "hermes_runtime_internal.h"',
+        ),
+      ],
+      [
+        "inactive canonical includes with active alternate include",
+        gpuSource.replace(
+          canonicalIncludeBlock,
+          `#if 0\n${canonicalIncludeBlock}\n#else\n#include "alternate-active.h"\n#endif`,
+        ),
+      ],
+      [
+        "included-file simulation after canonical inventory",
+        gpuSource.replace(
+          lastGpuInclude,
+          `${lastGpuInclude}\n#include "synthetic_gpu_protected.inc"`,
+        ),
+      ],
+      ...[
+        ["before first include", firstGpuInclude],
+        ["between local includes", secondGpuInclude],
+        ["between local and system includes", firstGpuSystemInclude],
+        [
+          "after canonical include block",
+          'extern "C" int32_t ex_host_authorize_exact_gpu_provider(',
+        ],
+        [
+          "before first enabled gate",
+          "#if defined(IBEX_ENABLE_WEBGPU_BINDING)\nconstexpr size_t",
+        ],
+        ["before callback guard", callbackGuard],
+        ["before callback definition", callbackDefinition],
+        ["before callback marker", macroDefinition],
+        ["before callback table", initializer],
+        ["before first terminal guard", terminalGuard],
+        ["before first terminal definition", terminalDefinition],
+        [
+          "before bridge disabled gate",
+          "bool exactGpuPublishPrivateBridge(ExactHermesRuntime* runtime) {",
+        ],
+        [
+          "before bridge binding guard",
+          `${terminalGuard}\n  try {\n    auto& rt = *runtime->runtime;`,
+        ],
+      ].flatMap(([gap, anchor]) =>
+        [
+          "#define IBEX_ENABLE_WEBGPU_BINDING 1",
+          "#undef IBEX_ENABLE_WEBGPU_BINDING",
+        ].map((directive) => [
+          `${directive}: ${gap}`,
+          insertBefore(anchor, directive),
+        ]),
+      ),
+      [
+        "external gate define after protected source",
+        `${gpuSource}\n#define IBEX_ENABLE_WEBGPU_BINDING 1\n`,
+      ],
+      [
+        "external gate undef after protected source",
+        `${gpuSource}\n#undef IBEX_ENABLE_WEBGPU_BINDING\n`,
+      ],
+      ...[
+        [
+          "comment-separated external gate define",
+          "#/**/define IBEX_ENABLE_WEBGPU_BINDING 1",
+        ],
+        [
+          "comment-separated external gate undef",
+          "#/**/undef IBEX_ENABLE_WEBGPU_BINDING",
+        ],
+        [
+          "tab-separated external gate define",
+          "#\tdefine IBEX_ENABLE_WEBGPU_BINDING 1",
+        ],
+        [
+          "tab-separated external gate undef",
+          "#\tundef IBEX_ENABLE_WEBGPU_BINDING",
+        ],
+        [
+          "LF-spliced external gate define",
+          "#def\\\nine IBEX_ENABLE_WEBGPU_BINDING 1",
+        ],
+        [
+          "LF-spliced external gate undef",
+          "#und\\\nef IBEX_ENABLE_WEBGPU_BINDING",
+        ],
+        [
+          "CRLF-spliced external gate define",
+          "#def\\\r\nine IBEX_ENABLE_WEBGPU_BINDING 1",
+        ],
+        [
+          "CRLF-spliced external gate undef",
+          "#und\\\r\nef IBEX_ENABLE_WEBGPU_BINDING",
+        ],
+      ].map(([label, directive]) => [
+        label,
+        insertBefore(
+          'extern "C" int32_t ex_host_authorize_exact_gpu_provider(',
+          directive,
+        ),
+      ]),
+      [
+        "LF-spliced canonical include directive",
+        gpuSource.replace("#include", "#inc\\\nlude"),
+      ],
+      [
+        "CRLF-spliced canonical include directive",
+        gpuSource.replace("#include", "#inc\\\r\nlude"),
+      ],
+      [
+        "comment-hidden canonical include directive",
+        gpuSource.replace("#include", "#/**/include"),
+      ],
+      [
+        "tab-separated canonical include directive",
+        gpuSource.replace("#include", "#\tinclude"),
+      ],
+      [
+        "trigraph canonical include directive",
+        gpuSource.replace("#include", "??=include"),
+      ],
+      [
+        "LF-spliced canonical include path",
+        gpuSource.replace(
+          "hermes_runtime_internal.h",
+          "hermes_runtime_\\\ninternal.h",
+        ),
+      ],
+      [
+        "CRLF-spliced canonical include path",
+        gpuSource.replace(
+          "hermes_runtime_internal.h",
+          "hermes_runtime_\\\r\ninternal.h",
+        ),
+      ],
+      [
+        "LF-spliced external gate spelling",
+        gpuSource.replace(
+          "IBEX_ENABLE_WEBGPU_BINDING",
+          "IBEX_ENABLE_WEBGPU_BIND\\\nING",
+        ),
+      ],
+      [
+        "CRLF-spliced external gate spelling",
+        gpuSource.replace(
+          "IBEX_ENABLE_WEBGPU_BINDING",
+          "IBEX_ENABLE_WEBGPU_BIND\\\r\nING",
+        ),
+      ],
+      [
+        "comment-hidden external gate spelling",
+        gpuSource.replace(
+          "IBEX_ENABLE_WEBGPU_BINDING",
+          "IBEX_ENABLE_WEBGPU_/**/BINDING",
+        ),
+      ],
+      [
+        "tab-separated external gate directive",
+        gpuSource.replace(
+          "#if defined(IBEX_ENABLE_WEBGPU_BINDING)",
+          "#\tif defined(IBEX_ENABLE_WEBGPU_BINDING)",
+        ),
+      ],
+      [
+        "trigraph external gate directive",
+        gpuSource.replace(
+          "#if defined(IBEX_ENABLE_WEBGPU_BINDING)",
+          "??=if defined(IBEX_ENABLE_WEBGPU_BINDING)",
+        ),
+      ],
+      [
+        "LF-spliced callback spelling",
+        gpuSource.replace("receiveGpuEvent", "receiveGpu\\\nEvent"),
+      ],
+      [
+        "CRLF-spliced callback marker spelling",
+        gpuSource.replace(
+          "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS",
+          "IBEX_CAPSEC_CALLBACK_TABLE_INGR\\\r\nESS",
+        ),
+      ],
+      [
+        "comment-hidden callback spelling",
+        gpuSource.replace(callbackDefinition, "int32_t receiveGpu/**/Event("),
+      ],
+      [
+        "LF-spliced terminal handler spelling",
+        gpuSource.replace("submitGpuBridgeCall", "submitGpuBridge\\\nCall"),
+      ],
+      [
+        "CRLF-spliced terminal handler spelling",
+        gpuSource.replace("submitGpuBridgeCall", "submitGpuBridge\\\r\nCall"),
+      ],
+      [
+        "comment-hidden terminal handler spelling",
+        gpuSource.replace("submitGpuBridgeCall", "submitGpuBridge/**/Call"),
+      ],
+      [
+        "inactive canonical callback with active alternate include",
+        inactiveRegionWithAlternateInclude(
+          callbackGuard,
+          callbackDefinition,
+          "alternate-callback.h",
+        ),
+      ],
+      [
+        "inactive canonical callback table with active alternate include",
+        inactiveRegionWithAlternateInclude(
+          macroDefinition,
+          "facebook::jsi::Object makeGpuPromise(",
+          "alternate-callback-table.h",
+        ),
+      ],
+      ...[
+        [
+          "submitGpuBridgeCall",
+          "facebook::jsi::Value submitGpuBridgeCall(",
+          terminalGuard,
+        ],
+        [
+          "cancelGpuBridgeCall",
+          "facebook::jsi::Value cancelGpuBridgeCall(",
+          terminalGuard,
+        ],
+        [
+          "retireGpuBridgeCall",
+          "facebook::jsi::Value retireGpuBridgeCall(",
+          "\n#endif\n\n}  // namespace\n\n#if defined(IBEX_ENABLE_WEBGPU_BINDING)",
+        ],
+      ].map(([handler, start, end]) => [
+        `${handler}: inactive canonical definition with active alternate include`,
+        inactiveRegionWithAlternateInclude(
+          start,
+          end,
+          `alternate-${handler}.h`,
+        ),
+      ]),
+    ];
+    const withoutLiveIngress = inventory.surfaces.filter(
+      (row) =>
+        row.metadata?.evidenceType !== "versioned-callback-table-ingress",
+    );
+    const callbackMacroMutations = [
+      ...commonGpuPreprocessorMutations,
+      [
+        "alternate expansion",
+        gpuSource.replace(
+          macroDefinition,
+          macroWithReplacement("receiveOtherEvent"),
+        ),
+      ],
+      [
+        "alias expansion",
+        gpuSource.replace(
+          macroDefinition,
+          macroWithReplacement("callbackAlias"),
+        ),
+      ],
+      [
+        "wrapper expansion",
+        gpuSource.replace(
+          macroDefinition,
+          macroWithReplacement("wrapCallback(callback)"),
+        ),
+      ],
+      [
+        "duplicate definition",
+        gpuSource.replace(initializer, `${macroDefinition}\n${initializer}`),
+      ],
+      [
+        "redefined macro",
+        gpuSource.replace(
+          initializer,
+          `${macroWithReplacement("receiveOtherEvent")}\n${initializer}`,
+        ),
+      ],
+      [
+        "conditional lifetime",
+        gpuSource
+          .replace(initializer, `#if CALLBACK_PATH\n${initializer}`)
+          .replace(macroUndef, `#endif\n${macroUndef}`),
+      ],
+      [
+        "definition after initializer",
+        gpuSource
+          .replace(`${macroDefinition}\n`, "")
+          .replace(macroUndef, `${macroDefinition}\n${macroUndef}`),
+      ],
+      [
+        "premature undef",
+        gpuSource
+          .replace(macroUndef, "")
+          .replace(initializer, `${macroUndef}\n${initializer}`),
+      ],
+      ["missing definition", gpuSource.replace(`${macroDefinition}\n`, "")],
+      ["missing undef", gpuSource.replace(macroUndef, "")],
+      ["missing callback identity guard", gpuSource.replace(callbackGuard, "")],
+      [
+        "outer inactive callback translation unit",
+        `#if 0\n${gpuSource}\n#endif`,
+      ],
+      [
+        "outer inactive callback translation unit with active include",
+        `#if 0\n${gpuSource}\n#else\n#include "compatible-callback.h"\n#endif`,
+      ],
+      [
+        "nested callback translation-unit conditionals",
+        `#if 1\n#if 1\n${gpuSource}\n#endif\n#endif`,
+      ],
+      [
+        "authenticated callback frame active alternate include",
+        gpuSource.replace(
+          "  return status;\n}\n\n#endif\n\n}  // namespace",
+          '  return status;\n}\n\n#else\n#include "compatible-callback.h"\n#endif\n\n}  // namespace',
+        ),
+      ],
+      [
+        "callback physical guard trailing comment",
+        gpuSource.replace(
+          callbackGuard,
+          callbackGuard.replace(
+            "    defined(receiveGpuEvent)",
+            "    defined(receiveGpuEvent) // alternate",
+          ),
+        ),
+      ],
+      [
+        "callback physical guard whitespace splice",
+        gpuSource.replace(
+          callbackGuard,
+          callbackGuard.replace("\\\n", "\\ \n"),
+        ),
+      ],
+      [
+        "callback physical guard CRLF",
+        gpuSource.replace(
+          callbackGuard,
+          callbackGuard.replaceAll("\n", "\r\n"),
+        ),
+      ],
+      [
+        "callback guard comment trigraph",
+        gpuSource.replace(callbackGuard, `//??/\n${callbackGuard}`),
+      ],
+      [
+        "callback marker physical splice",
+        gpuSource.replace(
+          macroDefinition,
+          macroDefinition.replace("\\\n", "\\\t\n"),
+        ),
+      ],
+      [
+        "callback pragma alias restore",
+        gpuSource.replace(
+          callbackDefinition,
+          `_Pragma("pop_macro(\\\"receiveGpuEvent\\\")")\n${callbackDefinition}`,
+        ),
+      ],
+      [
+        "callback guard after definition",
+        gpuSource
+          .replace(`${callbackGuard}\n\n`, "")
+          .replace(
+            "// The value remains the callback expression seen by C++.",
+            `${callbackGuard}\n// The value remains the callback expression seen by C++.`,
+          ),
+      ],
+      [
+        "conditional callback definition",
+        gpuSource
+          .replace(
+            callbackDefinition,
+            `#if CALLBACK_PATH\n${callbackDefinition}`,
+          )
+          .replace(
+            "// The value remains the callback expression seen by C++.",
+            "#endif\n// The value remains the callback expression seen by C++.",
+          ),
+      ],
+      [
+        "include between callback guard and definition",
+        gpuSource.replace(
+          callbackDefinition,
+          `#include "compatible-callback.h"\n${callbackDefinition}`,
+        ),
+      ],
+      ...["IBEX_CAPSEC_CALLBACK_TABLE_INGRESS", "receiveGpuEvent"].flatMap(
+        (identifier) => [
+          [
+            `${identifier}: compatible alias before callback guard`,
+            gpuSource.replace(
+              callbackGuard,
+              `#define ${identifier} compatibleGpuCallback\n${callbackGuard}`,
+            ),
+          ],
+          [
+            `${identifier}: undef/redefine after callback guard`,
+            gpuSource.replace(
+              callbackDefinition,
+              `#undef ${identifier}\n#define ${identifier} compatibleGpuCallback\n${callbackDefinition}`,
+            ),
+          ],
+          [
+            `${identifier}: source alias across callback lifetime`,
+            gpuSource.replace(
+              macroDefinition,
+              `auto compatibleGpuCallback = ${identifier};\n${macroDefinition}`,
+            ),
+          ],
+        ],
+      ),
+      [
+        "disconnected duplicate marker",
+        gpuSource.replace(
+          macroUndef,
+          `auto disconnected = IBEX_CAPSEC_CALLBACK_TABLE_INGRESS(ExactGpuClientSinkV1, on_event, receiveGpuEvent);\n${macroUndef}`,
+        ),
+      ],
+    ];
+    for (const [label, mutatedSource] of callbackMacroMutations) {
+      expect(mutatedSource, label).not.toBe(gpuSource);
+      const mutatedIngresses = scanCppVersionedCallbackTableIngresses(
+        mutatedSource,
+        gpuSourcePath,
+      );
+      expect(mutatedIngresses, label).toEqual([]);
+      expect(
+        () =>
+          assertReviewedSurfaceInventory([
+            ...withoutLiveIngress,
+            ...mutatedIngresses,
+          ]),
+        label,
+      ).toThrow(/callback-table ingresses: reviewed surfaces missing/u);
+    }
+
+    const callbackCrosswire = scanCppVersionedCallbackTableIngresses(
+      gpuSource.replace(
+        "ExactGpuClientSinkV1, on_event, receiveGpuEvent",
+        "ExactGpuClientSinkV1, on_event, receiveOtherEvent",
+      ),
+      gpuSourcePath,
+    );
+    expect(callbackCrosswire).toEqual([]);
+    expect(() =>
+      assertReviewedSurfaceInventory([
+        ...withoutLiveIngress,
+        ...callbackCrosswire,
+      ]),
+    ).toThrow(/callback-table ingresses: reviewed surfaces missing/u);
+
+    const withoutLiveTerminalRows = inventory.surfaces.filter(
+      (row) =>
+        row.metadata?.evidenceType !== "construction-private-host-function",
+    );
+    const secondTerminalGuardStart = gpuSource.lastIndexOf(terminalGuard);
+    const terminalMutations = [
+      ...commonGpuPreprocessorMutations,
+      [
+        "outer inactive terminal translation unit",
+        `#if 0\n${gpuSource}\n#endif`,
+      ],
+      [
+        "outer inactive terminal translation unit with active include",
+        `#if 0\n${gpuSource}\n#else\n#include "compatible-handler.h"\n#endif`,
+      ],
+      [
+        "nested terminal translation-unit conditionals",
+        `#if 1\n#if 1\n${gpuSource}\n#endif\n#endif`,
+      ],
+      [
+        "authenticated terminal definition frame active alternate include",
+        gpuSource.replace(
+          "  return status;\n}\n\n#endif\n\n}  // namespace",
+          '  return status;\n}\n\n#else\n#include "compatible-handler.h"\n#endif\n\n}  // namespace',
+        ),
+      ],
+      [
+        "authenticated terminal binding alternate include",
+        gpuSource.replace(
+          "bool exactGpuPublishPrivateBridge(ExactHermesRuntime* runtime) {\n#if !defined(IBEX_ENABLE_WEBGPU_BINDING)",
+          'bool exactGpuPublishPrivateBridge(ExactHermesRuntime* runtime) {\n#if !defined(IBEX_ENABLE_WEBGPU_BINDING)\n#include "compatible-handler.h"',
+        ),
+      ],
+      [
+        "terminal physical guard trailing comment",
+        gpuSource.replace(
+          terminalGuard,
+          terminalGuard.replace(
+            "    defined(retireGpuBridgeCall)",
+            "    defined(retireGpuBridgeCall) // alternate",
+          ),
+        ),
+      ],
+      [
+        "terminal physical guard whitespace splice",
+        gpuSource.replace(
+          terminalGuard,
+          terminalGuard.replace("\\\n", "\\\t\n"),
+        ),
+      ],
+      [
+        "terminal physical guard CRLF",
+        gpuSource.replace(
+          terminalGuard,
+          terminalGuard.replaceAll("\n", "\r\n"),
+        ),
+      ],
+      [
+        "terminal guard comment trigraph",
+        gpuSource.replace(terminalGuard, `//??/\n${terminalGuard}`),
+      ],
+      [
+        "terminal pragma alias restore",
+        gpuSource.replace(
+          terminalDefinition,
+          `__pragma(pop_macro("submitGpuBridgeCall"))\n${terminalDefinition}`,
+        ),
+      ],
+      [
+        "missing terminal definition guard",
+        gpuSource.replace(terminalGuard, ""),
+      ],
+      [
+        "missing terminal binding guard",
+        `${gpuSource.slice(0, secondTerminalGuardStart)}${gpuSource.slice(
+          secondTerminalGuardStart + terminalGuard.length,
+        )}`,
+      ],
+      [
+        "terminal definition guard after first definition",
+        gpuSource
+          .replace(`${terminalGuard}\n\n`, "")
+          .replace(
+            "facebook::jsi::Value cancelGpuBridgeCall(",
+            `${terminalGuard}\nfacebook::jsi::Value cancelGpuBridgeCall(`,
+          ),
+      ],
+      [
+        "conditional terminal definition",
+        gpuSource
+          .replace(
+            "facebook::jsi::Value cancelGpuBridgeCall(",
+            "#if SELECT_COMPATIBLE_HANDLER\nfacebook::jsi::Value cancelGpuBridgeCall(",
+          )
+          .replace(
+            "facebook::jsi::Value retireGpuBridgeCall(",
+            "#endif\nfacebook::jsi::Value retireGpuBridgeCall(",
+          ),
+      ],
+      [
+        "include between terminal guard and definition",
+        gpuSource.replace(
+          terminalDefinition,
+          `#include "compatible-handler.h"\n${terminalDefinition}`,
+        ),
+      ],
+      [
+        "wrapper between terminal guard and definition",
+        gpuSource.replace(
+          terminalDefinition,
+          `#define GPU_HANDLER_WRAPPER(name) name\n${terminalDefinition}`,
+        ),
+      ],
+      ...[
+        "submitGpuBridgeCall",
+        "cancelGpuBridgeCall",
+        "retireGpuBridgeCall",
+      ].flatMap((identifier) => [
+        [
+          `${identifier}: compatible alias before terminal guard`,
+          gpuSource.replace(
+            terminalGuard,
+            `#define ${identifier} compatibleGpuBridgeCall\n${terminalGuard}`,
+          ),
+        ],
+        [
+          `${identifier}: undef/redefine after terminal guard`,
+          gpuSource.replace(
+            terminalDefinition,
+            `#undef ${identifier}\n#define ${identifier} compatibleGpuBridgeCall\n${terminalDefinition}`,
+          ),
+        ],
+        [
+          `${identifier}: source alias across terminal lifetime`,
+          `${gpuSource.slice(0, secondTerminalGuardStart)}auto compatibleGpuBridgeCall = ${identifier};\n${gpuSource.slice(
+            secondTerminalGuardStart,
+          )}`,
+        ],
+        [
+          `${identifier}: compatible binding alternate`,
+          gpuSource.replace(
+            `return ${identifier}(`,
+            "return compatibleGpuBridgeCall(",
+          ),
+        ],
+      ]),
+    ];
+    for (const [label, mutatedSource] of terminalMutations) {
+      expect(mutatedSource, label).not.toBe(gpuSource);
+      const mutatedTerminalRows = scanCppConstructionPrivateBridgeSurfaces(
+        mutatedSource,
+        gpuSourcePath,
+      );
+      expect(mutatedTerminalRows, label).toEqual([]);
+      expect(
+        () =>
+          assertReviewedSurfaceInventory([
+            ...withoutLiveTerminalRows,
+            ...mutatedTerminalRows,
+          ]),
+        label,
+      ).toThrow(/private native operations: reviewed surfaces missing/u);
+    }
     const liveGlobalApiRows = inventory.surfaces.filter(
       (row) => row.metadata?.surfaceType === "global-api",
     );
@@ -3779,9 +4865,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       rationaleId: "module-reachability-only",
     });
     expect(
-      edgeByObservedKey.get(
-        "host-abi:ex_hermes_module_load_carrier_factory",
-      ),
+      edgeByObservedKey.get("host-abi:ex_hermes_module_load_carrier_factory"),
     ).toMatchObject({
       classification: "non-capability",
       rationaleId: "module-reachability-only",
@@ -4085,12 +5169,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         effects: [{ cap: "fs:list" }, { cap: "fs:write" }],
       });
     }
-    for (const category of [
-      "cache",
-      "load",
-      "resolution",
-      "transform",
-    ]) {
+    for (const category of ["cache", "load", "resolution", "transform"]) {
       const observedKey = `loader:operation:${category}:env-var`;
       expect(edgeByObservedKey.get(observedKey), observedKey).toMatchObject({
         classification: "effects",

@@ -182,6 +182,31 @@ struct ExactGpuServiceEventV1 {
 #[cfg(test)]
 #[repr(C)]
 #[derive(Clone, Copy)]
+struct ExactGpuSemanticCallV1 {
+    struct_size: u32,
+    abi_version: u32,
+    operation_id: u32,
+    flags: u32,
+    completion_id: u64,
+    device_ordinal: u64,
+    queue_ordinal: u64,
+    account_token: u64,
+    payload: *const u8,
+    payload_len: usize,
+}
+
+#[cfg(test)]
+#[repr(C)]
+struct ExactGpuRetireBatchV1 {
+    struct_size: u32,
+    abi_version: u32,
+    logical_handles: *const u64,
+    logical_handle_count: usize,
+}
+
+#[cfg(test)]
+#[repr(C)]
+#[derive(Clone, Copy)]
 struct ExactGpuClientSinkV1 {
     struct_size: u32,
     abi_version: u32,
@@ -210,8 +235,8 @@ struct ExactGpuServiceApiV1 {
         ) -> i32,
     >,
     activate_realm: Option<extern "C" fn(*mut std::ffi::c_void, u64)>,
-    submit: Option<extern "C" fn(*mut std::ffi::c_void, u64, *const std::ffi::c_void) -> i32>,
-    retire: Option<extern "C" fn(*mut std::ffi::c_void, u64, *const std::ffi::c_void) -> i32>,
+    submit: Option<extern "C" fn(*mut std::ffi::c_void, u64, *const ExactGpuSemanticCallV1) -> i32>,
+    retire: Option<extern "C" fn(*mut std::ffi::c_void, u64, *const ExactGpuRetireBatchV1) -> i32>,
     cancel: Option<extern "C" fn(*mut std::ffi::c_void, u64, u64) -> i32>,
     close_realm: Option<extern "C" fn(*mut std::ffi::c_void, u64, u64) -> i32>,
 }
@@ -235,6 +260,13 @@ struct ExactHermesGpuProviderDescriptorV1 {
     api: *const ExactGpuServiceApiV1,
 }
 
+#[cfg(all(test, feature = "module-runner"))]
+#[repr(C)]
+#[derive(Default)]
+struct ExactModuleRunnerTestHandle {
+    opaque: [u64; 3],
+}
+
 extern "C" {
     fn ex_hermes_create_diagnostic() -> *mut HermesRuntimeOpaque;
     fn ex_hermes_create_armed(
@@ -253,6 +285,78 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
         descriptor: *const ExactHermesGpuProviderDescriptorV1,
     ) -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_reset_bridge_observer();
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_set_drain_failure_point(point: u32);
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_pause_after_activate_return();
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_activation_pause_state() -> u32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_resume_after_activate_return();
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_set_result_publication_failure_point(point: u32);
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_success_carrier_ready() -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_authority_reduction_calls() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_owner_fallback_drain_calls() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_diagnostic_backing_count() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_diagnostic_backing_bytes() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_diagnostic_attachment_count() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_bridge_resolve_calls() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_bridge_reject_calls() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_last_settlement_kind() -> u32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_last_settlement_status() -> i32;
+    #[cfg(all(test, feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_capture_present(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_install_nonconfigurable_capture(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_user_execution_started(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_private_bridge_present(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_pending_receipts(runtime: *mut HermesRuntimeOpaque) -> usize;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_mailbox_submissions(runtime: *mut HermesRuntimeOpaque) -> usize;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_mailbox_events(runtime: *mut HermesRuntimeOpaque) -> usize;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_mailbox_payload_bytes(runtime: *mut HermesRuntimeOpaque) -> usize;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_private_bridge_submit(
+        runtime: *mut HermesRuntimeOpaque,
+        operation_id: u32,
+        device_ordinal: *const std::os::raw::c_char,
+        queue_ordinal: *const std::os::raw::c_char,
+        account_token: *const std::os::raw::c_char,
+        payload: *const u8,
+        payload_len: usize,
+        out_completion_id: *mut u64,
+    ) -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_private_bridge_cancel(
+        runtime: *mut HermesRuntimeOpaque,
+        completion_id: *const std::os::raw::c_char,
+    ) -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_private_bridge_submit_plain_object(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_private_bridge_retire(
+        runtime: *mut HermesRuntimeOpaque,
+        handles: *const u64,
+        handle_count: usize,
+    ) -> i32;
     #[cfg(any(test, feature = "module-runner"))]
     fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
     #[cfg(feature = "module-runner")]
@@ -266,6 +370,34 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
         runtime_nonce: u64,
         graph_generation: u64,
+    ) -> i32;
+    #[cfg(all(test, feature = "module-runner"))]
+    fn ex_hermes_module_compile_factory(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        source_goal: u32,
+        principal_id: u32,
+        graph_generation: u64,
+        compartment_identity: *const u8,
+        compartment_identity_len: usize,
+        semantic_digest: *const u8,
+        semantic_digest_len: usize,
+        source_id: *const u8,
+        source_id_len: usize,
+        factory_source: *const u8,
+        factory_source_len: usize,
+        source_label: *const u8,
+        source_label_len: usize,
+        out_factory: *mut ExactModuleRunnerTestHandle,
+        out_error: *mut *mut std::os::raw::c_char,
+    ) -> i32;
+    #[cfg(all(test, feature = "module-runner"))]
+    fn ex_hermes_commonjs_record_evaluate(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: ExactModuleRunnerTestHandle,
+        out_evicted: *mut i32,
+        out_error: *mut *mut std::os::raw::c_char,
     ) -> i32;
     fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     fn ex_hermes_set_host_call(
@@ -4291,10 +4423,15 @@ cp \"$input\" \"$out\"\n";
 
     const EXACT_GPU_SERVICE_ABI_VERSION_V1: u32 = 0x0001_0000;
     const EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE: i32 = -3;
-    #[cfg(feature = "webgpu-binding")]
     const EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED: i32 = -4;
     #[cfg(any(feature = "capsec-conformance-observer", feature = "webgpu-binding"))]
     const EXACT_GPU_TOPOLOGY_ISOLATED_PER_LOGICAL_V1: u32 = 1;
+    #[cfg(feature = "webgpu-binding")]
+    const EXACT_GPU_EVENT_OPERATION_COMPLETE: u32 = 1;
+    #[cfg(feature = "webgpu-binding")]
+    const EXACT_GPU_EVENT_DEVICE_ERROR: u32 = 2;
+    #[cfg(feature = "webgpu-binding")]
+    const EXACT_GPU_EVENT_DEVICE_LOST: u32 = 3;
     #[cfg(feature = "webgpu-binding")]
     const EXACT_GPU_EVENT_REALM_CLOSED: u32 = 4;
 
@@ -4307,6 +4444,18 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[cfg(feature = "webgpu-binding")]
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct RecordedGpuTestCall {
+        realm: u64,
+        operation_id: u32,
+        completion_id: u64,
+        device_ordinal: u64,
+        queue_ordinal: u64,
+        account_token: u64,
+        payload: Vec<u8>,
+    }
+
+    #[cfg(feature = "webgpu-binding")]
     #[derive(Default)]
     struct FakeGpuServiceState {
         mode: u8,
@@ -4316,6 +4465,11 @@ cp \"$input\" \"$out\"\n";
         open_context_kinds: Vec<u32>,
         activate_calls: usize,
         activation_receipt: Option<i32>,
+        submit_calls: Vec<RecordedGpuTestCall>,
+        success_carrier_ready_during_submit: bool,
+        submit_event_receipts: Vec<i32>,
+        retire_batches: Vec<Vec<u64>>,
+        cancel_calls: Vec<u64>,
         close_calls: usize,
         early_receipt: Option<i32>,
         retained_client: Option<RetainedGpuTestClient>,
@@ -4330,8 +4484,18 @@ cp \"$input\" \"$out\"\n";
 
     #[cfg(feature = "webgpu-binding")]
     fn reset_fake_gpu(mode: u8) {
-        let mut state = fake_gpu_state().lock().unwrap();
-        *state = FakeGpuServiceState {
+        #[cfg(feature = "gpu-bridge-test-hooks")]
+        unsafe {
+            // Failure-injection knobs are process-global, while Rust may run
+            // these serialized fixtures in any order. Reset them with the fake
+            // provider so one fixture cannot poison the next activation.
+            ibex_test_gpu_reset_bridge_observer();
+        }
+        let retained = fake_gpu_state().lock().unwrap().retained_client.take();
+        if let Some(retained) = retained {
+            retained.sink.release_client.unwrap()(retained.context as *mut _);
+        }
+        *fake_gpu_state().lock().unwrap() = FakeGpuServiceState {
             mode,
             ..FakeGpuServiceState::default()
         };
@@ -4393,7 +4557,7 @@ cp \"$input\" \"$out\"\n";
             };
             let receipt = sink.on_event.unwrap()(client_context, &event);
             fake_gpu_state().lock().unwrap().early_receipt = Some(receipt);
-        } else if matches!(mode, 2..=5) {
+        } else if matches!(mode, 2..=6) || mode >= 10 {
             sink.retain_client.unwrap()(client_context);
             fake_gpu_state().lock().unwrap().retained_client = Some(RetainedGpuTestClient {
                 sink,
@@ -4451,27 +4615,184 @@ cp \"$input\" \"$out\"\n";
     #[cfg(feature = "webgpu-binding")]
     extern "C" fn fake_gpu_submit(
         _context: *mut std::ffi::c_void,
-        _realm: u64,
-        _call: *const std::ffi::c_void,
+        realm: u64,
+        call: *const ExactGpuSemanticCallV1,
     ) -> i32 {
-        0
+        assert_eq!(realm, 41);
+        assert!(!call.is_null());
+        let call = unsafe { *call };
+        assert_eq!(
+            call.struct_size,
+            std::mem::size_of::<ExactGpuSemanticCallV1>() as u32
+        );
+        assert_eq!(call.abi_version, EXACT_GPU_SERVICE_ABI_VERSION_V1);
+        assert_eq!(call.flags, 0);
+        assert_ne!(call.completion_id, 0);
+        assert!(call.payload_len == 0 || !call.payload.is_null());
+        let payload = if call.payload_len == 0 {
+            Vec::new()
+        } else {
+            unsafe { std::slice::from_raw_parts(call.payload, call.payload_len) }.to_vec()
+        };
+        #[cfg(feature = "gpu-bridge-test-hooks")]
+        let success_carrier_ready = unsafe { ibex_test_gpu_success_carrier_ready() == 1 };
+        #[cfg(not(feature = "gpu-bridge-test-hooks"))]
+        let success_carrier_ready = false;
+        let (mode, client) = {
+            let mut state = fake_gpu_state().lock().unwrap();
+            state.success_carrier_ready_during_submit = success_carrier_ready;
+            state.submit_calls.push(RecordedGpuTestCall {
+                realm,
+                operation_id: call.operation_id,
+                completion_id: call.completion_id,
+                device_ordinal: call.device_ordinal,
+                queue_ordinal: call.queue_ordinal,
+                account_token: call.account_token,
+                payload,
+            });
+            (state.mode, state.retained_client)
+        };
+        if mode == 17 {
+            return -77;
+        }
+        let Some(client) = client else {
+            return 0;
+        };
+        let deliver = move |kind: u32, operation_id: u64, completion_id: u64, realm_token: u64| {
+            let response = [9_u8, 8_u8];
+            let event = ExactGpuServiceEventV1 {
+                struct_size: std::mem::size_of::<ExactGpuServiceEventV1>() as u32,
+                abi_version: EXACT_GPU_SERVICE_ABI_VERSION_V1,
+                kind,
+                flags: 0,
+                realm_token,
+                operation_id,
+                completion_id,
+                status: if kind == EXACT_GPU_EVENT_DEVICE_ERROR {
+                    -19
+                } else {
+                    0
+                },
+                reserved: 0,
+                payload: response.as_ptr(),
+                payload_len: response.len(),
+            };
+            client.sink.on_event.unwrap()(client.context as *mut _, &event)
+        };
+        let receipts = match mode {
+            10 => vec![deliver(
+                EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                call.operation_id as u64,
+                call.completion_id,
+                realm,
+            )],
+            11 => vec![std::thread::spawn(move || {
+                deliver(
+                    EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                    call.operation_id as u64,
+                    call.completion_id,
+                    realm,
+                )
+            })
+            .join()
+            .unwrap()],
+            13 => vec![deliver(
+                EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                call.operation_id as u64 + 1,
+                call.completion_id,
+                realm,
+            )],
+            14 => vec![
+                deliver(
+                    EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                    call.operation_id as u64,
+                    call.completion_id,
+                    realm,
+                ),
+                deliver(
+                    EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                    call.operation_id as u64,
+                    call.completion_id,
+                    realm,
+                ),
+            ],
+            15 => vec![deliver(
+                EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                call.operation_id as u64,
+                call.completion_id,
+                realm + 1,
+            )],
+            18 => vec![deliver(
+                EXACT_GPU_EVENT_DEVICE_ERROR,
+                call.operation_id as u64,
+                call.completion_id,
+                realm,
+            )],
+            19 => vec![deliver(EXACT_GPU_EVENT_DEVICE_LOST, 0, 0, realm)],
+            20 => vec![deliver(
+                EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                call.operation_id as u64,
+                call.completion_id,
+                realm,
+            )],
+            21 => vec![deliver(
+                EXACT_GPU_EVENT_DEVICE_ERROR,
+                call.operation_id as u64,
+                call.completion_id,
+                realm,
+            )],
+            _ => Vec::new(),
+        };
+        fake_gpu_state()
+            .lock()
+            .unwrap()
+            .submit_event_receipts
+            .extend(receipts);
+        if matches!(mode, 20 | 21) {
+            -77
+        } else {
+            0
+        }
     }
 
     #[cfg(feature = "webgpu-binding")]
     extern "C" fn fake_gpu_retire(
         _context: *mut std::ffi::c_void,
-        _realm: u64,
-        _batch: *const std::ffi::c_void,
+        realm: u64,
+        batch: *const ExactGpuRetireBatchV1,
     ) -> i32 {
+        assert_eq!(realm, 41);
+        assert!(!batch.is_null());
+        let batch = unsafe { &*batch };
+        assert_eq!(
+            batch.struct_size,
+            std::mem::size_of::<ExactGpuRetireBatchV1>() as u32
+        );
+        assert_eq!(batch.abi_version, EXACT_GPU_SERVICE_ABI_VERSION_V1);
+        assert!(!batch.logical_handles.is_null());
+        let handles = unsafe {
+            std::slice::from_raw_parts(batch.logical_handles, batch.logical_handle_count)
+        };
+        fake_gpu_state()
+            .lock()
+            .unwrap()
+            .retire_batches
+            .push(handles.to_vec());
         0
     }
 
     #[cfg(feature = "webgpu-binding")]
     extern "C" fn fake_gpu_cancel(
         _context: *mut std::ffi::c_void,
-        _realm: u64,
-        _completion_id: u64,
+        realm: u64,
+        completion_id: u64,
     ) -> i32 {
+        assert_eq!(realm, 41);
+        fake_gpu_state()
+            .lock()
+            .unwrap()
+            .cancel_calls
+            .push(completion_id);
         0
     }
 
@@ -4544,9 +4865,89 @@ cp \"$input\" \"$out\"\n";
         [[0x11; 32], [0x22; 32], [0x33; 32], [0x44; 32]]
     }
 
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn finalize_fake_gpu_runtime(raw: *mut HermesRuntimeOpaque, operations: &[u32]) {
+        let api = fake_gpu_api();
+        let descriptor = fake_gpu_descriptor(&api, operations, test_gpu_digests());
+        unsafe {
+            assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+            assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
+            assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+        }
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn submit_private_gpu_bridge(
+        raw: *mut HermesRuntimeOpaque,
+        operation: u32,
+        device: &str,
+        queue: &str,
+        account: &str,
+        payload: &[u8],
+    ) -> (i32, u64) {
+        let device = CString::new(device).unwrap();
+        let queue = CString::new(queue).unwrap();
+        let account = CString::new(account).unwrap();
+        let mut completion = 0;
+        let status = unsafe {
+            ibex_test_gpu_private_bridge_submit(
+                raw,
+                operation,
+                device.as_ptr(),
+                queue.as_ptr(),
+                account.as_ptr(),
+                payload.as_ptr(),
+                payload.len(),
+                &mut completion,
+            )
+        };
+        (status, completion)
+    }
+
     #[cfg(feature = "webgpu-binding")]
     fn deliver_late_gpu_event_and_release() -> i32 {
         deliver_retained_gpu_events_and_release(&[0])[0]
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn release_retained_gpu_client() {
+        let retained = fake_gpu_state().lock().unwrap().retained_client.take();
+        if let Some(retained) = retained {
+            retained.sink.release_client.unwrap()(retained.context as *mut _);
+        }
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn deliver_retained_gpu_event(
+        kind: u32,
+        operation_id: u64,
+        completion_id: u64,
+        status: i32,
+        payload: &[u8],
+    ) -> i32 {
+        let retained = fake_gpu_state()
+            .lock()
+            .unwrap()
+            .retained_client
+            .expect("fake service retained its client");
+        let event = ExactGpuServiceEventV1 {
+            struct_size: std::mem::size_of::<ExactGpuServiceEventV1>() as u32,
+            abi_version: EXACT_GPU_SERVICE_ABI_VERSION_V1,
+            kind,
+            flags: 0,
+            realm_token: retained.realm,
+            operation_id,
+            completion_id,
+            status,
+            reserved: 0,
+            payload: if payload.is_empty() {
+                std::ptr::null()
+            } else {
+                payload.as_ptr()
+            },
+            payload_len: payload.len(),
+        };
+        retained.sink.on_event.unwrap()(retained.context as *mut _, &event)
     }
 
     #[cfg(feature = "webgpu-binding")]
@@ -4677,6 +5078,34 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn gpu_capture_fence_never_invokes_an_app_defined_lookalike() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let engine = HermesEngine::new().unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "globalThis.__gpuLookalikeCalls = 0; \
+                     globalThis.__ibexCaptureGpuNativeBridge = () => { \
+                       globalThis.__gpuLookalikeCalls += 1; \
+                     }; 0",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("0")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate("globalThis.__gpuLookalikeCalls")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("0")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn gpu_embedder_transaction_preserves_queued_callbacks_until_finalize() {
         let _lock = hermes_engine_test_lock().lock().await;
         let _reset = install_test_host_with_allow(&[]);
@@ -4712,6 +5141,136 @@ cp \"$input\" \"$out\"\n";
             .unwrap();
     }
 
+    #[cfg(feature = "module-runner")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_embedder_transaction_blocks_native_module_factory_entry() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                #[cfg(feature = "gpu-bridge-test-hooks")]
+                assert_eq!(ibex_test_gpu_capture_present(raw), 1);
+
+                let mut handle = ExactModuleRunnerTestHandle::default();
+                let mut error = std::ptr::null_mut();
+                let status = ex_hermes_module_compile_factory(
+                    raw,
+                    ex_hermes_runtime_nonce(raw),
+                    0,
+                    0,
+                    1,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    std::ptr::null(),
+                    0,
+                    &mut handle,
+                    &mut error,
+                );
+                assert_eq!(status, -1);
+                assert!(!error.is_null());
+                let detail = CStr::from_ptr(error).to_string_lossy().into_owned();
+                ex_hermes_free_string(error);
+                assert!(
+                    detail.contains("refused before embedder capability finalization"),
+                    "unexpected native module refusal: {detail}"
+                );
+
+                let mut evicted = 0;
+                error = std::ptr::null_mut();
+                let status = ex_hermes_commonjs_record_evaluate(
+                    raw,
+                    ex_hermes_runtime_nonce(raw),
+                    ExactModuleRunnerTestHandle::default(),
+                    &mut evicted,
+                    &mut error,
+                );
+                assert_eq!(status, -1);
+                assert_eq!(evicted, 0);
+                assert!(!error.is_null());
+                let detail = CStr::from_ptr(error).to_string_lossy().into_owned();
+                ex_hermes_free_string(error);
+                assert!(
+                    detail.contains(
+                        "CommonJS evaluation refused before embedder capability finalization"
+                    ),
+                    "unexpected CommonJS refusal: {detail}"
+                );
+
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                #[cfg(feature = "gpu-bridge-test-hooks")]
+                assert_eq!(ibex_test_gpu_capture_present(raw), 0);
+            })
+            .unwrap();
+    }
+
+    #[cfg(feature = "gpu-bridge-test-hooks")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_nonconfigurable_construction_capture_fails_closed_without_provider() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ibex_test_gpu_capture_present(raw), 1);
+                assert_eq!(ibex_test_gpu_install_nonconfigurable_capture(raw), 1);
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(
+                    ex_hermes_finalize_embedder_capabilities_v1(raw),
+                    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED
+                );
+                assert_eq!(ibex_test_gpu_capture_present(raw), 1);
+                assert_eq!(ibex_test_gpu_user_execution_started(raw), 0);
+            })
+            .unwrap();
+
+        let blocked = engine.eval_immediate("1 + 1").await.unwrap_err();
+        assert!(blocked
+            .to_string()
+            .contains("embedder capability transaction is not finalized"));
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ibex_test_gpu_capture_present(raw), 1);
+                assert_eq!(ibex_test_gpu_user_execution_started(raw), 0);
+            })
+            .unwrap();
+    }
+
+    #[cfg(feature = "gpu-bridge-test-hooks")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_nonconfigurable_construction_capture_blocks_common_user_gate() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ibex_test_gpu_install_nonconfigurable_capture(raw), 1);
+                assert_eq!(ibex_test_gpu_user_execution_started(raw), 0);
+            })
+            .unwrap();
+
+        let blocked = engine.eval_immediate("1 + 1").await.unwrap_err();
+        assert!(blocked
+            .to_string()
+            .contains("embedder capability transaction is not finalized"));
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ibex_test_gpu_capture_present(raw), 1);
+                assert_eq!(ibex_test_gpu_user_execution_started(raw), 0);
+            })
+            .unwrap();
+    }
+
     #[cfg(not(feature = "webgpu-binding"))]
     #[tokio::test(flavor = "current_thread")]
     async fn gpu_registration_abi_is_stably_unsupported_when_feature_is_off() {
@@ -4736,11 +5295,18 @@ cp \"$input\" \"$out\"\n";
             .unwrap();
         assert_eq!(
             engine
-                .eval_immediate("typeof navigator.gpu + '/' + typeof createImageBitmap")
+                .eval_immediate(
+                    "[typeof navigator.gpu, typeof createImageBitmap, \
+                      typeof globalThis.__ibexCaptureGpuNativeBridge, \
+                      typeof globalThis.__ibexGpuNativeBridge, \
+                      Reflect.ownKeys(globalThis).some(k => String(k).includes('GpuNativeBridge')), \
+                      Object.getOwnPropertySymbols(globalThis).some(k => String(k).includes('Gpu'))] \
+                     .join('/')",
+                )
                 .await
                 .unwrap()
                 .as_deref(),
-            Some("undefined/undefined")
+            Some("undefined/undefined/undefined/undefined/false/false")
         );
     }
 
@@ -4791,6 +5357,11 @@ cp \"$input\" \"$out\"\n";
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
                 assert_eq!(fake_gpu_state().lock().unwrap().open_calls, 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+                #[cfg(feature = "gpu-bridge-test-hooks")]
+                {
+                    assert_eq!(ibex_test_gpu_capture_present(raw), 0);
+                    assert_eq!(ibex_test_gpu_private_bridge_present(raw), 1);
+                }
             })
             .unwrap();
         assert_eq!(
@@ -4798,12 +5369,16 @@ cp \"$input\" \"$out\"\n";
                 .eval_immediate(
                     "typeof navigator.gpu + '/' + typeof createImageBitmap + '/' + \
                      typeof exact.invokeHostAsync + '/' + \
-                     Object.getOwnPropertyDescriptor(exact, 'invokeHostAsync').configurable",
+                     Object.getOwnPropertyDescriptor(exact, 'invokeHostAsync').configurable + '/' + \
+                     typeof globalThis.__ibexCaptureGpuNativeBridge + '/' + \
+                     typeof globalThis.__ibexGpuNativeBridge + '/' + \
+                     Reflect.ownKeys(globalThis).some(k => String(k).includes('GpuNativeBridge')) + '/' + \
+                     Object.getOwnPropertySymbols(globalThis).some(k => String(k).includes('Gpu'))",
                 )
                 .await
                 .unwrap()
                 .as_deref(),
-            Some("undefined/undefined/function/false")
+            Some("undefined/undefined/function/false/undefined/undefined/false/false")
         );
         let state = fake_gpu_state().lock().unwrap();
         assert_eq!(state.retain_service_calls, 1);
@@ -4877,7 +5452,7 @@ cp \"$input\" \"$out\"\n";
 
     #[cfg(feature = "webgpu-binding")]
     #[tokio::test(flavor = "current_thread")]
-    async fn gpu_activation_rejects_competing_service_thread_callback() {
+    async fn gpu_activation_invocation_admits_service_thread_callback() {
         let _lock = hermes_engine_test_lock().lock().await;
         let _reset = install_test_host_with_allow(&[]);
         reset_fake_gpu(4);
@@ -4890,17 +5465,63 @@ cp \"$input\" \"$out\"\n";
             .with_runtime(|raw| unsafe {
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
-                assert_eq!(
-                    ex_hermes_finalize_embedder_capabilities_v1(raw),
-                    EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED
-                );
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
             })
             .unwrap();
 
         let state = fake_gpu_state().lock().unwrap();
         assert_eq!(state.activate_calls, 1);
-        assert_eq!(state.activation_receipt, Some(-1));
-        assert_eq!(state.close_calls, 1);
+        assert_eq!(state.activation_receipt, Some(1));
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_activation_admits_worker_after_hook_return_before_live_cas_once() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(6);
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        let api = fake_gpu_api();
+        let descriptor = fake_gpu_descriptor(&api, &operations, test_gpu_digests());
+        unsafe {
+            ibex_test_gpu_reset_bridge_observer();
+            ibex_test_gpu_pause_after_activate_return();
+        }
+        let worker = std::thread::spawn(|| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while unsafe { ibex_test_gpu_activation_pause_state() } != 2 {
+                if std::time::Instant::now() >= deadline {
+                    unsafe { ibex_test_gpu_resume_after_activate_return() };
+                    panic!("Ibex never reached the post-activate/pre-Live test window");
+                }
+                std::thread::yield_now();
+            }
+            let receipt = deliver_retained_gpu_event(EXACT_GPU_EVENT_REALM_CLOSED, 0, 0, 0, &[]);
+            release_retained_gpu_client();
+            fake_gpu_state().lock().unwrap().activation_receipt = Some(receipt);
+            unsafe { ibex_test_gpu_resume_after_activate_return() };
+        });
+
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
+                assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
+                assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), 0);
+            })
+            .unwrap();
+        worker.join().unwrap();
+        assert_eq!(fake_gpu_state().lock().unwrap().activation_receipt, Some(1));
+
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert!(ex_hermes_poll(raw, ex_hermes_now_ms()) >= 0);
+                assert_eq!(ibex_test_gpu_authority_reduction_calls(), 1);
+                assert!(ex_hermes_poll(raw, ex_hermes_now_ms()) >= 0);
+                assert_eq!(ibex_test_gpu_authority_reduction_calls(), 1);
+            })
+            .unwrap();
     }
 
     #[cfg(feature = "webgpu-binding")]
@@ -4955,6 +5576,708 @@ cp \"$input\" \"$out\"\n";
             vec![-1, -1],
             "a malformed live event must poison the mailbox for later events"
         );
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_success_carrier_is_complete_before_provider_and_failure_leaks_nothing() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(2);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                unsafe { ibex_test_gpu_set_result_publication_failure_point(1) };
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[1]),
+                    (-1000, 0)
+                );
+                unsafe {
+                    assert_eq!(ibex_test_gpu_success_carrier_ready(), 0);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                    assert_eq!(ibex_test_gpu_mailbox_submissions(raw), 0);
+                    ibex_test_gpu_set_result_publication_failure_point(0);
+                }
+
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[2]),
+                    (0, 1),
+                    "the first accepted call must return the prebuilt carrier without consuming an ID on publication failure"
+                );
+                unsafe {
+                    assert_eq!(ibex_test_gpu_success_carrier_ready(), 1);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 1);
+                    assert_eq!(ibex_test_gpu_mailbox_submissions(raw), 1);
+                    assert_eq!(
+                        ibex_test_gpu_private_bridge_cancel(
+                            raw,
+                            CString::new("1").unwrap().as_ptr(),
+                        ),
+                        0
+                    );
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                    assert_eq!(ibex_test_gpu_mailbox_submissions(raw), 0);
+                }
+            })
+            .unwrap();
+        release_retained_gpu_client();
+
+        let state = fake_gpu_state().lock().unwrap();
+        assert_eq!(state.submit_calls.len(), 1);
+        assert!(state.success_carrier_ready_during_submit);
+        assert_eq!(state.cancel_calls, vec![1]);
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_private_bridge_handles_synchronous_callback_without_reentrancy() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(10);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                let (status, completion) = submit_private_gpu_bridge(
+                    raw,
+                    7,
+                    "18446744073709551615",
+                    "9007199254740993",
+                    "42",
+                    &[1, 2, 3],
+                );
+                assert_eq!((status, completion), (0, 1));
+                unsafe {
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 1);
+                    assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                    assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                    assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 1);
+                    assert_eq!(ibex_test_gpu_bridge_reject_calls(), 0);
+                    assert_eq!(ibex_test_gpu_last_settlement_kind(), 1);
+                    assert_eq!(ibex_test_gpu_last_settlement_status(), 0);
+                }
+
+                let (status, completion) = submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[]);
+                assert_eq!((status, completion), (0, 2));
+                unsafe {
+                    assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                    assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 2);
+                }
+            })
+            .unwrap();
+
+        let state = fake_gpu_state().lock().unwrap();
+        assert_eq!(state.submit_event_receipts, vec![1, 1]);
+        assert_eq!(
+            state.submit_calls[0],
+            RecordedGpuTestCall {
+                realm: 41,
+                operation_id: 7,
+                completion_id: 1,
+                device_ordinal: u64::MAX,
+                queue_ordinal: 9_007_199_254_740_993,
+                account_token: 42,
+                payload: vec![1, 2, 3],
+            }
+        );
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_private_bridge_marshals_service_thread_callback_to_one_owner_drain() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(11);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "1", "2", "42", &[3]),
+                    (0, 1)
+                );
+                unsafe {
+                    assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 1);
+                    assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                    assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 1);
+                    assert_eq!(ibex_test_gpu_bridge_reject_calls(), 0);
+                }
+            })
+            .unwrap();
+        assert_eq!(
+            fake_gpu_state().lock().unwrap().submit_event_receipts,
+            vec![1]
+        );
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_private_bridge_discards_duplicate_and_stale_events_exactly_once() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(14);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "1", "2", "42", &[]),
+                    (0, 1)
+                );
+                unsafe {
+                    assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                    assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                    assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 1);
+                    assert_eq!(ibex_test_gpu_bridge_reject_calls(), 0);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                }
+            })
+            .unwrap();
+        assert_eq!(
+            fake_gpu_state().lock().unwrap().submit_event_receipts,
+            vec![1, 0]
+        );
+
+        drop(runtime);
+        drop(engine);
+        reset_fake_gpu(15);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "1", "2", "42", &[]),
+                    (0, 1)
+                );
+                unsafe {
+                    assert_eq!(ex_hermes_callback_backlog(raw), 0);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 1);
+                    let completion = CString::new("1").unwrap();
+                    assert_eq!(
+                        ibex_test_gpu_private_bridge_cancel(raw, completion.as_ptr()),
+                        0
+                    );
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                    assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+                    assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+                    assert_eq!(ibex_test_gpu_last_settlement_kind(), 7);
+                }
+            })
+            .unwrap();
+        let state = fake_gpu_state().lock().unwrap();
+        assert_eq!(state.submit_event_receipts, vec![0]);
+        assert_eq!(state.cancel_calls, vec![1]);
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_private_bridge_poisoning_retires_authority_and_rejects_once() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(13);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "1", "2", "42", &[]),
+                    (0, 1)
+                );
+                unsafe {
+                    assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                    assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                    assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+                    assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+                    assert_eq!(ibex_test_gpu_last_settlement_kind(), 6);
+                    assert_eq!(ibex_test_gpu_last_settlement_status(), -8);
+                }
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "1", "2", "42", &[]),
+                    (-1000, 0)
+                );
+            })
+            .unwrap();
+        let state = fake_gpu_state().lock().unwrap();
+        assert_eq!(state.submit_event_receipts, vec![-1]);
+        assert_eq!(state.submit_calls.len(), 1);
+        assert_eq!(state.cancel_calls, vec![1]);
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_private_bridge_bounds_pending_work_and_validates_wire_values() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(12);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                for expected in 1..=1024_u64 {
+                    assert_eq!(
+                        submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[]),
+                        (0, expected)
+                    );
+                }
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[]),
+                    (-1000, 0)
+                );
+                unsafe {
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 1024);
+                    let completion = CString::new("1").unwrap();
+                    assert_eq!(
+                        ibex_test_gpu_private_bridge_cancel(raw, completion.as_ptr()),
+                        0
+                    );
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 1023);
+                    assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+
+                    let handles = [u64::MAX, 9_007_199_254_740_993];
+                    assert_eq!(
+                        ibex_test_gpu_private_bridge_retire(raw, handles.as_ptr(), handles.len(),),
+                        0
+                    );
+                }
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[]),
+                    (0, 1025)
+                );
+
+                let provider_calls = fake_gpu_state().lock().unwrap().submit_calls.len();
+                for (operation, device, queue, account) in [
+                    (8, "0", "0", "42"),
+                    (7, "01", "0", "42"),
+                    (7, "18446744073709551616", "0", "42"),
+                    (7, "0", "0", "41"),
+                ] {
+                    assert_eq!(
+                        submit_private_gpu_bridge(raw, operation, device, queue, account, &[]),
+                        (-1000, 0)
+                    );
+                }
+                unsafe {
+                    assert_eq!(ibex_test_gpu_private_bridge_submit_plain_object(raw), -1000);
+                }
+                let oversized = vec![0_u8; 16 * 1024 * 1024 + 1];
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "0", "0", "42", &oversized),
+                    (-1000, 0)
+                );
+                assert_eq!(
+                    fake_gpu_state().lock().unwrap().submit_calls.len(),
+                    provider_calls
+                );
+                unsafe {
+                    let duplicate = [9_u64, 9];
+                    assert_eq!(
+                        ibex_test_gpu_private_bridge_retire(
+                            raw,
+                            duplicate.as_ptr(),
+                            duplicate.len(),
+                        ),
+                        -1000
+                    );
+                }
+            })
+            .unwrap();
+
+        let state = fake_gpu_state().lock().unwrap();
+        assert_eq!(state.submit_calls.len(), 1025);
+        assert_eq!(state.cancel_calls, vec![1]);
+        assert_eq!(
+            state.retire_batches,
+            vec![vec![u64::MAX, 9_007_199_254_740_993]]
+        );
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_terminal_fanout_shares_one_maximum_size_diagnostic_backing() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(12);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                for expected in 1..=1024_u64 {
+                    assert_eq!(
+                        submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[]),
+                        (0, expected)
+                    );
+                }
+
+                let diagnostic = vec![0x5a_u8; 16 * 1024 * 1024];
+                assert_eq!(
+                    deliver_retained_gpu_event(
+                        EXACT_GPU_EVENT_DEVICE_LOST,
+                        0,
+                        0,
+                        -91,
+                        &diagnostic,
+                    ),
+                    1
+                );
+                unsafe {
+                    assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                    assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                    assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+                    assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1024);
+                    assert_eq!(ibex_test_gpu_last_settlement_kind(), 4);
+                    assert_eq!(ibex_test_gpu_last_settlement_status(), -91);
+                    assert_eq!(ibex_test_gpu_diagnostic_backing_count(), 1);
+                    assert_eq!(
+                        ibex_test_gpu_diagnostic_backing_bytes(),
+                        diagnostic.len() as u64
+                    );
+                    assert_eq!(ibex_test_gpu_diagnostic_attachment_count(), 1024);
+                }
+            })
+            .unwrap();
+
+        let mut cancellations = fake_gpu_state().lock().unwrap().cancel_calls.clone();
+        cancellations.sort_unstable();
+        assert_eq!(cancellations, (1..=1024_u64).collect::<Vec<_>>());
+        release_retained_gpu_client();
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_drain_allocation_failures_use_durable_owner_fallback_exactly_once() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+
+        for failure_point in 1..=4_u32 {
+            reset_fake_gpu(10);
+            unsafe {
+                ibex_test_gpu_reset_bridge_observer();
+                ibex_test_gpu_set_drain_failure_point(failure_point);
+            }
+            let engine = HermesEngine::new().unwrap();
+            let runtime = engine.ensure_runtime().await.unwrap();
+            runtime
+                .with_runtime(|raw| {
+                    finalize_fake_gpu_runtime(raw, &[7]);
+                    assert_eq!(
+                        submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[]),
+                        (0, 1),
+                        "failure point {failure_point} must not escape the provider callback"
+                    );
+                    unsafe {
+                        assert_eq!(ibex_test_gpu_pending_receipts(raw), 1);
+                        assert_eq!(ibex_test_gpu_bridge_reject_calls(), 0);
+                        assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                        assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                        assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                        assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+                        assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+                        assert_eq!(ibex_test_gpu_last_settlement_kind(), 6);
+                        assert_eq!(ibex_test_gpu_last_settlement_status(), -8);
+                        assert_eq!(ibex_test_gpu_owner_fallback_drain_calls(), 1);
+                        assert_eq!(ex_hermes_callback_backlog(raw), 0);
+                        assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 0);
+                        assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+                    }
+                })
+                .unwrap();
+            {
+                let state = fake_gpu_state().lock().unwrap();
+                assert_eq!(state.submit_event_receipts, vec![-1]);
+                assert_eq!(state.cancel_calls, vec![1]);
+            }
+            release_retained_gpu_client();
+            drop(runtime);
+            drop(engine);
+        }
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_mailbox_poisoning_bounds_aggregate_payload_bytes() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(12);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                for expected in 1..=3_u64 {
+                    assert_eq!(
+                        submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[]),
+                        (0, expected)
+                    );
+                }
+                let half_limit = vec![0xa5_u8; 8 * 1024 * 1024];
+                assert_eq!(
+                    deliver_retained_gpu_event(
+                        EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                        7,
+                        1,
+                        0,
+                        &half_limit,
+                    ),
+                    1
+                );
+                assert_eq!(
+                    deliver_retained_gpu_event(
+                        EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                        7,
+                        2,
+                        0,
+                        &half_limit,
+                    ),
+                    1
+                );
+                assert_eq!(
+                    deliver_retained_gpu_event(EXACT_GPU_EVENT_OPERATION_COMPLETE, 7, 3, 0, &[1],),
+                    -1
+                );
+                unsafe {
+                    assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                    assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                    assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+                    assert_eq!(ibex_test_gpu_bridge_reject_calls(), 3);
+                    assert_eq!(ibex_test_gpu_last_settlement_kind(), 6);
+                }
+            })
+            .unwrap();
+        let mut cancellations = fake_gpu_state().lock().unwrap().cancel_calls.clone();
+        cancellations.sort_unstable();
+        assert_eq!(cancellations, vec![1, 2, 3]);
+        release_retained_gpu_client();
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_mailbox_poisoning_bounds_queued_event_count() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(12);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                for completion in 1..=1024_u64 {
+                    assert_eq!(
+                        submit_private_gpu_bridge(raw, 7, "0", "0", "42", &[]),
+                        (0, completion)
+                    );
+                    assert_eq!(
+                        deliver_retained_gpu_event(
+                            EXACT_GPU_EVENT_OPERATION_COMPLETE,
+                            7,
+                            completion,
+                            0,
+                            &[],
+                        ),
+                        1
+                    );
+                }
+                assert_eq!(
+                    deliver_retained_gpu_event(EXACT_GPU_EVENT_DEVICE_LOST, 0, 0, -92, &[]),
+                    -1
+                );
+                unsafe {
+                    assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                    assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                    assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+                    assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1024);
+                    assert_eq!(ibex_test_gpu_last_settlement_kind(), 6);
+                }
+            })
+            .unwrap();
+        let mut cancellations = fake_gpu_state().lock().unwrap().cancel_calls.clone();
+        cancellations.sort_unstable();
+        assert_eq!(cancellations, (1..=1024_u64).collect::<Vec<_>>());
+        release_retained_gpu_client();
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_private_bridge_reports_admission_device_error_and_loss_structurally() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+
+        for (mode, expected_kind, expected_status) in [(17, 8, -77), (18, 3, -19), (19, 4, 0)] {
+            reset_fake_gpu(mode);
+            unsafe { ibex_test_gpu_reset_bridge_observer() };
+            let engine = HermesEngine::new().unwrap();
+            let runtime = engine.ensure_runtime().await.unwrap();
+            runtime
+                .with_runtime(|raw| {
+                    finalize_fake_gpu_runtime(raw, &[7]);
+                    let (status, completion) =
+                        submit_private_gpu_bridge(raw, 7, "1", "2", "42", &[5]);
+                    assert_eq!(completion, 1);
+                    assert_eq!(status, if mode == 17 { -77 } else { 0 });
+                    unsafe {
+                        if mode != 17 {
+                            assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                            assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                        }
+                        assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                        assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+                        assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+                        assert_eq!(ibex_test_gpu_last_settlement_kind(), expected_kind);
+                        assert_eq!(ibex_test_gpu_last_settlement_status(), expected_status);
+                    }
+                })
+                .unwrap();
+            if mode == 19 {
+                assert_eq!(fake_gpu_state().lock().unwrap().cancel_calls, vec![1]);
+            }
+            drop(runtime);
+            drop(engine);
+        }
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_callback_then_rejection_quarantines_once_and_discards_late_duplicates() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+
+        for (mode, event_kind, event_status) in [
+            (20, EXACT_GPU_EVENT_OPERATION_COMPLETE, 0),
+            (21, EXACT_GPU_EVENT_DEVICE_ERROR, -19),
+        ] {
+            reset_fake_gpu(mode);
+            unsafe { ibex_test_gpu_reset_bridge_observer() };
+            let engine = HermesEngine::new().unwrap();
+            let runtime = engine.ensure_runtime().await.unwrap();
+            runtime
+                .with_runtime(|raw| {
+                    finalize_fake_gpu_runtime(raw, &[7]);
+                    assert_eq!(
+                        submit_private_gpu_bridge(raw, 7, "1", "2", "42", &[5]),
+                        (-8, 1)
+                    );
+                    unsafe {
+                        // The provider callback was accepted before submit
+                        // contradicted it. Nothing settles on the provider stack.
+                        assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                        assert_eq!(ibex_test_gpu_pending_receipts(raw), 1);
+                        assert_eq!(ibex_test_gpu_mailbox_submissions(raw), 1);
+                        assert_eq!(ibex_test_gpu_mailbox_events(raw), 1);
+                        assert_eq!(ibex_test_gpu_mailbox_payload_bytes(raw), 2);
+                        assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+                        assert_eq!(ibex_test_gpu_bridge_reject_calls(), 0);
+                        assert_eq!(ibex_test_gpu_authority_reduction_calls(), 0);
+
+                        assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                        assert_eq!(ibex_test_gpu_pending_receipts(raw), 0);
+                        assert_eq!(ibex_test_gpu_mailbox_submissions(raw), 0);
+                        assert_eq!(ibex_test_gpu_mailbox_events(raw), 0);
+                        assert_eq!(ibex_test_gpu_mailbox_payload_bytes(raw), 0);
+                        assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+                        assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+                        assert_eq!(ibex_test_gpu_last_settlement_kind(), 6);
+                        assert_eq!(ibex_test_gpu_last_settlement_status(), -8);
+                        assert_eq!(ibex_test_gpu_authority_reduction_calls(), 1);
+                        assert_eq!(ex_hermes_callback_backlog(raw), 0);
+                        assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 0);
+                        assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+                        assert_eq!(ibex_test_gpu_authority_reduction_calls(), 1);
+                    }
+
+                    // The completion is terminal even though its queued event
+                    // was purged by quarantine. Late duplicates are stale, not
+                    // a second protocol failure or settlement opportunity.
+                    assert_eq!(
+                        deliver_retained_gpu_event(event_kind, 7, 1, event_status, &[9, 8],),
+                        0
+                    );
+                    unsafe {
+                        assert_eq!(ex_hermes_callback_backlog(raw), 0);
+                        assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 0);
+                        assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+                        assert_eq!(ibex_test_gpu_authority_reduction_calls(), 1);
+                    }
+                })
+                .unwrap();
+
+            {
+                let state = fake_gpu_state().lock().unwrap();
+                assert_eq!(state.submit_event_receipts, vec![1]);
+                assert_eq!(state.cancel_calls, vec![1]);
+                assert_eq!(state.close_calls, 1);
+            }
+            release_retained_gpu_client();
+            drop(runtime);
+            drop(engine);
+        }
+    }
+
+    #[cfg(all(feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_private_bridge_teardown_before_drain_rejects_without_late_settlement() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        reset_fake_gpu(10);
+        unsafe { ibex_test_gpu_reset_bridge_observer() };
+        let engine = HermesEngine::new().unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_runtime(raw, &[7]);
+                assert_eq!(
+                    submit_private_gpu_bridge(raw, 7, "1", "2", "42", &[]),
+                    (0, 1)
+                );
+                unsafe {
+                    assert_eq!(ex_hermes_callback_backlog(raw), 1);
+                    assert_eq!(ibex_test_gpu_pending_receipts(raw), 1);
+                }
+            })
+            .unwrap();
+
+        let shared = engine.runtime.lock().await.as_ref().unwrap().shared();
+        assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
+        unsafe {
+            assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+            assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+            assert_eq!(ibex_test_gpu_last_settlement_kind(), 5);
+        }
+        {
+            let state = fake_gpu_state().lock().unwrap();
+            assert_eq!(state.cancel_calls, vec![1]);
+            assert_eq!(state.close_calls, 1);
+            assert_eq!(state.release_service_calls, 1);
+        }
+        release_retained_gpu_client();
+        unsafe {
+            assert_eq!(ibex_test_gpu_bridge_resolve_calls(), 0);
+            assert_eq!(ibex_test_gpu_bridge_reject_calls(), 1);
+        }
     }
 
     #[cfg(feature = "webgpu-binding")]
@@ -5059,6 +6382,12 @@ cp \"$input\" \"$out\"\n";
                 assert_eq!(ex_hermes_begin_embedder_capabilities_v1(raw), 0);
                 assert_eq!(ex_hermes_set_gpu_provider_v1(raw, &descriptor), 0);
                 assert_eq!(ex_hermes_finalize_embedder_capabilities_v1(raw), -4);
+                #[cfg(feature = "gpu-bridge-test-hooks")]
+                {
+                    assert_eq!(ibex_test_gpu_capture_present(raw), 0);
+                    assert_eq!(ibex_test_gpu_private_bridge_present(raw), 0);
+                    assert_eq!(ibex_test_gpu_user_execution_started(raw), 0);
+                }
             })
             .unwrap();
         let blocked = engine.eval_immediate("1 + 1").await.unwrap_err();

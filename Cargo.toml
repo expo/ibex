@@ -142,6 +142,12 @@ capsec-conformance-observer = []
 # feature and deterministically reports unsupported; no wgpu dependency or JS
 # WebGPU surface is part of this checkpoint. @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
 webgpu-binding = []
+# Test-only visibility into the private GPU bridge and receipt mailbox. This
+# feature is intentionally separate from both `webgpu-binding` and the CapSec
+# conformance observer so ordinary feature-on builds expose no observer ABI.
+# Bridge tests enable both features explicitly; keeping this independent also
+# lets the feature-off matrix exercise construction-capture failure paths.
+gpu-bridge-test-hooks = []
 openssl-crypto = ["dep:openssl-sys"]
 # Retained as a CLI scheduling profile switch. The callback symbol itself is
 # always supplied by the library; the CLI registers a wake hook at runtime so

@@ -406,7 +406,9 @@ struct ExactHermesRuntime {
                                    void* context) = nullptr;
   void* exact_host_call_async_context = nullptr;
   // Optional provider-independent Exact GPU service registration. The binding
-  // owns only native state; no JSI value or physical WGPU handle crosses it.
+  // owns the native mailbox plus owner-thread-only JSI bridge/Promise roots;
+  // no physical WGPU handle crosses this boundary. Runtime-js captures the
+  // bridge only in its private construction module and revokes it on teardown.
   std::shared_ptr<ExactGpuRuntimeBinding> gpu_binding;
 };
 
@@ -429,6 +431,8 @@ class ExactRuntimeDriveGuard {
   int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
 
+bool exactGpuCloseConstructionCapture(ExactHermesRuntime* runtime);
+
 inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
   if (!runtime || !runtime->runtime) {
     return false;
@@ -440,6 +444,15 @@ inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
           EmbedderCapabilityState::Configuring ||
       runtime->embedder_capability_state == EmbedderCapabilityState::Failed) {
     return false;
+  }
+  // The runtime-js handoff callback is construction-only. Closing it here is
+  // the final common fence for legacy/feature-off runtimes that never run a
+  // multi-capability finalizer; user code can never enumerate or call it.
+  if (!runtime->user_execution_started) {
+    if (!exactGpuCloseConstructionCapture(runtime)) {
+      runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
+      return false;
+    }
   }
   runtime->user_execution_started = true;
   return true;
@@ -1322,7 +1335,11 @@ bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
                           std::function<void()> fn);
 
 bool exactGpuBindingInstalled(const ExactHermesRuntime* runtime);
+bool exactGpuOwnerDrainPending(const ExactHermesRuntime* runtime);
+int exactGpuDrainOwnerFallback(ExactHermesRuntime* runtime);
 int32_t exactGpuActivateInstall(ExactHermesRuntime* runtime);
+bool exactGpuPublishPrivateBridge(ExactHermesRuntime* runtime);
+bool exactGpuSealPrivateBridge(ExactHermesRuntime* runtime);
 void exactGpuRollbackInstall(ExactHermesRuntime* runtime);
 void exactGpuBeginRuntimeTeardown(ExactHermesRuntime* runtime);
 

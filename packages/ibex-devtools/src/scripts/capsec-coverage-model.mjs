@@ -338,6 +338,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__hostCallAsync",
   "__ibex",
   "__ibexBarePackageName",
+  "__ibexCaptureGpuNativeBridge",
   "__ibexCompartmentBaselineFinalized",
   "__ibexCompartmentRegistryReady",
   "__ibexEndowRaw",
@@ -354,6 +355,9 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__workletCaptureSet",
   "__workletOutput",
   "__workletRunOnJS",
+  "construction-private:gpuNativeBridge.cancel",
+  "construction-private:gpuNativeBridge.retire",
+  "construction-private:gpuNativeBridge.submit",
   "native_fetch_cancel",
   "native_fetch_perform",
   "native_ws_close",
@@ -377,9 +381,14 @@ const REVIEWED_CALLBACK_PRODUCER_NAMES = new Set([
   "producer:src/engine/hermes_runtime_fetch.cc:installFetchGlobals:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_fs.cc:startFsAsync:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback",
+  "producer:src/engine/hermes_runtime_gpu.cc:scheduleGpuMailboxDrain:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_http.cc:WaitWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_http.cc:WritableWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_websocket.cc:installWebSocketGlobals:pushRuntimeCallback",
+]);
+
+const REVIEWED_CALLBACK_INGRESS_NAMES = new Set([
+  "ingress:src/engine/hermes_runtime_gpu.cc:ExactGpuClientSinkV1.on_event:receiveGpuEvent",
 ]);
 
 // Authored builtin specifier roots are reviewed independently from their
@@ -2854,6 +2863,9 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "__ibexCapsecContextObserver_",
   "__ibexLockedDown",
   "__ibexTamed",
+  "construction-private:gpuNativeBridge.cancel",
+  "construction-private:gpuNativeBridge.retire",
+  "construction-private:gpuNativeBridge.submit",
   "native_fetch_cancel",
   "native_fetch_perform",
   "native_ws_close",
@@ -6245,10 +6257,12 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:directory_size",
     "route:load:rust:drop",
     "route:load:rust:enforce_transpile_cache_quota",
+    "route:load:rust:ensure_public_runtime_source",
     "route:load:rust:ensure_transpile_cache_dir",
     "route:load:rust:find_js_runner",
     "route:load:rust:format_oxc_errors",
     "route:load:rust:from_value",
+    "route:load:rust:is_private_runtime_source",
     "route:load:rust:load_module_source",
     "route:load:rust:load_source",
     "route:load:rust:module_cache_key",
@@ -6302,11 +6316,13 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:directory_size",
     "route:resolution:rust:drop",
     "route:resolution:rust:enforce_transpile_cache_quota",
+    "route:resolution:rust:ensure_public_runtime_source",
     "route:resolution:rust:ensure_transpile_cache_dir",
     "route:resolution:rust:find_js_runner",
     "route:resolution:rust:find_package_root",
     "route:resolution:rust:format_oxc_errors",
     "route:resolution:rust:from_value",
+    "route:resolution:rust:is_private_runtime_source",
     "route:resolution:rust:load_module_source",
     "route:resolution:rust:load_source",
     "route:resolution:rust:module_cache_key",
@@ -6790,6 +6806,10 @@ export function reviewedCallbackProducerNames() {
   return [...REVIEWED_CALLBACK_PRODUCER_NAMES].sort(utf8Compare);
 }
 
+export function reviewedCallbackIngressNames() {
+  return [...REVIEWED_CALLBACK_INGRESS_NAMES].sort(utf8Compare);
+}
+
 export function reviewedBuiltinRootNames() {
   return [...REVIEWED_BUILTIN_ROOT_NAMES].sort(utf8Compare);
 }
@@ -6831,14 +6851,16 @@ export function assertReviewedSurfaceInventory(surfaces) {
       "builtin roots",
       REVIEWED_BUILTIN_ROOT_NAMES,
       names(
-        (row) => row.kind === "builtin" && row.metadata?.surfaceType !== "export",
+        (row) =>
+          row.kind === "builtin" && row.metadata?.surfaceType !== "export",
       ),
     ],
     [
       "builtin exports",
       REVIEWED_BUILTIN_EXPORT_NAMES,
       names(
-        (row) => row.kind === "builtin" && row.metadata?.surfaceType === "export",
+        (row) =>
+          row.kind === "builtin" && row.metadata?.surfaceType === "export",
       ),
     ],
     [
@@ -6862,19 +6884,42 @@ export function assertReviewedSurfaceInventory(surfaces) {
       ),
     ],
     [
+      "callback-table ingresses",
+      REVIEWED_CALLBACK_INGRESS_NAMES,
+      names(
+        (row) =>
+          row.kind === "callback" &&
+          row.metadata?.evidenceType === "versioned-callback-table-ingress",
+      ),
+    ],
+    [
       "global APIs",
       REVIEWED_GLOBAL_API_NAMES,
       names((row) => row.metadata?.surfaceType === "global-api"),
     ],
-    ["host ABIs", REVIEWED_HOST_ABI_NAMES, names((row) => row.kind === "host-abi")],
+    [
+      "host ABIs",
+      REVIEWED_HOST_ABI_NAMES,
+      names((row) => row.kind === "host-abi"),
+    ],
     [
       "inspector natives",
       REVIEWED_INSPECTOR_NATIVE_NAMES,
-      names((row) => row.kind === "native-op" && row.name.startsWith("inspector.")),
+      names(
+        (row) => row.kind === "native-op" && row.name.startsWith("inspector."),
+      ),
     ],
     ["CLI surfaces", REVIEWED_CLI_NAMES, names((row) => row.kind === "cli")],
-    ["loader surfaces", REVIEWED_LOADER_NAMES, names((row) => row.kind === "loader")],
-    ["startup surfaces", REVIEWED_STARTUP_NAMES, names((row) => row.kind === "startup")],
+    [
+      "loader surfaces",
+      REVIEWED_LOADER_NAMES,
+      names((row) => row.kind === "loader"),
+    ],
+    [
+      "startup surfaces",
+      REVIEWED_STARTUP_NAMES,
+      names((row) => row.kind === "startup"),
+    ],
   ];
   for (const [label, reviewed, discovered] of inventories) {
     const missing = [...reviewed].filter((name) => !discovered.has(name));
@@ -6964,17 +7009,17 @@ export function enforcementBranchIdentity(edge, branch) {
     stubDisposition: branch.stubDisposition ?? null,
     semantics: enforcementSemanticShape(edge),
   });
-  const anchor = stableComponent(sourceRefs[0] ?? "effect-boundary")
-    .slice(-64)
-    .replace(/^\.+/u, "") || "effect.boundary";
+  const anchor =
+    stableComponent(sourceRefs[0] ?? "effect-boundary")
+      .slice(-64)
+      .replace(/^\.+/u, "") || "effect.boundary";
   return {
     id: validateStableId(
       `enforcement.${anchor}.${fnv1a32(key)}`,
       "enforcement branch id",
     ),
     key,
-    routeKind:
-      branch.enforcementRoute?.kind ?? "exact-source-and-semantics",
+    routeKind: branch.enforcementRoute?.kind ?? "exact-source-and-semantics",
   };
 }
 
@@ -9165,6 +9210,69 @@ function builtinClassification(surface) {
 }
 
 function callbackClassification(surface) {
+  if (REVIEWED_CALLBACK_INGRESS_NAMES.has(surface.name)) {
+    const metadata = surface.metadata ?? {};
+    if (
+      surface.name !==
+        "ingress:src/engine/hermes_runtime_gpu.cc:ExactGpuClientSinkV1.on_event:receiveGpuEvent" ||
+      metadata.evidenceType !== "versioned-callback-table-ingress" ||
+      metadata.tableType !== "ExactGpuClientSinkV1" ||
+      metadata.fieldName !== "on_event" ||
+      metadata.callback !== "receiveGpuEvent" ||
+      metadata.callbackDefinitionCount !== 1 ||
+      metadata.conditionalContext !== "webgpu-enabled-if" ||
+      metadata.conditionalStackAuthenticated !== true ||
+      metadata.externalFeatureGate !== "IBEX_ENABLE_WEBGPU_BINDING" ||
+      metadata.externalFeatureGateSourceMutationCount !== 0 ||
+      metadata.effectiveCallbackExpression !== "receiveGpuEvent" ||
+      metadata.initializerVariable !== "kGpuClientSink" ||
+      metadata.identityGuardCount !== 1 ||
+      metadata.identityGuardError !==
+        "Ibex CapSec GPU callback identifiers must not be preprocessor macros" ||
+      JSON.stringify(metadata.identityGuardIdentifiers) !==
+        JSON.stringify([
+          "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS",
+          "receiveGpuEvent",
+        ]) ||
+      metadata.identityGuardLifetime !==
+        "guard-callback-definition-table-undef" ||
+      metadata.interveningDirectiveCount !== 0 ||
+      metadata.includeDirectiveCount !== 20 ||
+      metadata.includeInventory !== "hermes-runtime-gpu-exact-v1" ||
+      metadata.macroConditionalDirectiveCount !== 0 ||
+      metadata.macroDefinitionCount !== 1 ||
+      metadata.macroInvocationCount !== 1 ||
+      metadata.macroLifetimeOrder !== "define-invocation-undef" ||
+      metadata.macroName !== "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS" ||
+      JSON.stringify(metadata.macroParameters) !==
+        JSON.stringify(["table_type", "field_name", "callback"]) ||
+      metadata.macroReplacement !== "callback" ||
+      metadata.macroUndefCount !== 1 ||
+      metadata.physicalGuardFormat !== "exact-lf-physical-lines" ||
+      metadata.callbackFieldIndex !== 4 ||
+      metadata.callbackFieldCount !== 5 ||
+      metadata.structSizeExpression !== "sizeof(ExactGpuClientSinkV1)" ||
+      metadata.abiVersionExpression !== "EXACT_GPU_SERVICE_ABI_VERSION_V1" ||
+      metadata.retainCallback !== "retainGpuClient" ||
+      metadata.releaseCallback !== "releaseGpuClient" ||
+      JSON.stringify(metadata.protectedIdentifierTokenCounts) !==
+        JSON.stringify({
+          IBEX_CAPSEC_CALLBACK_TABLE_INGRESS: 4,
+          receiveGpuEvent: 3,
+        }) ||
+      metadata.sourceAliasCount !== 0 ||
+      metadata.translationPhaseAuthenticated !== true ||
+      metadata.occurrenceCount !== 1
+    ) {
+      return null;
+    }
+    return closedSpec(
+      "ipc:channel",
+      "WP4",
+      "The versioned GPU client callback table is a provider-to-runtime data channel and remains closed until its event attribution and lifecycle checks authorize delivery.",
+    );
+  }
+
   const name = surface.name.toLowerCase();
 
   if (
@@ -9226,7 +9334,7 @@ function callbackClassification(surface) {
   }
 
   const producerMatch =
-    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|fetch|fs|fs_windows|http|websocket))?\.cc:(.+):pushruntimecallback$/u.exec(
+    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|fetch|fs|fs_windows|gpu|http|websocket))?\.cc:(.+):pushruntimecallback$/u.exec(
       name,
     );
   if (
@@ -9336,7 +9444,9 @@ function loaderClassification(surface) {
 
   if (name.startsWith("operation:")) {
     const operation = name.split(":").at(-1);
-    if (/^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(operation)) {
+    if (
+      /^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(operation)
+    ) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (/^(?:read|read_to_string)$/u.test(operation)) {
@@ -9377,7 +9487,7 @@ function loaderClassification(surface) {
   if (name.startsWith("route:")) {
     const functionName = name.split(":").at(-1);
     if (
-      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|strip_file_specifier_decorations|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path|validate_import_attributes)$/u.test(
+      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|is_private_runtime_source|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|strip_file_specifier_decorations|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path|validate_import_attributes)$/u.test(
         functionName,
       )
     ) {
@@ -9398,7 +9508,7 @@ function loaderClassification(surface) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (
-      /^(?:read_package_manifest|package_version_for|resolve_meta|resolve_meta_from_bound_package|resolve_meta_from_bound_package_typed|resolve_meta_typed|resolve_package_import|resolve_package_import_target|resolve_with_oxc|resolve_with_oxc_at)$/u.test(
+      /^(?:ensure_public_runtime_source|read_package_manifest|package_version_for|resolve_meta|resolve_meta_from_bound_package|resolve_meta_from_bound_package_typed|resolve_meta_typed|resolve_package_import|resolve_package_import_target|resolve_with_oxc|resolve_with_oxc_at)$/u.test(
         functionName,
       )
     ) {
@@ -9439,12 +9549,7 @@ function loaderClassification(surface) {
         functionName,
       )
     ) {
-      return effectSpec(
-        ["fs:list", "fs:read"],
-        "loader",
-        "WP7",
-        loaderOptions,
-      );
+      return effectSpec(["fs:list", "fs:read"], "loader", "WP7", loaderOptions);
     }
     if (functionName === "drop") {
       return effectSpec(
@@ -9543,6 +9648,9 @@ function loaderClassification(surface) {
     if (name === "function:rust:is_builtin_specifier") {
       return nonCapabilitySpec("module-reachability-only", "WP7");
     }
+    if (name === "function:rust:is_private_runtime_source") {
+      return nonCapabilitySpec("internal-data-transform", "WP1");
+    }
     if (
       new Set([
         "function:rust:strip_file_specifier_decorations",
@@ -9576,6 +9684,7 @@ function loaderClassification(surface) {
     }
     if (
       new Set([
+        "function:rust:ensure_public_runtime_source",
         "function:javascript:__exactresolvepath",
         "function:javascript:resolvemodulepath",
         "function:rust:package_name_and_root_in_node_modules",
@@ -10526,6 +10635,9 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
 
   if (/^(?:__dirname|__filename)$/u.test(globalName)) {
     return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+  }
+  if (/^__ibexcapturegpunativebridge$/u.test(globalName) && member === "") {
+    return nonCapabilitySpec("authority-control-plane", "WP4");
   }
   if (/^__exact(?:allownativessyntax|compateval)$/u.test(globalName)) {
     return closedSpec(
@@ -11970,7 +12082,11 @@ function hostAbiClassification(name) {
     if (/^exhostfscopy(?:exclusive)?$/u.test(name)) {
       return effectSpec(["fs:read", "fs:write"], "filesystem", "WP5");
     }
-    if (/^exhostfs(?:access|fstat|lstat|readdir|realpath|stat|statfs)$/u.test(name)) {
+    if (
+      /^exhostfs(?:access|fstat|lstat|readdir|realpath|stat|statfs)$/u.test(
+        name,
+      )
+    ) {
       return effectSpec(["fs:list"], "filesystem", "WP5", descriptorOptions);
     }
     if (/^exhostfs(?:pread|read)$/u.test(name)) {
@@ -12245,10 +12361,7 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_module_record_run_execute",
       ]).has(surface.name)
     ) {
-      return nonCapabilitySpec(
-        "module-reachability-only",
-        "WP8",
-      );
+      return nonCapabilitySpec("module-reachability-only", "WP8");
     }
     if (surface.name === "ex_hermes_module_record_namespace_json") {
       return closedSpec(
@@ -12264,8 +12377,7 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
     }
     if (
-      surface.name ===
-      "ex_hermes_schedule_watchdog_heartbeat_for_generation"
+      surface.name === "ex_hermes_schedule_watchdog_heartbeat_for_generation"
     ) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
@@ -12306,11 +12418,84 @@ function classifyConcreteSurface(surface) {
       return nativeEscapeClassification(text);
     }
     if (!REVIEWED_NATIVE_OPERATION_NAMES.has(surface.name)) return null;
+    const constructionPrivateGpuMembers = new Map([
+      [
+        "construction-private:gpuNativeBridge.cancel",
+        { arity: 1, terminalHandler: "cancelGpuBridgeCall" },
+      ],
+      [
+        "construction-private:gpuNativeBridge.retire",
+        { arity: 1, terminalHandler: "retireGpuBridgeCall" },
+      ],
+      [
+        "construction-private:gpuNativeBridge.submit",
+        { arity: 5, terminalHandler: "submitGpuBridgeCall" },
+      ],
+    ]);
+    if (constructionPrivateGpuMembers.has(surface.name)) {
+      const metadata = surface.metadata ?? {};
+      const expected = constructionPrivateGpuMembers.get(surface.name);
+      const memberName = surface.name.slice(
+        "construction-private:gpuNativeBridge.".length,
+      );
+      if (
+        metadata.evidenceType !== "construction-private-host-function" ||
+        metadata.surfaceType !== "construction-private-bridge" ||
+        metadata.bridgeOwner !== "gpuNativeBridge" ||
+        metadata.memberName !== memberName ||
+        metadata.functionVariable !== memberName ||
+        metadata.arity !== expected.arity ||
+        metadata.bindingConditionalContext !== "webgpu-enabled-else" ||
+        metadata.conditionalStackAuthenticated !== true ||
+        metadata.definitionConditionalContext !== "webgpu-enabled-if" ||
+        metadata.externalFeatureGate !== "IBEX_ENABLE_WEBGPU_BINDING" ||
+        metadata.externalFeatureGateSourceMutationCount !== 0 ||
+        metadata.identityGuardCount !== 4 ||
+        metadata.identityGuardError !==
+          "Ibex CapSec GPU terminal handlers must not be preprocessor macros" ||
+        JSON.stringify(metadata.identityGuardIdentifiers) !==
+          JSON.stringify([
+            "submitGpuBridgeCall",
+            "cancelGpuBridgeCall",
+            "retireGpuBridgeCall",
+          ]) ||
+        metadata.identityGuardLifetime !== "guard-definitions-and-bindings" ||
+        metadata.interveningDirectiveCount !== 0 ||
+        metadata.includeDirectiveCount !== 20 ||
+        metadata.includeInventory !== "hermes-runtime-gpu-exact-v1" ||
+        metadata.physicalGuardFormat !== "exact-lf-physical-lines" ||
+        JSON.stringify(metadata.protectedIdentifierTokenCounts) !==
+          JSON.stringify({
+            submitGpuBridgeCall: 6,
+            cancelGpuBridgeCall: 6,
+            retireGpuBridgeCall: 6,
+          }) ||
+        metadata.sourceAliasCount !== 0 ||
+        metadata.translationPhaseAuthenticated !== true ||
+        metadata.terminalHandlerBindingCount !== 1 ||
+        metadata.terminalHandlerDefinitionCount !== 1 ||
+        metadata.terminalHandler !== expected.terminalHandler ||
+        metadata.occurrenceCount !== 1 ||
+        !metadata.semanticRoles?.includes(
+          "construction-private-native-operation",
+        )
+      ) {
+        return null;
+      }
+      return closedSpec(
+        "ipc:channel",
+        "WP4",
+        "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol.",
+      );
+    }
     if (surface.name === "__esModule") {
       return nonCapabilitySpec("module-reachability-only", "WP8");
     }
     if (surface.name === "__ibexCapsecContextObserver_") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
+    if (surface.name === "__ibexCaptureGpuNativeBridge") {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
     }
     if (
       new Set([
@@ -13511,21 +13696,22 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
       continue;
     }
     const terminalObservedKey = `native-op:${evidence.terminals[0]}`;
-    const candidates = (terminalRowsByObservedKey.get(terminalObservedKey) ?? [])
-      .filter((candidate) => {
-        const terminalEdge = edgeById.get(candidate.edgeId);
-        return (
-          JSON.stringify(enforcementSemanticShape(terminalEdge)) ===
-            JSON.stringify(enforcementSemanticShape(edge)) &&
-          candidate.targetVariant === row.targetVariant &&
-          JSON.stringify(candidate.targetApplicability) ===
-            JSON.stringify(row.targetApplicability) &&
-          (candidate.backend ?? null) === (row.backend ?? null) &&
-          (candidate.implementationDisposition ?? null) ===
-            (row.implementationDisposition ?? null) &&
-          (candidate.stubDisposition ?? null) === (row.stubDisposition ?? null)
-        );
-      });
+    const candidates = (
+      terminalRowsByObservedKey.get(terminalObservedKey) ?? []
+    ).filter((candidate) => {
+      const terminalEdge = edgeById.get(candidate.edgeId);
+      return (
+        JSON.stringify(enforcementSemanticShape(terminalEdge)) ===
+          JSON.stringify(enforcementSemanticShape(edge)) &&
+        candidate.targetVariant === row.targetVariant &&
+        JSON.stringify(candidate.targetApplicability) ===
+          JSON.stringify(row.targetApplicability) &&
+        (candidate.backend ?? null) === (row.backend ?? null) &&
+        (candidate.implementationDisposition ?? null) ===
+          (row.implementationDisposition ?? null) &&
+        (candidate.stubDisposition ?? null) === (row.stubDisposition ?? null)
+      );
+    });
     if (candidates.length !== 1) continue;
     const terminal = candidates[0];
     row.enforcementRoute = {
@@ -13537,10 +13723,7 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     };
     const enforcement = enforcementBranchIdentity(edge, row);
     row.enforcementBranchId = enforcement.id;
-    row.fixtureObligations = fixtureObligationsForBranch(
-      edge,
-      enforcement.id,
-    );
+    row.fixtureObligations = fixtureObligationsForBranch(edge, enforcement.id);
   }
   const enforcementKeys = new Map();
   for (const row of implementationRows) {
@@ -13553,9 +13736,7 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     }
     const prior = enforcementKeys.get(enforcement.id);
     if (prior !== undefined && prior !== enforcement.key) {
-      throw new Error(
-        `enforcement branch id collision ${enforcement.id}`,
-      );
+      throw new Error(`enforcement branch id collision ${enforcement.id}`);
     }
     enforcementKeys.set(enforcement.id, enforcement.key);
   }
