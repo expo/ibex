@@ -4507,6 +4507,225 @@ mod tests {
         }
     }
 
+    /// Hosted, fail-loud timing evidence for the authenticated source and
+    /// prepared native paths. This is ignored in the ordinary unit suite and
+    /// writes only when the baseline workflow supplies an explicit output.
+    // @ref LLP 0026#performance-and-platform-gates — compare native source and prepared execution on every desktop target
+    #[test]
+    #[ignore = "hosted module-runner performance evidence"]
+    fn module_runner_performance_baseline() {
+        use std::ffi::c_void;
+        use std::ptr::NonNull;
+        use std::time::Instant;
+
+        use crate::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
+        use crate::module_loader::artifact::digest_bytes;
+        use crate::module_loader::runner_pipeline::{
+            build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
+            publish_prepared_source_graph_v1, SourceModuleGraphBuildV1,
+        };
+        use crate::module_loader::security::ModuleGraphAuthorizer;
+
+        unsafe extern "C" {
+            fn ex_hermes_create_diagnostic() -> *mut c_void;
+            fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
+            fn ex_hermes_destroy(runtime: *mut c_void);
+        }
+
+        let output = std::env::var_os("IBEX_MODULE_RUNNER_PERF_OUTPUT")
+            .map(std::path::PathBuf::from)
+            .expect("IBEX_MODULE_RUNNER_PERF_OUTPUT is required");
+        let samples = std::env::var("IBEX_MODULE_RUNNER_PERF_SAMPLES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value >= 3)
+            .unwrap_or(5);
+        let summarize = |values: &[f64]| {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            let mean = values.iter().sum::<f64>() / values.len() as f64;
+            serde_json::json!({
+                "samples": values.len(),
+                "minMs": sorted[0],
+                "medianMs": sorted[sorted.len() / 2],
+                "meanMs": mean,
+                "maxMs": sorted[sorted.len() - 1],
+            })
+        };
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let fixture = tempfile::Builder::new()
+            .prefix("module-runner-performance-")
+            .tempdir_in(test_project_root())
+            .unwrap();
+        let entry = fixture.path().join("entry.mjs");
+        const DEPENDENCY_MODULES: usize = 40;
+        for index in (0..DEPENDENCY_MODULES).rev() {
+            let next = if index + 1 < DEPENDENCY_MODULES {
+                format!("import {{ value as next }} from './m{}.mjs';\n", index + 1)
+            } else {
+                "const next = 0;\n".to_string()
+            };
+            std::fs::write(
+                fixture.path().join(format!("m{index}.mjs")),
+                format!("{next}export const value = next + 1;\n"),
+            )
+            .unwrap();
+        }
+        std::fs::write(
+            &entry,
+            "import { value } from './m0.mjs'; export const result = value;\n",
+        )
+        .unwrap();
+
+        crate::host::abi::install_host(example_armed_host());
+        let producer = digest_bytes("module-runner-performance", b"producer").unwrap();
+        let initial = match build_authenticated_source_graph_v1(
+            &entry,
+            producer.clone(),
+            "hermes-performance",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "performance graph required legacy loader: {}",
+                    requirement.reason
+                )
+            }
+        };
+        assert_eq!(initial.records().count(), DEPENDENCY_MODULES + 1);
+        let deployment = digest_bytes("module-runner-performance", b"prepared-deployment").unwrap();
+        let artifact_dir = fixture.path().join("prepared-artifact");
+        std::fs::create_dir(&artifact_dir).unwrap();
+        let prepared_cache =
+            publish_prepared_source_graph_v1(&initial, &artifact_dir, deployment.clone()).unwrap();
+
+        let mut source_samples = Vec::with_capacity(samples);
+        for sample in 0..samples {
+            let started = Instant::now();
+            let graph = match build_authenticated_source_graph_v1(
+                &entry,
+                producer.clone(),
+                "hermes-performance",
+            )
+            .unwrap()
+            {
+                SourceModuleGraphBuildV1::Native(graph) => graph,
+                SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                    panic!(
+                        "source sample required legacy loader: {}",
+                        requirement.reason
+                    )
+                }
+            };
+            let (configs, contexts) = graph.native_execution_inputs((sample + 1) as u64).unwrap();
+            source_samples.push((
+                graph,
+                started.elapsed().as_secs_f64() * 1000.0,
+                configs,
+                contexts,
+            ));
+        }
+        let mut prepared_samples = Vec::with_capacity(samples);
+        for sample in 0..samples {
+            let started = Instant::now();
+            let graph =
+                load_prepared_source_graph_v1(&prepared_cache, &producer, &deployment).unwrap();
+            let generation = samples + sample + 1;
+            let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
+            prepared_samples.push((
+                graph,
+                started.elapsed().as_secs_f64() * 1000.0,
+                configs,
+                contexts,
+            ));
+        }
+        crate::host::abi::install_host(crate::host::Host::strict());
+
+        unsafe {
+            let runtime_started = Instant::now();
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let runtime_startup_ms = runtime_started.elapsed().as_secs_f64() * 1000.0;
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let mut source_ms = Vec::with_capacity(samples);
+            let mut prepared_ms = Vec::with_capacity(samples);
+
+            for (graph, acquisition_ms, configs, contexts) in source_samples {
+                let started = Instant::now();
+                let plan = graph.plan().unwrap();
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let mut native = NativeSynchronousGraph::link_authorized(
+                    &runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &contexts,
+                )
+                .unwrap();
+                native.evaluate().unwrap();
+                assert_eq!(
+                    native.namespace_json(graph.entry()).unwrap(),
+                    r#"{"result":40}"#
+                );
+                drop(native);
+                source_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+            }
+
+            for (graph, acquisition_ms, configs, contexts) in prepared_samples {
+                let started = Instant::now();
+                let plan = graph.plan().unwrap();
+                let entries = graph.prepared_entries().unwrap().unwrap();
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let mut native = NativeSynchronousGraph::link_authorized_prepared(
+                    &runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &contexts,
+                    &entries,
+                )
+                .unwrap();
+                native.evaluate().unwrap();
+                assert_eq!(
+                    native.namespace_json(graph.entry()).unwrap(),
+                    r#"{"result":40}"#
+                );
+                drop(native);
+                prepared_ms.push(acquisition_ms + started.elapsed().as_secs_f64() * 1000.0);
+            }
+
+            drop(runtime);
+            ex_hermes_destroy(raw);
+            let report = serde_json::json!({
+                "schema": "ibex/module-runner-performance-baseline/1",
+                "platform": { "os": std::env::consts::OS, "arch": std::env::consts::ARCH },
+                "dependencyModules": DEPENDENCY_MODULES,
+                "runtimeStartupMs": runtime_startup_ms,
+                "profiles": {
+                    "authenticatedSource": {
+                        "coldMs": source_ms[0],
+                        "warm": summarize(&source_ms[1..]),
+                    },
+                    "authenticatedPrepared": {
+                        "coldMs": prepared_ms[0],
+                        "warm": summarize(&prepared_ms[1..]),
+                    },
+                },
+            });
+            std::fs::write(
+                output,
+                format!("{}\n", serde_json::to_string_pretty(&report).unwrap()),
+            )
+            .unwrap();
+        }
+    }
+
     #[test]
     fn armed_host_evaluates_typed_authority_and_records_structured_evidence() {
         use capsec_semantics::decision::{DecisionOutcome, EffectGate};

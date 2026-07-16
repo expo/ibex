@@ -5137,6 +5137,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_has_pending_tasks",
     "ex_hermes_module_compile_factory",
     "ex_hermes_module_create_record",
+    "ex_hermes_module_load_carrier_factory",
     "ex_hermes_module_record_declare_export",
     "ex_hermes_module_record_instantiate",
     "ex_hermes_module_record_link_dependency",
@@ -5963,6 +5964,8 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:is_builtin_specifier",
     "function:rust:is_registered_builtin_specifier",
     "function:rust:load_module_source",
+    "function:rust:load_runner_source",
+    "function:rust:load_runner_source_bytes",
     "function:rust:load_source",
     "function:rust:load_source_bytes",
     "function:rust:module_cache_key",
@@ -6524,6 +6527,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_HERMESC_TIMEOUT_MS",
     "env:IBEX_HERMES_TOOL_DIR",
     "env:IBEX_HTTP_MAX_REQUEST_BODY_BYTES",
+    "env:IBEX_LEGACY_MODULE_LOADER",
     "env:IBEX_LOCKDOWN",
     "env:IBEX_LOOP_TRACE",
     "env:IBEX_NO_BYTECODE",
@@ -9481,6 +9485,12 @@ function loaderClassification(surface) {
   }
 
   if (name.startsWith("function:")) {
+    if (name === "function:rust:load_runner_source") {
+      return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
+    }
+    if (name === "function:rust:load_runner_source_bytes") {
+      return nonCapabilitySpec("trusted-loader-source-acquisition", "WP7");
+    }
     if (
       new Set([
         "function:javascript:importimpl",
@@ -9795,6 +9805,7 @@ const BOOTSTRAP_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "IBEX_AWAIT_UNWRAP_TIMEOUT_MS",
   "IBEX_CDP_LOG",
   "IBEX_HERMESC_TIMEOUT_MS",
+  "IBEX_LEGACY_MODULE_LOADER",
   "IBEX_LOOP_TRACE",
   "IBEX_NO_BYTECODE",
   "IBEX_NO_DISK_RUNTIME_FALLBACK",
@@ -12193,6 +12204,7 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_commonjs_record_create_esm_adapter",
         "ex_hermes_commonjs_record_evaluate",
         "ex_hermes_module_compile_factory",
+        "ex_hermes_module_load_carrier_factory",
         "ex_hermes_module_record_instantiate",
         "ex_hermes_module_record_poll_evaluation",
         "ex_hermes_module_record_run_declare",

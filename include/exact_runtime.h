@@ -130,6 +130,33 @@ int32_t ex_hermes_module_compile_factory(
     ExactModuleRunnerHandle* out_factory,
     char** out_error);
 
+/// Load one verified source or HBC carrier and select the authenticated
+/// original-module factory identified by `entry_id`. `carrier_encoding` is 0
+/// for UTF-8 source and 1 for Hermes bytecode.
+int32_t ex_hermes_module_load_carrier_factory(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint32_t source_goal,
+    uint32_t principal_id,
+    uint64_t graph_generation,
+    const uint8_t* compartment_identity,
+    size_t compartment_identity_len,
+    const uint8_t* semantic_digest,
+    size_t semantic_digest_len,
+    const uint8_t* source_id,
+    size_t source_id_len,
+    const uint8_t* carrier_digest,
+    size_t carrier_digest_len,
+    const uint8_t* carrier_bytes,
+    size_t carrier_bytes_len,
+    uint32_t carrier_encoding,
+    const uint8_t* entry_id,
+    size_t entry_id_len,
+    const uint8_t* source_label,
+    size_t source_label_len,
+    ExactModuleRunnerHandle* out_factory,
+    char** out_error);
+
 /// Create one CommonJS cache record. The initial `exports` object is published
 /// natively before body execution so linked CommonJS cycles observe it.
 int32_t ex_hermes_commonjs_create_record(

@@ -35,6 +35,7 @@ function parseArgs(argv) {
     write: '',
     cleanBuildSeconds: null,
     hostContentionObserved: false,
+    noDefaultFeatures: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -45,6 +46,7 @@ function parseArgs(argv) {
       options.cleanBuildSeconds = Number(argv[++index]);
     }
     else if (arg === '--host-contention-observed') options.hostContentionObserved = true;
+    else if (arg === '--no-default-features') options.noDefaultFeatures = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
   if (!options.ibex) throw new Error('--ibex /path/to/ibex is required');
@@ -231,6 +233,7 @@ function main() {
     measurementConditions: {
       hostContentionObserved: options.hostContentionObserved,
       usableForPerformanceBudget: !options.hostContentionObserved,
+      moduleRunnerDefaultFeatureEnabled: !options.noDefaultFeatures,
       preparedProfileRequiresDigestVerifiedBundleArtifact: true,
       transpileProfilesRequireDigestVerifiedCacheArtifact: true,
       note: options.hostContentionObserved

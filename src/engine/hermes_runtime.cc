@@ -3913,6 +3913,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     return nullptr;
   }
 
+  handle->bootstrap_in_progress = false;
   registerRuntime(handle);
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
@@ -4018,7 +4019,10 @@ extern "C" int ex_hermes_eval(
   }
 
   ExactRuntimeDriveGuard drive(runtime);
-  if (!drive) {
+  const bool trustedBootstrapDrive =
+      runtime != nullptr && runtime->bootstrap_in_progress &&
+      runtime->runtime_thread == std::this_thread::get_id();
+  if (!drive && !trustedBootstrapDrive) {
     writeOutError("Hermes eval refused by the runtime drive gate");
     return drive.status();
   }

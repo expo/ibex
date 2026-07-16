@@ -19,6 +19,7 @@ function parseArgs(argv) {
     expectOs: '',
     expectArch: '',
     hostContentionObserved: false,
+    noDefaultFeatures: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -28,6 +29,7 @@ function parseArgs(argv) {
     else if (arg === '--expect-os') options.expectOs = argv[++index] || '';
     else if (arg === '--expect-arch') options.expectArch = argv[++index] || '';
     else if (arg === '--host-contention-observed') options.hostContentionObserved = true;
+    else if (arg === '--no-default-features') options.noDefaultFeatures = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
   if (!options.write) throw new Error('--write /path/to/report.json is required');
@@ -64,7 +66,9 @@ function main() {
     : mkdtempSync(path.join(os.tmpdir(), 'ibex-module-baseline-build-'));
   try {
     const started = performance.now();
-    run('cargo', ['build', '--release', '--bin', 'ibex'], {
+    const cargoArgs = ['build', '--release', '--bin', 'ibex'];
+    if (options.noDefaultFeatures) cargoArgs.push('--no-default-features');
+    run('cargo', cargoArgs, {
       env: { ...process.env, CARGO_TARGET_DIR: targetDir },
     });
     const cleanBuildSeconds = (performance.now() - started) / 1000;
@@ -83,6 +87,7 @@ function main() {
       path.resolve(options.write),
     ];
     if (options.hostContentionObserved) benchmarkArgs.push('--host-contention-observed');
+    if (options.noDefaultFeatures) benchmarkArgs.push('--no-default-features');
     run(process.execPath, benchmarkArgs);
   } finally {
     if (ownsTarget) rmSync(targetDir, { recursive: true, force: true });

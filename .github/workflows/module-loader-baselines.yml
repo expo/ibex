@@ -48,6 +48,9 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
+          - os: windows-2025
+            platform: win32
+            arch: x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
@@ -76,9 +79,16 @@ jobs:
       # one patch identity. Mixing React Native headers with another framework
       # is not admissible evidence for the native record ABI.
       - name: Install matching patched Hermes toolchain
+        if: runner.os != 'Windows'
         run: ./scripts/download-hermes.sh
 
+      - name: Install Windows Hermes toolchain
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install-windows-hermes.ps1
+
       - name: Run native ESM and CommonJS record corpus
+        shell: bash
         run: |
           cargo check --all-targets
           cargo check --all-targets --no-default-features
@@ -107,6 +117,10 @@ jobs:
           - os: ubuntu-latest
             report: performance-linux-x64
             platform: linux
+            arch: x64
+          - os: windows-2025
+            report: performance-windows-x64
+            platform: win32
             arch: x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -137,23 +151,41 @@ jobs:
           sudo apt-get install -y libcurl4-openssl-dev pkg-config
 
       - name: Install patched Hermes artifacts
+        if: runner.os != 'Windows'
         run: ./scripts/download-hermes.sh
+
+      - name: Install Windows Hermes artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install-windows-hermes.ps1
 
       - name: Install JavaScript toolchain
         run: bun install --frozen-lockfile
 
       - name: Collect fail-loud clean-build and loader baseline
+        shell: bash
         run: |
           node packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs \
             --samples 5 \
+            --no-default-features \
+            --target-dir "$RUNNER_TEMP/module-loader-target" \
             --expect-os "${{ matrix.platform }}" \
             --expect-arch "${{ matrix.arch }}" \
             --write "$RUNNER_TEMP/${{ matrix.report }}.json"
+
+          IBEX_MODULE_RUNNER_PERF_OUTPUT="$RUNNER_TEMP/native-${{ matrix.report }}.json" \
+          IBEX_MODULE_RUNNER_PERF_SAMPLES=5 \
+          CARGO_TARGET_DIR="$RUNNER_TEMP/module-loader-target" \
+            cargo test --release --lib \
+              host::tests::module_runner_performance_baseline -- \
+              --ignored --exact --nocapture
 
       - name: Upload baseline evidence
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.report }}
-          path: ${{ runner.temp }}/${{ matrix.report }}.json
+          path: |
+            ${{ runner.temp }}/${{ matrix.report }}.json
+            ${{ runner.temp }}/native-${{ matrix.report }}.json
           if-no-files-found: error
           retention-days: 30

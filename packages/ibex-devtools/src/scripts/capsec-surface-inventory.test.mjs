@@ -3449,7 +3449,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
 
   test("every live fixed reference joins one exact structural definition", () => {
     const rows = fixedRuntimeSurfaceInventory();
-    expect(rows).toHaveLength(73);
+    expect(rows).toHaveLength(77);
     expect(() => validateFixedRuntimeSurfaceRefs(repoRoot, rows)).not.toThrow();
   });
 

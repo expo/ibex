@@ -49,6 +49,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -238,6 +239,10 @@ struct ExactHermesRuntime {
   std::unordered_map<uint32_t, std::string> script_id_to_name;
   std::unordered_map<std::string, std::string> sources_by_name;
   std::thread::id runtime_thread;
+  // Trusted bootstrap scripts execute before this handle is published in the
+  // live runtime registry. Only the constructing owner thread may use that
+  // narrow pre-publication evaluation window.
+  bool bootstrap_in_progress{true};
   // Private evaluator capabilities captured before lockdown deletes/tames the
   // corresponding globals. They are reachable only through the native module
   // ABI and are released on the runtime owner thread during teardown.
@@ -248,6 +253,11 @@ struct ExactHermesRuntime {
   std::unordered_map<uint64_t, GraphContextEntry> graph_contexts;
   std::unordered_map<uint64_t, NativeModuleRecordEntry> module_records;
   std::unordered_map<uint64_t, NativeCommonJsRecordEntry> commonjs_records;
+  // One evaluated prepared carrier table per authenticated principal/content
+  // pair. Individual module handles select factories from this retained table.
+  std::map<std::tuple<uint32_t, std::string, std::string>,
+           std::shared_ptr<facebook::jsi::Object>>
+      prepared_carrier_tables;
   uint64_t next_timer_id{1};
   std::unordered_map<uint64_t, TimerEntry> timers;
   std::deque<NextTickEntry> next_tick;

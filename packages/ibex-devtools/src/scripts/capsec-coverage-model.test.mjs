@@ -3779,6 +3779,14 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       rationaleId: "module-reachability-only",
     });
     expect(
+      edgeByObservedKey.get(
+        "host-abi:ex_hermes_module_load_carrier_factory",
+      ),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "module-reachability-only",
+    });
+    expect(
       edgeByObservedKey.get("host-abi:ex_hermes_module_release_handle"),
     ).toMatchObject({
       classification: "non-capability",

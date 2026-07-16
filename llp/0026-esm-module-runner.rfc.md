@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
+**Revised:** 2026-07-15 (ENG-25065 limited trusted bootstrap evaluation to the unpublished owner-thread construction window while retaining the generation drive gate after publication); 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
 handled internal record promises, fresh ESM/CommonJS dynamic-import promises,
 sticky rejection, event-loop keepalive, and mixed re-entry refusal); 2026-07-15
 (ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
@@ -831,7 +831,11 @@ rather than tolerating its violation. That assertion becomes contract: the
 adoption set amends LLPs 0002/0003 to make every runtime-driving entry point
 (`eval`, `poll`, and the runner ingresses) owner-thread-only and serialized,
 enforced with a stable refusal — today only destruction checks the owning
-thread — with concurrent and off-owner-call fixtures. The corpus includes direct, transitive,
+thread — with concurrent and off-owner-call fixtures. Trusted bootstrap script
+evaluation is the sole pre-publication exception: it runs only on the
+constructing owner thread while the handle is unreachable from the live
+runtime registry. Publication closes that construction window before any
+external runtime-driving ingress can obtain the handle. The corpus includes direct, transitive,
 cyclic, and disjoint-overlap interleaving fixtures.
 
 Synchronous *cycles* are defined by the same state machine. Within one

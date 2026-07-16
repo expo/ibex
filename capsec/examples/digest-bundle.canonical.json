@@ -140328,6 +140328,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_module_load_carrier_factory"
+            },
+            "rationaleId": "module-reachability-only",
+            "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
             "classification": "non-capability",
             "surface": {
@@ -155293,6 +155303,64 @@
                 "object-identity-mismatch"
               ]
             }
+          },
+          {
+            "id": "surface.loader.function.rust.load.runner.source.0me5nub",
+            "classification": "effects",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:load_runner_source"
+            },
+            "effects": [
+              {
+                "cap": "fs:read",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "loader-referrer"
+            ],
+            "effectOwnerSource": "loader-referrer",
+            "gate": "loader-admission",
+            "effectMode": "conjunctive",
+            "atomicityGroup": "surface.loader.function.rust.load.runner.source.0me5nub.decision",
+            "lifetimeContract": "operation",
+            "barriers": {
+              "authorizeBefore": [
+                "module-resolution",
+                "source-read",
+                "module-admission"
+              ],
+              "recheckAt": [
+                "dynamic-import"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
+            "id": "surface.loader.function.rust.load.runner.source.bytes.1avskw7",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:rust:load_runner_source_bytes"
+            },
+            "rationaleId": "trusted-loader-source-acquisition",
+            "rationale": "The trusted loader may acquire only the source, cache entry, or prepared carrier named by a previously authorized exact module edge; the receipt is non-delegable and conveys no filesystem authority."
           },
           {
             "id": "surface.loader.function.rust.load.source.1lpnc7u",
@@ -257813,6 +257881,16 @@
                 "peer-mismatch"
               ]
             }
+          },
+          {
+            "id": "surface.startup.env.ibex.legacy.module.loader.0jlar90",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "env:IBEX_LEGACY_MODULE_LOADER"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
           },
           {
             "id": "surface.startup.env.ibex.lockdown.1o2femx",

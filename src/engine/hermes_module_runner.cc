@@ -905,6 +905,8 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     size_t semantic_digest_len,
     const uint8_t* source_id,
     size_t source_id_len,
+    const uint8_t* carrier_digest,
+    size_t carrier_digest_len,
     const uint8_t* carrier_bytes,
     size_t carrier_bytes_len,
     uint32_t carrier_encoding,
@@ -922,6 +924,7 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
   if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 1 ||
       carrier_encoding > 1 || out_factory == nullptr ||
       semantic_digest == nullptr || source_id == nullptr || source_id_len == 0 ||
+      carrier_digest == nullptr ||
       carrier_bytes == nullptr || carrier_bytes_len == 0 || entry_id == nullptr ||
       entry_id_len == 0 || source_label == nullptr ||
       (compartment_identity_len != 0 && compartment_identity == nullptr)) {
@@ -936,6 +939,12 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
       reinterpret_cast<const char*>(semantic_digest), semantic_digest_len);
   if (!validDigest(digest)) {
     writeError(out_error, "module artifact semantic digest is not canonical");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string admittedCarrierDigest(
+      reinterpret_cast<const char*>(carrier_digest), carrier_digest_len);
+  if (!validDigest(admittedCarrierDigest)) {
+    writeError(out_error, "prepared carrier digest is not canonical");
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   const std::string compartment(
@@ -967,63 +976,72 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     }
 #endif
 
-    std::shared_ptr<facebook::jsi::Buffer> buffer;
-    if (carrier_encoding == 1) {
-      buffer = std::make_shared<CarrierAlignedBytecodeBuffer>(
-          carrier_bytes, carrier_bytes_len);
-      const auto* alignedData = buffer->data();
-#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
-      std::string reason;
-      if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
-              alignedData, carrier_bytes_len, &reason)) {
-#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
-        ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
-#endif
-        writeError(out_error, "Bytecode sanity check failed: " + reason);
-        return 2;
-      }
-#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
-      std::string reason;
-      auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
-          facebook::hermes::makeHermesRootAPI());
-      if (root == nullptr ||
-          !root->hermesBytecodeSanityCheck(
-              alignedData, carrier_bytes_len, &reason)) {
-#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
-        ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
-#endif
-        writeError(
-            out_error,
-            "Bytecode sanity check failed: " +
-                (root == nullptr ? std::string("Hermes root API unavailable")
-                                 : reason));
-        return 2;
-      }
-#else
-      (void)alignedData;
-#endif
+    const auto cacheKey =
+        std::make_tuple(principal_id, compartment, admittedCarrierDigest);
+    std::shared_ptr<facebook::jsi::Object> table;
+    auto cached = runtime->prepared_carrier_tables.find(cacheKey);
+    if (cached != runtime->prepared_carrier_tables.end()) {
+      table = cached->second;
     } else {
-      buffer = std::make_shared<CarrierMemoryBuffer>(
-          carrier_bytes, carrier_bytes_len);
-    }
+      std::shared_ptr<facebook::jsi::Buffer> buffer;
+      if (carrier_encoding == 1) {
+        buffer = std::make_shared<CarrierAlignedBytecodeBuffer>(
+            carrier_bytes, carrier_bytes_len);
+        const auto* alignedData = buffer->data();
+#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
+        std::string reason;
+        if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
+                alignedData, carrier_bytes_len, &reason)) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+          ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
+#endif
+          writeError(out_error, "Bytecode sanity check failed: " + reason);
+          return 2;
+        }
+#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
+        std::string reason;
+        auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+            facebook::hermes::makeHermesRootAPI());
+        if (root == nullptr ||
+            !root->hermesBytecodeSanityCheck(
+                alignedData, carrier_bytes_len, &reason)) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+          ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
+#endif
+          writeError(
+              out_error,
+              "Bytecode sanity check failed: " +
+                  (root == nullptr ? std::string("Hermes root API unavailable")
+                                   : reason));
+          return 2;
+        }
+#else
+        (void)alignedData;
+#endif
+      } else {
+        buffer = std::make_shared<CarrierMemoryBuffer>(
+            carrier_bytes, carrier_bytes_len);
+      }
 
-    const std::string label = safeSourceLabel(source_label, source_label_len);
-    auto tableValue = rt.evaluateJavaScript(buffer, label);
+      const std::string label = safeSourceLabel(source_label, source_label_len);
+      auto tableValue = rt.evaluateJavaScript(buffer, label);
+      if (!tableValue.isObject()) {
+        throw facebook::jsi::JSError(
+            rt, "prepared carrier did not evaluate to a factory table");
+      }
+      table = std::make_shared<facebook::jsi::Object>(tableValue.asObject(rt));
+      runtime->prepared_carrier_tables.emplace(cacheKey, table);
+    }
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
 #endif
-    if (!tableValue.isObject()) {
-      throw facebook::jsi::JSError(
-          rt, "prepared carrier did not evaluate to a factory table");
-    }
-    auto table = tableValue.asObject(rt);
     const std::string entry(
         reinterpret_cast<const char*>(entry_id), entry_id_len);
     auto property = facebook::jsi::PropNameID::forUtf8(rt, entry);
-    if (!table.hasProperty(rt, property)) {
+    if (!table->hasProperty(rt, property)) {
       throw facebook::jsi::JSError(rt, "prepared carrier entry is absent");
     }
-    auto factoryValue = table.getProperty(rt, property);
+    auto factoryValue = table->getProperty(rt, property);
     if (!factoryValue.isObject() ||
         !factoryValue.asObject(rt).isFunction(rt)) {
       throw facebook::jsi::JSError(
