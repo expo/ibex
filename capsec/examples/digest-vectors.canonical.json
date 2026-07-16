@@ -9,7 +9,7 @@
       "omitFields": [
         "armedSnapshotDigest"
       ],
-      "expectedDigest": "sha256-yLTQmbcnw7IRCwvPtnSEJ_Oncex3Ay3aymGyVhNAtMs"
+      "expectedDigest": "sha256-07myT6QqLxLuZCz7fMxerhsUw4LdhbmmPgteXdxNf1M"
     },
     {
       "id": "conformance",
@@ -31,14 +31,14 @@
       "omitFields": [
         "policyDigest"
       ],
-      "expectedDigest": "sha256-AwbQFpZAzXVePDCfuD2ApQDcGdfZL7t2GIGGIiPgu-M"
+      "expectedDigest": "sha256-UAdwb1kC2zF1wDjlcroa_Z17REvuRZln5E76nN8JBm0"
     },
     {
       "id": "registry",
       "domain": "ibex:capsec:registry:1",
       "payloadRef": "examples/registry-digest-bundle.canonical.json",
       "omitFields": [],
-      "expectedDigest": "sha256-yVj6A27H-eF7lVPUd9WuhB9bu9XN9vSQ-KB5y9M-yr0"
+      "expectedDigest": "sha256-rEOXihC6W8Qhljizund29BwpO3amarX2XT8tiFuXaII"
     },
     {
       "id": "vocabulary",
