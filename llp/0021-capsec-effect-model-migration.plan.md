@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-16 (ENG-24933 binds direct `statfs` metadata to retained typed `fs:list` authorization and closes five exact public scenarios)
 **Revised:** 2026-07-16 (ENG-24933 binds asynchronous `chmod` and `utime` to retained files, repeats authorization on the worker, and closes twelve exact public scenarios with owned cleanup)
 **Revised:** 2026-07-15 (ENG-25062 registered the module-runner factory, record, CJS-to-ESM edge, generation-lease, and compatibility-marker surfaces as closed non-capability control-plane operations)
 **Revised:** 2026-07-15 (ENG-25066 made the authenticated graph decision set and process-stable principal projection the ordinary-ESM execution path)
@@ -593,14 +594,14 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalog has 23,166 required
-fixtures, 4,718 fully executable recipes, and 18,448 unresolved
+fixtures, 4,723 fully executable recipes, and 18,443 unresolved
 fixtures. The latest source-bound tranche adds five cached system-information
 authorization scenarios and twelve asynchronous path-operation scenarios for
-the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime` scenarios,
-plus five zlib stream lifecycle recipes, eleven TLS lifecycle recipes, and a
-principal-owned network stamp recipe. The resource recipes create, exercise,
-and release their runtime/principal-owned native state in one bounded
-invocation. Fourteen Linux/Android-only
+the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime`
+scenarios, five retained-target direct `statfs` scenarios, plus five zlib
+stream lifecycle recipes, eleven TLS lifecycle recipes, and a principal-owned
+network stamp recipe. The resource recipes create, exercise, and release their
+runtime/principal-owned native state in one bounded invocation. Fourteen Linux/Android-only
 `node:constants` exports now carry source-bound Apple absence evidence from the
 real public module path rather than remaining generic availability residuals.
 Async evidence remains open through a bounded event-loop quiescence drain and

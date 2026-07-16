@@ -781,6 +781,40 @@ const nativeProjectMetadataTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectStatfsTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [literalArgument("Cargo.toml")],
+    expectedDecisionCounts: {
+      allow: 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [],
+  });
 const nativeProjectReadFileTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:read"],
@@ -831,6 +865,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  ["__exactStatfs", nativeProjectStatfsTemplate()],
   [
     "__exactAuthorizeSystemInfo",
     nativeCachedSystemInfoTemplate("platform", 11),

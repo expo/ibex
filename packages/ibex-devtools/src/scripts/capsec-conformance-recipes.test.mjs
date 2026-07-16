@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(334);
+    expect(nativePublicFixtures).toHaveLength(339);
     expect(
       nativePublicFixtures
         .filter(
@@ -807,6 +807,31 @@ describe("exact-target CapSec executable recipes", () => {
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
         recipe.scenario === "deny" ? 1 : 5,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("executes the direct native statfs metadata surface", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactStatfs",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "Cargo.toml" },
+      ]);
+      expect(invocation.expectedActionIds).toEqual(["fs:list"]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 3,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
