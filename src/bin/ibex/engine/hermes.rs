@@ -159,6 +159,18 @@ extern "C" {
     ) -> *mut HermesRuntimeOpaque;
     #[cfg(any(test, feature = "module-runner"))]
     fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
+    #[cfg(feature = "module-runner")]
+    fn ex_hermes_module_pin_generation(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        graph_generation: u64,
+    ) -> i32;
+    #[cfg(feature = "module-runner")]
+    fn ex_hermes_module_unpin_generation(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        graph_generation: u64,
+    ) -> i32;
     fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     fn ex_hermes_set_host_call(
         runtime: *mut HermesRuntimeOpaque,
@@ -1270,26 +1282,57 @@ impl HermesEngine {
         self.maybe_enable_debugger().await?;
         self.ensure_thread()?;
         let runtime = self.ensure_runtime().await?;
-        let result = runtime.with_runtime(|raw| -> Result<Option<String>> {
-            let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
-            let raw = NonNull::new(raw.cast())
-                .ok_or_else(|| anyhow!("Hermes module runtime pointer is null"))?;
-            let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
-            let plan = graph.plan()?;
-            let generation = 1;
-            let (configs, authority_contexts) = graph.native_execution_inputs(generation)?;
-            let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
-            let prepared_entries = graph.prepared_entries()?;
-            let has_top_level_await = plan.evaluation_order(graph.entry())?.iter().try_fold(
-                false,
-                |found, source_id| {
-                    Ok::<_, anyhow::Error>(found || plan.has_top_level_await(source_id)?)
-                },
-            )?;
+        let generation = 1;
+        let nonce = runtime.with_runtime(|raw| unsafe { ex_hermes_runtime_nonce(raw) })?;
+        let pin_status = runtime.with_runtime(|raw| unsafe {
+            ex_hermes_module_pin_generation(raw, nonce, generation)
+        })?;
+        if pin_status != 0 {
+            anyhow::bail!("native module graph generation pin refused ({pin_status})");
+        }
+        let evaluation = runtime
+            .with_runtime(|raw| -> Result<Option<String>> {
+                let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+                let raw = NonNull::new(raw.cast())
+                    .ok_or_else(|| anyhow!("Hermes module runtime pointer is null"))?;
+                let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
+                let plan = graph.plan()?;
+                let (configs, authority_contexts) = graph.native_execution_inputs(generation)?;
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let prepared_entries = graph.prepared_entries()?;
+                let has_top_level_await = plan.evaluation_order(graph.entry())?.iter().try_fold(
+                    false,
+                    |found, source_id| {
+                        Ok::<_, anyhow::Error>(found || plan.has_top_level_await(source_id)?)
+                    },
+                )?;
 
-            if !has_top_level_await {
+                if !has_top_level_await {
+                    let mut linked = match prepared_entries.as_ref() {
+                        Some(entries) => NativeSynchronousGraph::link_authorized_prepared(
+                            &native_runtime,
+                            &plan,
+                            graph.entry(),
+                            configs,
+                            &authorizer,
+                            &authority_contexts,
+                            entries,
+                        )?,
+                        None => NativeSynchronousGraph::link_authorized(
+                            &native_runtime,
+                            &plan,
+                            graph.entry(),
+                            configs,
+                            &authorizer,
+                            &authority_contexts,
+                        )?,
+                    };
+                    linked.evaluate()?;
+                    return Ok(None);
+                }
+
                 let mut linked = match prepared_entries.as_ref() {
-                    Some(entries) => NativeSynchronousGraph::link_authorized_prepared(
+                    Some(entries) => NativeAsynchronousGraph::link_authorized_prepared(
                         &native_runtime,
                         &plan,
                         graph.entry(),
@@ -1298,7 +1341,7 @@ impl HermesEngine {
                         &authority_contexts,
                         entries,
                     )?,
-                    None => NativeSynchronousGraph::link_authorized(
+                    None => NativeAsynchronousGraph::link_authorized(
                         &native_runtime,
                         &plan,
                         graph.entry(),
@@ -1307,61 +1350,55 @@ impl HermesEngine {
                         &authority_contexts,
                     )?,
                 };
-                linked.evaluate()?;
-                return Ok(None);
-            }
-
-            let mut linked = match prepared_entries.as_ref() {
-                Some(entries) => NativeAsynchronousGraph::link_authorized_prepared(
-                    &native_runtime,
-                    &plan,
-                    graph.entry(),
-                    configs,
-                    &authorizer,
-                    &authority_contexts,
-                    entries,
-                )?,
-                None => NativeAsynchronousGraph::link_authorized(
-                    &native_runtime,
-                    &plan,
-                    graph.entry(),
-                    configs,
-                    &authorizer,
-                    &authority_contexts,
-                )?,
-            };
-            loop {
-                match linked.poll()? {
-                    AsyncGraphPoll::Evaluated => return Ok(None),
-                    AsyncGraphPoll::Suspended => {
-                        let now = unsafe { ex_hermes_now_ms() };
-                        let executed = unsafe { ex_hermes_poll(raw.as_ptr().cast(), now) };
-                        if executed < 0 {
-                            anyhow::bail!(
-                                "Hermes task execution failed while evaluating module graph"
-                            );
-                        }
-                        if executed == 0 {
-                            let next = unsafe { ex_hermes_next_timer(raw.as_ptr().cast()) };
-                            if next < 0 {
+                loop {
+                    match linked.poll()? {
+                        AsyncGraphPoll::Evaluated => return Ok(None),
+                        AsyncGraphPoll::Suspended => {
+                            let now = unsafe { ex_hermes_now_ms() };
+                            let executed = unsafe { ex_hermes_poll(raw.as_ptr().cast(), now) };
+                            if executed < 0 {
                                 anyhow::bail!(
-                                    "top-level-await module graph suspended without a runnable task"
+                                    "Hermes task execution failed while evaluating module graph"
                                 );
                             }
-                            let delay = (next as u64).saturating_sub(now).min(50);
-                            if delay > 0 {
-                                std::thread::sleep(std::time::Duration::from_millis(delay));
+                            if executed == 0 {
+                                let next = unsafe { ex_hermes_next_timer(raw.as_ptr().cast()) };
+                                if next < 0 {
+                                    anyhow::bail!(
+                                    "top-level-await module graph suspended without a runnable task"
+                                );
+                                }
+                                let delay = (next as u64).saturating_sub(now).min(50);
+                                if delay > 0 {
+                                    std::thread::sleep(std::time::Duration::from_millis(delay));
+                                }
                             }
                         }
                     }
                 }
+            })
+            .and_then(|result| result);
+        let result = match evaluation {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = runtime.with_runtime(|raw| unsafe {
+                    ex_hermes_module_unpin_generation(raw, nonce, generation)
+                });
+                return Err(error);
             }
-        })??;
+        };
         // File execution owns the same post-evaluation event-loop drive as
         // `run_file`: timers and host callbacks scheduled by a synchronous
         // module graph must not be dropped merely because graph evaluation
         // itself did not suspend on top-level await.
-        self.drive_event_loop().await?;
+        let drive_result = self.drive_event_loop().await;
+        let unpin_status = runtime.with_runtime(|raw| unsafe {
+            ex_hermes_module_unpin_generation(raw, nonce, generation)
+        })?;
+        if unpin_status != 0 {
+            anyhow::bail!("native module graph generation unpin refused ({unpin_status})");
+        }
+        drive_result?;
         Ok(result)
     }
 

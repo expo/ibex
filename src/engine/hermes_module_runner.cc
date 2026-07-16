@@ -1502,6 +1502,51 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
 
+extern "C" int32_t ex_hermes_module_pin_generation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (graph_generation == 0 ||
+      !runtime->pinned_module_generations.insert(graph_generation).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_module_unpin_generation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  if (runtime->pinned_module_generations.erase(graph_generation) != 1) {
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  for (auto it = runtime->commonjs_records.begin();
+       it != runtime->commonjs_records.end();) {
+    if (it->second.graph_generation != graph_generation) {
+      ++it;
+      continue;
+    }
+    const uint64_t contextId = it->second.context_handle_id;
+    it = runtime->commonjs_records.erase(it);
+    releaseContextReference(runtime, contextId);
+  }
+  for (auto it = runtime->module_records.begin();
+       it != runtime->module_records.end();) {
+    if (it->second.graph_generation != graph_generation) {
+      ++it;
+      continue;
+    }
+    const uint64_t contextId = it->second.context_handle_id;
+    it = runtime->module_records.erase(it);
+    releaseContextReference(runtime, contextId);
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 extern "C" int32_t ex_hermes_module_release_handle(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -1521,6 +1566,9 @@ extern "C" int32_t ex_hermes_module_release_handle(
   auto record = runtime->module_records.find(handle.opaque[2]);
   if (record != runtime->module_records.end() &&
       record->second.graph_generation == handle.opaque[1]) {
+    if (runtime->pinned_module_generations.count(handle.opaque[1]) != 0) {
+      return EXACT_RUNTIME_DRIVE_OK;
+    }
     for (auto& [_, commonjs] : runtime->commonjs_records) {
       if (commonjs.adapter_record_id == handle.opaque[2]) {
         commonjs.adapter_record_id = 0;
@@ -1534,6 +1582,9 @@ extern "C" int32_t ex_hermes_module_release_handle(
   auto commonjs = runtime->commonjs_records.find(handle.opaque[2]);
   if (commonjs != runtime->commonjs_records.end() &&
       commonjs->second.graph_generation == handle.opaque[1]) {
+    if (runtime->pinned_module_generations.count(handle.opaque[1]) != 0) {
+      return EXACT_RUNTIME_DRIVE_OK;
+    }
     releaseContextReference(runtime, commonjs->second.context_handle_id);
     runtime->commonjs_records.erase(commonjs);
     return EXACT_RUNTIME_DRIVE_OK;

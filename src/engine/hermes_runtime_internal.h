@@ -264,6 +264,7 @@ struct ExactHermesRuntime {
   std::unordered_map<uint64_t, GraphContextEntry> graph_contexts;
   std::unordered_map<uint64_t, NativeModuleRecordEntry> module_records;
   std::unordered_map<uint64_t, NativeCommonJsRecordEntry> commonjs_records;
+  std::set<uint64_t> pinned_module_generations;
   // One evaluated prepared carrier table per authenticated principal/content
   // pair. Individual module handles select factories from this retained table.
   std::map<std::tuple<uint32_t, std::string, std::string>,

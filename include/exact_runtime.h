@@ -230,6 +230,19 @@ int32_t ex_hermes_commonjs_record_create_esm_adapter(
     ExactModuleRunnerHandle* out_adapter,
     char** out_error);
 
+/// Retain every record in one authenticated graph generation through the
+/// embedder event-loop drive. Released Rust handles become deferred cleanup.
+int32_t ex_hermes_module_pin_generation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation);
+
+/// End a generation lease and synchronously release all deferred records.
+int32_t ex_hermes_module_unpin_generation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    uint64_t graph_generation);
+
 /// Release one factory/record/context capability. Stale, wrong-runtime, and
 /// already-released handles fail closed without dereferencing their payload.
 int32_t ex_hermes_module_release_handle(

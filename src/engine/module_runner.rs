@@ -82,6 +82,18 @@ unsafe extern "C" {
         runtime_nonce: u64,
         handle: NativeModuleHandle,
     ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_module_pin_generation(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        graph_generation: u64,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_module_unpin_generation(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        graph_generation: u64,
+    ) -> i32;
     fn ex_hermes_graph_context_create(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -3084,6 +3096,100 @@ mod tests {
             );
 
             drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn pinned_generation_keeps_fire_and_forget_dynamic_target_live() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            assert_eq!(ex_hermes_module_pin_generation(raw, nonce, 1), 0);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let target_id = SourceId::synthetic("module-runner-test", "pinned-target").unwrap();
+            let entry_id = SourceId::synthetic("module-runner-test", "pinned-entry").unwrap();
+            let target = asynchronous_artifact(
+                test_artifact_with_factory(
+                    target_id.clone(),
+                    "function ($export) { return { declare: function () {}, execute: function () { return Promise.resolve().then(function () { $export('value', 73); }); } }; }",
+                    &["value"],
+                ),
+                Vec::new(),
+            );
+            let entry = {
+                let artifact = test_artifact_with_factory(
+                    entry_id.clone(),
+                    "function ($export, context) { return { declare: function () {}, execute: function () { context.dynamicImport('./target').then(function (namespace) { globalThis.pinnedDynamicValue = namespace.value; }); } }; }",
+                    &[],
+                );
+                let crate::module_loader::artifact::ModulePayloadV1::Inline {
+                    factory_source, ..
+                } = artifact.payload
+                else {
+                    unreachable!()
+                };
+                let mut semantics = artifact.semantics;
+                semantics.dynamic_edges = vec![DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }];
+                ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer).unwrap()
+            };
+            let plan = SynchronousGraphPlan::new([
+                (verify_test_artifact(&target), BTreeMap::new()),
+                (
+                    verify_test_artifact(&entry),
+                    BTreeMap::from([("./target".into(), target_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    format!("{label}.mjs"),
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph = NativeSynchronousGraph::link(
+                &runtime,
+                &plan,
+                &entry_id,
+                BTreeMap::from([
+                    (target_id.clone(), config(target_id, "pinned-target")),
+                    (entry_id.clone(), config(entry_id.clone(), "pinned-entry")),
+                ]),
+            )
+            .unwrap();
+            graph.evaluate().unwrap();
+            drop(graph);
+            for tick in 0..8 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+            }
+            let source = "String(globalThis.pinnedDynamicValue)";
+            let source_url = CString::new("pinned-dynamic-observation.js").unwrap();
+            let mut output = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_eval(
+                    raw,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut output,
+                ),
+                0
+            );
+            assert_eq!(take_error(output), "73");
+            assert_eq!(ex_hermes_module_unpin_generation(raw, nonce, 1), 0);
+
             drop(runtime);
             ex_hermes_destroy(raw);
         }
