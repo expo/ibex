@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-16 (ENG-24933 completes malformed, missing-attribution, and wrong-principal scenarios for bounded loopback TCP connect)
 **Revised:** 2026-07-16 (ENG-24933 completes thirty-six malformed, missing-attribution, and wrong-principal scenarios for system information, environment, and stdout)
 **Revised:** 2026-07-16 (ENG-24933 closes twelve malformed, missing-attribution, and wrong-principal scenarios for retained metadata and whole-file reads)
 **Revised:** 2026-07-16 (ENG-24933 binds direct `statfs` metadata to retained typed `fs:list` authorization and closes five exact public scenarios)
@@ -596,15 +597,16 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalog has 23,166 required
-fixtures, 4,771 fully executable recipes, and 18,395 unresolved
+fixtures, 4,774 fully executable recipes, and 18,392 unresolved
 fixtures. The latest source-bound tranche adds five cached system-information
 authorization scenarios and twelve asynchronous path-operation scenarios for
 the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime`
 scenarios, five retained-target direct `statfs` scenarios, twelve complete
 malformed/attribution/principal scenarios for retained metadata and whole-file
 reads, thirty-six complete malformed/attribution/principal scenarios for system
-information, environment, and stdout, plus five zlib stream lifecycle recipes,
-eleven TLS lifecycle recipes, and a principal-owned network stamp recipe. The
+information, environment, and stdout, three complete adversarial loopback TCP
+connect scenarios, plus five zlib stream lifecycle recipes, eleven TLS lifecycle
+recipes, and a principal-owned network stamp recipe. The
 resource recipes create, exercise, and release their runtime/principal-owned
 native state in one bounded invocation. Fourteen Linux/Android-only
 `node:constants` exports now carry source-bound Apple absence evidence from the

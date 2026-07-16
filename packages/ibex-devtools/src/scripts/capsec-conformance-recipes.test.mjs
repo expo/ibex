@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(387);
+    expect(nativePublicFixtures).toHaveLength(390);
     expect(
       nativePublicFixtures
         .filter(
@@ -117,6 +117,9 @@ describe("exact-target CapSec executable recipes", () => {
     ).toEqual([
       ["__exactTcpConnect", "allow"],
       ["__exactTcpConnect", "deny"],
+      ["__exactTcpConnect", "malformed"],
+      ["__exactTcpConnect", "missing-attribution"],
+      ["__exactTcpConnect", "wrong-principal"],
     ]);
     expect(
       nativePublicFixtures.filter(
@@ -527,7 +530,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.globalName ===
         "__exactTcpConnect",
     );
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(5);
     for (const recipe of rows) {
       expect(recipe.publicSurfaceProbe.command).toEqual([
         "cargo",
@@ -558,12 +561,12 @@ describe("exact-target CapSec executable recipes", () => {
       });
       expect(invocation.sourceDescriptorDigest).toMatch(/^sha256-/u);
       expect(invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow"
-          ? ["requested", "candidate", "commit"]
-          : ["requested"],
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "candidate", "commit"],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "allow" ? 3 : 1,
+        recipe.scenario === "deny" ? 1 : 3,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
