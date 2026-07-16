@@ -5,6 +5,10 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-15 (ENG-24578 binds cwd disclosure to the public
+`process.cwd` facade over the sealed private bridge, and records the legacy
+`.node`/`.wasm` resolver facets as residual until an authenticated source-bound
+executor can distinguish their private rejection branches.)
 **Revised:** 2026-07-15 (ENG-24578 aligns non-recursive armed `mkdir`
 with LLP 0023's one-`mkdirat` contract: authorization retains the parent and
 preauthorizes the absent child, but a failed post-create commit never performs
@@ -1008,12 +1012,15 @@ principal's runtime-scoped overlay. Scalar read, mutation, and each non-empty
 enumeration member take exact-name typed decisions at requested and commit;
 `env:read` and `env:write` remain independent. A write changes neither the host
 process environment nor another principal's overlay, and a fresh runtime starts
-empty. Process cwd disclosure now
-uses the same exact typed `sys:read`
-plane as other system information: requested and commit authorize the `cwd`
-selector before `getcwd`, while denial occurs before disclosure. Cwd mutation
-remains denied without changing the host process directory. Live armed
-fixtures cover these boundaries.
+empty. Process cwd disclosure uses its distinct `path:cwd-observe` action over
+the exact `session-state` / `cwd` selector: requested and commit authorize the
+read before `getcwd`, while denial occurs before disclosure. The armed root
+realm exposes only `process.cwd`; that public function has captured the sealed
+private `__exactGetCwd` bridge, whose own root property remains absent. The
+source-derived facade path and both root-global disposition identities are
+digest-bound in the loaded-engine fixture. Cwd mutation remains denied without
+changing the host process directory. Live armed fixtures cover these
+boundaries.
 The same live fixture invokes shell exec, synchronous spawn, and asynchronous
 spawn with a real marker-file command. All three are denied at the armed native
 boundary and the marker remains absent, so executable selection, child
@@ -1051,10 +1058,14 @@ VM, WASI, or worker escape surfaces; ordinary typed builtins such as `node:fs`
 remain governed by the snapshot import policy.
 On-disk `.node` native-addon and `.wasm` module candidates now refuse in the
 native resolver before their bytes are read into the JavaScript compilation
-path. Exact loaded-engine fixtures use valid JavaScript payloads under both
-extensions and require the resolver-specific refusal while proving the payload
-marker never executes; both the public loader-kind facet and its compatibility
-module facet bind to that same runtime-derived denial.
+path. The authenticated VFS import path used by loaded-engine conformance does
+not execute the legacy `resolve_with_oxc` facet named by those inventory rows,
+and its normalized public error cannot identify which private rejection branch
+fired. The public loader-kind and compatibility-module facets therefore remain
+residual even though the underlying resolver refusal is implemented. Promotion
+requires a future authenticated, source-bound executor that reaches and
+distinguishes each legacy branch without treating a generic failed import as
+branch evidence.
 The eight native OS-information functions used by public `node:os` now enter
 the same exact typed plane on every implementation target. Hostname, CPU,
 memory, uptime, user, load-average, and network-interface reads authorize both

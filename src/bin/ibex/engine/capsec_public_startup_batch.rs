@@ -504,7 +504,7 @@ async fn execute_startup_recipe(
     );
     let (host, snapshot_digest) =
         build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
-    assert_ne!(crate::host::abi::install_host(host), 0);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
     let session_id = format!("startup-observation:{}", recipe.plan_digest);
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
@@ -516,14 +516,16 @@ async fn execute_startup_recipe(
         .load_runtime()
         .await
         .expect("load exact startup probe runtime");
-    let encoded = engine
-        .eval_immediate(&startup_postcondition_script(
+    let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+    let encoded = evaluator
+        .eval_string(
+            &engine,
+            &startup_postcondition_script(
             expected.postcondition,
             &recipe.plan_digest,
-        ))
-        .await
-        .expect("execute startup postcondition project probe")
-        .expect("startup postcondition project probe returned no result");
+            ),
+        )
+        .await;
     let observed: serde_json::Value =
         serde_json::from_str(&encoded).expect("startup postcondition result must be JSON");
     let observed_facts: BTreeMap<String, bool> =

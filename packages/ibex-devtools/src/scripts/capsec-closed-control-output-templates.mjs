@@ -7,8 +7,9 @@
  * observation; it may not turn that failure into a successful wrapper return.
  *
  * @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces —
- * closed CLI, startup-environment, and executable-loader controls must refuse
- * at their production boundary.
+ * closed CLI and startup-environment controls must refuse at their production
+ * boundary. Legacy executable-loader facets remain residual until an
+ * authenticated source-bound executor can identify their private branch.
  * @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — a
  * compiled registrar is not execution evidence for an output value.
  * @ref LLP 0023#6-path-bearing-observables — output-shape plans carry only
@@ -26,7 +27,6 @@ export const CLOSED_CONTROL_OUTPUT_TIMEOUT_MILLISECONDS = 1_000;
 const OUTPUT_OPERATION_KINDS = new Set([
   "cli-control",
   "startup-environment",
-  "loader-executable-file",
 ]);
 
 function taggedDigest(value) {
@@ -93,12 +93,6 @@ function outputOperation(operation) {
       return {
         kind: operation.kind,
         environmentName: operation.environmentName,
-      };
-    case "loader-executable-file":
-      return {
-        kind: operation.kind,
-        loaderKind: operation.loaderKind,
-        extension: operation.extension,
       };
     default:
       return null;

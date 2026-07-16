@@ -50,7 +50,7 @@ function forbiddenResultKeys(value, pathPrefix = "invocation") {
 }
 
 describe("closed-control output templates", () => {
-  test("authors the exact 136 closed output routes without result expectations", async () => {
+  test("authors the exact 134 source-bound closed output routes without result expectations", async () => {
     const inventory = await discoverRepositorySurfaces(repoRoot);
     const coverage = JSON.parse(
       fs.readFileSync(
@@ -87,10 +87,10 @@ describe("closed-control output templates", () => {
     expect(counts).toEqual({
       "cli-control": 114,
       "startup-environment": 20,
-      "loader-executable-file": 2,
+      "loader-executable-file": 0,
     });
     expect(new Set(invocations.map((row) => row.coverageEdgeId)).size).toBe(
-      136,
+      134,
     );
     for (const invocation of invocations) {
       expect(invocation.invocationSchema).toBe(
@@ -197,7 +197,7 @@ describe("closed-control output templates", () => {
     const staleValueOverrides = policy.overrides.filter((row) =>
       rationales.has(row.rationale),
     );
-    expect(expectedSurfaceIds.size).toBe(136);
+    expect(expectedSurfaceIds.size).toBe(134);
     expect(staleValueOverrides).toEqual([]);
   }, 60_000);
 });

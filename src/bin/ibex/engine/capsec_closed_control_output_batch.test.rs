@@ -1,8 +1,7 @@
 // Test-only expectation-free LLP 0023 output execution for production controls that
 // close before project code. The caller owns the Hermes test lock and must
 // invoke this after dropping any other live engine/Host guard: this executor
-// installs a strict Host for CLI/startup checks and a separate armed Host for
-// the two executable-loader checks.
+// installs a strict Host for CLI/startup checks.
 //
 // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
@@ -18,8 +17,6 @@ use std::time::Duration;
 const INVOCATION_SCHEMA: &str = "ibex/capsec-closed-control-output-invocation/1";
 const SOURCE_DESCRIPTOR_KIND: &str = "authored-closed-control-output";
 const TIMEOUT_MILLISECONDS: u64 = 1_000;
-const MODULE_RESOLUTION_ERROR_CODE: &str = "ERR_IBEX_MODULE_RESOLUTION";
-const MODULE_RESOLUTION_ERROR_MESSAGE: &str = "Module resolution failed";
 
 fn tagged_jcs_digest(value: &Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)
@@ -57,26 +54,17 @@ fn invocation(row: &Value) -> &Value {
     invocation
 }
 
-fn raw_closed_refusal(error_name: Option<&str>, error_code: Option<&str>) -> Value {
+fn raw_closed_refusal() -> Value {
     // Preserve the production boundary's actual failure as the catalog
     // observation. Do not turn it into a successful outer return containing a
     // harness-authored inner `resultKind`. CLI/startup return Rust errors with
     // no stable code or JavaScript name, so their raw throw carries neither.
-    // Loader closures retain only the concrete JavaScript name and code caught
-    // from the authenticated module loader. Any unrelated I/O/parser error is
-    // residual and never reaches this constructor.
-    let mut raw = json!({
+    json!({
         "kind": "throw",
         "rawValueShape": "throw",
         "value": null,
-        "errorCode": error_code,
-    });
-    if let Some(error_name) = error_name {
-        raw.as_object_mut()
-            .expect("closed refusal must be an object")
-            .insert("errorName".to_owned(), json!(error_name));
-    }
-    raw
+        "errorCode": null,
+    })
 }
 
 fn return_record_result(row: &Value, raw: Value) -> Value {
@@ -130,27 +118,19 @@ fn assert_closed_observations_join_reviewed_policy(observed: &[Value]) {
             .get(&key)
             .unwrap_or_else(|| panic!("closed-control output has no reviewed disposition: {key}"));
         assert_eq!(reviewed["disposition"], "closed");
-        if result["key"]["sourceKind"] == "loader" {
-            assert_eq!(raw["errorName"], "Error");
-            assert_eq!(raw["errorCode"], MODULE_RESOLUTION_ERROR_CODE);
-            assert_eq!(
-                reviewed["expectation"],
-                json!({
-                    "outcome": "throw",
-                    "normalizedValue": MODULE_RESOLUTION_ERROR_CODE,
-                })
-            );
-        } else {
-            assert!(raw.get("errorName").is_none());
-            assert!(raw["errorCode"].is_null());
-            assert_eq!(
-                reviewed["expectation"],
-                json!({
-                    "outcome": "throw",
-                    "normalizedValue": "throw-without-code",
-                })
-            );
-        }
+        assert!(matches!(
+            result["key"]["sourceKind"].as_str(),
+            Some("cli" | "startup")
+        ));
+        assert!(raw.get("errorName").is_none());
+        assert!(raw["errorCode"].is_null());
+        assert_eq!(
+            reviewed["expectation"],
+            json!({
+                "outcome": "throw",
+                "normalizedValue": "throw-without-code",
+            })
+        );
     }
 }
 
@@ -327,7 +307,7 @@ async fn execute_cli_control(row: &Value) -> Result<Value, String> {
     if project_code.exists() {
         return Err("the closed CLI route reached project code".to_owned());
     }
-    Ok(return_record_result(row, raw_closed_refusal(None, None)))
+    Ok(return_record_result(row, raw_closed_refusal()))
 }
 
 async fn execute_startup_environment(row: &Value) -> Result<Value, String> {
@@ -407,408 +387,7 @@ async fn execute_startup_environment(row: &Value) -> Result<Value, String> {
     if project_code.exists() {
         return Err("the closed startup control reached project code".to_owned());
     }
-    Ok(return_record_result(row, raw_closed_refusal(None, None)))
-}
-
-async fn evaluate_closed_loader_file_json(
-    engine: &HermesEngine,
-    host: &crate::host::Host,
-    entry_identity: &str,
-    observer_id: &str,
-) -> Result<Value, String> {
-    let vfs = host
-        .virtual_file_system()
-        .map_err(|error| format!("could not create loader file VFS: {error}"))?;
-    let result = async {
-        let entry = vfs
-            .resolve_root_file_url(entry_identity, None)
-            .map_err(|error| format!("could not resolve loader probe entry: {error}"))?;
-        let session = host
-            .mint_armed_session_token()
-            .map_err(|error| format!("could not mint loader file session: {error}"))?;
-        let mut sequence =
-            ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
-                .map_err(|error| format!("could not create loader file submission: {error}"))?;
-        let submission = sequence
-            .mint_file(
-                entry
-                    .logical_referrer()
-                    .map_err(|error| format!("could not derive loader file referrer: {error}"))?,
-                &[],
-            )
-            .map_err(|error| format!("could not mint loader file request: {error}"))?;
-        let request = host
-            .authenticated_vfs_file_read(&vfs, entry, submission)
-            .map_err(|error| format!("could not authenticate loader probe entry: {error}"))?
-            .into_capsule()
-            .into_request()
-            .map_err(|error| format!("could not bind loader probe entry: {error}"))?;
-        // Entry-file VFS authentication is harness setup, not one of the two
-        // loader operations under test.  It necessarily emits its own typed
-        // allow decisions; close that scope only after the immutable request
-        // is fully bound, then open the exact operation observer.
-        let (setup_legacy, setup_typed) =
-            ibex_runtime::host::abi::take_installed_conformance_observations();
-        if !setup_legacy.is_empty()
-            || setup_typed.iter().any(|decision| {
-                decision.evidence.outcome != capsec_semantics::decision::DecisionOutcome::Allow
-            })
-        {
-            return Err(format!(
-                "loader probe entry setup did not authenticate cleanly: {} legacy, {} typed",
-                setup_legacy.len(),
-                setup_typed.len()
-            ));
-        }
-        if !ibex_runtime::host::abi::begin_installed_conformance_observation(observer_id) {
-            return Err("the installed host refused the loader observer".to_owned());
-        }
-        let evaluation = engine
-            .evaluate_authenticated(&session, request)
-            .await
-            .map_err(|error| format!("authenticated loader file evaluation failed: {error:#}"))?;
-        let AuthenticatedEvaluation::Value { display, receipt } = evaluation else {
-            return Err(format!(
-                "authenticated loader file evaluation returned no value: {evaluation:?}"
-            ));
-        };
-        if display.kind != AuthenticatedDisplayKind::String {
-            return Err(format!(
-                "authenticated loader file evaluation returned {:?}, not a string",
-                display.kind
-            ));
-        }
-        let encoded: String = serde_json::from_str(&display.text)
-            .map_err(|error| format!("loader file display was not a JSON string: {error}"))?;
-        engine
-            .release_undisplayed_value(
-                receipt.ok_or_else(|| "loader file evaluation retained no receipt".to_owned())?,
-            )
-            .await
-            .map_err(|error| format!("could not release loader file result: {error:#}"))?;
-        engine
-            .drive_authenticated_program_to_quiescence()
-            .await
-            .map_err(|error| format!("loader file program did not quiesce: {error:#}"))?;
-        serde_json::from_str::<Value>(&encoded)
-            .map_err(|error| format!("loader file result was not valid JSON: {error}"))
-    }
-    .await;
-    vfs.close();
-    result
-}
-
-async fn execute_loader_rows(rows: &[&Value]) -> (Vec<Value>, Vec<Value>) {
-    if rows.is_empty() {
-        return (Vec::new(), Vec::new());
-    }
-    let project = match tempfile::tempdir() {
-        Ok(project) => project,
-        Err(error) => {
-            return (
-                Vec::new(),
-                rows.iter()
-                    .map(|row| {
-                        unexercisable(row, format!("could not create loader fixture: {error}"))
-                    })
-                    .collect(),
-            )
-        }
-    };
-    // macOS presents the temporary directory through `/var` but authenticates
-    // it through `/private/var`; bind the canonical spelling used by resolver
-    // revalidation so the normal-JavaScript control proves this mount works.
-    let project_root = match std::fs::canonicalize(project.path()) {
-        Ok(project_root) => project_root,
-        Err(error) => {
-            return (
-                Vec::new(),
-                rows.iter()
-                    .map(|row| {
-                        unexercisable(
-                            row,
-                            format!("could not canonicalize loader fixture: {error}"),
-                        )
-                    })
-                    .collect(),
-            )
-        }
-    };
-    let mut payloads = std::collections::BTreeMap::new();
-    for (index, row) in rows.iter().enumerate() {
-        let invocation = invocation(row);
-        assert_eq!(row["key"]["sourceKind"], "loader");
-        let operation = &invocation["operation"];
-        assert_eq!(operation["kind"], "loader-executable-file");
-        let extension = operation["extension"]
-            .as_str()
-            .expect("loader output route has no extension");
-        let loader_kind = operation["loaderKind"]
-            .as_str()
-            .expect("loader output route has no loader kind");
-        assert_eq!(
-            (loader_kind, extension),
-            if loader_kind == "native-addon" {
-                ("native-addon", ".node")
-            } else {
-                ("wasm", ".wasm")
-            }
-        );
-        assert_eq!(
-            invocation["sourceDescriptor"]["kind"],
-            "closed-loader-executable-kind"
-        );
-        assert_eq!(invocation["sourceDescriptor"]["loaderKind"], loader_kind);
-        assert_eq!(invocation["sourceDescriptor"]["extension"], extension);
-        let payload = project.path().join(format!("payload-{index}{extension}"));
-        if let Err(error) = std::fs::write(
-            &payload,
-            format!(
-                "globalThis.__IBEX_CLOSED_OUTPUT_LOADER_{index}__ = true; module.exports = true;"
-            ),
-        ) {
-            return (
-                Vec::new(),
-                rows.iter()
-                    .map(|row| {
-                        unexercisable(row, format!("could not write loader fixture: {error}"))
-                    })
-                    .collect(),
-            );
-        }
-        payloads.insert(
-            row["probe"]["fixtureId"]
-                .as_str()
-                .expect("loader output route has no fixture ID")
-                .to_owned(),
-            (payload, index),
-        );
-    }
-
-    let probes = rows
-        .iter()
-        .map(|row| {
-            let fixture_id = row["probe"]["fixtureId"]
-                .as_str()
-                .expect("loader output route has no fixture ID");
-            let (payload, index) = payloads
-                .get(fixture_id)
-                .expect("loader fixture was not prepared");
-            let virtual_path = format!(
-                "/project/{}",
-                payload
-                    .file_name()
-                    .and_then(|value| value.to_str())
-                    .expect("loader fixture name must be UTF-8")
-            );
-            json!({
-                "fixtureId": fixture_id,
-                "path": virtual_path,
-                "marker": format!("__IBEX_CLOSED_OUTPUT_LOADER_{index}__"),
-            })
-        })
-        .collect::<Vec<_>>();
-    let probe_source = format!(
-        r#"JSON.stringify((function(probes) {{
-  var control = require('node:path');
-  if (!control || control.basename('/project/loader-control.js') !== 'loader-control.js') {{
-    throw new Error('ordinary JavaScript loader control did not execute');
-  }}
-  var results = [];
-  for (var index = 0; index < probes.length; index++) {{
-    var probe = probes[index];
-    var errorName = null;
-    var errorMessage = null;
-    var errorCode = null;
-    try {{ require(probe.path); }}
-    catch (error) {{
-      errorName = String(error && error.name || 'Error');
-      errorMessage = String(error && error.message || error);
-      errorCode = error && typeof error.code === 'string' ? error.code : null;
-    }}
-    results.push({{
-      fixtureId: probe.fixtureId,
-      errorName: errorName,
-      errorMessage: errorMessage,
-      errorCode: errorCode,
-      projectCodeExecuted: globalThis[probe.marker] === true
-    }});
-  }}
-  return results;
-}})({}))"#,
-        serde_json::to_string(&probes).expect("serialize loader output probes"),
-    );
-    // Run the normal-JavaScript control and the two refused executable kinds
-    // from one authenticated module entry.  This proves the mount and resolver
-    // work before attributing either refusal to its exact extension branch.
-    if let Err(error) = std::fs::write(project.path().join("loader-probe.mjs"), probe_source) {
-        return (
-            Vec::new(),
-            rows.iter()
-                .map(|row| unexercisable(row, format!("could not write loader probe: {error}")))
-                .collect(),
-        );
-    }
-    let loader_entry_identity = "file:///project/loader-probe.mjs";
-    let (host, digest) = build_armed_test_host_custom(
-        Some(&project_root),
-        false,
-        true,
-        true,
-        Vec::new(),
-        None,
-        |snapshot| {
-            snapshot["entry"] = json!({
-                "kind": "file",
-                "identity": loader_entry_identity,
-                "mode": "program",
-            });
-            snapshot["principals"][0]["imports"]["builtins"] = json!(["node:path"]);
-        },
-    );
-    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
-    let reset = HostResetGuard;
-    let engine = match HermesEngine::new_with_armed_snapshot(Some(&digest)) {
-        Ok(engine) => engine,
-        Err(error) => {
-            drop(reset);
-            return (
-                Vec::new(),
-                rows.iter()
-                    .map(|row| {
-                        unexercisable(
-                            row,
-                            format!("could not create loader observation engine: {error:#}"),
-                        )
-                    })
-                    .collect(),
-            );
-        }
-    };
-    match tokio::time::timeout(
-        Duration::from_millis(TIMEOUT_MILLISECONDS),
-        engine.load_runtime(),
-    )
-    .await
-    {
-        Err(error) => {
-            drop(engine);
-            drop(reset);
-            return (
-                Vec::new(),
-                rows.iter()
-                    .map(|row| {
-                        unexercisable(
-                            row,
-                            format!("loader observation runtime load timed out: {error}"),
-                        )
-                    })
-                    .collect(),
-            );
-        }
-        Ok(Err(error)) => {
-            drop(engine);
-            drop(reset);
-            return (
-                Vec::new(),
-                rows.iter()
-                    .map(|row| {
-                        unexercisable(
-                            row,
-                            format!("loader observation runtime did not load: {error:#}"),
-                        )
-                    })
-                    .collect(),
-            );
-        }
-        Ok(Ok(())) => {}
-    }
-
-    let observer_id = "output-shape:closed-loader-executable-files";
-    let execution = async {
-        evaluate_closed_loader_file_json(&engine, &host, loader_entry_identity, observer_id)
-            .await?
-            .as_array()
-            .cloned()
-            .ok_or_else(|| "loader result had no operation array".to_owned())
-    };
-    let execution =
-        match tokio::time::timeout(Duration::from_millis(TIMEOUT_MILLISECONDS), execution).await {
-            Err(_) => Err("loader routes exceeded bounded completion".to_owned()),
-            Ok(result) => result,
-        };
-    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
-    let mut observed = Vec::new();
-    let mut residual = Vec::new();
-    if !legacy.is_empty() || !typed.is_empty() {
-        let reason = format!(
-            "loader routes reached {} legacy and {} typed decisions: {}",
-            legacy.len(),
-            typed.len(),
-            serde_json::to_string(&typed).expect("serialize loader typed decisions")
-        );
-        residual.extend(rows.iter().map(|row| unexercisable(row, &reason)));
-    } else {
-        match execution {
-            Err(reason) => residual.extend(rows.iter().map(|row| unexercisable(row, &reason))),
-            Ok(results) => {
-                let mut by_fixture = results
-                    .into_iter()
-                    .map(|result| {
-                        let fixture_id = result["fixtureId"]
-                            .as_str()
-                            .expect("loader result has no fixture ID")
-                            .to_owned();
-                        (fixture_id, result)
-                    })
-                    .collect::<std::collections::BTreeMap<_, _>>();
-                for row in rows {
-                    let fixture_id = row["probe"]["fixtureId"]
-                        .as_str()
-                        .expect("loader output route has no fixture ID");
-                    let Some(result) = by_fixture.remove(fixture_id) else {
-                        residual.push(unexercisable(row, "loader batch omitted its operation"));
-                        continue;
-                    };
-                    let Some(error_message) = result["errorMessage"].as_str() else {
-                        residual.push(unexercisable(
-                            row,
-                            "loader import returned instead of refusing",
-                        ));
-                        continue;
-                    };
-                    let Some(error_name) = result["errorName"].as_str() else {
-                        residual.push(unexercisable(
-                            row,
-                            "loader import returned no concrete error name",
-                        ));
-                        continue;
-                    };
-                    if result["projectCodeExecuted"] != false
-                        || result["errorCode"] != MODULE_RESOLUTION_ERROR_CODE
-                        || error_message != MODULE_RESOLUTION_ERROR_MESSAGE
-                    {
-                        residual.push(unexercisable(
-                            row,
-                            format!("loader import returned a non-closure result: {result}"),
-                        ));
-                        continue;
-                    }
-                    observed.push(return_record_result(
-                        row,
-                        raw_closed_refusal(Some(error_name), Some(MODULE_RESOLUTION_ERROR_CODE)),
-                    ));
-                }
-                assert!(
-                    by_fixture.is_empty(),
-                    "loader batch returned unknown operations"
-                );
-            }
-        }
-    }
-    drop(engine);
-    drop(reset);
-    (observed, residual)
+    Ok(return_record_result(row, raw_closed_refusal()))
 }
 
 /// Execute actual production operations for expectation-free closed-control
@@ -821,16 +400,14 @@ pub(super) async fn execute_closed_control_output_rows(rows: &[Value]) -> (Vec<V
     let strict_reset = HostResetGuard;
     let mut by_key = std::collections::BTreeMap::new();
     let mut residual_by_key = std::collections::BTreeMap::new();
-    let loader_rows = rows
-        .iter()
-        .filter(|row| invocation(row)["operation"]["kind"] == "loader-executable-file")
-        .collect::<Vec<_>>();
 
     for row in rows {
         let result = match invocation(row)["operation"]["kind"].as_str() {
             Some("cli-control") => execute_cli_control(row).await,
             Some("startup-environment") => execute_startup_environment(row).await,
-            Some("loader-executable-file") => continue,
+            Some("loader-executable-file") => {
+                panic!("authenticated VFS imports cannot prove the legacy loader output facets")
+            }
             other => panic!("unsupported closed-control output operation {other:?}"),
         };
         let key = serde_json::to_string(&row["key"]).expect("serialize closed-control output key");
@@ -842,17 +419,6 @@ pub(super) async fn execute_closed_control_output_rows(rows: &[Value]) -> (Vec<V
         }
     }
     drop(strict_reset);
-    let (loader_observed, loader_residual) = execute_loader_rows(&loader_rows).await;
-    for result in loader_observed {
-        let key =
-            serde_json::to_string(&result["key"]).expect("serialize closed loader result key");
-        assert!(by_key.insert(key, result).is_none());
-    }
-    for result in loader_residual {
-        let key =
-            serde_json::to_string(&result["key"]).expect("serialize closed loader residual key");
-        assert!(residual_by_key.insert(key, result).is_none());
-    }
 
     let mut observed = Vec::new();
     let mut residual = Vec::new();
@@ -904,9 +470,13 @@ async fn capsec_closed_control_output_batch() {
         },
     );
     assert_eq!(counts.get("cli-control"), Some(&114));
-    assert_eq!(counts.get("startup-environment"), Some(&21));
-    assert_eq!(counts.get("loader-executable-file"), Some(&2));
-    assert_eq!(rows.len(), 137);
+    assert_eq!(counts.get("startup-environment"), Some(&20));
+    assert_eq!(
+        counts.len(),
+        2,
+        "closed-control output plan has an unsupported operation"
+    );
+    assert_eq!(rows.len(), 134);
     let _lock = hermes_engine_test_lock().lock().await;
     let (observed, residual) = execute_closed_control_output_rows(&rows).await;
     assert_eq!(observed.len() + residual.len(), rows.len());
@@ -966,17 +536,10 @@ fn closed_control_refusal_classifier_is_exact() {
 
 #[test]
 fn closed_control_refusal_is_the_actual_output_outcome() {
-    let raw = raw_closed_refusal(None, None);
+    let raw = raw_closed_refusal();
     assert_eq!(raw["kind"], "throw");
     assert_eq!(raw["rawValueShape"], "throw");
     assert!(raw["value"].is_null());
     assert!(raw.get("errorName").is_none());
     assert!(raw["errorCode"].is_null());
-
-    let loader = raw_closed_refusal(Some("Error"), Some(MODULE_RESOLUTION_ERROR_CODE));
-    assert_eq!(loader["kind"], "throw");
-    assert_eq!(loader["rawValueShape"], "throw");
-    assert!(loader["value"].is_null());
-    assert_eq!(loader["errorName"], "Error");
-    assert_eq!(loader["errorCode"], MODULE_RESOLUTION_ERROR_CODE);
 }

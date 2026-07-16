@@ -678,6 +678,8 @@ function completeClosedLoaderCatalog() {
       loaderKind: "native-addon",
       extension: ".node",
       rejectionFragment: "Native addons are closed",
+      publicErrorCode: "ERR_IBEX_MODULE_RESOLUTION",
+      publicErrorMessage: "Module resolution failed",
     },
   });
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
@@ -817,7 +819,7 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
     invocation.operation.kind === "cli-control"
       ? invocation.operation.expectedRejectionFragments.join("; ")
       : invocation.operation.kind === "loader-executable-file"
-        ? invocation.operation.rejectionFragment
+        ? invocation.operation.publicErrorMessage
         : invocation.operation.kind === "exact-unendowed-operation"
           ? invocation.operation.expectedError
           : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
@@ -837,6 +839,9 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         mechanism: invocation.operation.kind,
         errorName: "ClosedSurface",
         errorMessage,
+        ...(invocation.operation.kind === "loader-executable-file"
+          ? { errorCode: invocation.operation.publicErrorCode }
+          : {}),
         engineExecuted:
           invocation.operation.kind === "loader-executable-file" ||
           invocation.operation.kind === "exact-unendowed-operation",
@@ -1111,7 +1116,7 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
     selectedBranch,
     executionMechanism: "builtin-module-load",
     moduleSpecifier: "node:http",
-    preloadModuleSpecifiers: ["node:util"],
+    preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
     principalMode: scenario === "deny" ? "package-denied" : "root-authorized",
     auxiliaryDecisionEdgeId: "edge.callback-terminal",
   };
@@ -1153,7 +1158,7 @@ function completeStartupEnvironmentCatalog(scenario = "allow") {
       operation: {
         kind: "builtin-module-load",
         moduleSpecifier: "node:http",
-        preloadModuleSpecifiers: ["node:util"],
+        preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
         environment: { name: "NODE_DEBUG", presence: "absent" },
         principalMode: sourceDescriptor.principalMode,
       },
@@ -1210,10 +1215,10 @@ function startupEnvironmentRuntimeObservation(recipe) {
             kind: "environment-occurrence",
             requested: {
               kind: "environment-name",
-              target: "broker-base",
+              target: "principal-overlay",
               name: "NODE_DEBUG",
             },
-            valueOrigin: "broker-base",
+            valueOrigin: "principal-overlay",
           },
         },
       ],
@@ -1378,6 +1383,85 @@ function globalReadObservation(recipe) {
       sourceDescriptorDigest: invocation.sourceDescriptorDigest,
       result: { kind: "return", valueType: "string", ownerDepths: [0, 0] },
       executionProof: { kind: "global-property-read", bodyEntered: true },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
+function privateCwdFacadeCatalog() {
+  const catalog = globalReadCatalog();
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "native-global-function",
+    globalName: "__exactGetCwd",
+    arity: 0,
+    sourceRef: "src/engine/hermes_runtime.cc#jsi-global:__exactGetCwd",
+  };
+  const publicAccess = {
+    kind: "captured-private-global-function",
+    observedKey: "native-op:global:process.cwd",
+    installId: "root-global.process.cwd.2583c1a2d2ca2d7b",
+    path: ["process", "cwd"],
+    sourceRefs: [
+      "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
+      "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.cwd",
+      "src/engine/bootstrap/compat-polyfills.js#process.cwd",
+      "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.cwd",
+    ],
+    privateTerminal: {
+      observedKey: "native-op:__exactGetCwd",
+      installId: "root-global.exactgetcwd.9b3be5b1ccdb728e",
+      privateConsumer: "trusted-path-process-builtins",
+      liveExpectation: "absent",
+    },
+    expectedDenyMessageFragment: "filesystem policy denied",
+  };
+  recipe.fixtureId = "fixture.native.private-cwd-facade.non-capability";
+  recipe.terminalObservedKey = "native-op:__exactGetCwd";
+  recipe.route.surfaceObservedKeys = ["native-op:__exactGetCwd"];
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: "native-op:__exactGetCwd",
+      proofPaths: ["native-op:global:process.cwd -> native-op:__exactGetCwd"],
+    },
+  ];
+  Object.assign(recipe.publicSurfaceProbe, {
+    surfaceObservedKey: "native-op:__exactGetCwd",
+    invocation: {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "private-native-facade-function",
+      globalName: "__exactGetCwd",
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      publicAccess,
+      publicAccessDigest: taggedDigest(publicAccess),
+      arguments: [],
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function privateCwdFacadeObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      globalName: invocation.globalName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: { kind: "return", valueType: "string" },
+      executionProof: { kind: "native-return", bodyEntered: true },
     },
     legacyObservationCount: 0,
     typedDecisions: [],
@@ -1815,7 +1899,7 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/wrong rejection/);
   });
 
-  test("accepts executable-loader closure only after the loaded engine rejects it", () => {
+  test("rejects normalized VFS failures as evidence for a legacy loader facet", () => {
     const catalog = completeClosedLoaderCatalog();
     const recipe = catalog.recipes[0];
     expect(() =>
@@ -1825,68 +1909,7 @@ describe("CapSec public-surface promotion evidence", () => {
         runtimeObservation: closedRuntimeObservation(recipe),
         coverage,
       }),
-    ).not.toThrow();
-    const wrongRejection = closedRuntimeObservation(recipe);
-    wrongRejection.invocation.result.errorMessage = "generic syntax error";
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: wrongRejection,
-        coverage,
-      }),
-    ).toThrow(/did not fail closed at resolution/);
-    const noEngine = closedRuntimeObservation(recipe);
-    noEngine.invocation.result.engineExecuted = false;
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: noEngine,
-        coverage,
-      }),
-    ).toThrow(/did not fail closed at resolution/);
-    const mismatchedKind = structuredClone(recipe);
-    mismatchedKind.publicSurfaceProbe.invocation.operation.extension = ".wasm";
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe: mismatchedKind,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: closedRuntimeObservation(mismatchedKind),
-        coverage,
-      }),
-    ).toThrow(/executed extension guard/);
-
-    const unexecutedKindFacet = structuredClone(recipe);
-    unexecutedKindFacet.terminalObservedKey = "loader:kind:native-addon";
-    unexecutedKindFacet.route.surfaceObservedKeys = [
-      unexecutedKindFacet.terminalObservedKey,
-    ];
-    unexecutedKindFacet.route.alternatives[0].terminalObservedKey =
-      unexecutedKindFacet.terminalObservedKey;
-    unexecutedKindFacet.publicSurfaceProbe.surfaceObservedKey =
-      unexecutedKindFacet.terminalObservedKey;
-    const kindInvocation = unexecutedKindFacet.publicSurfaceProbe.invocation;
-    kindInvocation.surfaceName = "kind:native-addon";
-    kindInvocation.sourceDescriptor.sourceRefs = [
-      "src/module_loader/mod.rs#kind:native-addon",
-    ];
-    kindInvocation.sourceDescriptor.sourceMetadata = {
-      evidenceType: "loader-kind-branch",
-      loaderKind: "native-addon",
-      occurrenceCount: 1,
-    };
-    kindInvocation.sourceDescriptorDigest = taggedDigest(
-      kindInvocation.sourceDescriptor,
-    );
-    expect(() =>
-      buildPublicFixtureEvidence({
-        recipe: unexecutedKindFacet,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: closedRuntimeObservation(unexecutedKindFacet),
-        coverage,
-      }),
-    ).toThrow(/executed extension guard/);
+    ).toThrow(/cannot prove the legacy loader facet/);
   });
 
   test("accepts Exact closure only for the authenticated unendowed operation", () => {
@@ -1990,6 +2013,49 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/execution proof disagrees/);
+  });
+
+  test("binds the private cwd facade to exact manifest provenance", () => {
+    const catalog = privateCwdFacadeCatalog();
+    const recipe = catalog.recipes[0];
+    const observation = privateCwdFacadeObservation(recipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const driftedPath = structuredClone(recipe);
+    driftedPath.publicSurfaceProbe.invocation.publicAccess.path = [
+      "process",
+      "chdir",
+    ];
+    driftedPath.publicSurfaceProbe.invocation.publicAccessDigest = taggedDigest(
+      driftedPath.publicSurfaceProbe.invocation.publicAccess,
+    );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: driftedPath,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/private native facade provenance drift/);
+
+    const staleDigest = structuredClone(recipe);
+    staleDigest.publicSurfaceProbe.invocation.publicAccessDigest =
+      "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: staleDigest,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/private native facade provenance drift/);
   });
 
   test("accepts a source-bound zero-effect host ABI branch with cleanup", () => {

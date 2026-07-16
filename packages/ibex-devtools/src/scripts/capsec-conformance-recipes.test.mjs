@@ -1138,45 +1138,31 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
-  test("binds only executed extension guards to fail-closed file imports", () => {
+  test("leaves legacy extension guards residual without a source-bound executor", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "loader-executable-file",
     );
-    expect(rows).toHaveLength(2);
-    expect(
-      rows.map((recipe) => [
-        recipe.terminalObservedKey,
-        recipe.publicSurfaceProbe.invocation.operation.loaderKind,
-        recipe.publicSurfaceProbe.invocation.operation.extension,
-        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs,
-      ]),
-    ).toEqual([
-      [
-        "loader:native-addon-module",
-        "native-addon",
-        ".node",
-        ["src/module_loader/mod.rs#resolve_with_oxc"],
-      ],
-      [
-        "loader:wasm-module",
-        "wasm",
-        ".wasm",
-        ["src/module_loader/mod.rs#resolve_with_oxc"],
-      ],
-    ]);
-    expect(
-      rows.every(
+    expect(rows).toHaveLength(0);
+    for (const terminal of [
+      "loader:native-addon-module",
+      "loader:wasm-module",
+    ]) {
+      const residual = recipes.recipes.find(
         (recipe) =>
-          recipe.status === "fully-executable" &&
-          recipe.classification === "closed" &&
-          recipe.scenario === "closed" &&
-          recipe.residualReasons.length === 0 &&
-          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
-            0,
-      ),
-    ).toBe(true);
+          recipe.terminalObservedKey === terminal &&
+          recipe.scenario === "closed",
+      );
+      expect(residual).toMatchObject({
+        status: "unresolved",
+        publicSurfaceProbe: null,
+        residualReasons: [
+          "closed-surface-denial-probe-not-authored",
+          "public-surface-invocation-not-authored",
+        ],
+      });
+    }
     for (const terminal of ["loader:kind:native-addon", "loader:kind:wasm"]) {
       const residual = recipes.recipes.find(
         (recipe) => recipe.terminalObservedKey === terminal,
@@ -1864,11 +1850,6 @@ describe("exact-target CapSec executable recipes", () => {
         actionId: "sys:read",
         resource: { kind: "system-info", name: "memory" },
       },
-      {
-        globalName: "__exactGetCwd",
-        actionId: "path:cwd-observe",
-        resource: { kind: "session-state", name: "cwd" },
-      },
     ]) {
       const directSystemInfo = recipes.recipes.filter(
         (recipe) =>
@@ -1907,6 +1888,65 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
         ).toBe(recipe.scenario === "allow" ? 2 : 1);
       }
+    }
+  });
+
+  test("binds the private cwd bridge to its authenticated public facade", () => {
+    const privateCwd = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactGetCwd",
+    );
+    expect(privateCwd).toHaveLength(2);
+    expect(privateCwd.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+    ]);
+    for (const recipe of privateCwd) {
+      expect(recipe).toMatchObject({
+        actionIds: ["path:cwd-observe"],
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            kind: "private-native-facade-function",
+            requiredFloor: [
+              {
+                cap: "path:cwd-observe",
+                resource: { kind: "session-state", name: "cwd" },
+              },
+            ],
+            expectedActionIds: ["path:cwd-observe"],
+            publicAccess: {
+              kind: "captured-private-global-function",
+              observedKey: "native-op:global:process.cwd",
+              path: ["process", "cwd"],
+              privateTerminal: {
+                observedKey: "native-op:__exactGetCwd",
+                privateConsumer: "trusted-path-process-builtins",
+                liveExpectation: "absent",
+              },
+              expectedDenyMessageFragment: "filesystem policy denied",
+            },
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.publicAccessDigest).toMatch(
+        /^sha256-/u,
+      );
+      expect(
+        Object.hasOwn(
+          recipe.publicSurfaceProbe.invocation,
+          "expectedDenyMessageFragment",
+        ),
+      ).toBe(false);
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "allow"
+          ? ["requested", "commit"]
+          : ["requested"],
+      );
+      expect(
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+      ).toBe(recipe.scenario === "allow" ? 2 : 1);
     }
   });
 
@@ -2039,7 +2079,24 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.expectedTypedStages,
         ).toEqual(
           recipe.scenario === "allow"
-            ? ["requested", "discovery", "repeat"]
+            ? globalName === "__exactRealpath"
+              ? [
+                  "requested",
+                  "discovery",
+                  "requested",
+                  "repeat",
+                  "repeat",
+                  "repeat",
+                ]
+              : globalName === "__exactStat"
+                ? [
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "repeat",
+                  ]
+                : ["requested", "discovery", "requested", "repeat"]
             : ["requested"],
         );
       }
@@ -2103,12 +2160,19 @@ describe("exact-target CapSec executable recipes", () => {
       );
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
         recipe.scenario === "allow"
-          ? ["requested", "discovery", "commit", "repeat"]
+          ? [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+            ]
           : ["requested"],
       );
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-      ).toBe(recipe.scenario === "allow" ? 4 : 1);
+      ).toBe(recipe.scenario === "allow" ? 6 : 1);
     }
   });
 

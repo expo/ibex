@@ -29,6 +29,11 @@ import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
 import { authoredStartupPublicProbe } from "./capsec-startup-probe-templates.mjs";
 import { authoredStartupEnvironmentProbe } from "./capsec-startup-environment-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
+import { buildRootGlobalDispositionManifest } from "./capsec-root-global-dispositions.mjs";
+import {
+  applicableImplementationBranchIds,
+  targetApplicabilityForVariant,
+} from "./capsec-target-branches.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
@@ -708,6 +713,7 @@ const nativeCwdObserveTemplate = () =>
     arguments: [],
     expectedDecisionCounts: { allow: 2, deny: 1 },
     expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
       allow: ["requested", "commit"],
       deny: ["requested"],
@@ -719,6 +725,7 @@ const nativeCwdObserveTemplate = () =>
       },
     ],
     requiredSourceArity: 0,
+    publicAccessObservedKey: "native-op:global:process.cwd",
     setup: [],
   });
 const nativeEnvironmentReadTemplate = (name) =>
@@ -774,14 +781,17 @@ const projectPathExactResource = (...components) => ({
     components: components.map((value) => ({ encoding: "utf8", value })),
   },
 });
-const nativeProjectMetadataTemplate = () =>
+const nativeProjectMetadataTemplate = (
+  allowStages = ["requested", "discovery", "requested", "repeat"],
+) =>
   Object.freeze({
     actionIds: ["fs:list"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: 3, deny: 1 },
+    expectedDecisionCounts: { allow: allowStages.length, deny: 1 },
     expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "repeat"],
+      allow: allowStages,
       deny: ["requested"],
     },
     requiredFloor: [
@@ -797,10 +807,18 @@ const nativeProjectReadFileTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:read"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: 4, deny: 1 },
+    expectedDecisionCounts: { allow: 6, deny: 1 },
     expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "commit", "repeat"],
+      allow: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
       deny: ["requested"],
     },
     requiredFloor: [
@@ -1033,8 +1051,27 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactGetUserInfo", nativeSystemInfoTemplate("user")],
   ["__exactLstat", nativeProjectMetadataTemplate()],
   ["__exactReadFile", nativeProjectReadFileTemplate()],
-  ["__exactRealpath", nativeProjectMetadataTemplate()],
-  ["__exactStat", nativeProjectMetadataTemplate()],
+  [
+    "__exactRealpath",
+    nativeProjectMetadataTemplate([
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "repeat",
+      "repeat",
+    ]),
+  ],
+  [
+    "__exactStat",
+    nativeProjectMetadataTemplate([
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "repeat",
+    ]),
+  ],
   [
     "__exactHashRaw",
     nativeNoEffectTemplate(2, [
@@ -1347,7 +1384,9 @@ function nativePublicProbeForPlan({
   scenario,
   route,
   liveByObservedKey,
+  rootDispositionsByObservedKey,
   adapterProbe,
+  target,
 }) {
   const targetAbsence = plan.expectedObservation.kind === "target-absence";
   const surfaceObservedKey = targetAbsence
@@ -1497,6 +1536,63 @@ function nativePublicProbeForPlan({
           .flatMap((adapterCase) => adapterCase.actionIds),
       )
     : clone(plan.actionIds);
+  let publicAccess = null;
+  if (template.publicAccessObservedKey) {
+    const conformantDisposition = (observedKey) => {
+      const rows = rootDispositionsByObservedKey.get(observedKey) ?? [];
+      const selectedIds = new Set(
+        applicableImplementationBranchIds(
+          rows.map((row) => ({
+            branchId: row.installId,
+            targetVariant: row.branch.targetVariant,
+            targetApplicability: targetApplicabilityForVariant(
+              row.branch.targetVariant,
+            ),
+          })),
+          target,
+        ),
+      );
+      const candidates = rows
+        .filter((row) => selectedIds.has(row.installId))
+        .filter((row) => row.branch.activation === "always");
+      return candidates.length === 1 ? candidates[0] : null;
+    };
+    const privateTerminal = conformantDisposition(surfaceObservedKey);
+    const publicFacade = conformantDisposition(
+      template.publicAccessObservedKey,
+    );
+    if (
+      privateTerminal?.disposition !== "private" ||
+      privateTerminal.liveExpectation !== "absent" ||
+      typeof privateTerminal.privateConsumer !== "string" ||
+      publicFacade?.liveExpectation !== "reachable" ||
+      publicFacade.disposition === "private" ||
+      publicFacade.property?.root?.kind !== "string" ||
+      !publicFacade.property.path?.every((key) => key.kind === "string")
+    ) {
+      return {
+        probe: null,
+        unavailableReason: "native-public-private-facade-disposition-drift",
+      };
+    }
+    publicAccess = {
+      kind: "captured-private-global-function",
+      observedKey: publicFacade.observedKey,
+      installId: publicFacade.installId,
+      path: [
+        publicFacade.property.root.value,
+        ...publicFacade.property.path.map((key) => key.value),
+      ],
+      sourceRefs: clone(publicFacade.branch.sourceRefs),
+      privateTerminal: {
+        observedKey: privateTerminal.observedKey,
+        installId: privateTerminal.installId,
+        privateConsumer: privateTerminal.privateConsumer,
+        liveExpectation: privateTerminal.liveExpectation,
+      },
+      expectedDenyMessageFragment: "filesystem policy denied",
+    };
+  }
   return {
     unavailableReason: null,
     probe: {
@@ -1517,10 +1613,24 @@ function nativePublicProbeForPlan({
       ],
       invocation: {
         invocationSchema: "ibex/capsec-native-global-invocation/1",
-        kind: "native-global-function",
+        kind: publicAccess
+          ? "private-native-facade-function"
+          : "native-global-function",
         globalName: invocation.globalName,
         sourceDescriptor,
         sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        ...(publicAccess
+          ? {
+              publicAccess,
+              publicAccessDigest: taggedDigest(publicAccess),
+            }
+          : {}),
+        ...(template.expectedDenyMessageFragment && !publicAccess
+          ? {
+              expectedDenyMessageFragment:
+                template.expectedDenyMessageFragment,
+            }
+          : {}),
         arguments: template.arguments.map((argument) =>
           bindNativeArgumentSources(argument, liveByObservedKey),
         ),
@@ -1806,6 +1916,21 @@ export function buildConformanceRecipeCatalog({
   const liveByObservedKey = new Map(
     liveSurfaces.map((surface) => [surface.observedKey, surface]),
   );
+  const rootGlobalDispositions = buildRootGlobalDispositionManifest({
+    globals:
+      inventory.globals ??
+      liveSurfaces.filter(
+        (surface) => surface.metadata?.surfaceType === "global-api",
+      ),
+    coverage,
+  });
+  const rootDispositionsByObservedKey = new Map();
+  for (const row of rootGlobalDispositions.rows) {
+    const dispositions =
+      rootDispositionsByObservedKey.get(row.observedKey) ?? [];
+    dispositions.push(row);
+    rootDispositionsByObservedKey.set(row.observedKey, dispositions);
+  }
   const occurrences = occurrenceExamples.occurrences ?? [];
   const selectors = selectorExamples.selectors ?? [];
   const definitionByAction = definitionMap(capabilityDefinitions);
@@ -1880,7 +2005,9 @@ export function buildConformanceRecipeCatalog({
       scenario,
       route,
       liveByObservedKey,
+      rootDispositionsByObservedKey,
       adapterProbe,
+      target,
     });
     const conditionalHostAbiProbe = conditionalHostAbiProbeForPlan({
       plan,

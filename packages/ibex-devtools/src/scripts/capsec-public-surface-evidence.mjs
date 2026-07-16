@@ -45,6 +45,18 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["stream-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
 ]);
+const PRIVATE_CWD_FACADE_SOURCE_REFS = Object.freeze([
+  "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
+  "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.cwd",
+  "src/engine/bootstrap/compat-polyfills.js#process.cwd",
+  "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.cwd",
+]);
+const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
+  "__exactLstat",
+  "__exactReadFile",
+  "__exactRealpath",
+  "__exactStat",
+]);
 
 // Independent verifier authority for the small curated startup family. Keep
 // this separate from recipe authorship so descriptor tampering cannot change
@@ -143,7 +155,7 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       ],
       mechanism: "builtin-module-load",
       moduleSpecifier: "node:http",
-      preloadModuleSpecifiers: ["node:util"],
+      preloadModuleSpecifiers: ["node:events", "node:stream", "node:util"],
     },
   ],
   [
@@ -156,7 +168,7 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
       ],
       mechanism: "event-emitter-emit",
       moduleSpecifier: "node:events",
-      preloadModuleSpecifiers: ["node:events"],
+      preloadModuleSpecifiers: [],
     },
   ],
   [
@@ -735,14 +747,94 @@ function validateRuntimeInvocation(observation, recipe) {
       `${recipe.fixtureId}: native runtime invocation`,
     );
     if (
-      !new Set(["global-property-read", "native-global-function"]).has(
-        invocation.kind,
-      ) ||
+      !new Set([
+        "global-property-read",
+        "native-global-function",
+        "private-native-facade-function",
+      ]).has(invocation.kind) ||
+      invocation.kind !== authored.kind ||
       invocation.globalName !== authored.globalName
     ) {
       throw new Error(
         `${recipe.fixtureId}: native runtime invocation descriptor drift`,
       );
+    }
+    const hasPublicAccess = Object.hasOwn(authored, "publicAccess");
+    const hasPublicAccessDigest = Object.hasOwn(
+      authored,
+      "publicAccessDigest",
+    );
+    const hasTopLevelDenyFragment = Object.hasOwn(
+      authored,
+      "expectedDenyMessageFragment",
+    );
+    if (authored.kind === "private-native-facade-function") {
+      const access = authored.publicAccess;
+      exactKeys(
+        access,
+        [
+          "kind",
+          "observedKey",
+          "installId",
+          "path",
+          "sourceRefs",
+          "privateTerminal",
+          "expectedDenyMessageFragment",
+        ],
+        `${recipe.fixtureId}: private native facade access`,
+      );
+      exactKeys(
+        access.privateTerminal,
+        [
+          "observedKey",
+          "installId",
+          "privateConsumer",
+          "liveExpectation",
+        ],
+        `${recipe.fixtureId}: private native facade terminal`,
+      );
+      if (
+        authored.globalName !== "__exactGetCwd" ||
+        recipe.publicSurfaceProbe.surfaceObservedKey !==
+          "native-op:__exactGetCwd" ||
+        hasPublicAccess !== true ||
+        hasPublicAccessDigest !== true ||
+        hasTopLevelDenyFragment ||
+        authored.publicAccessDigest !== taggedDigest(access) ||
+        access.kind !== "captured-private-global-function" ||
+        access.observedKey !== "native-op:global:process.cwd" ||
+        access.installId !== "root-global.process.cwd.2583c1a2d2ca2d7b" ||
+        canonicalJson(access.path) !== canonicalJson(["process", "cwd"]) ||
+        canonicalJson(access.sourceRefs) !==
+          canonicalJson(PRIVATE_CWD_FACADE_SOURCE_REFS) ||
+        access.privateTerminal.observedKey !== "native-op:__exactGetCwd" ||
+        access.privateTerminal.installId !==
+          "root-global.exactgetcwd.9b3be5b1ccdb728e" ||
+        access.privateTerminal.privateConsumer !==
+          "trusted-path-process-builtins" ||
+        access.privateTerminal.liveExpectation !== "absent" ||
+        access.expectedDenyMessageFragment !== "filesystem policy denied"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: private native facade provenance drift`,
+        );
+      }
+    } else {
+      if (hasPublicAccess || hasPublicAccessDigest) {
+        throw new Error(
+          `${recipe.fixtureId}: ordinary native invocation carries private facade authority`,
+        );
+      }
+      if (
+        hasTopLevelDenyFragment &&
+        (!NATIVE_FILESYSTEM_DENIAL_GLOBALS.has(authored.globalName) ||
+          authored.expectedDenyMessageFragment !==
+            "filesystem policy denied")
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: unreviewed native denial expectation`,
+        );
+      }
     }
   } else if (
     invocation?.invocationSchema === "ibex/capsec-host-abi-invocation/1"
@@ -1005,60 +1097,9 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
     if (authored.operation?.kind === "loader-executable-file") {
-      const loaderExpectation = new Map([
-        [
-          "native-addon",
-          {
-            extension: ".node",
-            rejectionFragment: "Native addons are closed",
-          },
-        ],
-        [
-          "wasm",
-          {
-            extension: ".wasm",
-            rejectionFragment: "WebAssembly modules are closed",
-          },
-        ],
-      ]).get(authored.operation.loaderKind);
-      const descriptor = authored.sourceDescriptor;
-      exactKeys(
-        descriptor,
-        [
-          "kind",
-          "loaderKind",
-          "extension",
-          "sourceRefs",
-          "sourceMetadata",
-        ],
-        `${recipe.fixtureId}: closed loader source descriptor`,
+      throw new Error(
+        `${recipe.fixtureId}: authenticated VFS imports cannot prove the legacy loader facet`,
       );
-      exactKeys(
-        authored.operation,
-        ["kind", "loaderKind", "extension", "rejectionFragment"],
-        `${recipe.fixtureId}: closed loader operation`,
-      );
-      if (
-        loaderExpectation === undefined ||
-        authored.surfaceKind !== "loader" ||
-        authored.surfaceName !==
-          `${authored.operation.loaderKind}-module` ||
-        recipe.terminalObservedKey !==
-          `loader:${authored.operation.loaderKind}-module` ||
-        descriptor.kind !== "closed-loader-executable-kind" ||
-        descriptor.loaderKind !== authored.operation.loaderKind ||
-        descriptor.extension !== loaderExpectation.extension ||
-        authored.operation.extension !== loaderExpectation.extension ||
-        authored.operation.rejectionFragment !==
-          loaderExpectation.rejectionFragment ||
-        canonicalJson(descriptor.sourceRefs) !==
-          canonicalJson(["src/module_loader/mod.rs#resolve_with_oxc"]) ||
-        descriptor.sourceMetadata !== null
-      ) {
-        throw new Error(
-          `${recipe.fixtureId}: closed loader invocation is not bound to the executed extension guard`,
-        );
-      }
     }
     if (authored.operation?.kind === "exact-unendowed-operation") {
       const descriptor = authored.sourceDescriptor;
@@ -1444,10 +1485,14 @@ function validateRuntimeInvocation(observation, recipe) {
       }
     }
   } else if (authored.expectedResult === "permission-denied") {
+    const expectedFragment =
+      authored.expectedDenyMessageFragment ??
+      authored.publicAccess?.expectedDenyMessageFragment ??
+      "Permission denied";
     if (
       invocation.result.kind !== "throw" ||
       typeof invocation.result.errorMessage !== "string" ||
-      !invocation.result.errorMessage.includes("Permission denied")
+      !invocation.result.errorMessage.includes(expectedFragment)
     ) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
     }
@@ -1538,6 +1583,9 @@ function validateRuntimeInvocation(observation, recipe) {
         "mechanism",
         "errorName",
         "errorMessage",
+        ...(authored.operation?.kind === "loader-executable-file"
+          ? ["errorCode"]
+          : []),
         "engineExecuted",
         "projectCodeExecuted",
       ],
@@ -1636,9 +1684,12 @@ function validateRuntimeInvocation(observation, recipe) {
           loaderExecutableExpectation.extension ||
         authored.operation.rejectionFragment !==
           loaderExecutableExpectation.rejectionFragment ||
-        !invocation.result.errorMessage.includes(
-          authored.operation.rejectionFragment,
-        ))
+        authored.operation.publicErrorCode !==
+          "ERR_IBEX_MODULE_RESOLUTION" ||
+        authored.operation.publicErrorMessage !==
+          "Module resolution failed" ||
+        invocation.result.errorCode !== authored.operation.publicErrorCode ||
+        invocation.result.errorMessage !== authored.operation.publicErrorMessage)
     ) {
       throw new Error(
         `${recipe.fixtureId}: executable loader kind did not fail closed at resolution`,
@@ -1905,10 +1956,10 @@ function validateRuntimeObservation(observation, recipe, coverage) {
             kind: "environment-occurrence",
             requested: {
               kind: "environment-name",
-              target: "broker-base",
+              target: "principal-overlay",
               name: environmentName,
             },
-            valueOrigin: "broker-base",
+            valueOrigin: "principal-overlay",
           })
       ) {
         throw new Error(

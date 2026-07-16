@@ -66,7 +66,7 @@ enum PublicInvocation {
     #[serde(rename = "ibex/capsec-native-global-invocation/1")]
     NativeGlobal {
         #[serde(flatten)]
-        details: NativePublicInvocation,
+        details: Box<NativePublicInvocation>,
     },
     #[serde(rename = "ibex/capsec-builtin-export-invocation/1")]
     BuiltinExport {
@@ -85,7 +85,7 @@ enum PublicInvocation {
 impl PublicInvocation {
     fn native(&self) -> Option<&NativePublicInvocation> {
         match self {
-            Self::NativeGlobal { details } => Some(details),
+            Self::NativeGlobal { details } => Some(details.as_ref()),
             Self::BuiltinExport { .. } | Self::HostAbi { .. } | Self::Other => None,
         }
     }
@@ -120,6 +120,12 @@ struct NativePublicInvocation {
     global_name: String,
     source_descriptor: serde_json::Value,
     source_descriptor_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    public_access: Option<NativePublicAccess>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    public_access_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_deny_message_fragment: Option<String>,
     arguments: Vec<NativeProbeArgument>,
     #[serde(default)]
     required_floor: Vec<serde_json::Value>,
@@ -129,6 +135,27 @@ struct NativePublicInvocation {
     expected_typed_decision_count: usize,
     allowed_coverage_edge_ids: Vec<String>,
     expected_action_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NativePublicAccess {
+    kind: String,
+    observed_key: String,
+    install_id: String,
+    path: Vec<String>,
+    source_refs: Vec<String>,
+    private_terminal: NativePrivateTerminal,
+    expected_deny_message_fragment: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NativePrivateTerminal {
+    observed_key: String,
+    install_id: String,
+    private_consumer: String,
+    live_expectation: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -729,7 +756,7 @@ fn install_native_public_test_host(
     invocation: &NativePublicInvocation,
     listener_port: Option<u16>,
     deny: bool,
-) -> (HostResetGuard, String) {
+) -> (crate::host::Host, HostResetGuard, String) {
     let floor = if invocation.required_floor.is_empty() {
         listener_port
             .map(native_public_floor)
@@ -775,11 +802,11 @@ fn install_native_public_test_host(
         build_armed_test_host_custom(None, false, false, false, floor, None, mutate)
     };
     assert_ne!(
-        crate::host::abi::install_host(host),
+        crate::host::abi::install_host(host.clone()),
         0,
         "native public test Host context token allocation"
     );
-    (HostResetGuard, digest)
+    (host, HostResetGuard, digest)
 }
 
 fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
@@ -797,8 +824,77 @@ struct NativeSetupState {
     sqlite_statement_handle: Option<f64>,
 }
 
+/// Test-only armed engine facade for source-derived native-global probes.
+/// Setup and observed invocation source are separate submissions, but both
+/// consume the installed Host's single authenticated session ordinal stream.
+/// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+struct AuthenticatedNativeEngine {
+    host: crate::host::Host,
+    engine: HermesEngine,
+}
+
+impl AuthenticatedNativeEngine {
+    async fn eval_immediate(&self, source: &str) -> anyhow::Result<Option<String>> {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+
+        let session = self.host.mint_armed_session_token()?;
+        let mut sequence =
+            ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
+        let request = sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })?
+            .authorize_inline()
+            .bind_bytes(source.as_bytes().to_vec())
+            .into_request()?;
+        let ordinal = request.submission_ordinal();
+        match self
+            .engine
+            .evaluate_authenticated(&session, request)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "authenticated native-public submission {ordinal} failed: {error:#}"
+                )
+            })? {
+            AuthenticatedEvaluation::Empty => Ok(None),
+            AuthenticatedEvaluation::Value { display, receipt } => {
+                self.engine
+                    .release_undisplayed_value(receipt.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "authenticated native-public submission {ordinal} lost its value receipt"
+                        )
+                    })?)
+                    .await?;
+                match display.kind {
+                    AuthenticatedDisplayKind::Undefined => Ok(None),
+                    AuthenticatedDisplayKind::String => serde_json::from_str(&display.text)
+                        .map(Some)
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "authenticated native-public submission {ordinal} returned an invalid string display: {error}"
+                            )
+                        }),
+                    _ => Ok(Some(display.text)),
+                }
+            }
+            AuthenticatedEvaluation::Throw(thrown) => anyhow::bail!(
+                "authenticated native-public submission {ordinal} threw: {thrown:?}"
+            ),
+            AuthenticatedEvaluation::Cancelled => anyhow::bail!(
+                "authenticated native-public submission {ordinal} was cancelled"
+            ),
+            AuthenticatedEvaluation::Lifecycle(code) => anyhow::bail!(
+                "authenticated native-public submission {ordinal} exited with lifecycle code {code}"
+            ),
+        }
+    }
+}
+
 async fn run_native_setup(
-    engine: &HermesEngine,
+    engine: &AuthenticatedNativeEngine,
     invocation: &NativePublicInvocation,
     listener_port: Option<u16>,
 ) -> NativeSetupState {
@@ -1079,13 +1175,22 @@ fn native_invocation_script(
             serde_json::to_string(&descriptor.value_shape).expect("serialize global read shape")
         );
     }
+    let callable_binding = if let Some(access) = &invocation.public_access {
+        format!(
+            "var accessPath={};var receiver=globalThis;for(var accessIndex=0;accessIndex+1<accessPath.length;accessIndex++){{if(receiver===null||(typeof receiver!==\"object\"&&typeof receiver!==\"function\")){{receiver=undefined;break;}}receiver=receiver[accessPath[accessIndex]];}}var f=receiver===null||receiver===undefined?undefined:receiver[accessPath[accessPath.length-1]];var thisValue=receiver;",
+            serde_json::to_string(&access.path).expect("serialize native public facade path")
+        )
+    } else {
+        "var f=globalThis[n];var thisValue=globalThis;".to_owned()
+    };
     let cleanup_state = serde_json::json!({
         "sqliteDatabaseHandle": setup_state.sqlite_database_handle,
         "sqliteStatementHandle": setup_state.sqlite_statement_handle,
     });
     format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};{}if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,thisValue,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(&invocation.global_name).expect("serialize native global"),
+        callable_binding,
         serde_json::to_string(arguments).expect("serialize native arguments"),
         serde_json::to_string(&cleanup_state).expect("serialize native cleanup state")
     )
@@ -1191,6 +1296,60 @@ fn validate_global_read_descriptor(
     assert!(invocation.setup.is_empty());
 }
 
+fn validate_private_native_facade(
+    recipe: &Recipe,
+    probe: &PublicSurfaceProbe,
+    invocation: &NativePublicInvocation,
+) {
+    let access = invocation
+        .public_access
+        .as_ref()
+        .expect("private native facade has no authored public access path");
+    let access_digest = tagged_value_digest(access);
+    assert_eq!(
+        invocation.public_access_digest.as_deref(),
+        Some(access_digest.as_str()),
+        "{}: private native facade access digest drift",
+        recipe.fixture_id
+    );
+    assert_eq!(invocation.global_name, "__exactGetCwd");
+    assert_eq!(probe.surface_observed_key, "native-op:__exactGetCwd");
+    assert!(invocation.expected_deny_message_fragment.is_none());
+    assert_eq!(access.kind, "captured-private-global-function");
+    assert_eq!(access.observed_key, "native-op:global:process.cwd");
+    assert_eq!(
+        access.install_id,
+        "root-global.process.cwd.2583c1a2d2ca2d7b"
+    );
+    assert_eq!(access.path, ["process", "cwd"]);
+    assert_eq!(
+        access.source_refs,
+        [
+            "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:process",
+            "packages/ibex-runtime-js/src/node/process.ts#Process.prototype.cwd",
+            "src/engine/bootstrap/compat-polyfills.js#process.cwd",
+            "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.cwd",
+        ]
+    );
+    assert_eq!(
+        access.private_terminal.observed_key,
+        probe.surface_observed_key
+    );
+    assert_eq!(
+        access.private_terminal.install_id,
+        "root-global.exactgetcwd.9b3be5b1ccdb728e"
+    );
+    assert_eq!(
+        access.private_terminal.private_consumer,
+        "trusted-path-process-builtins"
+    );
+    assert_eq!(access.private_terminal.live_expectation, "absent");
+    assert_eq!(
+        access.expected_deny_message_fragment,
+        "filesystem policy denied"
+    );
+}
+
 fn validate_native_runtime_observation(
     recipe: &Recipe,
     probe: &PublicSurfaceProbe,
@@ -1211,7 +1370,7 @@ fn validate_native_runtime_observation(
     assert_eq!(probe.kind, expected_probe_kind);
     assert!(matches!(
         invocation.kind.as_str(),
-        "native-global-function" | "global-property-read"
+        "native-global-function" | "private-native-facade-function" | "global-property-read"
     ));
     assert_eq!(
         invocation.source_descriptor_digest,
@@ -1220,6 +1379,9 @@ fn validate_native_runtime_observation(
         recipe.fixture_id
     );
     if invocation.kind == "global-property-read" {
+        assert!(invocation.public_access.is_none());
+        assert!(invocation.public_access_digest.is_none());
+        assert!(invocation.expected_deny_message_fragment.is_none());
         validate_global_read_descriptor(recipe, probe, invocation);
     } else {
         let expected_observed_key = if invocation.global_name.starts_with('_') {
@@ -1228,6 +1390,19 @@ fn validate_native_runtime_observation(
             format!("native-op:global:{}", invocation.global_name)
         };
         assert_eq!(probe.surface_observed_key, expected_observed_key);
+        if invocation.kind == "private-native-facade-function" {
+            validate_private_native_facade(recipe, probe, invocation);
+        } else {
+            assert!(invocation.public_access.is_none());
+            assert!(invocation.public_access_digest.is_none());
+            if let Some(fragment) = invocation.expected_deny_message_fragment.as_deref() {
+                assert_eq!(fragment, "filesystem policy denied");
+                assert!(matches!(
+                    invocation.global_name.as_str(),
+                    "__exactLstat" | "__exactReadFile" | "__exactRealpath" | "__exactStat"
+                ));
+            }
+        }
     }
     assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
     assert!(
@@ -1272,10 +1447,20 @@ fn validate_native_runtime_observation(
                 "{}: denied public native invocation did not throw: {invocation_result}",
                 recipe.fixture_id
             );
+            let expected_fragment = invocation
+                .expected_deny_message_fragment
+                .as_deref()
+                .or_else(|| {
+                    invocation
+                        .public_access
+                        .as_ref()
+                        .map(|access| access.expected_deny_message_fragment.as_str())
+                })
+                .unwrap_or("Permission denied");
             assert!(
                 invocation_result["errorMessage"]
                     .as_str()
-                    .is_some_and(|message| message.contains("Permission denied")),
+                    .is_some_and(|message| message.contains(expected_fragment)),
                 "{}: denied public native invocation threw the wrong error: {invocation_result}",
                 recipe.fixture_id
             );
@@ -1379,25 +1564,44 @@ fn validate_native_runtime_observation(
         assert_eq!(
             authority_evidence.len(),
             1,
-            "{}: public network probe must have one decisive root authority row: {authority_evidence:?}",
+            "{}: public native probe must have one decisive root authority row: {authority_evidence:?}",
             recipe.fixture_id
         );
         let authority = &authority_evidence[0];
-        let (expected_stratum, expected_source_prefix) =
-            if invocation.expected_result == "permission-denied" {
-                ("principal-denial", "principal.000000.denial.")
-            } else {
-                ("static-floor", "principal.000000.floor.")
-            };
+        let public_denial = invocation.expected_result == "permission-denied";
+        let mount_binding_discovery = !public_denial
+            && decision["decisionSet"]["context"]["stage"] == "discovery"
+            && effects.iter().all(|effect| {
+                effect["resource"]["kind"] == "path-occurrence"
+                    && effect["resource"]["requested"]["root"] == "project"
+                    && effect["resource"]["requested"]["components"]
+                        .as_array()
+                        .is_some_and(Vec::is_empty)
+            });
+        let (expected_stratum, expected_source_prefix) = if public_denial {
+            ("principal-denial", Some("principal.000000.denial."))
+        } else if mount_binding_discovery {
+            ("ambient-root", None)
+        } else {
+            ("static-floor", Some("principal.000000.floor."))
+        };
         assert_eq!(authority["stratum"], expected_stratum);
         assert_eq!(authority["reason"], expected_stratum);
-        assert!(
-            authority["sourceId"]
-                .as_str()
-                .is_some_and(|source| source.starts_with(expected_source_prefix)),
-            "{}: public native decision used the wrong authority source: {authority}",
-            recipe.fixture_id
+        assert_eq!(
+            authority["principal"],
+            serde_json::json!({"kind": "root", "identity": "project-root"})
         );
+        if let Some(expected_source_prefix) = expected_source_prefix {
+            assert!(
+                authority["sourceId"]
+                    .as_str()
+                    .is_some_and(|source| source.starts_with(expected_source_prefix)),
+                "{}: public native decision used the wrong authority source: {authority}",
+                recipe.fixture_id
+            );
+        } else {
+            assert_eq!(authority["sourceId"], serde_json::Value::Null);
+        }
     }
     if invocation.expected_result == "absent" {
         assert!(
@@ -1460,7 +1664,7 @@ fn validate_native_runtime_observation(
 }
 
 async fn execute_native_public_recipe(
-    engine: &HermesEngine,
+    engine: &AuthenticatedNativeEngine,
     recipe: &Recipe,
     coverage_terminals: &BTreeMap<String, String>,
     supplied_listener: Option<std::net::TcpListener>,
@@ -1846,7 +2050,7 @@ async fn capsec_public_native_recipe_batch() {
             let listener_port = listener
                 .as_ref()
                 .map(|listener| listener.local_addr().unwrap().port());
-            let (_reset, snapshot_digest) = install_native_public_test_host(
+            let (host, _reset, snapshot_digest) = install_native_public_test_host(
                 invocation,
                 listener_port,
                 recipe.scenario == "deny",
@@ -1857,6 +2061,7 @@ async fn capsec_public_native_recipe_batch() {
                 .load_runtime()
                 .await
                 .expect("load runtime in isolated native public recipe engine");
+            let engine = AuthenticatedNativeEngine { host, engine };
             executions.push(
                 execute_native_public_recipe(
                     &engine,
