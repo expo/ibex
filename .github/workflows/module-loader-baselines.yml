@@ -212,28 +212,30 @@ jobs:
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             export PATH="/c/Strawberry/perl/bin:$PATH"
             perl -MLocale::Maketext::Simple -e 1
-          fi
-          node packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs \
-            --samples 5 \
-            --no-default-features \
-            --target-dir "$RUNNER_TEMP/module-loader-target" \
-            --expect-os "${{ matrix.platform }}" \
-            --expect-arch "${{ matrix.arch }}" \
-            --write "$RUNNER_TEMP/${{ matrix.report }}.json"
-
-          node packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs \
-            --samples 5 \
-            --target-dir "$RUNNER_TEMP/module-loader-default-target" \
-            --expect-os "${{ matrix.platform }}" \
-            --expect-arch "${{ matrix.arch }}" \
-            --write "$RUNNER_TEMP/default-${{ matrix.report }}.json"
-
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
             node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({schema:"ibex/module-runner-unavailability/1",platform:{os:"windows",arch:"x86_64"},status:"unadvertised",reason:"The published Windows Hermes package lacks the patched native module evaluator and compartment binder; the bounded compatibility loader remains active."}, null, 2) + "\n")' \
               "$RUNNER_TEMP/native-${{ matrix.report }}.json"
-            cp "$RUNNER_TEMP/native-${{ matrix.report }}.json" \
-              "$RUNNER_TEMP/micro-${{ matrix.report }}.json"
+            for report in \
+              "${{ matrix.report }}.json" \
+              "default-${{ matrix.report }}.json" \
+              "micro-${{ matrix.report }}.json"; do
+              cp "$RUNNER_TEMP/native-${{ matrix.report }}.json" "$RUNNER_TEMP/$report"
+            done
           else
+            node packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs \
+              --samples 5 \
+              --no-default-features \
+              --target-dir "$RUNNER_TEMP/module-loader-target" \
+              --expect-os "${{ matrix.platform }}" \
+              --expect-arch "${{ matrix.arch }}" \
+              --write "$RUNNER_TEMP/${{ matrix.report }}.json"
+
+            node packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs \
+              --samples 5 \
+              --target-dir "$RUNNER_TEMP/module-loader-default-target" \
+              --expect-os "${{ matrix.platform }}" \
+              --expect-arch "${{ matrix.arch }}" \
+              --write "$RUNNER_TEMP/default-${{ matrix.report }}.json"
+
             IBEX_MODULE_RUNNER_PERF_OUTPUT="$RUNNER_TEMP/native-${{ matrix.report }}.json" \
             IBEX_MODULE_RUNNER_PERF_SAMPLES=5 \
             CARGO_TARGET_DIR="$RUNNER_TEMP/module-loader-default-target" \
