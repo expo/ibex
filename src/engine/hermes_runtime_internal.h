@@ -169,13 +169,23 @@ enum class NativeCommonJsRecordState : uint8_t {
   Evaluated,
 };
 
+enum class NativeCommonJsRequireTargetKind : uint8_t {
+  CommonJs,
+  Esm,
+};
+
+struct NativeCommonJsRequireBinding {
+  NativeCommonJsRequireTargetKind kind{NativeCommonJsRequireTargetKind::CommonJs};
+  uint64_t record_id{0};
+};
+
 struct NativeCommonJsRecordEntry {
   uint64_t graph_generation{0};
   std::string source_id;
   uint64_t context_handle_id{0};
   std::shared_ptr<facebook::jsi::Function> factory;
   NativeCommonJsRecordState state{NativeCommonJsRecordState::New};
-  std::map<std::string, uint64_t> require_bindings;
+  std::map<std::string, NativeCommonJsRequireBinding> require_bindings;
   std::map<std::string, uint64_t> dynamic_import_bindings;
   std::set<std::string> detected_exports;
   std::string filename;

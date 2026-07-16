@@ -4451,13 +4451,13 @@ mod tests {
             .tempdir_in(test_project_root())
             .unwrap();
         let entry = fixture.path().join("entry.mjs");
-        let dependency = fixture.path().join("dependency.mjs");
+        let dependency = fixture.path().join("dependency.cjs");
         std::fs::write(
             &entry,
-            "import { value } from './dependency.mjs'; export const result = value + 1;\n",
+            "import { value } from './dependency.cjs'; export const result = value + 1;\n",
         )
         .unwrap();
-        std::fs::write(&dependency, "export const value = 41;\n").unwrap();
+        std::fs::write(&dependency, "exports.value = 41;\n").unwrap();
         crate::host::abi::install_host(example_armed_host());
         let producer = digest_bytes("prepared-source-graph-test", b"producer").unwrap();
         let graph =

@@ -26,7 +26,7 @@ use super::carrier::{
 };
 use super::graph::{GraphEdgeKey, SynchronousGraphPlan};
 use super::identity::{ResolutionKind, SourceId};
-use super::producer_spike::produce_module_artifact_v1;
+use super::producer_spike::{produce_commonjs_artifact_v1, produce_module_artifact_v1};
 use super::ModuleKind;
 
 #[derive(Debug, Clone)]
@@ -278,8 +278,8 @@ pub fn build_authenticated_source_graph_v1(
     {
         bail!("authenticated entry is not owned by the project root");
     }
-    if entry_module.kind != ModuleKind::Esm {
-        return Ok(legacy("entry source goal is not ESM"));
+    if !matches!(entry_module.kind, ModuleKind::Esm | ModuleKind::CommonJs) {
+        return Ok(legacy("entry source goal is JSON or builtin"));
     }
 
     let mut queue = VecDeque::from([entry_module]);
@@ -292,10 +292,8 @@ pub fn build_authenticated_source_graph_v1(
         if records.contains_key(&source_id) {
             continue;
         }
-        if module.kind != ModuleKind::Esm {
-            return Ok(legacy(
-                "ESM graph reaches CommonJS, JSON, or builtin interop",
-            ));
+        if !matches!(module.kind, ModuleKind::Esm | ModuleKind::CommonJs) {
+            return Ok(legacy("module graph reaches JSON or builtin interop"));
         }
         let path = module
             .path
@@ -309,14 +307,25 @@ pub fn build_authenticated_source_graph_v1(
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("module");
-        let artifact = produce_module_artifact_v1(
-            source_id.clone(),
-            source_name,
-            &path,
-            source,
-            producer_binary_digest.clone(),
-            hermes_target,
-        )?;
+        let artifact = match module.kind {
+            ModuleKind::Esm => produce_module_artifact_v1(
+                source_id.clone(),
+                source_name,
+                &path,
+                source,
+                producer_binary_digest.clone(),
+                hermes_target,
+            )?,
+            ModuleKind::CommonJs => produce_commonjs_artifact_v1(
+                source_id.clone(),
+                source_name,
+                &path,
+                source,
+                producer_binary_digest.clone(),
+                hermes_target,
+            )?,
+            ModuleKind::Json | ModuleKind::Builtin => unreachable!(),
+        };
         if artifact
             .semantics
             .dynamic_edges
@@ -344,10 +353,8 @@ pub fn build_authenticated_source_graph_v1(
                 .source_id
                 .clone()
                 .ok_or_else(|| anyhow!("authenticated dependency produced no SourceId"))?;
-            if target.kind != ModuleKind::Esm {
-                return Ok(legacy(
-                    "ESM graph reaches CommonJS, JSON, or builtin interop",
-                ));
+            if !matches!(target.kind, ModuleKind::Esm | ModuleKind::CommonJs) {
+                return Ok(legacy("module graph reaches JSON or builtin interop"));
             }
             if let Some(previous) = bindings.insert(key.clone(), target_id.clone()) {
                 if previous != target_id {

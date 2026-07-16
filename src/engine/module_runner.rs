@@ -10,6 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
 use std::ffi::{c_char, c_void, CStr};
 use std::marker::PhantomData;
+#[cfg(any(test, feature = "module-runner"))]
+use std::path::Path;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
@@ -118,6 +120,15 @@ unsafe extern "C" {
         export_name_len: usize,
     ) -> i32;
     fn ex_hermes_commonjs_record_link_require(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
+    #[cfg(any(test, feature = "module-runner"))]
+    fn ex_hermes_commonjs_record_link_require_esm(
         runtime: *mut c_void,
         runtime_nonce: u64,
         record: NativeModuleHandle,
@@ -747,6 +758,13 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
         if specifier.is_empty() {
             bail!("CommonJS require specifier must not be empty");
         }
+        self.link_require_handle(specifier, target.live_handle()?)
+    }
+
+    fn link_require_handle(&mut self, specifier: &str, target: NativeModuleHandle) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("CommonJS require specifier must not be empty");
+        }
         let status = unsafe {
             ex_hermes_commonjs_record_link_require(
                 self.runtime.raw.as_ptr(),
@@ -754,11 +772,36 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
                 self.live_handle()?,
                 specifier.as_ptr(),
                 specifier.len(),
-                target.live_handle()?,
+                target,
             )
         };
         if status != 0 {
             bail!("native CommonJS require link refused ({status})");
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    fn link_require_esm_handle(
+        &mut self,
+        specifier: &str,
+        target: NativeModuleHandle,
+    ) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("CommonJS require specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_commonjs_record_link_require_esm(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                specifier.as_ptr(),
+                specifier.len(),
+                target,
+            )
+        };
+        if status != 0 {
+            bail!("native CommonJS require-ESM link refused ({status})");
         }
         Ok(())
     }
@@ -774,6 +817,17 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
         if specifier.is_empty() {
             bail!("CommonJS dynamic-import specifier must not be empty");
         }
+        self.link_dynamic_import_handle(specifier, target.live_handle()?)
+    }
+
+    fn link_dynamic_import_handle(
+        &mut self,
+        specifier: &str,
+        target: NativeModuleHandle,
+    ) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("CommonJS dynamic-import specifier must not be empty");
+        }
         let status = unsafe {
             ex_hermes_commonjs_record_link_dynamic_import(
                 self.runtime.raw.as_ptr(),
@@ -781,7 +835,7 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
                 self.live_handle()?,
                 specifier.as_ptr(),
                 specifier.len(),
-                target.live_handle()?,
+                target,
             )
         };
         if status != 0 {
@@ -1102,10 +1156,54 @@ impl NativeModuleRecord<'_> {
 // @ref LLP 0026#5-esm-record-lifecycle — full-closure linking precedes body
 // evaluation, and cycles reuse the already-created native records.
 #[cfg(any(test, feature = "module-runner"))]
+enum NativeLinkedRecord<'runtime> {
+    Esm(NativeModuleRecord<'runtime>),
+    CommonJs {
+        record: NativeCommonJsRecord<'runtime>,
+        adapter: NativeModuleRecord<'runtime>,
+    },
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+impl<'runtime> NativeLinkedRecord<'runtime> {
+    fn esm_link_handle(&self) -> Result<NativeModuleHandle> {
+        match self {
+            Self::Esm(record)
+            | Self::CommonJs {
+                adapter: record, ..
+            } => record.live_handle(),
+        }
+    }
+
+    fn esm_mut(&mut self) -> Option<&mut NativeModuleRecord<'runtime>> {
+        match self {
+            Self::Esm(record) => Some(record),
+            Self::CommonJs { .. } => None,
+        }
+    }
+
+    fn commonjs_mut(&mut self) -> Option<&mut NativeCommonJsRecord<'runtime>> {
+        match self {
+            Self::CommonJs { record, .. } => Some(record),
+            Self::Esm(_) => None,
+        }
+    }
+
+    fn namespace_json(&self) -> Result<String> {
+        match self {
+            Self::Esm(record)
+            | Self::CommonJs {
+                adapter: record, ..
+            } => record.namespace_json(),
+        }
+    }
+}
+
+#[cfg(any(test, feature = "module-runner"))]
 pub struct NativeSynchronousGraph<'runtime> {
     entry: SourceId,
     evaluation_order: Vec<SourceId>,
-    records: BTreeMap<SourceId, NativeModuleRecord<'runtime>>,
+    records: BTreeMap<SourceId, NativeLinkedRecord<'runtime>>,
     evaluation_outcome: Option<std::result::Result<(), String>>,
     _authorization_receipts: Vec<AuthorizedGraphOperation>,
 }
@@ -1265,15 +1363,51 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                     generation,
                     &config.source_label,
                 )?,
-                None => runtime.compile_verified_factory(
-                    verified,
-                    config.principal_id,
-                    config.compartment_identity.as_deref(),
-                    generation,
-                    &config.source_label,
-                )?,
+                None => match plan.source_goal(source_id)? {
+                    SourceGoalV1::Module => runtime.compile_verified_factory(
+                        verified,
+                        config.principal_id,
+                        config.compartment_identity.as_deref(),
+                        generation,
+                        &config.source_label,
+                    )?,
+                    SourceGoalV1::CommonJs => runtime.compile_verified_commonjs_factory(
+                        verified,
+                        config.principal_id,
+                        config.compartment_identity.as_deref(),
+                        generation,
+                        &config.source_label,
+                    )?,
+                    SourceGoalV1::Json | SourceGoalV1::Builtin => {
+                        bail!("native executable graph does not yet admit JSON or builtin records")
+                    }
+                },
             };
-            let record = factory.create_record(&context, source_id)?;
+            let record = match plan.source_goal(source_id)? {
+                SourceGoalV1::Module => {
+                    NativeLinkedRecord::Esm(factory.create_record(&context, source_id)?)
+                }
+                SourceGoalV1::CommonJs => {
+                    let dirname = Path::new(&config.source_label)
+                        .parent()
+                        .and_then(Path::to_str)
+                        .unwrap_or("");
+                    let mut record = factory.create_commonjs_record(
+                        &context,
+                        source_id,
+                        &config.source_label,
+                        dirname,
+                    )?;
+                    for export_name in plan.namespace(source_id)?.keys() {
+                        if export_name != "default" && export_name != "module.exports" {
+                            record.declare_detected_export(export_name)?;
+                        }
+                    }
+                    let adapter = record.create_esm_adapter()?;
+                    NativeLinkedRecord::CommonJs { record, adapter }
+                }
+                SourceGoalV1::Json | SourceGoalV1::Builtin => unreachable!(),
+            };
             records.insert(source_id.clone(), record);
             meta_urls.insert(source_id.clone(), config.meta_url);
         }
@@ -1285,9 +1419,13 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         // is the cycle boundary: every record identity and cell already exists.
         for source_id in &linkage_order {
             let namespace = plan.namespace(source_id)?;
-            let record = records
+            let Some(record) = records
                 .get_mut(source_id)
-                .expect("evaluation order was used to create every record");
+                .expect("evaluation order was used to create every record")
+                .esm_mut()
+            else {
+                continue;
+            };
             for export_name in namespace.keys() {
                 record.declare_export(export_name)?;
             }
@@ -1301,32 +1439,63 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                 let target_handle = records
                     .get(&target.record)
                     .ok_or_else(|| anyhow!("export target is outside the entry closure"))?
-                    .live_handle()?;
-                records
+                    .esm_link_handle()?;
+                let Some(record) = records
                     .get_mut(source_id)
                     .expect("evaluation order was used to create every record")
-                    .link_export_handle(&export_name, target_handle, &target.binding)?;
+                    .esm_mut()
+                else {
+                    continue;
+                };
+                record.link_export_handle(&export_name, target_handle, &target.binding)?;
             }
             for binding in plan.import_bindings(source_id)? {
                 let target_handle = records
                     .get(&binding.target.record)
                     .ok_or_else(|| anyhow!("import target is outside the entry closure"))?
-                    .live_handle()?;
-                records
+                    .esm_link_handle()?;
+                let Some(record) = records
                     .get_mut(source_id)
                     .expect("evaluation order was used to create every record")
-                    .link_import_handle(
-                        &binding.specifier,
-                        &binding.imported,
-                        target_handle,
-                        &binding.target.binding,
-                    )?;
+                    .esm_mut()
+                else {
+                    continue;
+                };
+                record.link_import_handle(
+                    &binding.specifier,
+                    &binding.imported,
+                    target_handle,
+                    &binding.target.binding,
+                )?;
             }
+            for (specifier, target) in plan.commonjs_require_bindings(source_id)? {
+                let (target_handle, target_is_esm) = match records
+                    .get(&target)
+                    .ok_or_else(|| anyhow!("CommonJS require target is outside linkage closure"))?
+                {
+                    NativeLinkedRecord::CommonJs { record, .. } => (record.live_handle()?, false),
+                    NativeLinkedRecord::Esm(record) => (record.live_handle()?, true),
+                };
+                let record = records
+                    .get_mut(source_id)
+                    .and_then(NativeLinkedRecord::commonjs_mut)
+                    .ok_or_else(|| {
+                        anyhow!("CommonJS require edge belongs to a non-CommonJS record")
+                    })?;
+                if target_is_esm {
+                    record.link_require_esm_handle(&specifier, target_handle)?;
+                } else {
+                    record.link_require_handle(&specifier, target_handle)?;
+                }
+            }
+
             let mut dependencies = BTreeSet::new();
             for edge in &plan.artifact(source_id)?.artifact().semantics.static_edges {
                 let specifier = match edge {
-                    crate::module_loader::artifact::StaticEdgeV1::CommonJsRequire { specifier }
-                    | crate::module_loader::artifact::StaticEdgeV1::SideEffect {
+                    crate::module_loader::artifact::StaticEdgeV1::CommonJsRequire { .. } => {
+                        continue
+                    }
+                    crate::module_loader::artifact::StaticEdgeV1::SideEffect {
                         specifier, ..
                     }
                     | crate::module_loader::artifact::StaticEdgeV1::Default { specifier, .. }
@@ -1352,11 +1521,15 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                     let target_handle = records
                         .get(&target)
                         .ok_or_else(|| anyhow!("evaluation dependency is outside linkage closure"))?
-                        .live_handle()?;
-                    records
+                        .esm_link_handle()?;
+                    let Some(record) = records
                         .get_mut(source_id)
                         .expect("linkage order was used to create every record")
-                        .link_dependency_handle(target_handle)?;
+                        .esm_mut()
+                    else {
+                        bail!("ESM static edge belongs to a non-ESM record");
+                    };
+                    record.link_dependency_handle(target_handle)?;
                 }
             }
             for (specifier, target) in plan.dynamic_import_targets(source_id)? {
@@ -1370,11 +1543,18 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                 let target_handle = records
                     .get(&target)
                     .ok_or_else(|| anyhow!("dynamic import target is outside linkage closure"))?
-                    .live_handle()?;
-                records
+                    .esm_link_handle()?;
+                match records
                     .get_mut(source_id)
                     .expect("linkage order was used to create every record")
-                    .link_dynamic_import_handle(&specifier, target_handle)?;
+                {
+                    NativeLinkedRecord::Esm(record) => {
+                        record.link_dynamic_import_handle(&specifier, target_handle)?
+                    }
+                    NativeLinkedRecord::CommonJs { record, .. } => {
+                        record.link_dynamic_import_handle(&specifier, target_handle)?;
+                    }
+                }
             }
         }
 
@@ -1385,16 +1565,24 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             let meta_url = meta_urls
                 .get(source_id)
                 .expect("every configured record has an import.meta URL");
-            records
+            let Some(record) = records
                 .get_mut(source_id)
                 .expect("evaluation order was used to create every record")
-                .instantiate(meta_url, source_id == entry)?;
+                .esm_mut()
+            else {
+                continue;
+            };
+            record.instantiate(meta_url, source_id == entry)?;
         }
         for source_id in &linkage_order {
-            records
+            let Some(record) = records
                 .get_mut(source_id)
                 .expect("evaluation order was used to create every record")
-                .run_declare()?;
+                .esm_mut()
+            else {
+                continue;
+            };
+            record.run_declare()?;
         }
 
         Ok(Self {
@@ -1412,11 +1600,17 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         }
         let outcome = (|| {
             for source_id in &self.evaluation_order {
-                let kind = self
+                let kind = match self
                     .records
                     .get_mut(source_id)
                     .expect("linked graph retains every reachable record")
-                    .run_execute()?;
+                {
+                    NativeLinkedRecord::Esm(record) => record.run_execute()?,
+                    NativeLinkedRecord::CommonJs { record, .. } => {
+                        record.evaluate()?;
+                        ModuleExecutionKind::Synchronous
+                    }
+                };
                 if kind == ModuleExecutionKind::Asynchronous {
                     bail!(
                         "ERR_REQUIRE_ASYNC_MODULE: synchronous artifact returned a promise in {source_id:?}"
@@ -1466,7 +1660,7 @@ pub enum AsyncGraphPoll {
 pub struct NativeAsynchronousGraph<'runtime> {
     entry: SourceId,
     schedule: AsyncEvaluationPlan,
-    records: BTreeMap<SourceId, NativeModuleRecord<'runtime>>,
+    records: BTreeMap<SourceId, NativeLinkedRecord<'runtime>>,
     next_scc: usize,
     suspended_records: Vec<SourceId>,
     evaluation_outcome: Option<std::result::Result<(), String>>,
@@ -1599,8 +1793,10 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
                 for source_id in self.suspended_records.drain(..) {
                     match self
                         .records
-                        .get(&source_id)
+                        .get_mut(&source_id)
                         .expect("suspended record remains owned by its graph")
+                        .esm_mut()
+                        .ok_or_else(|| anyhow!("CommonJS record cannot suspend asynchronously"))?
                         .poll_evaluation()?
                     {
                         ModuleEvaluationState::Pending => pending.push(source_id),
@@ -1620,11 +1816,17 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
                 // of a cyclic peer whose body is required to settle it.
                 // @ref LLP 0026#6-top-level-await-and-dynamic-import
                 for source_id in self.schedule.sccs[self.next_scc].records.clone() {
-                    let kind = self
+                    let kind = match self
                         .records
                         .get_mut(&source_id)
                         .expect("async schedule retains every reachable record")
-                        .run_execute()?;
+                    {
+                        NativeLinkedRecord::Esm(record) => record.run_execute()?,
+                        NativeLinkedRecord::CommonJs { record, .. } => {
+                            record.evaluate()?;
+                            ModuleExecutionKind::Synchronous
+                        }
+                    };
                     if kind == ModuleExecutionKind::Asynchronous {
                         self.suspended_records.push(source_id);
                     }
@@ -2296,6 +2498,242 @@ mod tests {
                 graph.namespace_json(&reexport_id).unwrap(),
                 r#"{"answer":42}"#
             );
+            assert_eq!(
+                graph.namespace_json(&entry_id).unwrap(),
+                r#"{"observed":42}"#
+            );
+
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn synchronous_graph_links_esm_imports_to_pre_evaluation_commonjs_adapter() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let cjs_id = SourceId::synthetic("module-runner-test", "mixed-cjs").unwrap();
+            let entry_id = SourceId::synthetic("module-runner-test", "mixed-entry").unwrap();
+            let cjs = test_artifact_for_goal(
+                cjs_id.clone(),
+                "function (require, module, exports) { exports.answer = 41; }",
+                SourceGoalV1::CommonJs,
+                Vec::new(),
+                Vec::new(),
+                Some(CommonJsExportsV1 {
+                    detector: NonEmptyString::new("cjs-module-lexer").unwrap(),
+                    detector_version: NonEmptyString::new("2.1.0").unwrap(),
+                    names: vec![NonEmptyString::new("answer").unwrap()],
+                    reexports: Vec::new(),
+                }),
+            );
+            let entry = test_graph_artifact(
+                entry_id.clone(),
+                "function ($export, context) { return { declare: function () {}, execute: function () { var named = context.importValue('./legacy', 'answer'); var value = context.importValue('./legacy', 'default'); $export('observed', String(named) + ':' + String(value.answer === named)); } }; }",
+                vec![
+                    StaticEdgeV1::Named {
+                        specifier: NonEmptyString::new("./legacy").unwrap(),
+                        imported: NonEmptyString::new("answer").unwrap(),
+                        local: NonEmptyString::new("answer").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    },
+                    StaticEdgeV1::Default {
+                        specifier: NonEmptyString::new("./legacy").unwrap(),
+                        local: NonEmptyString::new("legacy").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    },
+                ],
+                vec![ExportDescriptorV1::Local {
+                    exported: NonEmptyString::new("observed").unwrap(),
+                    local: NonEmptyString::new("observed").unwrap(),
+                }],
+            );
+            let plan = SynchronousGraphPlan::new([
+                (verify_test_artifact(&cjs), BTreeMap::new()),
+                (
+                    verify_test_artifact(&entry),
+                    BTreeMap::from([("./legacy".into(), cjs_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    label,
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph = NativeSynchronousGraph::link(
+                &runtime,
+                &plan,
+                &entry_id,
+                BTreeMap::from([
+                    (cjs_id.clone(), config(cjs_id.clone(), "/pkg/legacy.cjs")),
+                    (entry_id.clone(), config(entry_id.clone(), "/pkg/entry.mjs")),
+                ]),
+            )
+            .unwrap();
+            graph.namespace_json(&cjs_id).unwrap_err();
+            graph.evaluate().unwrap();
+            assert_eq!(
+                graph.namespace_json(&entry_id).unwrap(),
+                r#"{"observed":"41:true"}"#
+            );
+            assert_eq!(
+                graph.namespace_json(&cjs_id).unwrap(),
+                r#"{"answer":41,"default":{"answer":41},"module.exports":{"answer":41}}"#
+            );
+
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn synchronous_graph_links_commonjs_require_of_evaluated_esm() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let esm_id = SourceId::synthetic("module-runner-test", "required-esm").unwrap();
+            let cjs_id = SourceId::synthetic("module-runner-test", "requiring-cjs").unwrap();
+            let esm = test_artifact_with_factory(
+                esm_id.clone(),
+                "function ($export) { return { declare: function () {}, execute: function () { $export('default', 9); $export('named', 4); } }; }",
+                &["default", "named"],
+            );
+            let cjs = test_artifact_for_goal(
+                cjs_id.clone(),
+                "function (require, module, exports) { var namespace = require('./esm'); exports.observed = String(namespace.default + namespace.named) + ':' + String(namespace.__esModule === true); }",
+                SourceGoalV1::CommonJs,
+                vec![StaticEdgeV1::CommonJsRequire {
+                    specifier: NonEmptyString::new("./esm").unwrap(),
+                }],
+                Vec::new(),
+                Some(CommonJsExportsV1 {
+                    detector: NonEmptyString::new("cjs-module-lexer").unwrap(),
+                    detector_version: NonEmptyString::new("2.1.0").unwrap(),
+                    names: vec![NonEmptyString::new("observed").unwrap()],
+                    reexports: Vec::new(),
+                }),
+            );
+            let plan = SynchronousGraphPlan::new([
+                (verify_test_artifact(&esm), BTreeMap::new()),
+                (
+                    verify_test_artifact(&cjs),
+                    BTreeMap::from([("./esm".into(), esm_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    label,
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph = NativeSynchronousGraph::link(
+                &runtime,
+                &plan,
+                &cjs_id,
+                BTreeMap::from([
+                    (esm_id.clone(), config(esm_id.clone(), "/pkg/esm.mjs")),
+                    (cjs_id.clone(), config(cjs_id.clone(), "/pkg/cjs.cjs")),
+                ]),
+            )
+            .unwrap();
+            graph.evaluate().unwrap();
+            assert_eq!(
+                graph.namespace_json(&cjs_id).unwrap(),
+                r#"{"default":{"observed":"13:true"},"module.exports":{"observed":"13:true"},"observed":"13:true"}"#
+            );
+
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn asynchronous_graph_evaluates_commonjs_before_tla_esm_importer() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let cjs_id = SourceId::synthetic("module-runner-test", "async-mixed-cjs").unwrap();
+            let entry_id = SourceId::synthetic("module-runner-test", "async-mixed-entry").unwrap();
+            let cjs = test_commonjs_artifact(
+                cjs_id.clone(),
+                "function (require, module, exports) { exports.answer = 41; }",
+                &["answer"],
+            );
+            let entry = asynchronous_artifact(
+                test_graph_artifact(
+                    entry_id.clone(),
+                    "function ($export, context) { return { declare: function () {}, execute: function () { var answer = context.importValue('./legacy', 'answer'); return Promise.resolve().then(function () { $export('observed', answer + 1); }); } }; }",
+                    vec![StaticEdgeV1::Named {
+                        specifier: NonEmptyString::new("./legacy").unwrap(),
+                        imported: NonEmptyString::new("answer").unwrap(),
+                        local: NonEmptyString::new("answer").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    }],
+                    vec![ExportDescriptorV1::Local {
+                        exported: NonEmptyString::new("observed").unwrap(),
+                        local: NonEmptyString::new("observed").unwrap(),
+                    }],
+                ),
+                Vec::new(),
+            );
+            let plan = SynchronousGraphPlan::new([
+                (verify_test_artifact(&cjs), BTreeMap::new()),
+                (
+                    verify_test_artifact(&entry),
+                    BTreeMap::from([("./legacy".into(), cjs_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    label,
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph = NativeAsynchronousGraph::link(
+                &runtime,
+                &plan,
+                &entry_id,
+                BTreeMap::from([
+                    (cjs_id.clone(), config(cjs_id.clone(), "/pkg/legacy.cjs")),
+                    (entry_id.clone(), config(entry_id.clone(), "/pkg/entry.mjs")),
+                ]),
+            )
+            .unwrap();
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Suspended);
+            assert_ne!(ex_hermes_poll(raw, 0), -1);
+            assert_eq!(graph.poll().unwrap(), AsyncGraphPoll::Evaluated);
             assert_eq!(
                 graph.namespace_json(&entry_id).unwrap(),
                 r#"{"observed":42}"#

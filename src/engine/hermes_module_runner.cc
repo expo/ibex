@@ -137,6 +137,126 @@ facebook::jsi::Object dynamicEvaluationPromise(
     uint64_t requesterRecordId,
     uint64_t targetRecordId);
 
+facebook::jsi::Value readBinding(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t recordId,
+    NativeModuleRecordEntry& record,
+    const std::string& exportName);
+
+facebook::jsi::Value requireEsmRecord(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    uint64_t graphGeneration,
+    uint64_t recordId) {
+  auto found = runtime->module_records.find(recordId);
+  if (found == runtime->module_records.end() ||
+      found->second.graph_generation != graphGeneration) {
+    throw facebook::jsi::JSError(rt, "CommonJS require ESM target is stale");
+  }
+  auto& record = found->second;
+  if (record.state == NativeModuleRecordState::Errored) {
+    throw facebook::jsi::JSError(
+        rt,
+        record.error_message.empty() ? "module record is errored"
+                                     : record.error_message);
+  }
+  if (record.state != NativeModuleRecordState::Evaluated) {
+    throw facebook::jsi::JSError(
+        rt,
+        record.state == NativeModuleRecordState::Evaluating
+            ? "ERR_REQUIRE_CYCLE_MODULE: require() encountered an evaluating ES module"
+            : "ERR_REQUIRE_ASYNC_MODULE: require() target has not completed synchronous evaluation");
+  }
+  if (record.export_cells.count("module.exports") != 0) {
+    return readBinding(rt, runtime, recordId, record, "module.exports");
+  }
+  if (!record.namespace_object) {
+    throw facebook::jsi::JSError(rt, "required ES module namespace is unavailable");
+  }
+  if (record.export_cells.count("default") == 0) {
+    return facebook::jsi::Value(rt, *record.namespace_object);
+  }
+
+  // Node's synchronous require(ESM) surface adds the compatibility marker
+  // when a default export is present. The module has completed evaluation, so
+  // this deterministic snapshot cannot expose partially initialized cells.
+  // @ref LLP 0027#esmcommonjs-interop-matrix
+  facebook::jsi::Object result(rt);
+  for (const auto& [name, cell] : record.export_cells) {
+    (void)cell;
+    result.setProperty(rt, name.c_str(), readBinding(rt, runtime, recordId, record, name));
+  }
+  result.setProperty(rt, "__esModule", true);
+  return result;
+}
+
+void finalizeCommonJsAdapter(
+    facebook::jsi::Runtime& rt,
+    ExactHermesRuntime* runtime,
+    NativeCommonJsRecordEntry& commonjs) {
+  if (commonjs.adapter_record_id == 0) return;
+  auto found = runtime->module_records.find(commonjs.adapter_record_id);
+  if (found == runtime->module_records.end() ||
+      found->second.graph_generation != commonjs.graph_generation) {
+    throw facebook::jsi::JSError(rt, "CommonJS ESM adapter is stale");
+  }
+  if (!commonjs.exports_value) {
+    throw facebook::jsi::JSError(rt, "CommonJS exports are unavailable");
+  }
+  auto& adapter = found->second;
+  for (auto& [name, cell] : adapter.export_cells) {
+    facebook::jsi::Value snapshot = facebook::jsi::Value::undefined();
+    if (name == "default" || name == "module.exports") {
+      snapshot = facebook::jsi::Value(rt, *commonjs.exports_value);
+    } else if (commonjs.exports_value->isObject()) {
+      snapshot = commonjs.exports_value->asObject(rt).getProperty(rt, name.c_str());
+    }
+    cell.initialized = true;
+    cell.value = std::make_shared<facebook::jsi::Value>(rt, snapshot);
+  }
+  auto objectConstructor = rt.global().getPropertyAsObject(rt, "Object");
+  auto create = objectConstructor.getPropertyAsFunction(rt, "create");
+  auto defineProperty =
+      objectConstructor.getPropertyAsFunction(rt, "defineProperty");
+  auto preventExtensions =
+      objectConstructor.getPropertyAsFunction(rt, "preventExtensions");
+  auto namespaceObject =
+      create.call(rt, facebook::jsi::Value::null()).asObject(rt);
+  for (const auto& [name, cell] : adapter.export_cells) {
+    facebook::jsi::Object descriptor(rt);
+    descriptor.setProperty(rt, "enumerable", true);
+    descriptor.setProperty(rt, "configurable", false);
+    descriptor.setProperty(rt, "writable", false);
+    descriptor.setProperty(rt, "value", *cell.value);
+    defineProperty.call(
+        rt,
+        namespaceObject,
+        facebook::jsi::String::createFromUtf8(rt, name),
+        descriptor);
+  }
+  preventExtensions.call(rt, namespaceObject);
+  adapter.namespace_object =
+      std::make_shared<facebook::jsi::Object>(std::move(namespaceObject));
+  adapter.state = NativeModuleRecordState::Evaluated;
+}
+
+void rememberCommonJsAdapterError(
+    ExactHermesRuntime* runtime,
+    const NativeCommonJsRecordEntry& commonjs,
+    const std::string& message) {
+  if (commonjs.adapter_record_id == 0) return;
+  auto found = runtime->module_records.find(commonjs.adapter_record_id);
+  if (found == runtime->module_records.end() ||
+      found->second.graph_generation != commonjs.graph_generation) {
+    return;
+  }
+  found->second.state = NativeModuleRecordState::Errored;
+  if (found->second.error_message.empty()) {
+    found->second.error_message = message;
+  }
+}
+
 // @ref LLP 0026#7-commonjs-interop — publish before execution, expose current
 // partial exports to cycles, and evict every throwing record.
 facebook::jsi::Value evaluateCommonJsRecord(
@@ -199,13 +319,19 @@ facebook::jsi::Value evaluateCommonJsRecord(
             throw facebook::jsi::JSError(
                 rt, "CommonJS require target is not linked");
           }
-          auto dependency =
-              target.runtime->commonjs_records.find(binding->second);
+          if (binding->second.kind ==
+              NativeCommonJsRequireTargetKind::Esm) {
+            return requireEsmRecord(
+                rt, target.runtime, graphGeneration, binding->second.record_id);
+          }
+          auto dependency = target.runtime->commonjs_records.find(
+              binding->second.record_id);
           if (dependency == target.runtime->commonjs_records.end() ||
               dependency->second.graph_generation != graphGeneration) {
             throw facebook::jsi::JSError(rt, "CommonJS require target is stale");
           }
-          return evaluateCommonJsRecord(rt, target.runtime, binding->second);
+          return evaluateCommonJsRecord(
+              rt, target.runtime, binding->second.record_id);
         });
     auto dynamicImport = facebook::jsi::Function::createFromHostFunction(
         rt,
@@ -276,9 +402,24 @@ facebook::jsi::Value evaluateCommonJsRecord(
     record.exports_value =
         std::make_shared<facebook::jsi::Value>(rt, finalExports);
     record.state = NativeCommonJsRecordState::Evaluated;
+    finalizeCommonJsAdapter(rt, runtime, record);
     return facebook::jsi::Value(rt, *record.exports_value);
+  } catch (const facebook::jsi::JSError& error) {
+    const uint64_t contextId = record.context_handle_id;
+    rememberCommonJsAdapterError(runtime, record, error.getMessage());
+    runtime->commonjs_records.erase(recordId);
+    releaseContextReference(runtime, contextId);
+    throw;
+  } catch (const std::exception& error) {
+    const uint64_t contextId = record.context_handle_id;
+    rememberCommonJsAdapterError(runtime, record, error.what());
+    runtime->commonjs_records.erase(recordId);
+    releaseContextReference(runtime, contextId);
+    throw;
   } catch (...) {
     const uint64_t contextId = record.context_handle_id;
+    rememberCommonJsAdapterError(
+        runtime, record, "unknown CommonJS evaluation failure");
     runtime->commonjs_records.erase(recordId);
     releaseContextReference(runtime, contextId);
     throw;
@@ -312,6 +453,12 @@ facebook::jsi::Value readBinding(
   while (true) {
     if (!visited.emplace(currentId, currentName).second) {
       throw facebook::jsi::JSError(rt, "cyclic module export alias");
+    }
+    if (current->state == NativeModuleRecordState::Errored) {
+      throw facebook::jsi::JSError(
+          rt,
+          current->error_message.empty() ? "module record is errored"
+                                         : current->error_message);
     }
     if (currentName == "*") {
       if (!current->namespace_object) {
@@ -1199,7 +1346,38 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require(
   }
   const std::string name(
       reinterpret_cast<const char*>(specifier), specifier_len);
-  if (!entry->require_bindings.emplace(name, target_record.opaque[2]).second) {
+  NativeCommonJsRequireBinding binding;
+  binding.kind = NativeCommonJsRequireTargetKind::CommonJs;
+  binding.record_id = target_record.opaque[2];
+  if (!entry->require_bindings.emplace(name, binding).second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_commonjs_record_link_require_esm(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record) {
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = commonJsRecordFor(runtime, record);
+  auto* target = recordFor(runtime, target_record);
+  if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeCommonJsRecordState::New || specifier == nullptr ||
+      specifier_len == 0 ||
+      entry->graph_generation != target->graph_generation) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string name(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  NativeCommonJsRequireBinding binding;
+  binding.kind = NativeCommonJsRequireTargetKind::Esm;
+  binding.record_id = target_record.opaque[2];
+  if (!entry->require_bindings.emplace(name, binding).second) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   return EXACT_RUNTIME_DRIVE_OK;
@@ -1274,8 +1452,9 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
   auto* commonjs = commonJsRecordFor(runtime, record);
   if (commonjs == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (out_adapter == nullptr ||
-      commonjs->state != NativeCommonJsRecordState::Evaluated ||
-      !commonjs->exports_value || commonjs->adapter_record_id != 0) {
+      (commonjs->state != NativeCommonJsRecordState::New &&
+       commonjs->state != NativeCommonJsRecordState::Evaluated) ||
+      commonjs->adapter_record_id != 0) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   auto context = runtime->graph_contexts.find(commonjs->context_handle_id);
@@ -1289,54 +1468,22 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
     adapter.graph_generation = commonjs->graph_generation;
     adapter.source_id = commonjs->source_id;
     adapter.context_handle_id = commonjs->context_handle_id;
-    adapter.state = NativeModuleRecordState::Evaluated;
+    adapter.state = NativeModuleRecordState::Instantiated;
     for (const auto& name : commonjs->detected_exports) {
-      facebook::jsi::Value snapshot = facebook::jsi::Value::undefined();
-      if (commonjs->exports_value->isObject()) {
-        snapshot = commonjs->exports_value->asObject(rt).getProperty(
-            rt, name.c_str());
-      }
       NativeModuleBindingCell cell;
-      cell.initialized = true;
-      cell.value =
-          std::make_shared<facebook::jsi::Value>(rt, snapshot);
       adapter.export_cells.emplace(name, std::move(cell));
     }
     for (const std::string name : {"default", "module.exports"}) {
       NativeModuleBindingCell cell;
-      cell.initialized = true;
-      cell.value = std::make_shared<facebook::jsi::Value>(
-          rt, *commonjs->exports_value);
       adapter.export_cells.emplace(name, std::move(cell));
     }
-
-    auto objectConstructor = rt.global().getPropertyAsObject(rt, "Object");
-    auto create = objectConstructor.getPropertyAsFunction(rt, "create");
-    auto defineProperty =
-        objectConstructor.getPropertyAsFunction(rt, "defineProperty");
-    auto preventExtensions =
-        objectConstructor.getPropertyAsFunction(rt, "preventExtensions");
-    auto namespaceObject =
-        create.call(rt, facebook::jsi::Value::null()).asObject(rt);
-    for (const auto& [name, cell] : adapter.export_cells) {
-      facebook::jsi::Object descriptor(rt);
-      descriptor.setProperty(rt, "enumerable", true);
-      descriptor.setProperty(rt, "configurable", false);
-      descriptor.setProperty(rt, "writable", false);
-      descriptor.setProperty(rt, "value", *cell.value);
-      defineProperty.call(
-          rt,
-          namespaceObject,
-          facebook::jsi::String::createFromUtf8(rt, name),
-          descriptor);
-    }
-    preventExtensions.call(rt, namespaceObject);
-    adapter.namespace_object =
-        std::make_shared<facebook::jsi::Object>(std::move(namespaceObject));
     const uint64_t id = nextHandleId(runtime);
     ++context->second.references;
     runtime->module_records.emplace(id, std::move(adapter));
     commonjs->adapter_record_id = id;
+    if (commonjs->state == NativeCommonJsRecordState::Evaluated) {
+      finalizeCommonJsAdapter(rt, runtime, *commonjs);
+    }
     out_adapter->opaque[0] = runtime_nonce;
     out_adapter->opaque[1] = commonjs->graph_generation;
     out_adapter->opaque[2] = id;

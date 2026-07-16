@@ -190,6 +190,16 @@ int32_t ex_hermes_commonjs_record_link_require(
     size_t specifier_len,
     ExactModuleRunnerHandle target_record);
 
+/// Bind a CommonJS `require(specifier)` lookup to an authenticated ESM record.
+/// The target must have completed synchronous evaluation when require runs.
+int32_t ex_hermes_commonjs_record_link_require_esm(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record);
+
 /// Bind one authenticated CommonJS `import(specifier)` spelling to an ESM
 /// record. The body receives a promise-returning `dynamicImport` factory
 /// argument; missing, denied, and stale spellings reject asynchronously.
@@ -210,8 +220,9 @@ int32_t ex_hermes_commonjs_record_evaluate(
     int32_t* out_evicted,
     char** out_error);
 
-/// Freeze the completed CommonJS exports into an ESM adapter ModuleRecord with
-/// `default`, `module.exports`, and detector-authenticated named snapshots.
+/// Create the ESM adapter before linking. Its cells remain uninitialized until
+/// successful CommonJS evaluation freezes `default`, `module.exports`, and
+/// detector-authenticated named snapshots; failure becomes sticky on adapter.
 int32_t ex_hermes_commonjs_record_create_esm_adapter(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,

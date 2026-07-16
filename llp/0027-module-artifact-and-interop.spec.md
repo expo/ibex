@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
+**Revised:** 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
 promise-returning CommonJS-to-ESM import ABI); 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
 snapshot adapters); 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
 producer adapter, and tamper fixtures)
@@ -164,16 +164,19 @@ names are snapshots and do not update after later `module.exports` mutation.
 The detector's reexport specifiers are retained separately and must name typed
 CommonJS require edges so adapter-name traversal never performs an ambient
 resolution.
-The ESM adapter for an evicted throwing CommonJS record follows CommonJS cache
-algebra and may observe re-evaluation rather than ESM sticky failure.
+The CommonJS cache entry is evicted on throw, while any ESM adapter already
+linked to that incarnation retains the same sticky failure. A later CommonJS
+require may create and evaluate a fresh CommonJS record without mutating the
+failed ESM incarnation.
 
 The native implementation stamps factory handles with their admitted source
 goal, publishes the initial CommonJS record before execution, and resolves
 `require` only through authenticated links. A cycle observes the target's
 current `module.exports`, including replacement before the recursive require.
-A throw evicts and invalidates the handle; successful completion permits one
-stable ESM adapter containing the two identity entries and detector-approved
-named snapshots.
+A throw evicts and invalidates the CommonJS handle. Its single stable ESM
+adapter is created before graph linking with uninitialized cells; successful
+completion fills the two identity entries and detector-approved named
+snapshots, while a throw marks the adapter errored.
 
 The artifact represents each statically detected literal `require` as a
 `common-js-require` static edge. It is resolved with CommonJS conditions and

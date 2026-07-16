@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 use super::artifact::{
-    ExportDescriptorV1, ModulePayloadV1, StaticEdgeV1, VerifiedModuleArtifactV1,
+    ExportDescriptorV1, ModulePayloadV1, SourceGoalV1, StaticEdgeV1, VerifiedModuleArtifactV1,
 };
 use super::identity::{ResolutionKind, SourceId};
 use super::security::{
@@ -320,6 +320,33 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             .artifact()
             .semantics
             .has_top_level_await)
+    }
+
+    pub fn source_goal(&self, source_id: &SourceId) -> Result<SourceGoalV1, GraphError> {
+        Ok(self
+            .record(source_id)?
+            .artifact
+            .artifact()
+            .semantics
+            .source_goal)
+    }
+
+    pub fn commonjs_require_bindings(
+        &self,
+        source_id: &SourceId,
+    ) -> Result<Vec<(String, SourceId)>, GraphError> {
+        let record = self.record(source_id)?;
+        let mut bindings = Vec::new();
+        for edge in &record.artifact.artifact().semantics.static_edges {
+            if let StaticEdgeV1::CommonJsRequire { specifier } = edge {
+                bindings.push((
+                    specifier.as_str().to_owned(),
+                    self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)?
+                        .clone(),
+                ));
+            }
+        }
+        Ok(bindings)
     }
 
     /// Authenticated dynamic-import targets. Literal sites contribute their
@@ -830,6 +857,34 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         Ok(namespace)
     }
 
+    fn commonjs_export_names(
+        &self,
+        source_id: &SourceId,
+        visiting: &mut BTreeSet<SourceId>,
+    ) -> Result<BTreeSet<String>, GraphError> {
+        if !visiting.insert(source_id.clone()) {
+            return Ok(BTreeSet::new());
+        }
+        let record = self.record(source_id)?;
+        let semantics = &record.artifact.artifact().semantics;
+        let Some(commonjs) = &semantics.commonjs_exports else {
+            visiting.remove(source_id);
+            return Ok(BTreeSet::new());
+        };
+        let mut names = commonjs
+            .names
+            .iter()
+            .map(|name| name.as_str().to_owned())
+            .collect::<BTreeSet<_>>();
+        for specifier in &commonjs.reexports {
+            let target =
+                self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)?;
+            names.extend(self.commonjs_export_names(target, visiting)?);
+        }
+        visiting.remove(source_id);
+        Ok(names)
+    }
+
     fn has_explicit_export(&self, source_id: &SourceId, name: &str) -> Result<bool, GraphError> {
         Ok(self
             .record(source_id)?
@@ -856,6 +911,13 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             return Ok(());
         }
         let record = self.record(source_id)?;
+        if record.artifact.artifact().semantics.source_goal == SourceGoalV1::CommonJs {
+            names.insert("default".to_owned());
+            names.insert("module.exports".to_owned());
+            names.extend(self.commonjs_export_names(source_id, &mut BTreeSet::new())?);
+            visiting.remove(source_id);
+            return Ok(());
+        }
         for descriptor in &record.artifact.artifact().semantics.export_descriptors {
             match descriptor {
                 ExportDescriptorV1::Local { exported, .. }
@@ -888,6 +950,22 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             return Ok(Resolution::Missing);
         }
         let record = self.record(source_id)?;
+        if record.artifact.artifact().semantics.source_goal == SourceGoalV1::CommonJs {
+            let is_export = name == "default"
+                || name == "module.exports"
+                || self
+                    .commonjs_export_names(source_id, &mut BTreeSet::new())?
+                    .contains(name);
+            visiting.remove(&key);
+            return Ok(if is_export {
+                Resolution::Found(ExportTarget {
+                    record: source_id.clone(),
+                    binding: name.to_owned(),
+                })
+            } else {
+                Resolution::Missing
+            });
+        }
 
         for descriptor in &record.artifact.artifact().semantics.export_descriptors {
             match descriptor {
@@ -1268,6 +1346,22 @@ mod tests {
         ModuleArtifactV1::new_inline(semantics, factory_source, base.producer).unwrap()
     }
 
+    fn with_commonjs_exports(
+        artifact: ModuleArtifactV1,
+        names: &[&str],
+        reexports: &[&str],
+    ) -> ModuleArtifactV1 {
+        let factory_source = match artifact.payload {
+            ModulePayloadV1::Inline { factory_source, .. } => factory_source,
+            ModulePayloadV1::Carrier { .. } => unreachable!(),
+        };
+        let mut semantics = artifact.semantics;
+        let exports = semantics.commonjs_exports.as_mut().unwrap();
+        exports.names = names.iter().map(|value| name(value)).collect();
+        exports.reexports = reexports.iter().map(|value| name(value)).collect();
+        ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer).unwrap()
+    }
+
     #[test]
     fn star_ambiguity_is_excluded_and_local_exports_win() {
         let left_id = source("left");
@@ -1470,6 +1564,69 @@ mod tests {
         assert_eq!(
             plan.evaluation_order(&entry_id).unwrap(),
             [require_id, entry_id]
+        );
+    }
+
+    #[test]
+    fn esm_imports_resolve_against_commonjs_reexport_names() {
+        let entry_id = source("esm-entry");
+        let bridge_id = source("commonjs-bridge");
+        let leaf_id = source("commonjs-leaf");
+        let entry = artifact(
+            entry_id.clone(),
+            vec![],
+            vec![named_edge("./bridge", "answer", "answer")],
+            false,
+        );
+        let bridge = with_commonjs_exports(
+            commonjs_artifact(
+                bridge_id.clone(),
+                vec![StaticEdgeV1::CommonJsRequire {
+                    specifier: name("./leaf"),
+                }],
+                vec![],
+            ),
+            &[],
+            &["./leaf"],
+        );
+        let leaf = with_commonjs_exports(
+            commonjs_artifact(leaf_id.clone(), vec![], vec![]),
+            &["answer"],
+            &[],
+        );
+        let plan = SynchronousGraphPlan::new_typed([
+            (
+                verify(&entry),
+                BTreeMap::from([(
+                    GraphEdgeKey::new("./bridge", ResolutionKind::EsmStatic),
+                    bridge_id.clone(),
+                )]),
+            ),
+            (
+                verify(&bridge),
+                BTreeMap::from([(
+                    GraphEdgeKey::new("./leaf", ResolutionKind::CommonJsRequire),
+                    leaf_id.clone(),
+                )]),
+            ),
+            (verify(&leaf), BTreeMap::new()),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            plan.namespace(&bridge_id)
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            ["answer", "default", "module.exports"]
+        );
+        assert_eq!(
+            plan.import_bindings(&entry_id).unwrap()[0].target,
+            ExportTarget {
+                record: bridge_id,
+                binding: "answer".into(),
+            }
         );
     }
 
