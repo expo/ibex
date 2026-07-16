@@ -278,11 +278,15 @@ describe("exact-target CapSec executable recipes", () => {
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedStages,
         ).toEqual(
-          denial ? ["requested"] : ["requested", "discovery", "repeat"],
+          denial
+            ? ["requested"]
+            : exportName === "statSync"
+              ? ["requested", "discovery", "requested", "repeat", "repeat"]
+              : ["requested", "discovery", "requested", "repeat"],
         );
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-        ).toBe(denial ? 1 : 3);
+        ).toBe(denial ? 1 : exportName === "statSync" ? 5 : 4);
       }
     }
   });
@@ -328,11 +332,19 @@ describe("exact-target CapSec executable recipes", () => {
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
         denial
           ? ["requested"]
-          : ["requested", "discovery", "repeat", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "repeat",
+              "repeat",
+              "repeat",
+            ],
       );
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-      ).toBe(denial ? 1 : 4);
+      ).toBe(denial ? 1 : 7);
     }
   });
 
