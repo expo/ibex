@@ -2058,6 +2058,7 @@ describe("CapSec public-surface promotion evidence", () => {
     invocation.arguments = [];
     invocation.requiredFloor = [];
     invocation.setup = [];
+    invocation.expectedCleanup = "none";
     invocation.completion = {
       kind: "event-loop-quiescence",
       timeoutMilliseconds: 1_000,
@@ -2070,6 +2071,8 @@ describe("CapSec public-surface promotion evidence", () => {
     delete observation.invocation.exportName;
     observation.invocation.kind = invocation.kind;
     observation.invocation.globalName = invocation.globalName;
+    observation.invocation.result.globalName = invocation.globalName;
+    observation.invocation.result.cleanup = "none";
     observation.invocation.executionProof = {
       kind: "native-return",
       bodyEntered: true,
@@ -2087,6 +2090,17 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).not.toThrow();
+
+    const wrongCleanup = structuredClone(observation);
+    wrongCleanup.invocation.result.cleanup = "closed-unrelated-resource";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongCleanup,
+        coverage,
+      }),
+    ).toThrow(/did not prove its authored cleanup/);
 
     const pending = structuredClone(observation);
     pending.invocation.completion.status = "pending";

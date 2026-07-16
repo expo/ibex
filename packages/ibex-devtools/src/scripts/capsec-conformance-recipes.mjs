@@ -596,6 +596,10 @@ const nativeResultArgument = (
   requiredSourceArity,
   arguments: argumentsList,
 });
+const tlsEngineArgument = () =>
+  nativeResultArgument("__exactTlsEngineNew", 1, [
+    literalArgument('{"host":"localhost"}'),
+  ]);
 const nativeResultPropertyArgument = (
   property,
   globalName,
@@ -619,10 +623,12 @@ const nativeNoEffectTemplate = (
   requiredSourceArity,
   argumentsList = [],
   setup = [],
+  expectedCleanup = null,
 ) =>
   Object.freeze({
     actionIds: [],
     arguments: argumentsList,
+    ...(expectedCleanup ? { expectedCleanup } : {}),
     expectedDecisionCounts: { "non-capability": 0 },
     expectedResults: { "non-capability": "return" },
     expectedStages: { "non-capability": [] },
@@ -1109,6 +1115,154 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   [
     "__exactStringToUtf8Bytes",
     nativeNoEffectTemplate(1, [literalArgument("ibex")]),
+  ],
+  [
+    "__exactZlibCreate",
+    nativeNoEffectTemplate(
+      5,
+      [
+        literalArgument(0),
+        literalArgument(0),
+        literalArgument(-1),
+        literalArgument(0),
+        literalArgument(null),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
+  ],
+  [
+    "__exactZlibCheckOwner",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("__exactZlibCreate", 5, [
+        literalArgument(0),
+        literalArgument(0),
+        literalArgument(-1),
+        literalArgument(0),
+        literalArgument(null),
+      ]),
+    ], [], "closed-zlib-stream"),
+  ],
+  [
+    "__exactZlibClose",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("__exactZlibCreate", 5, [
+        literalArgument(0),
+        literalArgument(0),
+        literalArgument(-1),
+        literalArgument(0),
+        literalArgument(null),
+      ]),
+    ], [], "consumed-zlib-stream"),
+  ],
+  [
+    "__exactZlibParams",
+    nativeNoEffectTemplate(3, [
+      nativeResultArgument("__exactZlibCreate", 5, [
+        literalArgument(0),
+        literalArgument(0),
+        literalArgument(-1),
+        literalArgument(0),
+        literalArgument(null),
+      ]),
+      literalArgument(6),
+      literalArgument(0),
+    ], [], "closed-zlib-stream"),
+  ],
+  [
+    "__exactZlibWrite",
+    nativeNoEffectTemplate(6, [
+      nativeResultArgument("__exactZlibCreate", 5, [
+        literalArgument(0),
+        literalArgument(0),
+        literalArgument(-1),
+        literalArgument(0),
+        literalArgument(null),
+      ]),
+      literalArgument("ibex"),
+      literalArgument(0),
+      literalArgument(true),
+      literalArgument(false),
+      literalArgument(1024),
+    ], [], "closed-zlib-stream"),
+  ],
+  [
+    "__exactTlsOwnerToken",
+    nativeNoEffectTemplate(
+      2,
+      [literalArgument("new")],
+      [],
+      "closed-tls-owner-token",
+    ),
+  ],
+  [
+    "__exactNetOwner",
+    nativeNoEffectTemplate(3, [literalArgument("new")], [], "none"),
+  ],
+  [
+    "__exactTlsEngineNew",
+    nativeNoEffectTemplate(
+      1,
+      [literalArgument('{"host":"localhost"}')],
+      [],
+      "closed-tls-engine",
+    ),
+  ],
+  [
+    "__exactTlsEngineClose",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "consumed-tls-engine"),
+  ],
+  [
+    "__exactTlsEnginePeerCerts",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "closed-tls-engine"),
+  ],
+  [
+    "__exactTlsEngineReadPlain",
+    nativeNoEffectTemplate(
+      2,
+      [tlsEngineArgument(), literalArgument(1024)],
+      [],
+      "closed-tls-engine",
+    ),
+  ],
+  [
+    "__exactTlsEngineReadTls",
+    nativeNoEffectTemplate(
+      2,
+      [tlsEngineArgument(), literalArgument(1024)],
+      [],
+      "closed-tls-engine",
+    ),
+  ],
+  [
+    "__exactTlsEngineShutdown",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "closed-tls-engine"),
+  ],
+  [
+    "__exactTlsEngineStatus",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "closed-tls-engine"),
+  ],
+  [
+    "__exactTlsEngineTransportEof",
+    nativeNoEffectTemplate(1, [tlsEngineArgument()], [], "closed-tls-engine"),
+  ],
+  [
+    "__exactTlsEngineWritePlain",
+    nativeNoEffectTemplate(2, [
+      tlsEngineArgument(),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument("ibex"),
+      ]),
+    ], [], "closed-tls-engine"),
+  ],
+  [
+    "__exactTlsEngineWriteTls",
+    nativeNoEffectTemplate(2, [
+      tlsEngineArgument(),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument(""),
+      ]),
+    ], [], "closed-tls-engine"),
   ],
   [
     "__exactUdpClose",
@@ -1688,6 +1842,9 @@ function nativePublicProbeForPlan({
           bindNativeSetupSources(setup, liveByObservedKey),
         ),
         expectedResult: template.expectedResults[scenario],
+        ...(template.expectedCleanup
+          ? { expectedCleanup: template.expectedCleanup }
+          : {}),
         expectedTypedStages: clone(expectedStages),
         expectedTypedDecisionCount: template.expectedDecisionCounts[scenario],
         allowedCoverageEdgeIds: canonicalSet([

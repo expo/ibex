@@ -1386,6 +1386,28 @@ function validateRuntimeInvocation(observation, recipe) {
     if (
       authored.invocationSchema ===
         "ibex/capsec-native-global-invocation/1" &&
+      authored.kind === "native-global-function"
+    ) {
+      exactKeys(
+        invocation.result,
+        ["kind", "globalName", "valueType", "cleanup"],
+        `${recipe.fixtureId}: native call result`,
+      );
+      if (
+        invocation.result.globalName !== authored.globalName ||
+        typeof invocation.result.valueType !== "string" ||
+        typeof invocation.result.cleanup !== "string" ||
+        (authored.expectedCleanup !== undefined &&
+          invocation.result.cleanup !== authored.expectedCleanup)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: native call did not prove its authored cleanup`,
+        );
+      }
+    }
+    if (
+      authored.invocationSchema ===
+        "ibex/capsec-native-global-invocation/1" &&
       authored.kind === "global-property-read"
     ) {
       exactKeys(

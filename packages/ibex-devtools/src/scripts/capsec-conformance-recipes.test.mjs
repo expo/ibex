@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(281);
+    expect(nativePublicFixtures).toHaveLength(298);
     expect(
       nativePublicFixtures
         .filter(
@@ -124,7 +124,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(190);
+    ).toHaveLength(207);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -1570,6 +1570,98 @@ describe("exact-target CapSec executable recipes", () => {
     expect(publicKey.sourceDescriptorDigest).toBe(
       privateKey.sourceDescriptorDigest,
     );
+
+    const zlibRows = recipes.recipes.filter((recipe) =>
+      [
+        "__exactZlibCheckOwner",
+        "__exactZlibClose",
+        "__exactZlibCreate",
+        "__exactZlibParams",
+        "__exactZlibWrite",
+      ].includes(recipe.publicSurfaceProbe?.invocation?.globalName),
+    );
+    expect(zlibRows).toHaveLength(5);
+    expect(
+      zlibRows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0,
+      ),
+    ).toBe(true);
+    expect(
+      zlibRows.map(
+        (recipe) => recipe.publicSurfaceProbe.invocation.expectedCleanup,
+      ),
+    ).toEqual([
+      "closed-zlib-stream",
+      "consumed-zlib-stream",
+      "closed-zlib-stream",
+      "closed-zlib-stream",
+      "closed-zlib-stream",
+    ]);
+    const zlibWrite = zlibRows.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.globalName === "__exactZlibWrite",
+    );
+    expect(zlibWrite.publicSurfaceProbe.invocation.arguments[0]).toMatchObject({
+      kind: "native-global-result",
+      globalName: "__exactZlibCreate",
+      sourceDescriptor: {
+        arity: 5,
+        globalName: "__exactZlibCreate",
+        kind: "native-global-function",
+      },
+    });
+    const tlsRows = recipes.recipes.filter((recipe) =>
+      recipe.publicSurfaceProbe?.invocation?.globalName?.startsWith(
+        "__exactTlsEngine",
+      ),
+    );
+    expect(tlsRows).toHaveLength(10);
+    expect(
+      tlsRows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          typeof recipe.publicSurfaceProbe.invocation.expectedCleanup ===
+            "string",
+      ),
+    ).toBe(true);
+    const tlsWrite = tlsRows.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.globalName ===
+        "__exactTlsEngineWritePlain",
+    );
+    expect(tlsWrite.publicSurfaceProbe.invocation.arguments).toMatchObject([
+      {
+        kind: "native-global-result",
+        globalName: "__exactTlsEngineNew",
+      },
+      {
+        kind: "native-global-result",
+        globalName: "__exactStringToUtf8Bytes",
+      },
+    ]);
+    for (const globalName of ["__exactNetOwner", "__exactTlsOwnerToken"]) {
+      expect(
+        recipes.recipes.find(
+          (recipe) =>
+            recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+        ),
+      ).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [{ value: "new" }],
+            expectedCleanup:
+              globalName === "__exactNetOwner"
+                ? "none"
+                : "closed-tls-owner-token",
+          },
+        },
+      });
+    }
 
     const targetAbsence = recipes.recipes.find(
       (recipe) =>
