@@ -152610,37 +152610,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactentryfileconsumed.02ku0kb",
-      "observedKey": "native-op:__exactEntryFileConsumed",
-      "branchId": "surface.native.op.exactentryfileconsumed.02ku0kb.default",
-      "enforcementBranchId": "surface.native.op.exactentryfileconsumed.02ku0kb.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactEntryFileConsumed"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactEntryFileConsumed"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactEntryFileConsumed"
-        ],
-        "terminalObservedKey": "native-op:__exactEntryFileConsumed"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/module-loader.js#__exactEntryFileConsumed"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactentryfileconsumed.02ku0kb.default.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactevpcipherdecrypt.0ig36oe",
       "observedKey": "native-op:__exactEvpCipherDecrypt",
       "branchId": "surface.native.op.exactevpcipherdecrypt.0ig36oe.default",
@@ -264811,44 +264780,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-VL6OPCKiKN3jZyxEvbm-g0ObGqmf4evUwGqXdFKsTgQ"
+      "rawContentDigest": "sha256-kMucidxOU2vh8V1V7jDlwiWCUqidXnT3wqOgQBL2zTA"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-38VIjZfMxjbxEMOVuhNjzRlbV7wMebjN9-F9_8jhJiQ"
+      "rawContentDigest": "sha256-2TWY9rhvt7jHcMSYMtnKWjA0r07AJ9Ej7X46raTHZF8"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-aM2uTtQDGe0zmtfXGCyL5gZS-xp-S_C7aAELtereeVw"
+      "rawContentDigest": "sha256-FDEw9wRiA5PbiPXGBVX2NaS4XodIG-saJRDtGv3Z7OY"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-3b7oEgm-wGaHAzQfwdM-86DhdMaKg4VFojIcm2TVEEQ"
+      "rawContentDigest": "sha256-kPVZ3IKK16f18_MQNleqgjH8zm7rPLXkYo1EqSSAau8"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-qpKDibo1F6zQkJ5yc2G5_VKJch1H9jeakPqi3utd5Ic"
+      "rawContentDigest": "sha256-OP0dTRujbv7yCjGRdqF7VCAoho4fS3x4gXBHkYyof8M"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-r2kIIfS-SnCsIVU8EtuFqqVXUuQ1DzF73zK57uENXNM"
+      "rawContentDigest": "sha256-L8CaTRxsY-ViVzGI9Pc7Jcrw4My4poMhmyY7ZhqIau8"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-gZwE41i7kpmUB6dglh2ZzHXhDtP3WVKwoywMklmzM1E"
+      "rawContentDigest": "sha256-a4c3NEA5RXDHpwAVP8s3Vr4XAzm-3dCMJulYH-zDiWY"
     }
   ],
   "counts": {
-    "observedReferences": 12761,
-    "logicalSurfaces": 7111,
-    "enforcementBranches": 7310,
-    "coverageEdges": 7111,
-    "targetCells": 7111
+    "observedReferences": 12760,
+    "logicalSurfaces": 7110,
+    "enforcementBranches": 7309,
+    "coverageEdges": 7110,
+    "targetCells": 7110
   }
 }

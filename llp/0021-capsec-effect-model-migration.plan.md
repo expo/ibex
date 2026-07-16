@@ -598,8 +598,8 @@ checked registry, canonical empty package policy/graph, and strict Exact
 manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
-advertisements remain incomplete. The refreshed catalog has 23,125 required
-fixtures, 4,774 fully executable recipes, and 18,351 unresolved
+advertisements remain incomplete. The refreshed catalog has 23,124 required
+fixtures, 4,774 fully executable recipes, and 18,350 unresolved
 fixtures. The latest source-bound tranche adds five cached system-information
 authorization scenarios and twelve asynchronous path-operation scenarios for
 the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime`
@@ -621,7 +621,9 @@ write-only process-compatibility diagnostics likewise no longer publish
 bootstrap progress, fallback objects, or exception strings to project code;
 the sole control predicate is local to the compatibility IIFE. The
 decompression unhandled-rejection filter sentinel is module-local as well,
-rather than a project-writable global. The resource
+rather than a project-writable global. Bundled-entry remap consumption is now
+tracked by exact host entry-path value in the trusted module-loader closure
+while the host entry-path input remains explicit. The resource
 recipes create, exercise, and release their runtime/principal-owned
 native state in one bounded invocation. Fourteen Linux/Android-only
 `node:constants` exports now carry source-bound Apple absence evidence from the

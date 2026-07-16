@@ -195535,16 +195535,6 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
-      "id": "surface.native.op.exactentryfileconsumed.02ku0kb",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactEntryFileConsumed"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
       "id": "surface.native.op.exactevpcipherdecrypt.0ig36oe",
       "classification": "non-capability",
       "surface": {
