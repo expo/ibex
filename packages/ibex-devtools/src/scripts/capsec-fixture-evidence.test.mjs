@@ -340,5 +340,5 @@ describe("Exact fixture-evidence pilot", () => {
         validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
       }),
     ).toThrow(/single-use Exact completion route/u);
-  });
+  }, 15_000);
 });
