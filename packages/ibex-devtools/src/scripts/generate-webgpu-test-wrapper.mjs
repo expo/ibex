@@ -2,7 +2,7 @@
 /**
  * Refresh the committed portable test-wrapper expression.
  *
- * @ref LLP 0002#gpu-bridge-seam
+ * @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
  * @ref LLP 0017#2-add-one-regenerate-command-and-one-drift-check
  */
 

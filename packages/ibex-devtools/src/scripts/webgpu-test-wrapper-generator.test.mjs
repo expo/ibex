@@ -1,5 +1,5 @@
 /**
- * @ref LLP 0002#gpu-bridge-seam
+ * @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
  * @ref LLP 0019#the-enforced-conformance-seam
  */
 
@@ -119,6 +119,36 @@ describe("test-only WebGPU wrapper generator", () => {
       "retire",
       "setRequestDeviceFacts",
     ]);
+  });
+
+  test("uses real TypeError objects and route-driven singleton wire identity", async () => {
+    const factory = (0, eval)(renderWebGpuTestWrapper(authority, semantics));
+    const harness = factory();
+    const borrowed = Object.getPrototypeOf(harness.gpu).requestAdapter;
+    let receiverError;
+    try {
+      borrowed.call({});
+    } catch (error) {
+      receiverError = error;
+    }
+    expect(receiverError).toBeInstanceOf(TypeError);
+    expect(receiverError.name).toBe("TypeError");
+
+    const adapter = await harness.gpu.requestAdapter();
+    await adapter.requestDevice();
+    await adapter.requestDevice();
+    const observation = harness.inspect();
+    const adapterReceipt = observation.serviceReceipts.find(
+      (receipt) => receipt.operationName === "GPU.requestAdapter",
+    );
+    const deviceReceipts = observation.serviceReceipts.filter(
+      (receipt) => receipt.operationName === "GPUAdapter.requestDevice",
+    );
+    expect(adapterReceipt.receiverRef).toBeNull();
+    expect(adapterReceipt.authenticatedIngressContext.receiverRef).toBeNull();
+    expect(adapterReceipt.authenticatedIngressContext.adapterOperationOrdinal).toBe(0);
+    expect(deviceReceipts.map((receipt) =>
+      receipt.authenticatedIngressContext.adapterOperationOrdinal)).toEqual([1, 2]);
   });
 
   test("treats recursive source commit and full-artifact SHA as provenance only", () => {

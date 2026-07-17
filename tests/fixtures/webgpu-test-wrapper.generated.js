@@ -22,7 +22,7 @@
     return error;
   }
   function typeError(message) {
-    return namedError("TypeError", message);
+    return TypeError(message);
   }
   function requireDictionary(value, label) {
     if (value === void 0)
@@ -242,11 +242,23 @@
       return 0;
     return device.localScopes[device.localScopes.length - 1];
   }
+  function traceRealm(realm, kind, call, details) {
+    var entry = {
+      ordinal: realm.nextTraceOrdinal++,
+      kind,
+      operationId: call ? call.route.operationId : null,
+      operationInstanceId: call ? call.operationInstanceId : 0,
+      promiseId: call ? call.promiseId : 0
+    }, names = details ? Object.keys(details) : [];
+    for (var index = 0;index < names.length; index += 1)
+      entry[names[index]] = details[names[index]];
+    realm.orderingTrace.push(entry);
+  }
   function beginPublic(realm, operationId, receiverState, targetState) {
     var route = routes[operationId];
     if (!route)
       throw Error("unreviewed wrapper operation: " + operationId);
-    var device = receiverState ? receiverState.device : null;
+    var wireReceiverState = route.receiverHandleKind ? receiverState : null, device = receiverState ? receiverState.device : null;
     if (!device && targetState)
       device = targetState.device;
     var carriedOperationIdentity = route.operationInstanceIdentity.indexOf("not-carried-wrapper-only") !== 0, call = {
@@ -257,11 +269,12 @@
       operationProviderGeneration: device ? device.providerGeneration : receiverState && receiverState.providerGeneration ? receiverState.providerGeneration : 0,
       operationInstanceId: carriedOperationIdentity ? realm.nextOperationInstance++ : 0,
       promiseId: 0,
-      adapterOperationOrdinal: operationId === "GPU.requestAdapter" || operationId === "GPUAdapter.requestDevice" ? realm.nextAdapterOrdinal++ : 0,
+      adapterOperationOrdinal: operationId === "GPUAdapter.requestDevice" && receiverState ? receiverState.nextRequestDeviceOrdinal++ : 0,
       deviceIngressOrdinal: device ? device.nextIngress++ : 0,
       queueIngressOrdinal: operationId === "GPUQueue.submit" && device ? device.nextQueueIngress++ : 0,
       capturedScopeId: currentScopeId(device),
       receiverState: receiverState || null,
+      wireReceiverState,
       targetState: targetState || null,
       resultState: null,
       receipt: null,
@@ -283,9 +296,15 @@
       operationInstanceIdentity: route.operationInstanceIdentity,
       promiseIdentity: route.promiseIdentity,
       operationInstanceId: call.operationInstanceId,
-      receiverKind: receiverState ? receiverState.kind : null,
+      expectedReceiverKind: route.receiverHandleKind,
+      expectedTargetKind: route.wrapperAllocatedTargetHandleKind,
+      expectedResultKind: route.resultHandleKind,
+      receiverKind: wireReceiverState ? wireReceiverState.kind : null,
       targetKind: targetState ? targetState.kind : null,
       resultKind: call.resultState ? call.resultState.kind : null,
+      receiverRef: typedRef(wireReceiverState),
+      wrapperAllocatedTargetRef: typedRef(targetState),
+      resultHandleRef: typedRef(call.resultState),
       capturedScopeId: call.capturedScopeId
     };
     realm.publicCalls.push(call.publicRecord);
@@ -294,10 +313,12 @@
   function setCallResult(call, state) {
     call.resultState = state || null;
     call.publicRecord.resultKind = state ? state.kind : null;
+    call.publicRecord.resultHandleRef = typedRef(state);
   }
   function setCallPreallocatedTarget(call, state) {
     call.targetState = state;
     call.publicRecord.targetKind = state ? state.kind : null;
+    call.publicRecord.wrapperAllocatedTargetRef = typedRef(state);
     setCallResult(call, state);
   }
   function assignCallDeviceIngress(call, device) {
@@ -338,7 +359,7 @@
       deviceIngressOrdinal: call.deviceIngressOrdinal,
       queueIngressOrdinal: call.queueIngressOrdinal,
       physicalSequence: call.receipt ? call.receipt.physicalOperationKey.physicalSequence : 0,
-      receiverRef: typedRef(call.receiverState),
+      receiverRef: typedRef(call.wireReceiverState),
       wrapperAllocatedTargetRef: typedRef(call.targetState),
       resultHandleRef: typedRef(call.resultState),
       capturedScopeId: call.capturedScopeId,
@@ -364,8 +385,13 @@
         failurePredicateWireId: call.preProviderFailurePredicateWireId || 0,
         failureClass: call.preProviderFailureClass || null,
         failureTiming: call.preProviderFailureTiming || "promise-rejection",
+        requestDeviceFacts: call.requestDeviceFacts ? logValue(call.requestDeviceFacts, 0) : null,
         status,
         body: logValue(body, 0)
+      });
+      traceRealm(call.realm, "operation-terminal", call, {
+        status,
+        providerBacked: !1
       });
       return;
     }
@@ -383,6 +409,10 @@
     call.receipt.terminalStatus = status;
     call.receipt.resultHandleRef = typedRef(call.resultState);
     requireClient(call.realm.client).events.push(operationCompleteEvent(call, status, body));
+    traceRealm(call.realm, "operation-terminal", call, {
+      status,
+      providerBacked: !0
+    });
   }
   function errorFilterFor(name) {
     if (name === "GPUOutOfMemoryError")
@@ -451,7 +481,7 @@
         operationInstanceId: pending.call.operationInstanceId,
         deviceIngressOrdinal: pending.call.deviceIngressOrdinal,
         capturedScopeId: pending.call.capturedScopeId,
-        receiverRef: typedRef(pending.call.receiverState),
+        receiverRef: typedRef(pending.call.wireReceiverState),
         wrapperAllocatedTargetRef: typedRef(pending.call.targetState),
         argumentBody: logValue(pending.payload, 0),
         logicalError: pending.error ? logValue(pending.error, 0) : null
@@ -476,7 +506,9 @@
       errorSpec = call.device.nextForcedError;
       call.device.nextForcedError = null;
     }
-    var providerAdmitted = call.route.fakeProviderEntry === !0 && call.providerAdmissionOverride !== !1 && (!errorSpec || errorSpec.physical === !0), physicalSequence = providerAdmitted ? ++call.realm.nextPhysicalSequence : 0, physicalDevice = call.resultState && call.resultState.device ? call.resultState.device : call.ingressDevice, receipt = {
+    if (call.providerAdmissionOverride === !0 && call.route.providerSubmission === "none")
+      throw Error("provider entry selected for an operation with no provider submission");
+    var providerEntrySelected = call.providerAdmissionOverride === !0 || call.providerAdmissionOverride !== !1 && call.route.fakeProviderEntry === !0, providerAdmitted = providerEntrySelected && (!errorSpec || errorSpec.physical === !0), physicalSequence = providerAdmitted ? ++call.realm.nextPhysicalSequence : 0, physicalDevice = call.resultState && call.resultState.device ? call.resultState.device : call.ingressDevice, receipt = {
       operationName: call.route.operationId,
       operationId: call.route.wireId,
       semanticSha256: call.route.semanticSha256,
@@ -506,7 +538,7 @@
       failureProgram: null,
       operationInstanceId: call.operationInstanceId,
       promiseId: call.promiseId,
-      receiverRef: typedRef(call.receiverState),
+      receiverRef: typedRef(call.wireReceiverState),
       wrapperAllocatedTargetRef: typedRef(call.targetState),
       resultHandleRef: typedRef(call.resultState),
       untrustedWrapperPayload: {
@@ -514,7 +546,7 @@
         serviceArgumentCodec: call.route.serviceArgumentCodec,
         operationInstanceId: call.operationInstanceId,
         promiseId: call.promiseId,
-        receiverRef: typedRef(call.receiverState),
+        receiverRef: typedRef(call.wireReceiverState),
         wrapperAllocatedTargetRef: typedRef(call.targetState),
         argumentBody: logValue(argumentBody, 0)
       },
@@ -535,7 +567,7 @@
         adapterOperationOrdinal: call.adapterOperationOrdinal,
         deviceIngressOrdinal: call.deviceIngressOrdinal,
         queueIngressOrdinal: call.queueIngressOrdinal,
-        receiverRef: typedRef(call.receiverState),
+        receiverRef: typedRef(call.wireReceiverState),
         wrapperAllocatedTargetRef: typedRef(call.targetState),
         capturedScopeId: call.capturedScopeId
       },
@@ -556,6 +588,10 @@
       terminalStatus: pendingPromise ? "pending" : errorSpec ? "error" : "ok"
     };
     call.receipt = receipt;
+    traceRealm(call.realm, providerAdmitted ? "provider-entry" : "no-provider-entry", call, {
+      physicalSequence,
+      providerTokenCount: providerAdmitted ? 1 : 0
+    });
     if (call.requestDeviceTerminal) {
       if (receipt.providerAdmission.providerTokenCount !== call.requestDeviceTerminal.providerTokenCount || (physicalSequence ? 1 : 0) !== call.requestDeviceTerminal.physicalSequenceCount)
         throw Error("fake requestDevice admission disagrees with authenticated terminal");
@@ -591,11 +627,15 @@
             throw namedError("SecurityError", "realm is closed");
           var result = action();
           completeCall(call, "ok", result);
+          traceRealm(call.realm, "promise-resolve", call, {});
           resolve(result);
         } catch (error) {
           completeCall(call, "rejected", {
             name: error.name || "Error",
             message: error.message || String(error)
+          });
+          traceRealm(call.realm, "promise-reject", call, {
+            errorName: error.name || "Error"
           });
           reject(error);
         }
@@ -611,7 +651,7 @@
     Object.defineProperty(info, "message", { value: message, enumerable: !0 });
     return Object.freeze(info);
   }
-  function loseDevice(device, reason, message, emitProviderLoss) {
+  function loseDevice(device, reason, message, emitProviderLoss, initiatingCall) {
     if (device.lostSettled)
       return;
     device.lostSettled = !0;
@@ -645,6 +685,10 @@
       lossReason: reason,
       redactedDiagnostic: message,
       lostSettlementOrdinal: ++device.realm.nextLostSettlement
+    });
+    traceRealm(device.realm, "device-lost-settle", initiatingCall || null, {
+      logicalDeviceId: device.id,
+      reason
     });
     device.resolveLost(createLostInfo(reason, message, device.realm));
   }
@@ -712,6 +756,43 @@
     if (realm.accountClosed)
       throw namedError("SecurityError", "GPU account is closed");
   }
+  function closeAccountState(realm, cause, initiatingCall, deferredCredit) {
+    if (realm.accountClosed)
+      return !1;
+    realm.accountClosed = !0;
+    var ordinal = realm.nextLifecycleOrdinal++, reason = String(cause || "test-account-close"), client = requireClient(realm.client);
+    client.lifecycle.push({
+      kind: "accountClose",
+      realmToken: realm.token,
+      realmGeneration: realm.generation,
+      accountToken: realm.accountToken,
+      accountGeneration: realm.accountGeneration,
+      closeOrdinal: ordinal,
+      closeCause: reason
+    });
+    client.events.push({
+      tag: "account-close-service-event-v1",
+      kind: "account-close",
+      realmToken: realm.token,
+      realmGeneration: realm.generation,
+      accountToken: realm.accountToken,
+      accountGeneration: realm.accountGeneration,
+      closeOrdinal: ordinal,
+      closeCause: reason,
+      winningDiagnostic: "account closed"
+    });
+    traceRealm(realm, "account-close", initiatingCall || null, {
+      closeOrdinal: ordinal
+    });
+    for (var adapterIndex = 0;adapterIndex < realm.adapters.length; adapterIndex += 1) {
+      var credit = realm.adapters[adapterIndex].publicationCredit;
+      if (credit !== deferredCredit)
+        retirePublicationCredit(credit);
+    }
+    for (var deviceIndex = 0;deviceIndex < realm.devices.length; deviceIndex += 1)
+      loseDevice(realm.devices[deviceIndex], "unknown", "account closed", !1, initiatingCall || null);
+    return !0;
+  }
   function publicationCreditSnapshot(credit) {
     return {
       id: credit.id,
@@ -752,22 +833,6 @@
     credit.state = "retired";
     credit.activeOperationInstanceId = 0;
     credit.retireCount += 1;
-  }
-  function settlePublicationCredit(call, disposition) {
-    if (disposition === "account-close-retired-exactly-once") {
-      retirePublicationCredit(call.publicationCredit);
-      return;
-    }
-    if (disposition === "returned-to-adapter-reusable-after-public-settlement") {
-      returnPublicationCredit(call);
-      return;
-    }
-    if (disposition === "returned-after-public-settlement-then-account-close-retired-exactly-once") {
-      returnPublicationCredit(call);
-      retirePublicationCredit(call.publicationCredit);
-      return;
-    }
-    throw Error("unknown acquired publication-credit disposition: " + disposition);
   }
   function liveDeviceReservationSnapshot(reservation) {
     return {
@@ -817,13 +882,6 @@
     ledger.leafActive -= 1;
     ledger.aggregateActive -= 1;
   }
-  function requestDeviceTerminal(terminalId) {
-    var terminals = plan.semantic.requestDeviceRouting.terminals;
-    for (var index = 0;index < terminals.length; index += 1)
-      if (terminals[index].terminalId === terminalId)
-        return terminals[index];
-    throw Error("missing authenticated requestDevice terminal: " + terminalId);
-  }
   function requestDeviceFailurePredicate(terminal, preferredPredicateId) {
     var source = terminal.errorSource;
     if (!source || source.kind !== "first-failing-predicate")
@@ -841,23 +899,23 @@
     }
     throw Error("requestDevice terminal cannot select authenticated predicate: " + terminal.terminalId);
   }
-  function requestDeviceErrorName(failureClass) {
+  function requestDeviceError(failureClass, message) {
     if (failureClass === "type-error")
-      return "TypeError";
+      return typeError(message);
     if (failureClass === "operation-error")
-      return "OperationError";
+      return namedError("OperationError", message);
     if (failureClass === "security-error")
-      return "SecurityError";
+      return namedError("SecurityError", message);
     throw Error("unknown authenticated requestDevice failure class: " + failureClass);
   }
-  function requestDeviceRejection(call, terminalId, preferredPredicateId, message) {
-    var terminal = requestDeviceTerminal(terminalId), predicate = requestDeviceFailurePredicate(terminal, preferredPredicateId);
+  function requestDeviceRejection(call, terminal, preferredPredicateId, message) {
+    var predicate = requestDeviceFailurePredicate(terminal, preferredPredicateId);
     call.preProviderTerminalId = terminal.terminalId;
     call.preProviderFailurePredicateId = predicate.predicateId;
     call.preProviderFailurePredicateWireId = predicate.predicateWireId;
     call.preProviderFailureClass = predicate.failureClass;
     call.preProviderFailureTiming = predicate.failureTiming;
-    return namedError(requestDeviceErrorName(predicate.failureClass), message);
+    return requestDeviceError(predicate.failureClass, message);
   }
   function isPowerOfTwo(value) {
     if (value <= 0 || value >= 4294967296)
@@ -867,20 +925,32 @@
       remaining /= 2;
     return remaining === 1;
   }
-  function validateDeviceDescriptor(copy, call) {
+  function validateDeviceDescriptor(copy) {
     var requiredFeatures = copy.requiredFeatures;
     if (requiredFeatures === void 0)
       requiredFeatures = [];
     if (!Array.isArray(requiredFeatures))
-      throw requestDeviceRejection(call, "unsupported-required-features", "adapter.request-device.required-features", "requiredFeatures must be a sequence");
+      return {
+        fact: "requiredFeaturesSupported",
+        predicateId: "adapter.request-device.required-features",
+        message: "requiredFeatures must be a sequence"
+      };
     for (var featureIndex = 0;featureIndex < requiredFeatures.length; featureIndex += 1)
       if (typeof requiredFeatures[featureIndex] !== "string" || plan.fakeClientData.adapterFeatures.indexOf(requiredFeatures[featureIndex]) === -1)
-        throw requestDeviceRejection(call, "unsupported-required-features", "adapter.request-device.required-features", "unsupported required feature");
+        return {
+          fact: "requiredFeaturesSupported",
+          predicateId: "adapter.request-device.required-features",
+          message: "unsupported required feature"
+        };
     var requiredLimits = copy.requiredLimits;
     if (requiredLimits === void 0)
       requiredLimits = {};
     if (requiredLimits === null || typeof requiredLimits !== "object")
-      throw requestDeviceRejection(call, "invalid-adapter-request", "adapter.request-device.limits", "requiredLimits must be a dictionary");
+      return {
+        fact: "adapterRequestValid",
+        predicateId: "adapter.request-device.limits",
+        message: "requiredLimits must be a dictionary"
+      };
     var rows = plan.semantic.limitPolicy.limits, rowByName = Object.create(null);
     for (var rowIndex = 0;rowIndex < rows.length; rowIndex += 1)
       rowByName[rows[rowIndex].name] = rows[rowIndex];
@@ -891,28 +961,49 @@
         continue;
       var row = rowByName[name];
       if (!row || row.requestable !== !0)
-        throw requestDeviceRejection(call, "invalid-adapter-request", "adapter.request-device.limits", "unknown or non-requestable required limit");
+        return {
+          fact: "adapterRequestValid",
+          predicateId: "adapter.request-device.limits",
+          message: "unknown or non-requestable required limit"
+        };
       var number;
       try {
         number = Number(requested);
       } catch (error) {
-        throw requestDeviceRejection(call, "invalid-adapter-request", "adapter.request-device.limits", "required limit is not numeric");
+        return {
+          fact: "adapterRequestValid",
+          predicateId: "adapter.request-device.limits",
+          message: "required limit is not numeric"
+        };
       }
       if (!Number.isFinite(number) || Math.floor(number) !== number || number < 0)
-        throw requestDeviceRejection(call, "invalid-adapter-request", "adapter.request-device.limits", "required limit is not a nonnegative integer");
+        return {
+          fact: "adapterRequestValid",
+          predicateId: "adapter.request-device.limits",
+          message: "required limit is not a nonnegative integer"
+        };
       var profileBoundary = row.profileBucket.core, grantBoundary = row.capabilityGrantBoundary.core;
       if (row.class === "maximum") {
         var maximumBoundary = Math.min(profileBoundary, grantBoundary);
         if (number > maximumBoundary)
-          throw requestDeviceRejection(call, "invalid-adapter-request", "adapter.request-device.limits", "required maximum is better than the boundary");
+          return {
+            fact: "adapterRequestValid",
+            predicateId: "adapter.request-device.limits",
+            message: "required maximum is better than the boundary"
+          };
       } else {
         var alignmentBoundary = Math.max(profileBoundary, grantBoundary);
         if (!isPowerOfTwo(number) || number < alignmentBoundary)
-          throw requestDeviceRejection(call, "invalid-adapter-request", "adapter.request-device.limits", "required alignment is better than the boundary");
+          return {
+            fact: "adapterRequestValid",
+            predicateId: "adapter.request-device.limits",
+            message: "required alignment is better than the boundary"
+          };
       }
     }
+    return null;
   }
-  function selectRequestDeviceTerminal(adapter) {
+  function selectRequestDeviceTerminal(adapter, directFacts) {
     var realmAdmissionLive = !adapter.realm.closed && !adapter.realm.accountClosed, facts = {
       webidlValid: !0,
       requiredFeaturesSupported: !0,
@@ -937,6 +1028,9 @@
       else
         facts[overrideName] = overrides[overrideName];
     }
+    var directNames = directFacts ? Object.keys(directFacts) : [];
+    for (var directIndex = 0;directIndex < directNames.length; directIndex += 1)
+      facts[directNames[directIndex]] = directFacts[directNames[directIndex]];
     var terminals = plan.semantic.requestDeviceRouting.terminals;
     for (var terminalIndex = 0;terminalIndex < terminals.length; terminalIndex += 1) {
       var terminal = terminals[terminalIndex], conditionNames = Object.keys(terminal.conditions), matches = !0;
@@ -949,11 +1043,12 @@
       }
       if (matches) {
         var admissionFailurePredicateId = null;
-        if (terminal.terminalId === "live-admission-rejection")
+        if (terminal.errorSource && terminal.errorSource.kind === "first-failing-predicate" && terminal.errorSource.branchId === "live-admission")
           admissionFailurePredicateId = adapter.realm.closed ? "adapter.request-device.realm" : adapter.realm.accountClosed ? "adapter.request-device.account" : "adapter.request-device.coverage";
         return {
           terminal,
-          admissionFailurePredicateId
+          admissionFailurePredicateId,
+          facts
         };
       }
     }
@@ -968,6 +1063,36 @@
     if (source === "generic-provider-inability")
       return "provider could not create a device";
     return "GPU account closed";
+  }
+  function terminalRequiresAccountClose(terminal) {
+    return terminal.publicationCreditDisposition.indexOf("account-close") !== -1 || terminal.conditions.deviceAccountLiveAtProviderCompletion === !1 || terminal.conditions.deviceAccountLiveAtSettlementCommit === !1;
+  }
+  function traceProviderCompletion(call, facts) {
+    traceRealm(call.realm, "provider-completion", call, {
+      providerFulfilled: facts.providerFulfilled,
+      accountLive: facts.deviceAccountLiveAtProviderCompletion
+    });
+  }
+  function settleTerminalPublication(call, terminal, closeAlreadyWon) {
+    var disposition = terminal.publicationCreditDisposition;
+    if (disposition === "account-close-retired-exactly-once") {
+      if (!closeAlreadyWon)
+        closeAccountState(call.realm, "authenticated requestDevice close terminal", call, null);
+      retirePublicationCredit(call.publicationCredit);
+      return;
+    }
+    if (disposition === "returned-to-adapter-reusable-after-public-settlement") {
+      returnPublicationCredit(call);
+      return;
+    }
+    if (disposition === "returned-after-public-settlement-then-account-close-retired-exactly-once") {
+      returnPublicationCredit(call);
+      if (!closeAlreadyWon)
+        closeAccountState(call.realm, "authenticated requestDevice close terminal", call, null);
+      retirePublicationCredit(call.publicationCredit);
+      return;
+    }
+    throw Error("unknown acquired publication-credit disposition: " + disposition);
   }
   defineMethod(prototypeFor("GPU"), "getPreferredCanvasFormat", function() {
     var state = requireReceiver(this, "GPU");
@@ -987,6 +1112,7 @@
       var adapter = allocateWrapper(state.realm, "GPUAdapter", null, {
         expired: !1,
         providerGeneration: call.operationProviderGeneration,
+        nextRequestDeviceOrdinal: 1,
         publicationCredit: null
       }), adapterState = wrapperStates.get(adapter);
       adapterState.publicationCredit = {
@@ -1008,16 +1134,23 @@
     var adapter = requireReceiver(this, "GPUAdapter"), call = beginPublic(adapter.realm, "GPUAdapter.requestDevice", adapter, null);
     call.promiseId = allocatePromiseId(call);
     return promiseOperation(call, function() {
-      var copy;
+      var copy, descriptorFailure = null, selection;
       try {
         copy = snapshotDictionary(descriptor, "GPUDeviceDescriptor");
       } catch (error) {
-        throw requestDeviceRejection(call, "webidl-rejection", "adapter.request-device.webidl", error.message || "GPUDeviceDescriptor conversion failed");
+        selection = selectRequestDeviceTerminal(adapter, { webidlValid: !1 });
+        call.requestDeviceFacts = selection.facts;
+        throw requestDeviceRejection(call, selection.terminal, "adapter.request-device.webidl", error.message || "GPUDeviceDescriptor conversion failed");
       }
-      validateDeviceDescriptor(copy, call);
-      var selection = selectRequestDeviceTerminal(adapter), terminal = selection.terminal;
-      if (terminal.terminalId === "live-admission-rejection")
-        throw requestDeviceRejection(call, terminal.terminalId, selection.admissionFailurePredicateId, "logical device admission was rejected");
+      descriptorFailure = validateDeviceDescriptor(copy);
+      var descriptorFacts = {};
+      if (descriptorFailure)
+        descriptorFacts[descriptorFailure.fact] = !1;
+      selection = selectRequestDeviceTerminal(adapter, descriptorFacts);
+      var terminal = selection.terminal;
+      call.requestDeviceFacts = selection.facts;
+      if (terminal.publicationCreditDisposition === "not-acquired")
+        throw requestDeviceRejection(call, terminal, descriptorFailure ? descriptorFailure.predicateId : selection.admissionFailurePredicateId, descriptorFailure ? descriptorFailure.message : "logical device admission was rejected");
       call.preProviderTerminalId = null;
       acquirePublicationCredit(adapter, call);
       var device;
@@ -1028,8 +1161,8 @@
         serviceCall(adapter.realm.client, call, copy, !0, null);
         if (terminal.adapterStateAfterSettlement === "expired")
           adapter.expired = !0;
-        settlePublicationCredit(call, terminal.publicationCreditDisposition);
-        throw requestDeviceRejection(call, terminal.terminalId, null, "requestDevice lost a close race");
+        settleTerminalPublication(call, terminal, !1);
+        throw requestDeviceRejection(call, terminal, null, "requestDevice lost a close race");
       }
       if (terminal.resultDisposition === "promise-resolve-lost-object") {
         device = createDevice(adapter.realm, adapter.providerGeneration, !0);
@@ -1037,19 +1170,27 @@
         if (terminal.providerTokenCount === 1)
           commitLiveDeviceCredits(call.resultState.device, call);
         serviceCall(adapter.realm.client, call, copy, !0, null);
-        loseDevice(call.resultState.device, terminal.lostSettlement.reason, lostDiagnostic(terminal), !1);
+        var closeWonBeforeLoss = terminalRequiresAccountClose(terminal) && terminal.lostSettlement.arbiterWinner === "account-close";
+        if (terminal.providerTokenCount === 1 && selection.facts.deviceAccountLiveAtProviderCompletion !== !1)
+          traceProviderCompletion(call, selection.facts);
+        if (closeWonBeforeLoss)
+          closeAccountState(call.realm, "authenticated requestDevice account-close winner", call, call.publicationCredit);
+        if (terminal.providerTokenCount === 1 && selection.facts.deviceAccountLiveAtProviderCompletion === !1)
+          traceProviderCompletion(call, selection.facts);
+        loseDevice(call.resultState.device, terminal.lostSettlement.reason, lostDiagnostic(terminal), !1, call);
         if (terminal.adapterStateAfterSettlement === "expired")
           adapter.expired = !0;
-        settlePublicationCredit(call, terminal.publicationCreditDisposition);
+        settleTerminalPublication(call, terminal, closeWonBeforeLoss);
         return device;
       }
       device = createDevice(adapter.realm, adapter.providerGeneration, !1);
       setCallResult(call, wrapperStates.get(device));
       commitLiveDeviceCredits(call.resultState.device, call);
       serviceCall(adapter.realm.client, call, copy, !0, null);
+      traceProviderCompletion(call, selection.facts);
       if (terminal.adapterStateAfterSettlement === "expired")
         adapter.expired = !0;
-      settlePublicationCredit(call, terminal.publicationCreditDisposition);
+      settleTerminalPublication(call, terminal, !1);
       return device;
     });
   });
@@ -1108,7 +1249,8 @@
     return texture;
   });
   defineMethod(prototypeFor("GPUCanvasContext"), "unconfigure", function() {
-    var context = requireReceiver(this, "GPUCanvasContext"), call = beginPublic(context.realm, "GPUCanvasContext.unconfigure", context, null);
+    var context = requireReceiver(this, "GPUCanvasContext"), call = beginPublic(context.realm, "GPUCanvasContext.unconfigure", context, null), wasConfigured = Boolean(context.configuration && context.configuredDevice);
+    call.providerAdmissionOverride = wasConfigured;
     if (context.configuredDevice)
       assignCallDeviceIngress(call, context.configuredDevice);
     serviceCall(context.realm.client, call, { configurationGeneration: context.configurationGeneration }, !1, null);
@@ -1164,11 +1306,12 @@
     return pipeline;
   });
   defineMethod(prototypeFor("GPUDevice"), "destroy", function() {
-    var state = requireReceiver(this, "GPUDevice"), call = beginPublic(state.realm, "GPUDevice.destroy", state, null);
-    serviceCall(state.realm.client, call, { alreadyDestroyed: state.device.destroyed }, !1, null);
-    if (!state.device.destroyed) {
+    var state = requireReceiver(this, "GPUDevice"), call = beginPublic(state.realm, "GPUDevice.destroy", state, null), alreadyDestroyed = state.device.destroyed;
+    call.providerAdmissionOverride = !alreadyDestroyed;
+    serviceCall(state.realm.client, call, { alreadyDestroyed }, !1, null);
+    if (!alreadyDestroyed) {
       state.device.destroyed = !0;
-      loseDevice(state.device, "destroyed", "device was destroyed", !1);
+      loseDevice(state.device, "destroyed", "device was destroyed", !1, call);
     }
   });
   defineGetter(prototypeFor("GPUDevice"), "features", function() {
@@ -1204,6 +1347,7 @@
     var state = requireReceiver(this, "GPUDevice"), call = beginPublic(state.realm, "GPUDevice.popErrorScope", state, null);
     call.promiseId = allocatePromiseId(call);
     var scopeId = state.device.localScopes.length > 0 ? state.device.localScopes[state.device.localScopes.length - 1] : 0;
+    call.providerAdmissionOverride = scopeId !== 0;
     serviceCall(state.realm.client, call, { scopeId, barrier: call.deviceIngressOrdinal }, !0, null);
     if (!scopeId)
       return promiseOperation(call, function() {
@@ -1421,6 +1565,7 @@
       materializedBeforeDestroy: Boolean(texture.materialized),
       alreadyDestroyed: Boolean(texture.destroyed)
     };
+    call.providerAdmissionOverride = !texture.destroyed;
     serviceCall(texture.realm.client, call, payload, !1, null);
     texture.destroyed = !0;
   });
@@ -1458,17 +1603,18 @@
       nextDevice: 1,
       nextOperationInstance: 1,
       nextPromise: 1,
-      nextAdapterOrdinal: 1,
       nextPhysicalSequence: 0,
       nextLostSettlement: 0,
       nextProviderGeneration: 1,
       nextPublicationCredit: 1,
       nextLifecycleOrdinal: 1,
+      nextTraceOrdinal: 1,
       wrappers: [],
       adapters: [],
       devices: [],
       pendingPromises: [],
       publicCalls: [],
+      orderingTrace: [],
       preProviderRejections: [],
       requestAdapterUnavailable: Boolean(configuration.requestAdapterUnavailable),
       liveDeviceLedger: {
@@ -1499,11 +1645,30 @@
         schema: "ibex/webgpu-test-wrapper-observation/1",
         profileId: plan.profileId,
         projectionDigest: plan.digests.projection,
+        fixtureDisposition: "test-only-no-runtime-install-no-support-claim",
+        lifecycleState: {
+          accountClosed: realm.accountClosed,
+          realmClosed: realm.closed
+        },
+        routeIdentityMatrix: plan.routes.map(function(route) {
+          return {
+            operationId: route.operationId,
+            interfaceName: route.interfaceName,
+            memberName: route.memberName,
+            memberKind: route.memberKind,
+            receiverHandleKind: route.receiverHandleKind,
+            wrapperAllocatedTargetHandleKind: route.wrapperAllocatedTargetHandleKind,
+            resultHandleKind: route.resultHandleKind
+          };
+        }),
+        requestDeviceTerminals: plan.semantic.requestDeviceRouting.terminals,
+        requestDeviceFailureProgram: plan.semantic.requestDeviceFailureProgram,
         publicCalls: realm.publicCalls,
         serviceReceipts: clientState.receipts,
         events: clientState.events,
         lifecycleRequests: clientState.lifecycle,
         preProviderRejections: realm.preProviderRejections,
+        orderingTrace: realm.orderingTrace,
         publicationCredits: realm.adapters.map(function(adapter) {
           return publicationCreditSnapshot(adapter.publicationCredit);
         }),
@@ -1598,40 +1763,13 @@
         operationId: call.route.wireId,
         operationInstanceId: call.operationInstanceId,
         promiseId: call.promiseId,
-        receiverRef: typedRef(call.receiverState),
+        receiverRef: typedRef(call.wireReceiverState),
         wrapperAllocatedTargetRef: typedRef(call.targetState),
         cancelOrdinal: realm.nextLifecycleOrdinal++
       });
     }
     function closeAccount(cause) {
-      if (realm.accountClosed)
-        return;
-      realm.accountClosed = !0;
-      var ordinal = realm.nextLifecycleOrdinal++, reason = String(cause || "test-account-close");
-      requireClient(client).lifecycle.push({
-        kind: "accountClose",
-        realmToken: realm.token,
-        realmGeneration: realm.generation,
-        accountToken: realm.accountToken,
-        accountGeneration: realm.accountGeneration,
-        closeOrdinal: ordinal,
-        closeCause: reason
-      });
-      requireClient(client).events.push({
-        tag: "account-close-service-event-v1",
-        kind: "account-close",
-        realmToken: realm.token,
-        realmGeneration: realm.generation,
-        accountToken: realm.accountToken,
-        accountGeneration: realm.accountGeneration,
-        closeOrdinal: ordinal,
-        closeCause: reason,
-        winningDiagnostic: "account closed"
-      });
-      for (var adapterIndex = 0;adapterIndex < realm.adapters.length; adapterIndex += 1)
-        retirePublicationCredit(realm.adapters[adapterIndex].publicationCredit);
-      for (var index = 0;index < realm.devices.length; index += 1)
-        loseDevice(realm.devices[index], "unknown", "account closed", !1);
+      closeAccountState(realm, cause, null);
     }
     function closeRealm(cause) {
       if (realm.closed)
@@ -1654,6 +1792,7 @@
         closeCause: reason,
         pendingSettlementPolicy: "reject-or-retire"
       });
+      traceRealm(realm, "realm-close", null, { closeOrdinal: ordinal });
       for (var index = 0;index < realm.pendingPromises.length; index += 1)
         realm.pendingPromises[index].closed = !0;
       for (var adapterIndex = 0;adapterIndex < realm.adapters.length; adapterIndex += 1)

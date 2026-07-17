@@ -156,7 +156,9 @@ function main() {
       summary.operationCount !== 25 ||
       summary.terminalCount !== 17 ||
       !Number.isSafeInteger(summary.assertionCount) ||
-      summary.assertionCount <= 0
+      summary.assertionCount < 1000 ||
+      summary.conditionalProviderBranches?.providerBranches !== 4 ||
+      summary.conditionalProviderBranches?.noProviderBranches !== 4
     ) {
       throw new Error("corpus returned an empty or malformed summary");
     }

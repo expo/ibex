@@ -7,7 +7,7 @@
  * REVIEWED_DIGESTS.projection after repinning Ibex. It must not compare the
  * recursive full-artifact bytes or historical source commit.
  *
- * @ref LLP 0002#gpu-bridge-seam
+ * @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
  * @ref LLP 0019#the-enforced-conformance-seam
  * @ref LLP 0026#compatibility-contract-and-conformance-corpus
  */

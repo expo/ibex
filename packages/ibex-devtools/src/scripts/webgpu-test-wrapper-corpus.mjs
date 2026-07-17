@@ -3,7 +3,7 @@
  * The function is serialized into a standalone script and run byte-for-byte on
  * Node 24.13.1 and the real built Ibex/Hermes evaluator.
  *
- * @ref LLP 0002#gpu-bridge-seam
+ * @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
  * @ref LLP 0019#the-enforced-conformance-seam
  * @ref LLP 0026#compatibility-contract-and-conformance-corpus
  */
@@ -35,6 +35,54 @@ export async function webGpuTestWrapperCorpus(createHarness) {
       }
     }
     return null;
+  }
+
+  function operationReceipts(observation, operationName) {
+    var receipts = [];
+    for (var index = 0; index < observation.serviceReceipts.length; index += 1) {
+      if (observation.serviceReceipts[index].operationName === operationName) {
+        receipts.push(observation.serviceReceipts[index]);
+      }
+    }
+    return receipts;
+  }
+
+  function publicCall(observation, operationName) {
+    for (var index = 0; index < observation.publicCalls.length; index += 1) {
+      if (observation.publicCalls[index].operationId === operationName) {
+        return observation.publicCalls[index];
+      }
+    }
+    return null;
+  }
+
+  function expectTypeError(action, message) {
+    var error = null;
+    try {
+      action();
+    } catch (caught) {
+      error = caught;
+    }
+    assert(error !== null, message + " throws");
+    assert(error.name === "TypeError", message + " has TypeError name");
+    assert(error instanceof TypeError, message + " is a real TypeError instance");
+  }
+
+  function indexOfTrace(trace, kind) {
+    for (var index = 0; index < trace.length; index += 1) {
+      if (trace[index].kind === kind) return index;
+    }
+    return -1;
+  }
+
+  function assertTerminalFacts(facts, terminal, message) {
+    var names = Object.keys(terminal.conditions);
+    for (var index = 0; index < names.length; index += 1) {
+      assert(
+        facts[names[index]] === terminal.conditions[names[index]],
+        message + " condition " + names[index],
+      );
+    }
   }
 
   var expectedOperations = [
@@ -148,6 +196,13 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     var deviceReceipt = operationReceipt(observation, "GPUAdapter.requestDevice");
     assert(adapterReceipt.wrapperAllocatedTargetRef === null, "requestAdapter has no wrapper target");
     assert(adapterReceipt.resultHandleRef.objectKind === "GPUAdapter", "requestAdapter service result");
+    assert(adapterReceipt.receiverRef === null, "GPU singleton request receiver is null");
+    assert(adapterReceipt.untrustedWrapperPayload.receiverRef === null, "GPU singleton untrusted receiver is null");
+    assert(adapterReceipt.authenticatedIngressContext.receiverRef === null, "GPU singleton authenticated receiver is null");
+    var adapterEvent = observation.events.find(function (event) {
+      return event.kind === "operation-complete" && event.operationName === "GPU.requestAdapter";
+    });
+    assert(adapterEvent.receiverRef === null, "GPU singleton completion receiver is null");
     assert(deviceReceipt.authenticatedIngressContext.logicalDeviceId === 0, "requestDevice ingress device absent");
     assert(deviceReceipt.wrapperAllocatedTargetRef === null, "requestDevice has no wrapper target");
     assert(deviceReceipt.resultHandleRef.objectKind === "GPUDevice", "requestDevice result device");
@@ -165,6 +220,89 @@ export async function webGpuTestWrapperCorpus(createHarness) {
       assert(receipt.wrapperAllocatedTargetRef.objectKind === targetKinds[targetNames[index]], targetNames[index] + " target kind");
       same(receipt.wrapperAllocatedTargetRef, receipt.resultHandleRef, targetNames[index] + " target equals result");
     }
+
+    var representativeReceivers = {
+      GPU: harness.gpu,
+      GPUAdapter: adapter,
+      GPUCanvasContext: context,
+      GPUCommandEncoder: encoder,
+      GPUDevice: device,
+      GPUQueue: queueOne,
+      GPURenderPassEncoder: pass,
+      GPUTexture: texture,
+    };
+    assert(observation.routeIdentityMatrix.length === 25, "route identity matrix has 25 rows");
+    for (index = 0; index < observation.routeIdentityMatrix.length; index += 1) {
+      var matrix = observation.routeIdentityMatrix[index];
+      var call = publicCall(observation, matrix.operationId);
+      assert(Boolean(call), matrix.operationId + " has a public identity record");
+      assert(call.expectedReceiverKind === matrix.receiverHandleKind, matrix.operationId + " expected receiver is route-derived");
+      assert(call.expectedTargetKind === matrix.wrapperAllocatedTargetHandleKind, matrix.operationId + " expected target is route-derived");
+      assert(call.expectedResultKind === matrix.resultHandleKind, matrix.operationId + " expected result is route-derived");
+      if (matrix.receiverHandleKind === null) {
+        assert(call.receiverRef === null && call.receiverKind === null, matrix.operationId + " null singleton receiver");
+      } else {
+        assert(call.receiverRef.objectKind === matrix.receiverHandleKind, matrix.operationId + " receiver kind");
+      }
+      if (matrix.wrapperAllocatedTargetHandleKind === null) {
+        assert(call.wrapperAllocatedTargetRef === null && call.targetKind === null, matrix.operationId + " no target identity");
+      } else {
+        assert(call.wrapperAllocatedTargetRef.objectKind === matrix.wrapperAllocatedTargetHandleKind, matrix.operationId + " target identity");
+      }
+      if (matrix.resultHandleKind === null) {
+        assert(call.resultHandleRef === null && call.resultKind === null, matrix.operationId + " no result handle identity");
+      } else {
+        assert(call.resultHandleRef.objectKind === matrix.resultHandleKind, matrix.operationId + " result identity");
+      }
+      if (
+        matrix.wrapperAllocatedTargetHandleKind !== null &&
+        matrix.wrapperAllocatedTargetHandleKind === matrix.resultHandleKind
+      ) {
+        same(call.wrapperAllocatedTargetRef, call.resultHandleRef, matrix.operationId + " target and result are one identity");
+      }
+
+      var routeReceipts = operationReceipts(observation, matrix.operationId);
+      for (var receiptIndex = 0; receiptIndex < routeReceipts.length; receiptIndex += 1) {
+        var matrixReceipt = routeReceipts[receiptIndex];
+        if (matrix.receiverHandleKind === null) {
+          assert(matrixReceipt.receiverRef === null, matrix.operationId + " receipt singleton receiver null");
+          assert(matrixReceipt.authenticatedIngressContext.receiverRef === null, matrix.operationId + " authenticated singleton receiver null");
+        } else {
+          assert(matrixReceipt.receiverRef.objectKind === matrix.receiverHandleKind, matrix.operationId + " receipt receiver kind");
+        }
+        if (matrix.wrapperAllocatedTargetHandleKind === null) {
+          assert(matrixReceipt.wrapperAllocatedTargetRef === null, matrix.operationId + " receipt target absent");
+        } else {
+          assert(matrixReceipt.wrapperAllocatedTargetRef.objectKind === matrix.wrapperAllocatedTargetHandleKind, matrix.operationId + " receipt target kind");
+        }
+        if (
+          matrix.wrapperAllocatedTargetHandleKind !== null &&
+          matrix.wrapperAllocatedTargetHandleKind === matrix.resultHandleKind
+        ) {
+          same(matrixReceipt.wrapperAllocatedTargetRef, matrixReceipt.resultHandleRef, matrix.operationId + " receipt target and result identity");
+        }
+      }
+
+      var validReceiver = representativeReceivers[matrix.interfaceName];
+      assert(Boolean(validReceiver), matrix.operationId + " has a representative receiver");
+      var descriptor = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(validReceiver),
+        matrix.memberName,
+      );
+      assert(Boolean(descriptor), matrix.operationId + " member descriptor exists");
+      var beforeFailure = harness.inspect().publicCalls.length;
+      expectTypeError(function () {
+        if (matrix.memberKind === "property") descriptor.get.call({});
+        else descriptor.value.call({});
+      }, matrix.operationId + " unbranded receiver");
+      assert(harness.inspect().publicCalls.length === beforeFailure, matrix.operationId + " unbranded receiver fails before operation allocation");
+      var wrongBrandedReceiver = matrix.interfaceName === "GPU" ? adapter : harness.gpu;
+      expectTypeError(function () {
+        if (matrix.memberKind === "property") descriptor.get.call(wrongBrandedReceiver);
+        else descriptor.value.call(wrongBrandedReceiver);
+      }, matrix.operationId + " wrong branded receiver");
+      assert(harness.inspect().publicCalls.length === beforeFailure, matrix.operationId + " wrong branded receiver fails before operation allocation");
+    }
     return {
       operationCount: observedNames.length,
       publicCallCount: observation.publicCalls.length,
@@ -173,25 +311,75 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     };
   }
 
-  var terminalCases = [
-    { id: "webidl-rejection", mode: "cyclic", error: "TypeError", provider: 0, result: "reject" },
-    { id: "unsupported-required-features", mode: "unsupported", error: "TypeError", provider: 0, result: "reject" },
-    { id: "invalid-adapter-request", mode: "limit", error: "OperationError", provider: 0, result: "reject" },
-    { id: "live-admission-rejection", closeBefore: true, error: "SecurityError", provider: 0, result: "reject" },
-    { id: "expiry-lost-selection-close-rejection", expired: true, facts: { deviceExpiryResultCommitLive: false }, error: "OperationError", provider: 0, result: "reject" },
-    { id: "expired-adapter-lost-device", expired: true, facts: {}, provider: 0, result: "lost" },
-    { id: "pre-capacity-close-rejection", facts: { deviceExpiryResultCommitLive: false }, error: "OperationError", provider: 0, result: "reject" },
-    { id: "capacity-lost-selection-close-rejection", facts: { deviceReservationCapacityAvailable: false, deviceCapacityResultCommitLive: false }, error: "OperationError", provider: 0, result: "reject" },
-    { id: "live-device-capacity-unavailable", facts: { deviceReservationCapacityAvailable: false, deviceCapacityResultCommitLive: true }, provider: 0, result: "lost" },
-    { id: "post-capacity-close-rejection", facts: { deviceReservationCapacityAvailable: true, deviceCapacityResultCommitLive: false }, error: "OperationError", provider: 0, result: "reject" },
-    { id: "live-device-commit-close-rejection", facts: { deviceReservationCapacityAvailable: true, deviceCapacityResultCommitLive: true, deviceReservationCommitLive: false }, error: "OperationError", provider: 0, result: "reject" },
-    { id: "provider-unfulfilled-provider-inability-won", facts: { providerFulfilled: false, deviceAccountLiveAtProviderCompletion: true, deviceAccountLiveAtSettlementCommit: true, providerInabilityWonLossRace: true }, provider: 1, result: "lost" },
-    { id: "provider-unfulfilled-provider-inability-won-before-close", facts: { providerFulfilled: false, deviceAccountLiveAtProviderCompletion: true, deviceAccountLiveAtSettlementCommit: false, providerInabilityWonLossRace: true }, provider: 1, result: "lost" },
-    { id: "provider-unfulfilled-account-close-won", facts: { providerFulfilled: false, deviceAccountLiveAtProviderCompletion: false, deviceAccountLiveAtSettlementCommit: false, providerInabilityWonLossRace: false }, provider: 1, result: "lost" },
-    { id: "lost-device-returned-close-before-provider-completion", facts: { providerFulfilled: true, deviceAccountLiveAtProviderCompletion: false }, provider: 1, result: "lost" },
-    { id: "lost-device-returned-close-after-provider-completion", facts: { providerFulfilled: true, deviceAccountLiveAtProviderCompletion: true, deviceAccountLiveAtSettlementCommit: false }, provider: 1, result: "lost" },
-    { id: "live-device-returned", facts: {}, provider: 1, result: "live" },
-  ];
+  function requestDeviceErrorName(terminal, failureProgram, realmClosed, accountClosed) {
+    if (!terminal.errorSource || terminal.errorSource.kind !== "first-failing-predicate") {
+      return "";
+    }
+    var selected = null;
+    for (var branchIndex = 0; branchIndex < failureProgram.branches.length; branchIndex += 1) {
+      var branch = failureProgram.branches[branchIndex];
+      if (branch.branchId !== terminal.errorSource.branchId) continue;
+      for (var predicateIndex = 0; predicateIndex < branch.orderedPredicates.length; predicateIndex += 1) {
+        var predicate = branch.orderedPredicates[predicateIndex];
+        if (predicate.failureClass === "none") continue;
+        if (branch.branchId === "live-admission") {
+          if (realmClosed && predicate.predicateId !== "adapter.request-device.realm") continue;
+          if (accountClosed && predicate.predicateId !== "adapter.request-device.account") continue;
+          if (!realmClosed && !accountClosed && predicate.predicateId !== "adapter.request-device.coverage") continue;
+        }
+        selected = predicate;
+        break;
+      }
+    }
+    assert(Boolean(selected), terminal.terminalId + " has an authenticated failure predicate");
+    if (selected.failureClass === "type-error") return "TypeError";
+    if (selected.failureClass === "operation-error") return "OperationError";
+    if (selected.failureClass === "security-error") return "SecurityError";
+    throw new Error("unknown requestDevice failure class: " + selected.failureClass);
+  }
+
+  function terminalCaseFromFacts(terminal, failureProgram) {
+    var facts = {};
+    var names = Object.keys(terminal.conditions);
+    var allowedFacts = {
+      deviceAdmissionValid: true,
+      deviceExpiryResultCommitLive: true,
+      deviceReservationCapacityAvailable: true,
+      deviceCapacityResultCommitLive: true,
+      deviceReservationCommitLive: true,
+      providerFulfilled: true,
+      deviceAccountLiveAtProviderCompletion: true,
+      deviceAccountLiveAtSettlementCommit: true,
+      providerInabilityWonLossRace: true,
+    };
+    for (var index = 0; index < names.length; index += 1) {
+      if (allowedFacts[names[index]]) facts[names[index]] = terminal.conditions[names[index]];
+    }
+    var mode = "valid";
+    if (terminal.conditions.webidlValid === false) mode = "cyclic";
+    else if (terminal.conditions.requiredFeaturesSupported === false) mode = "unsupported";
+    else if (terminal.conditions.adapterRequestValid === false) mode = "limit";
+    var result =
+      terminal.resultDisposition === "promise-reject"
+        ? "reject"
+        : terminal.resultDisposition === "promise-resolve-lost-object"
+          ? "lost"
+          : "live";
+    return {
+      terminal: terminal,
+      id: terminal.terminalId,
+      mode: mode,
+      expired: terminal.conditions.adapterExpired === true,
+      facts: facts,
+      error: requestDeviceErrorName(terminal, failureProgram, false, false),
+      provider: terminal.providerTokenCount,
+      result: result,
+      closesAccount:
+        terminal.publicationCreditDisposition.indexOf("account-close") !== -1 ||
+        terminal.conditions.deviceAccountLiveAtProviderCompletion === false ||
+        terminal.conditions.deviceAccountLiveAtSettlementCommit === false,
+    };
+  }
 
   async function exerciseTerminal(testCase) {
     var harness = createHarness();
@@ -200,10 +388,6 @@ export async function webGpuTestWrapperCorpus(createHarness) {
       var prime = await adapter.requestDevice();
       prime.destroy();
       assert(harness.describe(adapter).expired, testCase.id + " primed expired adapter");
-    }
-    if (testCase.closeBefore) {
-      harness.closeAccount("terminal-admission-close");
-      harness.closeAccount("duplicate-close-must-be-idempotent");
     }
     if (testCase.facts) harness.setRequestDeviceFacts(adapter, testCase.facts);
 
@@ -216,10 +400,18 @@ export async function webGpuTestWrapperCorpus(createHarness) {
 
     var result = null;
     var errorName = "";
+    var errorIsTypeError = false;
+    var reactionTrace = [];
+    var requestPromise = adapter.requestDevice(descriptor);
+    requestPromise.then(
+      function () { reactionTrace.push("request-fulfilled"); },
+      function () { reactionTrace.push("request-rejected"); },
+    );
     try {
-      result = await adapter.requestDevice(descriptor);
+      result = await requestPromise;
     } catch (error) {
       errorName = error.name;
+      errorIsTypeError = error instanceof TypeError;
     }
     if (testCase.result === "reject") {
       assert(result === null, testCase.id + " rejects without result");
@@ -227,6 +419,10 @@ export async function webGpuTestWrapperCorpus(createHarness) {
         errorName === testCase.error,
         testCase.id + " rejection class expected " + testCase.error + " got " + errorName,
       );
+      if (testCase.error === "TypeError") {
+        assert(errorIsTypeError, testCase.id + " rejection is a real TypeError instance");
+      }
+      same(reactionTrace, ["request-rejected"], testCase.id + " rejection reaction trace");
     } else {
       assert(errorName === "" && result !== null, testCase.id + " resolves a device");
       var lostPromiseOne = result.lost;
@@ -235,10 +431,13 @@ export async function webGpuTestWrapperCorpus(createHarness) {
       var description = harness.describe(result);
       if (testCase.result === "lost") {
         assert(description.lostSettled && description.serviceDetached, testCase.id + " already-lost detached result");
+        lostPromiseOne.then(function () { reactionTrace.push("lost-fulfilled"); });
         var lostInfo = await lostPromiseOne;
         assert(lostInfo.reason === "unknown", testCase.id + " lost reason");
+        same(reactionTrace, ["request-fulfilled", "lost-fulfilled"], testCase.id + " public reaction trace");
       } else {
         assert(!description.lostSettled && !description.serviceDetached, testCase.id + " live result");
+        same(reactionTrace, ["request-fulfilled"], testCase.id + " live reaction trace");
       }
     }
 
@@ -252,6 +451,7 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     assert(providerCount === testCase.provider, testCase.id + " provider token count");
     assert(physicalCount === testCase.provider, testCase.id + " physical sequence count");
     if (receipt) {
+      same(receipt.requestDeviceTerminal.conditions, testCase.terminal.conditions, testCase.id + " selected from authenticated facts");
       assert(receipt.wrapperAllocatedTargetRef === null, testCase.id + " target remains null");
       if (testCase.result === "reject") {
         assert(receipt.resultHandleRef === null, testCase.id + " rejected result absent");
@@ -261,6 +461,7 @@ export async function webGpuTestWrapperCorpus(createHarness) {
         assert(receipt.resultHandleRef.objectKind === "GPUDevice", testCase.id + " result handle present");
       }
     } else {
+      assertTerminalFacts(rejection.requestDeviceFacts, testCase.terminal, testCase.id + " selected from authenticated facts");
       assert(rejection.operationInstanceId > 0, testCase.id + " promise rejection keeps operation identity");
       assert(rejection.physicalSequence === 0, testCase.id + " pre-provider physical sequence zero");
       assert(rejection.failureTiming === "promise-rejection", testCase.id + " authenticated failure timing");
@@ -283,6 +484,93 @@ export async function webGpuTestWrapperCorpus(createHarness) {
         assert(receipt.liveDeviceCreditLedger.releaseCount === 1, testCase.id + " lost credits released once");
       }
     }
+
+    var operationInstanceId = receipt
+      ? receipt.operationInstanceId
+      : rejection.operationInstanceId;
+    var ordering = [];
+    for (var traceIndex = 0; traceIndex < observation.orderingTrace.length; traceIndex += 1) {
+      if (observation.orderingTrace[traceIndex].operationInstanceId === operationInstanceId) {
+        ordering.push(observation.orderingTrace[traceIndex]);
+      }
+    }
+    var terminalTraceIndex = indexOfTrace(ordering, "operation-terminal");
+    assert(terminalTraceIndex >= 0, testCase.id + " has an operation terminal trace");
+    if (testCase.result === "reject") {
+      var rejectTraceIndex = indexOfTrace(ordering, "promise-reject");
+      assert(rejectTraceIndex > terminalTraceIndex, testCase.id + " raw rejection precedes Promise rejection");
+      assert(indexOfTrace(ordering, "device-lost-settle") === -1, testCase.id + " rejection publishes no result loss");
+    } else {
+      var resolveTraceIndex = indexOfTrace(ordering, "promise-resolve");
+      assert(resolveTraceIndex > terminalTraceIndex, testCase.id + " raw completion precedes Promise resolution");
+      if (testCase.result === "lost") {
+        var lostTraceIndex = indexOfTrace(ordering, "device-lost-settle");
+        assert(lostTraceIndex >= 0 && lostTraceIndex < terminalTraceIndex, testCase.id + " device loss settles before requestDevice result");
+      } else {
+        assert(indexOfTrace(ordering, "device-lost-settle") === -1, testCase.id + " live result has no loss settlement");
+      }
+    }
+
+    var closeTraceIndex = indexOfTrace(ordering, "account-close");
+    if (testCase.closesAccount) {
+      assert(observation.lifecycleState.accountClosed, testCase.id + " closes account state");
+      assert(closeTraceIndex >= 0 && closeTraceIndex < terminalTraceIndex, testCase.id + " close event precedes public terminal");
+      var accountEvents = observation.events.filter(function (event) { return event.kind === "account-close"; });
+      var accountRequests = observation.lifecycleRequests.filter(function (request) { return request.kind === "accountClose"; });
+      assert(accountEvents.length === 1, testCase.id + " emits one account-close event");
+      assert(accountRequests.length === 1, testCase.id + " emits one account-close lifecycle request");
+      if (testCase.result === "lost") {
+        var lossIndex = indexOfTrace(ordering, "device-lost-settle");
+        if (testCase.terminal.lostSettlement.arbiterWinner === "account-close") {
+          assert(closeTraceIndex < lossIndex, testCase.id + " account close wins before loss");
+        } else if (testCase.terminal.lostSettlement.arbiterWinner === "provider-inability") {
+          assert(lossIndex < closeTraceIndex, testCase.id + " provider inability wins before later close");
+        }
+      }
+      harness.closeAccount("duplicate-terminal-close");
+      var afterDuplicate = harness.inspect();
+      assert(afterDuplicate.events.filter(function (event) { return event.kind === "account-close"; }).length === 1, testCase.id + " duplicate close event is idempotent");
+      var futureError = null;
+      try {
+        await harness.gpu.requestAdapter();
+      } catch (error) {
+        futureError = error;
+      }
+      assert(futureError && futureError.name === "SecurityError", testCase.id + " future GPU work rejects SecurityError");
+      var futureDeviceError = null;
+      try {
+        await adapter.requestDevice();
+      } catch (error) {
+        futureDeviceError = error;
+      }
+      assert(futureDeviceError && futureDeviceError.name === "SecurityError", testCase.id + " future adapter work rejects SecurityError");
+    } else {
+      assert(!observation.lifecycleState.accountClosed, testCase.id + " does not synthesize account close");
+      assert(closeTraceIndex === -1, testCase.id + " has no account-close trace");
+    }
+
+    if (testCase.provider === 1) {
+      var providerEntryIndex = indexOfTrace(ordering, "provider-entry");
+      var providerCompletionIndex = indexOfTrace(ordering, "provider-completion");
+      assert(providerEntryIndex >= 0 && providerEntryIndex < providerCompletionIndex, testCase.id + " provider entry precedes completion");
+      assert(providerCompletionIndex >= 0, testCase.id + " has a provider completion trace");
+      if (testCase.closesAccount) {
+        if (testCase.terminal.conditions.deviceAccountLiveAtProviderCompletion === false) {
+          assert(closeTraceIndex < providerCompletionIndex, testCase.id + " close precedes provider completion");
+        } else {
+          assert(providerCompletionIndex < closeTraceIndex, testCase.id + " provider completion precedes later close");
+        }
+      }
+    } else {
+      assert(indexOfTrace(ordering, "provider-entry") === -1, testCase.id + " has no provider-entry trace");
+      assert(indexOfTrace(ordering, "provider-completion") === -1, testCase.id + " no-provider terminal has no provider completion");
+      var noProviderEntryIndex = indexOfTrace(ordering, "no-provider-entry");
+      if (receipt) {
+        assert(noProviderEntryIndex >= 0 && noProviderEntryIndex < terminalTraceIndex, testCase.id + " service-local terminal records no-provider branch");
+      } else {
+        assert(noProviderEntryIndex === -1, testCase.id + " pre-service rejection has no service entry trace");
+      }
+    }
     return {
       id: testCase.id,
       result: testCase.result,
@@ -296,6 +584,8 @@ export async function webGpuTestWrapperCorpus(createHarness) {
       liveCreditState: receipt && receipt.liveDeviceCreditLedger
         ? receipt.liveDeviceCreditLedger.state
         : "none",
+      closesAccount: testCase.closesAccount,
+      ordering: ordering.map(function (entry) { return entry.kind; }),
     };
   }
 
@@ -322,6 +612,18 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     deviceOne.createCommandEncoder({});
 
     var observation = harness.inspect();
+    var adapterReceipts = operationReceipts(observation, "GPU.requestAdapter");
+    var requestDeviceReceipts = operationReceipts(observation, "GPUAdapter.requestDevice");
+    assert(adapterReceipts.length === 2, "two requestAdapter receipts");
+    assert(adapterReceipts[0].authenticatedIngressContext.adapterOperationOrdinal === 0, "first requestAdapter ordinal is zero");
+    assert(adapterReceipts[1].authenticatedIngressContext.adapterOperationOrdinal === 0, "second requestAdapter ordinal is zero");
+    assert(requestDeviceReceipts.length === 3, "three requestDevice receipts");
+    assert(requestDeviceReceipts[0].receiverRef.logicalHandle === harness.describe(adapterOne).reference.logicalHandle, "first requestDevice belongs to adapter one");
+    assert(requestDeviceReceipts[0].authenticatedIngressContext.adapterOperationOrdinal === 1, "adapter one first requestDevice ordinal one");
+    assert(requestDeviceReceipts[1].receiverRef.logicalHandle === harness.describe(adapterTwo).reference.logicalHandle, "second requestDevice belongs to adapter two");
+    assert(requestDeviceReceipts[1].authenticatedIngressContext.adapterOperationOrdinal === 1, "adapter two first requestDevice ordinal one");
+    assert(requestDeviceReceipts[2].receiverRef.logicalHandle === harness.describe(adapterOne).reference.logicalHandle, "third requestDevice returns to adapter one");
+    assert(requestDeviceReceipts[2].authenticatedIngressContext.adapterOperationOrdinal === 2, "adapter one second requestDevice ordinal two");
     var configureReceipts = [];
     var unconfigureReceipt = null;
     var flushReceipt = null;
@@ -351,6 +653,11 @@ export async function webGpuTestWrapperCorpus(createHarness) {
         configureReceipts[1].authenticatedIngressContext.deviceIngressOrdinal,
         unconfigureReceipt.authenticatedIngressContext.deviceIngressOrdinal,
       ],
+      adapterOperationOrdinals: [
+        requestDeviceReceipts[0].authenticatedIngressContext.adapterOperationOrdinal,
+        requestDeviceReceipts[1].authenticatedIngressContext.adapterOperationOrdinal,
+        requestDeviceReceipts[2].authenticatedIngressContext.adapterOperationOrdinal,
+      ],
     };
   }
 
@@ -371,16 +678,14 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     var encoder = deviceOne.createCommandEncoder({});
 
     var before = harness.inspect().publicCalls.length;
-    var errorName = "";
-    try { encoder.beginRenderPass({ colorAttachments: [{ view: {} }] }); } catch (error) { errorName = error.name; }
-    assert(errorName === "TypeError", "unbranded attachment is WebIDL TypeError");
+    expectTypeError(function () {
+      encoder.beginRenderPass({ colorAttachments: [{ view: {} }] });
+    }, "unbranded attachment WebIDL conversion");
     assert(harness.inspect().publicCalls.length === before, "unbranded attachment allocates no operation");
     var pass = encoder.beginRenderPass({ colorAttachments: [{ view: viewOne }] });
 
     before = harness.inspect().publicCalls.length;
-    errorName = "";
-    try { pass.setPipeline({}); } catch (error) { errorName = error.name; }
-    assert(errorName === "TypeError", "unbranded pipeline is WebIDL TypeError");
+    expectTypeError(function () { pass.setPipeline({}); }, "unbranded pipeline WebIDL conversion");
     assert(harness.inspect().publicCalls.length === before, "unbranded pipeline allocates no operation");
     pass.setPipeline(pipelineOne);
     pass.draw(3);
@@ -389,29 +694,21 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     var queue = deviceOne.queue;
 
     before = harness.inspect().publicCalls.length;
-    errorName = "";
-    try { queue.submit({}); } catch (error) { errorName = error.name; }
-    assert(errorName === "TypeError", "noniterable submit is WebIDL TypeError");
+    expectTypeError(function () { queue.submit({}); }, "noniterable submit WebIDL conversion");
     assert(harness.inspect().publicCalls.length === before, "noniterable submit allocates no operation");
-    errorName = "";
-    try { queue.submit([{}]); } catch (error) { errorName = error.name; }
-    assert(errorName === "TypeError", "unbranded command buffer is WebIDL TypeError");
+    expectTypeError(function () { queue.submit([{}]); }, "unbranded command-buffer WebIDL conversion");
     assert(harness.inspect().publicCalls.length === before, "unbranded command buffer allocates no operation");
     queue.submit([validBuffer]);
 
     before = harness.inspect().publicCalls.length;
-    errorName = "";
-    try { deviceOne.pushErrorScope("bogus"); } catch (error) { errorName = error.name; }
-    assert(errorName === "TypeError", "bad error-scope enum is WebIDL TypeError");
+    expectTypeError(function () { deviceOne.pushErrorScope("bogus"); }, "bad error-scope enum WebIDL conversion");
     assert(harness.inspect().publicCalls.length === before, "bad error-scope enum allocates no operation");
 
     var pipelineBefore = deviceOne.createRenderPipeline({ vertex: { module: moduleOne } });
     before = harness.inspect().publicCalls.length;
-    errorName = "";
-    try {
+    expectTypeError(function () {
       deviceOne.createRenderPipeline({ vertex: { module: moduleOne }, fragment: { module: {} } });
-    } catch (error) { errorName = error.name; }
-    assert(errorName === "TypeError", "unbranded fragment module is WebIDL TypeError");
+    }, "unbranded fragment-module WebIDL conversion");
     assert(harness.inspect().publicCalls.length === before, "unbranded fragment module allocates no operation");
     var pipelineAfter = deviceOne.createRenderPipeline({ vertex: { module: moduleOne } });
     assert(harness.describe(pipelineAfter).reference.logicalHandle === harness.describe(pipelineBefore).reference.logicalHandle + 1, "unbranded fragment allocates no wrapper");
@@ -433,6 +730,74 @@ export async function webGpuTestWrapperCorpus(createHarness) {
       noAllocationChecks: 10,
       invalidProviderTokens: submitReceipt.providerAdmission.providerTokenCount,
       invalidPhysicalSequence: submitReceipt.physicalOperationKey.physicalSequence,
+    };
+  }
+
+  async function exerciseConditionalProviderBranches() {
+    var harness = createHarness();
+    var adapter = await harness.gpu.requestAdapter();
+    var device = await adapter.requestDevice();
+    var context = harness.createCanvasContext();
+
+    context.configure({ device: device, format: "bgra8unorm" });
+    context.unconfigure();
+    context.unconfigure();
+
+    context.configure({ device: device, format: "bgra8unorm" });
+    var texture = context.getCurrentTexture();
+    texture.createView({});
+    texture.destroy();
+    texture.destroy();
+
+    device.pushErrorScope("validation");
+    await device.popErrorScope();
+    var emptyPopError = null;
+    try {
+      await device.popErrorScope();
+    } catch (error) {
+      emptyPopError = error;
+    }
+    assert(emptyPopError && emptyPopError.name === "OperationError", "empty pop rejects OperationError");
+
+    device.destroy();
+    device.destroy();
+
+    var observation = harness.inspect();
+    function assertBranch(operationName, index, expectedProvider, label) {
+      var receipts = operationReceipts(observation, operationName);
+      assert(receipts.length === 2, operationName + " has provider/no-provider pair");
+      var receipt = receipts[index];
+      assert(receipt.providerAdmission.admitted === expectedProvider, label + " admission branch");
+      assert(receipt.providerAdmission.providerTokenCount === (expectedProvider ? 1 : 0), label + " provider token count");
+      assert(Boolean(receipt.physicalOperationKey.physicalSequence) === expectedProvider, label + " physical sequence branch");
+      return receipt;
+    }
+
+    var configuredUnconfigure = assertBranch("GPUCanvasContext.unconfigure", 0, true, "configured unconfigure");
+    var unconfiguredUnconfigure = assertBranch("GPUCanvasContext.unconfigure", 1, false, "unconfigured unconfigure");
+    var firstTextureDestroy = assertBranch("GPUTexture.destroy", 0, true, "first texture destroy");
+    var repeatedTextureDestroy = assertBranch("GPUTexture.destroy", 1, false, "repeated texture destroy");
+    var nonemptyPop = assertBranch("GPUDevice.popErrorScope", 0, true, "nonempty popErrorScope");
+    var emptyPop = assertBranch("GPUDevice.popErrorScope", 1, false, "empty popErrorScope");
+    var firstDeviceDestroy = assertBranch("GPUDevice.destroy", 0, true, "first device destroy");
+    var repeatedDeviceDestroy = assertBranch("GPUDevice.destroy", 1, false, "repeated device destroy");
+    assert(configuredUnconfigure.authenticatedIngressContext.logicalDeviceId !== 0, "configured unconfigure carries device ingress");
+    assert(unconfiguredUnconfigure.authenticatedIngressContext.logicalDeviceId === 0, "unconfigured unconfigure has no device ingress");
+    assert(firstTextureDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === false, "first texture destroy branch fact");
+    assert(repeatedTextureDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === true, "repeated texture destroy branch fact");
+    assert(nonemptyPop.untrustedWrapperPayload.argumentBody.scopeId !== 0, "nonempty pop carries scope");
+    assert(emptyPop.untrustedWrapperPayload.argumentBody.scopeId === 0, "empty pop carries zero scope");
+    assert(firstDeviceDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === false, "first device destroy branch fact");
+    assert(repeatedDeviceDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === true, "repeated device destroy branch fact");
+    return {
+      providerBranches: 4,
+      noProviderBranches: 4,
+      firstProviderSequences: [
+        configuredUnconfigure.physicalOperationKey.physicalSequence,
+        firstTextureDestroy.physicalOperationKey.physicalSequence,
+        nonemptyPop.physicalOperationKey.physicalSequence,
+        firstDeviceDestroy.physicalOperationKey.physicalSequence,
+      ],
     };
   }
 
@@ -470,9 +835,9 @@ export async function webGpuTestWrapperCorpus(createHarness) {
 
     var borrowed = Object.getPrototypeOf(contextA).configure;
     var beforeSecond = second.inspect().publicCalls.length;
-    var errorName = "";
-    try { borrowed.call(contextB, { device: deviceB, format: "bgra8unorm" }); } catch (error) { errorName = error.name; }
-    assert(errorName === "TypeError", "cross-realm borrowed method rejects");
+    expectTypeError(function () {
+      borrowed.call(contextB, { device: deviceB, format: "bgra8unorm" });
+    }, "cross-realm borrowed method");
     assert(second.inspect().publicCalls.length === beforeSecond, "borrowed method has no foreign side effect");
     assert(JSON.stringify(first.describe(contextA).reference) === referenceA, "context-A ref stable");
     assert(JSON.stringify(second.describe(contextB).reference) === referenceB, "context-B ref stable");
@@ -492,6 +857,8 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     assert(result === null, "requestAdapter nullable branch");
     var receipt = operationReceipt(harness.inspect(), "GPU.requestAdapter");
     assert(receipt.resultHandleRef === null, "nullable adapter result handle absent");
+    assert(receipt.receiverRef === null, "nullable adapter singleton receiver absent");
+    assert(receipt.authenticatedIngressContext.adapterOperationOrdinal === 0, "requestAdapter ordinal remains zero");
     assert(receipt.authenticatedIngressContext.providerGeneration === 1, "nullable adapter reserves provider generation");
     assert(receipt.physicalOperationKey.physicalSequence > 0, "nullable adapter still completes provider request");
     return {
@@ -501,6 +868,18 @@ export async function webGpuTestWrapperCorpus(createHarness) {
   }
 
   var allOperations = await exerciseAllOperations();
+  var catalog = createHarness().inspect();
+  assert(catalog.fixtureDisposition === "test-only-no-runtime-install-no-support-claim", "fixture remains explicitly test-only with no support claim");
+  assert(catalog.requestDeviceTerminals.length === 17, "authenticated terminal catalog has 17 rows");
+  var terminalCases = [];
+  for (var catalogIndex = 0; catalogIndex < catalog.requestDeviceTerminals.length; catalogIndex += 1) {
+    terminalCases.push(
+      terminalCaseFromFacts(
+        catalog.requestDeviceTerminals[catalogIndex],
+        catalog.requestDeviceFailureProgram,
+      ),
+    );
+  }
   var terminals = [];
   for (var terminalIndex = 0; terminalIndex < terminalCases.length; terminalIndex += 1) {
     terminals.push(await exerciseTerminal(terminalCases[terminalIndex]));
@@ -508,6 +887,7 @@ export async function webGpuTestWrapperCorpus(createHarness) {
   assert(terminals.length === 17, "all requestDevice terminals covered");
   var canvas = await exerciseCanvasOrdinals();
   var webIdl = await exerciseWebIdlAndInvalidRecording();
+  var conditionalProviderBranches = await exerciseConditionalProviderBranches();
   var crossRealm = await exerciseCrossRealmNoninterference();
   var nullableAdapter = await exerciseNullableAdapter();
 
@@ -520,6 +900,7 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     terminals: terminals,
     canvas: canvas,
     webIdl: webIdl,
+    conditionalProviderBranches: conditionalProviderBranches,
     crossRealm: crossRealm,
     nullableAdapter: nullableAdapter,
   };
