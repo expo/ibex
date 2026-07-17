@@ -18,7 +18,7 @@ const STARTUP_BATCH_COMMAND = Object.freeze([
   "--bin",
   "ibex",
   "--features",
-  "capsec-conformance-observer",
+  "capsec-conformance-observer,openssl-crypto",
   "capsec_public_startup_batch",
   "--",
   "--test-threads=1",

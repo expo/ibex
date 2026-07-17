@@ -8,7 +8,7 @@ const FIXTURE_COMMAND: [&str; 10] = [
     "--bin",
     "ibex",
     "--features",
-    "capsec-conformance-observer",
+    "capsec-conformance-observer,openssl-crypto",
     "capsec_exact_fixture_evidence_batch",
     "--",
     "--test-threads=1",

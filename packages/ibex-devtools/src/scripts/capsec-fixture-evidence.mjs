@@ -24,7 +24,7 @@ export const EXACT_FIXTURE_EVIDENCE_COMMAND = Object.freeze([
   "--bin",
   "ibex",
   "--features",
-  "capsec-conformance-observer",
+  "capsec-conformance-observer,openssl-crypto",
   "capsec_exact_fixture_evidence_batch",
   "--",
   "--test-threads=1",

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24933 binds every exact-target evidence producer to the Apple OpenSSL crypto profile after a physical no-debugger Release run exposed the missing feature contract)
 **Revised:** 2026-07-17 (ENG-24933 credits 14 source-bound asymmetric/EVP crypto executions on the Apple OpenSSL target profile)
 **Revised:** 2026-07-17 (ENG-24933 credits nine bounded authority-control refusals and the post-capture absence of the loader-private manifest resolver)
 **Revised:** 2026-07-17 (ENG-24933 credits six owner-authenticated refusals for unknown retained HTTP server and spawned-process identifiers)
@@ -1461,6 +1462,20 @@ than reusing a generic malformed adapter result or a hand-labelled terminal.
 The macOS/aarch64
 candidate has exact loaded-Hermes adapter-probe evidence, but probe coverage is
 deliberately non-promotable and is not represented as fixture pass claims.
+The physical Release candidate is a universal MinSizeRel Hermes build with the
+debugger disabled, the pinned Exact patch set applied, and the expected patched
+package-attribution export. Its loaded arm64 identity is recorded independently
+from the executable probe. The first whole-report run against that artifact
+failed closed when the native public batch reached an Apple OpenSSL-backed ECDH
+fixture without the `openssl-crypto` build profile. All executable-recipe,
+fixture-evidence, public-surface, callback, closed, startup, startup-environment,
+and target-absence commands now bind that profile explicitly alongside the
+observer. A focused rerun against the same loaded Release artifact passes all
+470 native, host-ABI, and module-loader public fixtures, including the ECDH
+fixture that exposed the omission. The regenerated catalog retains 23,126
+required, 4,845 executable, and 18,281 unresolved fixtures. This corrects the
+evidence producer contract but does not promote the candidate or turn the
+remaining residuals into passes.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
