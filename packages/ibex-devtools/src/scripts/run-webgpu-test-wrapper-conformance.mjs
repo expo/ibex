@@ -158,7 +158,9 @@ function main() {
       !Number.isSafeInteger(summary.assertionCount) ||
       summary.assertionCount < 1000 ||
       summary.conditionalProviderBranches?.providerBranches !== 4 ||
-      summary.conditionalProviderBranches?.noProviderBranches !== 4
+      summary.conditionalProviderBranches?.noProviderBranches !== 8 ||
+      summary.conditionalProviderBranches?.postLossNoProviderBranches !== 3 ||
+      summary.conditionalProviderBranches?.expiredTextureNoProviderBranches !== 1
     ) {
       throw new Error("corpus returned an empty or malformed summary");
     }

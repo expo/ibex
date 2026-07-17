@@ -26,7 +26,7 @@ export const REVIEWED_DIGESTS = Object.freeze({
 
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
   semanticProjection:
-    "f6395bc8093bb2411d4936380567adf7131a90a102c29cdd1c4114534dfa1485",
+    "374dc0348ec585fbfe3829df3602a52e054aed2fa36b635c12357e5bd28f0746",
   fakeClientData:
     "16952a4a4b487fb567d7e68b5f893d6ca51e3b994677aea05c02c8469094ff0d",
 });
@@ -301,6 +301,51 @@ export function validateWebGpuWrapperSemantics(semantics) {
       row.name + " core profile bucket is invalid",
     );
   }
+  const providerDescriptor = semanticProjection.requestDeviceProviderDescriptor;
+  assert(
+    providerDescriptor?.policy ===
+      "generated-logical-limits-plus-versioned-service-internal-requirements-only" &&
+      providerDescriptor.projectionRule === limitPolicy.projectionRule,
+    "requestDevice provider-descriptor policy drifted",
+  );
+  assert(
+    Object.keys(providerDescriptor).sort().join("|") ===
+      "capabilityProjectionPredicate|policy|projectionRule|providerReadyPredicate",
+    "requestDevice provider-descriptor projection must remain outer-derivable",
+  );
+  const capabilityProjectionPredicate =
+    providerDescriptor.capabilityProjectionPredicate;
+  assert(
+    capabilityProjectionPredicate?.predicateId ===
+      "adapter.request-device.capability-projection" &&
+      capabilityProjectionPredicate.predicateType === "profile-feature-limit" &&
+      capabilityProjectionPredicate.predicateIndex === 2 &&
+      capabilityProjectionPredicate.predicateWireId === 436961075 &&
+      capabilityProjectionPredicate.failureClass === "none" &&
+      capabilityProjectionPredicate.failureTiming === "none" &&
+      capabilityProjectionPredicate.inputs.join("|") ===
+        "requiredFeatures|requiredLimits|featureLevel|profileFeaturePolicy|profileLimitTable|capabilityGrant|serviceInternalRequirements" &&
+      capabilityProjectionPredicate.relation.includes(
+        "generated logical provider descriptor containing only that logical set plus versioned service-internal requirements",
+      ),
+    "requestDevice capability-projection predicate drifted",
+  );
+  const providerReadyPredicate = providerDescriptor.providerReadyPredicate;
+  assert(
+    providerReadyPredicate?.predicateId ===
+      "adapter.request-device.provider-ready" &&
+      providerReadyPredicate.predicateType === "provider-request-readiness" &&
+      providerReadyPredicate.predicateIndex === 1 &&
+      providerReadyPredicate.predicateWireId === 1494113071 &&
+      providerReadyPredicate.failureClass === "none" &&
+      providerReadyPredicate.failureTiming === "none" &&
+      providerReadyPredicate.inputs.join("|") ===
+        "liveDeviceReservationId|generatedLogicalProviderDescriptor" &&
+      providerReadyPredicate.relation.includes(
+        "raw request descriptor is unavailable at this boundary",
+      ),
+    "requestDevice provider-ready predicate drifted",
+  );
   const failureProgram = semanticProjection.requestDeviceFailureProgram;
   const expectedBranchIds = [
     "webidl",
@@ -509,6 +554,64 @@ export function validateWebGpuWrapperSemantics(semantics) {
       terminals.get("live-device-returned").physicalSequenceCount === 1,
     "live requestDevice provider admission semantics drifted",
   );
+  const expectedProviderRoutingIds = [
+    "GPU.requestAdapter",
+    "GPUAdapter.requestDevice",
+    "GPUCanvasContext.configure",
+    "GPUCanvasContext.unconfigure",
+    "GPUDevice.createCommandEncoder",
+    "GPUDevice.createRenderPipeline",
+    "GPUDevice.createShaderModule",
+    "GPUDevice.destroy",
+    "GPUDevice.popErrorScope",
+    "GPUQueue.submit",
+    "GPUTexture.createView",
+    "GPUTexture.destroy",
+  ];
+  const providerRoutingPrograms = semanticProjection.providerRoutingPrograms;
+  assert(
+    Array.isArray(providerRoutingPrograms) &&
+      providerRoutingPrograms.map((program) => program.operationId).join("|") ===
+        expectedProviderRoutingIds.join("|"),
+    "conditional provider-routing program order or inventory drifted",
+  );
+  for (const program of providerRoutingPrograms) {
+    assert(
+      program.exhaustive === true &&
+        program.disjoint === true &&
+        Array.isArray(program.facts) &&
+        program.facts.join("|") === program.precedence.join("|") &&
+        Array.isArray(program.factBindings) &&
+        program.factBindings.map((binding) => binding.fact).join("|") ===
+          program.facts.join("|"),
+      "conditional provider-routing program is malformed: " + program.operationId,
+    );
+    const providerCounts = new Set();
+    for (const terminal of program.terminals) {
+      assert(
+        (terminal.providerTokenCount === 0 || terminal.providerTokenCount === 1) &&
+          terminal.physicalSequenceCount === terminal.providerTokenCount,
+        "conditional provider terminal count drifted: " +
+          program.operationId +
+          "/" +
+          terminal.terminalId,
+      );
+      providerCounts.add(terminal.providerTokenCount);
+    }
+    assert(
+      providerCounts.size === 2 && providerCounts.has(0) && providerCounts.has(1),
+      "conditional provider-routing program no longer varies admission: " +
+        program.operationId,
+    );
+  }
+  assert(
+    canonicalJson(
+      providerRoutingPrograms.find(
+        (program) => program.operationId === "GPUAdapter.requestDevice",
+      ),
+    ) === canonicalJson(routing),
+    "requestDevice routing differs from the conditional provider-routing projection",
+  );
   assert(
     fakeClientData.disposition ===
       "deterministic-test-data-not-exact-profile-authority",
@@ -559,6 +662,10 @@ export function buildWebGpuWrapperPlan(authority, semantics) {
       requestDeviceFailureProgram:
         semantic.semanticProjection.requestDeviceFailureProgram,
       requestDeviceRouting: semantic.semanticProjection.requestDeviceRouting,
+      requestDeviceProviderDescriptor:
+        semantic.semanticProjection.requestDeviceProviderDescriptor,
+      providerRoutingPrograms:
+        semantic.semanticProjection.providerRoutingPrograms,
     },
     fakeClientData: semantic.fakeClientData,
     routes: payload.operations.map((operation) => {

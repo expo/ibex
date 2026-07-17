@@ -13,6 +13,7 @@ export function portableWebGpuTestWrapperFactory(plan) {
   var promiseStates = new WeakMap();
   var prototypes = Object.create(null);
   var routes = Object.create(null);
+  var providerRoutingPrograms = Object.create(null);
   var nextRealmToken = 1;
 
   function freezeTree(value) {
@@ -25,6 +26,16 @@ export function portableWebGpuTestWrapperFactory(plan) {
   freezeTree(plan);
   for (var routeIndex = 0; routeIndex < plan.routes.length; routeIndex += 1) {
     routes[plan.routes[routeIndex].operationId] = plan.routes[routeIndex];
+  }
+  for (
+    var providerRouteIndex = 0;
+    providerRouteIndex < plan.semantic.providerRoutingPrograms.length;
+    providerRouteIndex += 1
+  ) {
+    var providerRoutingProgram =
+      plan.semantic.providerRoutingPrograms[providerRouteIndex];
+    providerRoutingPrograms[providerRoutingProgram.operationId] =
+      providerRoutingProgram;
   }
 
   function namedError(name, message) {
@@ -588,9 +599,51 @@ export function portableWebGpuTestWrapperFactory(plan) {
     });
   }
 
-  function serviceCall(client, call, argumentBody, pendingPromise, errorSpec) {
+  function selectProviderRoutingTerminal(call, facts) {
+    var program = providerRoutingPrograms[call.route.operationId];
+    if (!program) {
+      throw new Error(
+        "operation has no authenticated conditional provider routing: " +
+          call.route.operationId,
+      );
+    }
+    for (var terminalIndex = 0; terminalIndex < program.terminals.length; terminalIndex += 1) {
+      var terminal = program.terminals[terminalIndex];
+      var names = Object.keys(terminal.conditions);
+      var matches = true;
+      for (var nameIndex = 0; nameIndex < names.length; nameIndex += 1) {
+        if (facts[names[nameIndex]] !== terminal.conditions[names[nameIndex]]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        call.providerRoutingTerminalId = terminal.terminalId;
+        call.providerRoutingFacts = facts;
+        call.providerAdmissionOverride = terminal.providerTokenCount === 1;
+        return terminal;
+      }
+    }
+    throw new Error(
+      "authenticated conditional provider routing selected no terminal: " +
+        call.route.operationId,
+    );
+  }
+
+  function serviceCall(
+    client,
+    call,
+    argumentBody,
+    pendingPromise,
+    errorSpec,
+    providerArgumentBody,
+  ) {
     var clientState = requireClient(client);
-    var sealedLocalTimelinePrefix = flushLocalPrefix(call.device);
+    var providerPayloadSource =
+      arguments.length >= 6 ? providerArgumentBody : argumentBody;
+    var sealedLocalTimelinePrefix = call.skipLocalPrefixFlush
+      ? []
+      : flushLocalPrefix(call.device);
     var localTimelineInvalid = false;
     for (
       var localIndex = 0;
@@ -650,6 +703,10 @@ export function portableWebGpuTestWrapperFactory(plan) {
       promiseIdentity: call.route.promiseIdentity,
       providerSubmission: call.route.providerSubmission,
       fakeProviderEntry: call.route.fakeProviderEntry,
+      providerRoutingTerminalId: call.providerRoutingTerminalId || null,
+      providerRoutingFacts: call.providerRoutingFacts
+        ? logValue(call.providerRoutingFacts, 0)
+        : null,
       providerAdmission: {
         admitted: providerAdmitted,
         providerTokenCount: providerAdmitted ? 1 : 0,
@@ -691,6 +748,9 @@ export function portableWebGpuTestWrapperFactory(plan) {
         wrapperAllocatedTargetRef: typedRef(call.targetState),
         argumentBody: logValue(argumentBody, 0),
       },
+      providerPayload: providerAdmitted
+        ? logValue(providerPayloadSource, 0)
+        : null,
       authenticatedIngressContext: {
         runtimePointerNonce: clientState.runtimePointerNonce,
         realmToken: call.realm.token,
@@ -855,7 +915,15 @@ export function portableWebGpuTestWrapperFactory(plan) {
     device.resolveLost(createLostInfo(reason, message, device.realm));
   }
 
-  function createDevice(realm, providerGeneration, serviceDetached) {
+  function createDevice(
+    realm,
+    providerGeneration,
+    serviceDetached,
+    logicalProviderDescriptor,
+  ) {
+    if (!logicalProviderDescriptor) {
+      throw new Error("logical device creation requires a normalized provider descriptor");
+    }
     var resolveLost;
     var lost = new Promise(function (resolve) {
       resolveLost = resolve;
@@ -885,11 +953,15 @@ export function portableWebGpuTestWrapperFactory(plan) {
     state.device = device;
     device.wrapper = wrapper;
     device.state = state;
-    device.features = createFeatureSet(realm, plan.fakeClientData.adapterFeatures);
+    device.features = createFeatureSet(
+      realm,
+      logicalProviderDescriptor.logicalFeatures,
+    );
     var limits = {};
     var limitRows = plan.semantic.limitPolicy.limits;
     for (var index = 0; index < limitRows.length; index += 1) {
-      limits[limitRows[index].name] = limitRows[index].profileBucket.core;
+      limits[limitRows[index].name] =
+        logicalProviderDescriptor.logicalLimits[limitRows[index].name];
     }
     device.limits = Object.freeze(limits);
     device.queue = allocateWrapper(realm, "GPUQueue", device, {});
@@ -1227,6 +1299,72 @@ export function portableWebGpuTestWrapperFactory(plan) {
     return null;
   }
 
+  function buildRequestDeviceProviderDescriptor(copy) {
+    var logicalFeatures = [];
+    var requestedFeatures = copy.requiredFeatures;
+    if (requestedFeatures === undefined) requestedFeatures = [];
+    for (var featureIndex = 0; featureIndex < requestedFeatures.length; featureIndex += 1) {
+      var feature = requestedFeatures[featureIndex];
+      if (
+        plan.fakeClientData.adapterFeatures.indexOf(feature) !== -1 &&
+        logicalFeatures.indexOf(feature) === -1
+      ) {
+        logicalFeatures.push(feature);
+      }
+    }
+    logicalFeatures.sort();
+
+    var logicalLimits = {};
+    var requiredLimits = copy.requiredLimits;
+    if (requiredLimits === undefined) requiredLimits = {};
+    var rows = plan.semantic.limitPolicy.limits;
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      var row = rows[rowIndex];
+      var logicalValue = row.profileBucket.core;
+      var requested = requiredLimits[row.name];
+      if (requested !== undefined) {
+        var converted = Number(requested);
+        var isBetter =
+          row.class === "maximum"
+            ? converted > logicalValue
+            : converted < logicalValue;
+        if (isBetter) logicalValue = converted;
+      }
+      logicalLimits[row.name] = logicalValue;
+    }
+
+    logicalLimits.maxStorageBuffersPerShaderStage = Math.max(
+      logicalLimits.maxStorageBuffersPerShaderStage,
+      logicalLimits.maxStorageBuffersInVertexStage,
+      logicalLimits.maxStorageBuffersInFragmentStage,
+    );
+    logicalLimits.maxStorageTexturesPerShaderStage = Math.max(
+      logicalLimits.maxStorageTexturesPerShaderStage,
+      logicalLimits.maxStorageTexturesInVertexStage,
+      logicalLimits.maxStorageTexturesInFragmentStage,
+    );
+    if (logicalFeatures.indexOf("core-features-and-limits") !== -1) {
+      logicalLimits.maxStorageBuffersInVertexStage =
+        logicalLimits.maxStorageBuffersPerShaderStage;
+      logicalLimits.maxStorageBuffersInFragmentStage =
+        logicalLimits.maxStorageBuffersPerShaderStage;
+      logicalLimits.maxStorageTexturesInVertexStage =
+        logicalLimits.maxStorageTexturesPerShaderStage;
+      logicalLimits.maxStorageTexturesInFragmentStage =
+        logicalLimits.maxStorageTexturesPerShaderStage;
+    }
+
+    return {
+      logicalFeatures: logicalFeatures,
+      logicalLimits: logicalLimits,
+      serviceInternalRequirements: {
+        schema: "exact/webgpu-service-internal-requirements/1",
+        requiredFeatures: [],
+        requiredLimits: {},
+      },
+    };
+  }
+
   function selectRequestDeviceTerminal(adapter, directFacts) {
     var realmAdmissionLive = !adapter.realm.closed && !adapter.realm.accountClosed;
     var facts = {
@@ -1415,6 +1553,9 @@ export function portableWebGpuTestWrapperFactory(plan) {
         );
       }
       descriptorFailure = validateDeviceDescriptor(copy);
+      var logicalProviderDescriptor = descriptorFailure
+        ? null
+        : buildRequestDeviceProviderDescriptor(copy);
       var descriptorFacts = {};
       if (descriptorFailure) descriptorFacts[descriptorFailure.fact] = false;
       selection = selectRequestDeviceTerminal(adapter, descriptorFacts);
@@ -1437,10 +1578,23 @@ export function portableWebGpuTestWrapperFactory(plan) {
       var device;
       call.requestDeviceTerminalId = terminal.terminalId;
       call.requestDeviceTerminal = terminal;
-      call.providerAdmissionOverride = terminal.providerTokenCount === 1;
+      var providerRoutingTerminal = selectProviderRoutingTerminal(
+        call,
+        selection.facts,
+      );
+      if (providerRoutingTerminal.terminalId !== terminal.terminalId) {
+        throw new Error("requestDevice provider routing selected a different terminal");
+      }
 
       if (terminal.resultDisposition === "promise-reject") {
-        serviceCall(adapter.realm.client, call, copy, true, null);
+        serviceCall(
+          adapter.realm.client,
+          call,
+          copy,
+          true,
+          null,
+          logicalProviderDescriptor,
+        );
         if (terminal.adapterStateAfterSettlement === "expired") adapter.expired = true;
         settleTerminalPublication(call, terminal, false);
         throw requestDeviceRejection(
@@ -1456,12 +1610,20 @@ export function portableWebGpuTestWrapperFactory(plan) {
           adapter.realm,
           adapter.providerGeneration,
           true,
+          logicalProviderDescriptor,
         );
         setCallResult(call, wrapperStates.get(device));
         if (terminal.providerTokenCount === 1) {
           commitLiveDeviceCredits(call.resultState.device, call);
         }
-        serviceCall(adapter.realm.client, call, copy, true, null);
+        serviceCall(
+          adapter.realm.client,
+          call,
+          copy,
+          true,
+          null,
+          logicalProviderDescriptor,
+        );
         var closeWonBeforeLoss =
           terminalRequiresAccountClose(terminal) &&
           terminal.lostSettlement.arbiterWinner === "account-close";
@@ -1501,10 +1663,18 @@ export function portableWebGpuTestWrapperFactory(plan) {
         adapter.realm,
         adapter.providerGeneration,
         false,
+        logicalProviderDescriptor,
       );
       setCallResult(call, wrapperStates.get(device));
       commitLiveDeviceCredits(call.resultState.device, call);
-      serviceCall(adapter.realm.client, call, copy, true, null);
+      serviceCall(
+        adapter.realm.client,
+        call,
+        copy,
+        true,
+        null,
+        logicalProviderDescriptor,
+      );
       traceProviderCompletion(call, selection.facts);
       if (terminal.adapterStateAfterSettlement === "expired") adapter.expired = true;
       settleTerminalPublication(call, terminal, false);
@@ -1590,7 +1760,10 @@ export function portableWebGpuTestWrapperFactory(plan) {
     var context = requireReceiver(this, "GPUCanvasContext");
     var call = beginPublic(context.realm, "GPUCanvasContext.unconfigure", context, null);
     var wasConfigured = Boolean(context.configuration && context.configuredDevice);
-    call.providerAdmissionOverride = wasConfigured;
+    selectProviderRoutingTerminal(call, {
+      alreadyTerminal: !wasConfigured,
+      cleanupPredicatesValid: true,
+    });
     if (context.configuredDevice) {
       assignCallDeviceIngress(call, context.configuredDevice);
     }
@@ -1699,11 +1872,18 @@ export function portableWebGpuTestWrapperFactory(plan) {
     var state = requireReceiver(this, "GPUDevice");
     var call = beginPublic(state.realm, "GPUDevice.destroy", state, null);
     var alreadyDestroyed = state.device.destroyed;
-    call.providerAdmissionOverride = !alreadyDestroyed;
+    var alreadyLost = state.device.lostSettled;
+    selectProviderRoutingTerminal(call, {
+      alreadyTerminal: alreadyDestroyed || alreadyLost,
+      cleanupPredicatesValid: true,
+    });
     serviceCall(
       state.realm.client,
       call,
-      { alreadyDestroyed: alreadyDestroyed },
+      {
+        alreadyDestroyed: alreadyDestroyed,
+        alreadyLost: alreadyLost,
+      },
       false,
       null,
     );
@@ -1765,18 +1945,33 @@ export function portableWebGpuTestWrapperFactory(plan) {
     var state = requireReceiver(this, "GPUDevice");
     var call = beginPublic(state.realm, "GPUDevice.popErrorScope", state, null);
     call.promiseId = allocatePromiseId(call);
-    var scopeId =
-      state.device.localScopes.length > 0
+    var lost = state.device.lostSettled;
+    var scopeId = lost
+      ? 0
+      : state.device.localScopes.length > 0
         ? state.device.localScopes[state.device.localScopes.length - 1]
         : 0;
-    call.providerAdmissionOverride = scopeId !== 0;
+    selectProviderRoutingTerminal(call, {
+      deviceLost: lost,
+      scopeNonempty: scopeId !== 0,
+    });
+    call.skipLocalPrefixFlush = lost;
     serviceCall(
       state.realm.client,
       call,
-      { scopeId: scopeId, barrier: call.deviceIngressOrdinal },
+      {
+        scopeId: scopeId,
+        barrier: call.deviceIngressOrdinal,
+        deviceLost: lost,
+      },
       true,
       null,
     );
+    if (lost) {
+      return promiseOperation(call, function () {
+        return null;
+      });
+    }
     if (!scopeId) {
       return promiseOperation(call, function () {
         throw namedError("OperationError", "error scope stack is empty");
@@ -2088,12 +2283,19 @@ export function portableWebGpuTestWrapperFactory(plan) {
   defineMethod(prototypeFor("GPUTexture"), "destroy", function () {
     var texture = requireReceiver(this, "GPUTexture");
     var call = beginPublic(texture.realm, "GPUTexture.destroy", texture, null);
+    var deviceUnavailable = deviceIsUnavailable(texture.device);
     var payload = {
       mintOrigin: texture.currentOrigin || null,
       materializedBeforeDestroy: Boolean(texture.materialized),
       alreadyDestroyed: Boolean(texture.destroyed),
+      expired: Boolean(texture.expired),
+      deviceUnavailable: deviceUnavailable,
     };
-    call.providerAdmissionOverride = !texture.destroyed;
+    selectProviderRoutingTerminal(call, {
+      alreadyTerminal:
+        texture.destroyed || texture.expired || deviceUnavailable,
+      cleanupPredicatesValid: true,
+    });
     serviceCall(texture.realm.client, call, payload, false, null);
     texture.destroyed = true;
   });
@@ -2200,6 +2402,10 @@ export function portableWebGpuTestWrapperFactory(plan) {
             plan.semantic.requestDeviceRouting.terminals,
           requestDeviceFailureProgram:
             plan.semantic.requestDeviceFailureProgram,
+          requestDeviceProviderDescriptor:
+            plan.semantic.requestDeviceProviderDescriptor,
+          providerRoutingPrograms:
+            plan.semantic.providerRoutingPrograms,
           publicCalls: realm.publicCalls,
           serviceReceipts: clientState.receipts,
           events: clientState.events,

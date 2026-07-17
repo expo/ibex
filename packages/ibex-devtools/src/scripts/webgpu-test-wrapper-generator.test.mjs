@@ -73,6 +73,26 @@ describe("test-only WebGPU wrapper generator", () => {
       "deterministic-test-data-not-exact-profile-authority",
     );
     expect(plan.semantic.limitPolicy.limits).toHaveLength(36);
+    expect(plan.semantic.providerRoutingPrograms.map((program) => program.operationId)).toEqual([
+      "GPU.requestAdapter",
+      "GPUAdapter.requestDevice",
+      "GPUCanvasContext.configure",
+      "GPUCanvasContext.unconfigure",
+      "GPUDevice.createCommandEncoder",
+      "GPUDevice.createRenderPipeline",
+      "GPUDevice.createShaderModule",
+      "GPUDevice.destroy",
+      "GPUDevice.popErrorScope",
+      "GPUQueue.submit",
+      "GPUTexture.createView",
+      "GPUTexture.destroy",
+    ]);
+    expect(plan.semantic.requestDeviceProviderDescriptor.policy).toBe(
+      "generated-logical-limits-plus-versioned-service-internal-requirements-only",
+    );
+    expect(
+      plan.semantic.requestDeviceProviderDescriptor.providerReadyPredicate.relation,
+    ).toContain("raw request descriptor is unavailable at this boundary");
   });
 
   test("binds the separate limit and requestDevice semantic projection", () => {
@@ -83,6 +103,7 @@ describe("test-only WebGPU wrapper generator", () => {
     );
     expect(validated.semanticProjection.requestDeviceRouting.terminals).toHaveLength(17);
     expect(validated.semanticProjection.requestDeviceFailureProgram.branches).toHaveLength(10);
+    expect(validated.semanticProjection.providerRoutingPrograms).toHaveLength(12);
   });
 
   test("renders deterministically as a portable expression with no install surface", () => {
@@ -227,6 +248,16 @@ describe("test-only WebGPU wrapper generator", () => {
     const fakeEntry = clone(semantics);
     fakeEntry.fakeClientData.providerEntryOperationIds.pop();
     mutations.push(fakeEntry);
+
+    const providerDescriptor = clone(semantics);
+    providerDescriptor.semanticProjection.requestDeviceProviderDescriptor.policy =
+      "raw-descriptor-forwarding";
+    mutations.push(providerDescriptor);
+
+    const providerRouting = clone(semantics);
+    providerRouting.semanticProjection.providerRoutingPrograms[0].terminals[0]
+      .providerTokenCount = 1;
+    mutations.push(providerRouting);
 
     for (const mutation of mutations) {
       expect(() => validateWebGpuWrapperSemantics(mutation)).toThrow();

@@ -118,8 +118,11 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     assert(harness.gpu.getPreferredCanvasFormat() === "bgra8unorm", "preferred format");
     var adapter = await harness.gpu.requestAdapter();
     var device = await adapter.requestDevice({
-      requiredFeatures: ["timestamp-query"],
+      label: "raw-public-device-label",
+      defaultQueue: { label: "raw-public-queue-label" },
+      requiredFeatures: ["timestamp-query", "timestamp-query"],
       requiredLimits: {
+        unknownUndefinedLimit: undefined,
         maxTextureDimension1D: undefined,
         minUniformBufferOffsetAlignment: 256,
       },
@@ -207,6 +210,68 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     assert(deviceReceipt.wrapperAllocatedTargetRef === null, "requestDevice has no wrapper target");
     assert(deviceReceipt.resultHandleRef.objectKind === "GPUDevice", "requestDevice result device");
     assert(deviceReceipt.physicalOperationKey.logicalDeviceId === harness.describe(device).deviceId, "physical result device identity");
+    var providerPayload = deviceReceipt.providerPayload;
+    same(
+      Object.keys(providerPayload).sort(),
+      ["logicalFeatures", "logicalLimits", "serviceInternalRequirements"],
+      "requestDevice provider payload has only normalized logical capabilities and internal requirements",
+    );
+    same(providerPayload.logicalFeatures, ["timestamp-query"], "provider features are sorted and deduplicated");
+    assert(Object.keys(providerPayload.logicalLimits).length === 36, "provider carries complete normalized logical limits");
+    assert(providerPayload.logicalLimits.maxTextureDimension1D === 8192, "undefined required limit keeps the core profile default");
+    assert(providerPayload.logicalLimits.minUniformBufferOffsetAlignment === 256, "explicit alignment is normalized to a number");
+    assert(!Object.prototype.hasOwnProperty.call(providerPayload.logicalLimits, "unknownUndefinedLimit"), "unknown undefined limit is absent from provider projection");
+    assert(
+      providerPayload.logicalLimits.maxStorageBuffersPerShaderStage ===
+        Math.max(
+          providerPayload.logicalLimits.maxStorageBuffersPerShaderStage,
+          providerPayload.logicalLimits.maxStorageBuffersInVertexStage,
+          providerPayload.logicalLimits.maxStorageBuffersInFragmentStage,
+        ),
+      "storage-buffer aggregate normalization ran",
+    );
+    assert(
+      providerPayload.logicalLimits.maxStorageTexturesPerShaderStage ===
+        Math.max(
+          providerPayload.logicalLimits.maxStorageTexturesPerShaderStage,
+          providerPayload.logicalLimits.maxStorageTexturesInVertexStage,
+          providerPayload.logicalLimits.maxStorageTexturesInFragmentStage,
+        ),
+      "storage-texture aggregate normalization ran",
+    );
+    same(
+      providerPayload.serviceInternalRequirements,
+      {
+        requiredFeatures: [],
+        requiredLimits: {},
+        schema: "exact/webgpu-service-internal-requirements/1",
+      },
+      "provider internal requirements are separately versioned",
+    );
+    assert(
+      deviceReceipt.untrustedWrapperPayload.argumentBody.label ===
+        "raw-public-device-label",
+      "raw public label remains only in semantic-request observation",
+    );
+    assert(
+      deviceReceipt.untrustedWrapperPayload.argumentBody.defaultQueue.label ===
+        "raw-public-queue-label",
+      "raw nested public descriptor remains observable before provider projection",
+    );
+    assert(
+      Object.prototype.hasOwnProperty.call(
+        deviceReceipt.untrustedWrapperPayload.argumentBody.requiredLimits,
+        "unknownUndefinedLimit",
+      ),
+      "untrusted semantic request preserves the skipped undefined key",
+    );
+    assert(
+      !Object.prototype.hasOwnProperty.call(providerPayload, "label") &&
+        !Object.prototype.hasOwnProperty.call(providerPayload, "defaultQueue") &&
+        !Object.prototype.hasOwnProperty.call(providerPayload, "requiredFeatures") &&
+        !Object.prototype.hasOwnProperty.call(providerPayload, "requiredLimits"),
+      "raw public descriptor fields are unavailable at provider-ready",
+    );
 
     var targetKinds = {
       "GPUDevice.createCommandEncoder": "GPUCommandEncoder",
@@ -789,9 +854,64 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     assert(emptyPop.untrustedWrapperPayload.argumentBody.scopeId === 0, "empty pop carries zero scope");
     assert(firstDeviceDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === false, "first device destroy branch fact");
     assert(repeatedDeviceDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === true, "repeated device destroy branch fact");
+
+    var lostHarness = createHarness();
+    var lostAdapter = await lostHarness.gpu.requestAdapter();
+    var lostDevice = await lostAdapter.requestDevice();
+    lostDevice.pushErrorScope("validation");
+    lostHarness.providerLoss(lostDevice, "conditional provider loss");
+    assert((await lostDevice.popErrorScope()) === null, "lost nonempty popErrorScope resolves null");
+    assert((await lostDevice.popErrorScope()) === null, "lost empty popErrorScope resolves null");
+    lostDevice.destroy();
+    var lostObservation = lostHarness.inspect();
+    var lostPopReceipts = operationReceipts(
+      lostObservation,
+      "GPUDevice.popErrorScope",
+    );
+    assert(lostPopReceipts.length === 2, "lost device has nonempty and empty pop receipts");
+    for (var lostPopIndex = 0; lostPopIndex < lostPopReceipts.length; lostPopIndex += 1) {
+      assert(!lostPopReceipts[lostPopIndex].providerAdmission.admitted, "lost popErrorScope never admits provider work");
+      assert(lostPopReceipts[lostPopIndex].providerAdmission.providerTokenCount === 0, "lost popErrorScope mints no provider token");
+      assert(lostPopReceipts[lostPopIndex].physicalOperationKey.physicalSequence === 0, "lost popErrorScope mints no physical sequence");
+      assert(lostPopReceipts[lostPopIndex].providerPayload === null, "lost popErrorScope exposes no provider payload");
+      assert(lostPopReceipts[lostPopIndex].providerRoutingTerminalId === "lost-device-null", "lost popErrorScope selects authenticated lost terminal");
+      assert(lostPopReceipts[lostPopIndex].untrustedWrapperPayload.argumentBody.scopeId === 0, "lost popErrorScope does not inspect the scope stack");
+      assert(lostPopReceipts[lostPopIndex].sealedLocalTimelinePrefix.length === 0, "lost popErrorScope does not flush or inspect the device timeline");
+    }
+    var lostDestroy = operationReceipt(lostObservation, "GPUDevice.destroy");
+    assert(!lostDestroy.providerAdmission.admitted, "first destroy after provider loss is no-provider");
+    assert(lostDestroy.providerAdmission.providerTokenCount === 0, "destroy after loss mints no provider token");
+    assert(lostDestroy.physicalOperationKey.physicalSequence === 0, "destroy after loss mints no physical sequence");
+    assert(lostDestroy.providerPayload === null, "destroy after loss exposes no provider payload");
+    assert(lostDestroy.providerRoutingTerminalId === "repeat-cleanup-noop", "destroy after loss selects authenticated terminal cleanup no-op");
+    assert(lostDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === false, "destroy after provider loss is the first public destroy");
+    assert(lostDestroy.untrustedWrapperPayload.argumentBody.alreadyLost === true, "destroy after provider loss carries terminal-loss fact");
+
+    var expiredHarness = createHarness();
+    var expiredAdapter = await expiredHarness.gpu.requestAdapter();
+    var expiredDevice = await expiredAdapter.requestDevice();
+    var expiredContext = expiredHarness.createCanvasContext();
+    expiredContext.configure({ device: expiredDevice, format: "bgra8unorm" });
+    var expiredTexture = expiredContext.getCurrentTexture();
+    expiredTexture.createView({});
+    expiredContext.unconfigure();
+    expiredTexture.destroy();
+    var expiredDestroy = operationReceipt(
+      expiredHarness.inspect(),
+      "GPUTexture.destroy",
+    );
+    assert(!expiredDestroy.providerAdmission.admitted, "destroy after unconfigure expiry is no-provider");
+    assert(expiredDestroy.providerAdmission.providerTokenCount === 0, "expired texture destroy mints no provider token");
+    assert(expiredDestroy.physicalOperationKey.physicalSequence === 0, "expired texture destroy mints no physical sequence");
+    assert(expiredDestroy.providerPayload === null, "expired texture destroy exposes no provider payload");
+    assert(expiredDestroy.providerRoutingTerminalId === "repeat-cleanup-noop", "expired texture destroy selects authenticated terminal cleanup no-op");
+    assert(expiredDestroy.untrustedWrapperPayload.argumentBody.alreadyDestroyed === false, "expired texture destroy is the first public destroy");
+    assert(expiredDestroy.untrustedWrapperPayload.argumentBody.expired === true, "expired texture destroy carries expiry fact");
     return {
       providerBranches: 4,
-      noProviderBranches: 4,
+      noProviderBranches: 8,
+      postLossNoProviderBranches: 3,
+      expiredTextureNoProviderBranches: 1,
       firstProviderSequences: [
         configuredUnconfigure.physicalOperationKey.physicalSequence,
         firstTextureDestroy.physicalOperationKey.physicalSequence,
@@ -871,6 +991,48 @@ export async function webGpuTestWrapperCorpus(createHarness) {
   var catalog = createHarness().inspect();
   assert(catalog.fixtureDisposition === "test-only-no-runtime-install-no-support-claim", "fixture remains explicitly test-only with no support claim");
   assert(catalog.requestDeviceTerminals.length === 17, "authenticated terminal catalog has 17 rows");
+  same(
+    Object.keys(catalog.requestDeviceProviderDescriptor).sort(),
+    [
+      "capabilityProjectionPredicate",
+      "policy",
+      "projectionRule",
+      "providerReadyPredicate",
+    ],
+    "requestDevice provider descriptor remains exactly outer-derivable",
+  );
+  assert(
+    catalog.requestDeviceProviderDescriptor.policy ===
+      "generated-logical-limits-plus-versioned-service-internal-requirements-only",
+    "requestDevice provider descriptor excludes raw public fields by policy",
+  );
+  assert(
+    catalog.requestDeviceProviderDescriptor.providerReadyPredicate.relation.indexOf(
+      "raw request descriptor is unavailable at this boundary",
+    ) !== -1,
+    "provider-ready predicate authenticates raw descriptor exclusion",
+  );
+  assert(catalog.providerRoutingPrograms.length === 12, "authenticated conditional provider-routing catalog has 12 rows");
+  same(
+    catalog.providerRoutingPrograms.map(function (program) {
+      return program.operationId;
+    }),
+    [
+      "GPU.requestAdapter",
+      "GPUAdapter.requestDevice",
+      "GPUCanvasContext.configure",
+      "GPUCanvasContext.unconfigure",
+      "GPUDevice.createCommandEncoder",
+      "GPUDevice.createRenderPipeline",
+      "GPUDevice.createShaderModule",
+      "GPUDevice.destroy",
+      "GPUDevice.popErrorScope",
+      "GPUQueue.submit",
+      "GPUTexture.createView",
+      "GPUTexture.destroy",
+    ],
+    "conditional provider-routing catalog preserves outer authority order",
+  );
   var terminalCases = [];
   for (var catalogIndex = 0; catalogIndex < catalog.requestDeviceTerminals.length; catalogIndex += 1) {
     terminalCases.push(
