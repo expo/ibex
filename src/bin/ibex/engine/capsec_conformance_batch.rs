@@ -121,12 +121,13 @@ struct NativePublicInvocation {
     source_descriptor: serde_json::Value,
     source_descriptor_digest: String,
     arguments: Vec<NativeProbeArgument>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     completion: Option<NativeProbeCompletion>,
     #[serde(default)]
     required_floor: Vec<serde_json::Value>,
     setup: Vec<NativeProbeSetup>,
     expected_result: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     expected_cleanup: Option<String>,
     expected_typed_stages: Vec<String>,
     expected_typed_decision_count: usize,
@@ -424,6 +425,46 @@ fn generated_derived_env_write_template_is_accepted_by_rust_registry() {
         .definitions
         .validate_requested_resource(&occurrence.action, &requested)
         .expect("generated occurrence must satisfy Rust action constraints");
+}
+
+#[test]
+fn native_public_probe_serialization_preserves_omitted_optional_fields() {
+    let invocation = NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: "__exactGetCwd".into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        arguments: Vec::new(),
+        completion: None,
+        required_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: "return".into(),
+        expected_cleanup: None,
+        expected_typed_stages: Vec::new(),
+        expected_typed_decision_count: 0,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: Vec::new(),
+    };
+
+    let serialized = serde_json::to_value(invocation).expect("serialize native public probe");
+    assert!(serialized.get("completion").is_none());
+    assert!(serialized.get("expectedCleanup").is_none());
+}
+
+#[test]
+fn native_async_harness_fields_are_not_published_as_runtime_results() {
+    let mut result = serde_json::json!({
+        "kind": "return",
+        "globalName": "__exactFsPathAsync",
+        "valueType": "undefined",
+        "resultString": null,
+        "cleanup": "removed-owned-file",
+    });
+
+    remove_native_async_harness_fields(&mut result);
+
+    assert!(result.get("resultString").is_none());
+    assert_eq!(result["cleanup"], "removed-owned-file");
 }
 
 fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
@@ -1098,6 +1139,15 @@ fn native_async_invocation_script(
     )
 }
 
+fn remove_native_async_harness_fields(invocation_result: &mut serde_json::Value) {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // resultString transports an owned cleanup path inside the harness; it is
+    // not part of the exact public runtime-result evidence schema.
+    if let Some(result) = invocation_result.as_object_mut() {
+        result.remove("resultString");
+    }
+}
+
 struct NativeRuntimeValidation {
     terminal_observed_key: String,
     execution_proof: serde_json::Value,
@@ -1755,6 +1805,7 @@ async fn execute_native_public_recipe(
         }
         std::fs::remove_file(path).expect("remove owned retained-file fixture");
     }
+    remove_native_async_harness_fields(&mut invocation_result);
     let typed_decisions = observed_typed_values(&session_id, typed);
     let validation = validate_native_runtime_observation(
         recipe,

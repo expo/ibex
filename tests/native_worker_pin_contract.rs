@@ -13,7 +13,7 @@ fn native_worker_unpin_publishes_zero_under_the_teardown_mutex() {
         .find("void exactUnpinRuntimeNativeWorker")
         .expect("native worker unpin implementation");
     let end = RUNTIME[start..]
-        .find("\n}\n\nstatic bool beginRuntimeTeardown")
+        .find("\n}\n\nstatic ")
         .map(|offset| start + offset)
         .expect("native worker unpin function boundary");
     let body = &RUNTIME[start..end];

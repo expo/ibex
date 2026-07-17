@@ -291,6 +291,9 @@ export function installPromiseRejectionTracking(): void {
   // Set up event listener forwarding on globalThis
   installGlobalListenerForwarding();
 
+  // Keep the unwrapped constructor closure-local. Publishing it would give
+  // project code a direct route around rejection tracking.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — internal runtime objects are not project globals
   const OriginalPromise = g.Promise;
 
   // If native bridge provides promise rejection hooks, use those
@@ -516,9 +519,6 @@ export function installPromiseRejectionTracking(): void {
 
   // Install as the global Promise
   g.Promise = ExactPromise;
-
-  // Store original for internal use
-  g.__OriginalPromise = OriginalPromise;
 }
 
 /**

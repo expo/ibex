@@ -653,11 +653,26 @@ const nativeSystemInfoTemplate = (name) =>
   Object.freeze({
     actionIds: ["sys:read"],
     arguments: [],
-    expectedDecisionCounts: { allow: 2, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit"],
       deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
     },
     requiredFloor: [
       {
@@ -706,11 +721,26 @@ const nativeEnvironmentReadTemplate = (name) =>
   Object.freeze({
     actionIds: ["env:read"],
     arguments: [literalArgument(name)],
-    expectedDecisionCounts: { allow: 2, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit"],
       deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
     },
     requiredFloor: [
       {
@@ -729,11 +759,26 @@ const nativePrintTemplate = () =>
   Object.freeze({
     actionIds: ["stdio:write"],
     arguments: [literalArgument("ibex-capsec-print")],
-    expectedDecisionCounts: { allow: 3, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit", "repeat"],
       deny: ["requested"],
+      malformed: ["requested", "commit", "repeat"],
+      "missing-attribution": ["requested", "commit", "repeat"],
+      "wrong-principal": ["requested", "commit", "repeat"],
     },
     requiredFloor: [
       {
@@ -766,11 +811,26 @@ const nativeProjectMetadataTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: 3, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "discovery", "repeat"],
       deny: ["requested"],
+      malformed: ["requested", "discovery", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat"],
     },
     requiredFloor: [
       {
@@ -781,15 +841,67 @@ const nativeProjectMetadataTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectStatfsTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [literalArgument("Cargo.toml")],
+    expectedDecisionCounts: {
+      allow: 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [],
+  });
 const nativeProjectReadFileTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:read"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: 4, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 4,
+      deny: 1,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:read"],
+    },
     expectedStages: {
       allow: ["requested", "discovery", "commit", "repeat"],
       deny: ["requested"],
+      malformed: ["requested", "discovery", "commit", "repeat"],
+      "missing-attribution": ["requested", "discovery", "commit", "repeat"],
+      "wrong-principal": ["requested", "discovery", "commit", "repeat"],
     },
     requiredFloor: [
       {
@@ -831,6 +943,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  ["__exactStatfs", nativeProjectStatfsTemplate()],
   [
     "__exactAuthorizeSystemInfo",
     nativeCachedSystemInfoTemplate("platform", 11),
@@ -864,9 +977,24 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       expectedStages: {
         allow: ["requested", "candidate", "commit"],
         deny: ["requested"],
+        malformed: ["requested", "candidate", "commit"],
+        "missing-attribution": ["requested", "candidate", "commit"],
+        "wrong-principal": ["requested", "candidate", "commit"],
       },
-      expectedDecisionCounts: { allow: 3, deny: 1 },
-      expectedResults: { allow: "return", deny: "permission-denied" },
+      expectedDecisionCounts: {
+        allow: 3,
+        deny: 1,
+        malformed: 3,
+        "missing-attribution": 3,
+        "wrong-principal": 3,
+      },
+      expectedResults: {
+        allow: "return",
+        deny: "permission-denied",
+        malformed: "return",
+        "missing-attribution": "return",
+        "wrong-principal": "return",
+      },
       requiredSourceArity: 4,
       setup: [{ kind: "tcp-loopback-listener" }],
     }),
