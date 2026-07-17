@@ -517,6 +517,32 @@ describe('production-private WebGPU wrapper factory', () => {
       (encoding) => encoding.operationId === 'GPUQueue.submit',
     )!;
     expect(submitEncoding.sealedLocalTimeline.length).toBeGreaterThanOrEqual(5);
+    const drawRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPURenderPassEncoder.draw',
+    )!;
+    const drawRecord = (submitEncoding.sealedLocalTimeline as ReadonlyArray<
+      Readonly<Record<string, unknown>>
+    >).find((record) => record.operationId === drawRoute.wireId)!;
+    expect(drawRecord).toMatchObject({
+      operationId: drawRoute.wireId,
+      operationName: 'GPURenderPassEncoder.draw',
+      deviceIngressOrdinal: expect.any(String),
+      capturedScopeId: '0',
+      receiverRef: { kind: 'GPURenderPassEncoder' },
+      wrapperAllocatedTargetRef: null,
+      argumentBody: {
+        vertexCount: 3,
+        instanceCount: 1,
+        firstVertex: 0,
+        firstInstance: 0,
+      },
+      logicalError: null,
+    });
+    expect(typeof drawRecord.operationInstanceId).toBe('string');
+    expect(BigInt(drawRecord.operationInstanceId as string) >= (1n << 63n)).toBe(true);
+    expect(drawRecord).not.toHaveProperty('wireId');
+    expect(drawRecord).not.toHaveProperty('receiver');
+    expect(drawRecord).not.toHaveProperty('convertedArguments');
     expect(submitEncoding.receiver).toMatchObject({
       kind: 'GPUQueue',
       objectId: '202',

@@ -97,6 +97,7 @@ interface RealmState {
     Extract<NativeGpuEventV2, { kind: 1 }>
   >;
   nextLocalObjectId: string;
+  nextLocalOperationInstanceId: string;
   active: boolean;
 }
 
@@ -395,6 +396,10 @@ export function createProductionWebGpuPrivateBinding(
     // Client-allocated targets occupy the high unsigned half of the service
     // namespace, independently of provider-assigned result identities.
     nextLocalObjectId: '9223372036854775808',
+    // Wrapper-recording operations never enter the service individually, but
+    // their sealed records still require nonzero per-realm identities. Keep
+    // that wrapper-owned namespace in the high unsigned half as well.
+    nextLocalOperationInstanceId: '9223372036854775808',
     active: true,
   };
 
@@ -522,20 +527,31 @@ export function createProductionWebGpuPrivateBinding(
     if (selected.providerSubmission !== 'none') {
       throw new Error(`${operationId} is not wrapper-local`);
     }
+    if (
+      selected.operationInstanceIdentity !==
+        'wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record'
+    ) {
+      throw new Error(`${operationId} has no sealed local operation identity`);
+    }
     const device = receiver.device ?? target?.device;
     if (!device) throw new Error(`${operationId} lacks a logical device`);
+    const operationInstanceId = realm.nextLocalOperationInstanceId;
+    realm.nextLocalOperationInstanceId = incrementDecimal(operationInstanceId);
     device.pendingLocalTimeline.push(
       Object.freeze({
-        operationId,
-        wireId: selected.wireId,
-        receiver: reference(receiver.wrapper, receiver.kind),
-        target: target ? reference(target.wrapper, target.kind) : undefined,
+        operationId: selected.wireId,
+        operationName: selected.operationId,
+        operationInstanceId,
         deviceIngressOrdinal: assignDeviceIngress(device),
         capturedScopeId: currentScopeId(device),
-        convertedArguments,
-        error: error
+        receiverRef: reference(receiver.wrapper, receiver.kind),
+        wrapperAllocatedTargetRef: target
+          ? reference(target.wrapper, target.kind)
+          : null,
+        argumentBody: convertedArguments,
+        logicalError: error
           ? Object.freeze({ name: error.name, message: error.message })
-          : undefined,
+          : null,
       }),
     );
   };

@@ -79,8 +79,8 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "operationSet": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
     "semanticProgramSet": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
     "runtimeRouting": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-    "webgpuCVocabulary": "20d2b55496eaf46647efcf758430590ef57f4007ef178a9f5f8211d9ef1d1ff3",
-    "projection": "07e4d1f245c0c1023f1d259f0e36dd14d7dbb950fa202f163d67871dea468fc1"
+    "webgpuCVocabulary": "538132c7d41b91ac25fe2c70c529d39dfdded14cfd9ca21c1585563b0af288c9",
+    "projection": "d66916233affe96a17bce13394ea91841333ef06807b989f856f424b84c0f26e"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -1685,6 +1685,56 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             "kind": "empty",
             "exactLengthBytes": 0
           },
+          "semanticTerminalMapping": {
+            "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.destroy]",
+            "terminals": [
+              {
+                "terminalId": "repeat-cleanup-noop",
+                "errorTiming": "none",
+                "resultDisposition": "return-undefined",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "operation-result",
+                  "kindValue": 1,
+                  "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+                  "resultKind": 0,
+                  "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+                  "status": 0,
+                  "completionVariant": "repeat-cleanup-noop"
+                }
+              },
+              {
+                "terminalId": "first-cleanup-rejection",
+                "errorTiming": "device-timeline",
+                "resultDisposition": "return-undefined-and-report-error",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "device-error",
+                  "kindValue": 2,
+                  "kindSymbol": "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+                  "completionPayloadEncoderEligibility": "excluded-not-an-operation-result"
+                }
+              },
+              {
+                "terminalId": "first-cleanup-provider",
+                "errorTiming": "none",
+                "resultDisposition": "return-undefined",
+                "providerTokenCount": 1,
+                "physicalSequenceCount": 1,
+                "event": {
+                  "kind": "operation-result",
+                  "kindValue": 1,
+                  "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+                  "resultKind": 0,
+                  "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+                  "status": 0,
+                  "completionVariant": "first-cleanup-provider"
+                }
+              }
+            ]
+          },
           "variants": [
             {
               "name": "repeat-cleanup-noop",
@@ -1703,7 +1753,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
               ]
             },
             {
-              "name": "admitted-cleanup",
+              "name": "first-cleanup-provider",
               "carrierConstraints": [
                 {
                   "carrierPath": "record.operation_result.operation.provider_admission",
@@ -1754,6 +1804,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
   },
   "carrierConstants": {
     "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2": 1,
+    "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2": 2,
     "EXACT_GPU_DEVICE_UNCHANGED_V2": 0,
     "EXACT_GPU_DEVICE_ASSIGNED_V2": 1,
     "EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2": 2,

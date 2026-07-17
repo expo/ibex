@@ -211,6 +211,7 @@ function renderPlan(authority, workloadStaging) {
     serviceArgumentCodec: operation.serviceArgumentCodec,
     serviceCompletionCodec: operation.serviceCompletionCodec,
     publicResultCodec: operation.publicResultCodec,
+    operationInstanceIdentity: operation.operationInstanceIdentity,
     promiseIdentity: operation.promiseIdentity,
   }));
   if (routes.length === 0 || new Set(routes.map((route) => route.operationId)).size !== routes.length) {
@@ -302,6 +303,7 @@ function exactGpuHeaderVocabulary() {
   }
   const requiredCarrierConstantNames = [
     "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+    "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
     "EXACT_GPU_DEVICE_UNCHANGED_V2",
     "EXACT_GPU_DEVICE_ASSIGNED_V2",
     "EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2",
@@ -347,6 +349,10 @@ function buildCodecManifest(authority, semantics) {
   const deviceDestroyProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.destroy",
   );
+  const deviceDestroySemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUDevice.destroy",
+    );
   const objectCompletion = requestAdapterProgram?.completion.variants.find(
     (variant) => variant.name === "object",
   );
@@ -357,11 +363,13 @@ function buildCodecManifest(authority, semantics) {
     !requestAdapterProgram ||
     !requestDeviceProgram ||
     !deviceDestroyProgram ||
+    !deviceDestroySemanticProgram ||
     headerVocabulary.tags.GPU !== 1 ||
     headerVocabulary.tags.GPUAdapter !== 2 ||
     headerVocabulary.tags.GPUDevice !== 3 ||
     headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 !==
       requestAdapterProgram.completion.commonCarrierConstraints[0].value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2 !== 2 ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_UNCHANGED_V2 !==
       requestAdapterProgram.completion.commonCarrierConstraints[3].value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NULL_V2 !==
@@ -381,6 +389,57 @@ function buildCodecManifest(authority, semantics) {
     deviceDestroyProgram.request.executablePrerequisites.length !== 0
   ) {
     throw new Error("native WebGPU codec program C vocabulary drifted");
+  }
+  const destroyCompletionEvents = {
+    "repeat-cleanup-noop": {
+      kind: "operation-result",
+      kindValue:
+        headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2,
+      kindSymbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+      resultKind: headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
+      resultKindSymbol: "EXACT_GPU_RESULT_NONE_V2",
+      status: 0,
+      completionVariant: "repeat-cleanup-noop",
+    },
+    "first-cleanup-rejection": {
+      kind: "device-error",
+      kindValue:
+        headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2,
+      kindSymbol: "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+      completionPayloadEncoderEligibility:
+        "excluded-not-an-operation-result",
+    },
+    "first-cleanup-provider": {
+      kind: "operation-result",
+      kindValue:
+        headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2,
+      kindSymbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+      resultKind: headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
+      resultKindSymbol: "EXACT_GPU_RESULT_NONE_V2",
+      status: 0,
+      completionVariant: "first-cleanup-provider",
+    },
+  };
+  const expectedDestroyTerminalMapping = {
+    authorityPath:
+      "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.destroy]",
+    terminals: deviceDestroySemanticProgram.terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      errorTiming: terminal.errorTiming,
+      resultDisposition: terminal.resultDisposition,
+      providerTokenCount: terminal.providerTokenCount,
+      physicalSequenceCount: terminal.physicalSequenceCount,
+      event: destroyCompletionEvents[terminal.terminalId],
+    })),
+  };
+  if (
+    canonicalJson(deviceDestroyProgram.completion.semanticTerminalMapping) !==
+      canonicalJson(expectedDestroyTerminalMapping) ||
+    expectedDestroyTerminalMapping.terminals.some((terminal) => !terminal.event)
+  ) {
+    throw new Error(
+      "GPUDevice.destroy native completion mapping differs from semantic terminals",
+    );
   }
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",

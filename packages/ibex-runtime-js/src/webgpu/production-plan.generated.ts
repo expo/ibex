@@ -11,8 +11,8 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "operationSet": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
     "semanticProgramSet": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
     "runtimeRouting": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-    "webgpuCVocabulary": "20d2b55496eaf46647efcf758430590ef57f4007ef178a9f5f8211d9ef1d1ff3",
-    "projection": "07e4d1f245c0c1023f1d259f0e36dd14d7dbb950fa202f163d67871dea468fc1"
+    "webgpuCVocabulary": "538132c7d41b91ac25fe2c70c529d39dfdded14cfd9ca21c1585563b0af288c9",
+    "projection": "d66916233affe96a17bce13394ea91841333ef06807b989f856f424b84c0f26e"
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-phase-1a-v1",
@@ -285,6 +285,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-texture-format-v1",
+      "operationInstanceIdentity": "not-carried-wrapper-only",
       "promiseIdentity": "not-carried-wrapper-only"
     },
     {
@@ -311,6 +312,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-request-adapter-service-request-v1",
       "serviceCompletionCodec": "nullable-gpu-adapter-service-completion-v2",
       "publicResultCodec": "nullable-gpu-adapter-handle-promise-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "required-nonzero-distinct-from-operation-instance"
     },
     {
@@ -337,6 +339,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-request-device-service-request-v1",
       "serviceCompletionCodec": "gpu-device-service-completion-v1",
       "publicResultCodec": "gpu-device-handle-promise-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "required-nonzero-distinct-from-operation-instance"
     },
     {
@@ -363,6 +366,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-canvas-configure-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },
     {
@@ -389,6 +393,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "nullable-gpu-canvas-configuration-snapshot-v1",
+      "operationInstanceIdentity": "not-carried-wrapper-only",
       "promiseIdentity": "not-carried-wrapper-only"
     },
     {
@@ -415,6 +420,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-texture-handle-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
     },
     {
@@ -441,6 +447,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-canvas-unconfigure-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },
     {
@@ -467,6 +474,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-render-pass-encoder-handle-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
     },
     {
@@ -493,6 +501,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-command-buffer-handle-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
     },
     {
@@ -519,6 +528,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-create-command-encoder-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "gpu-command-encoder-handle-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },
     {
@@ -545,6 +555,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-create-render-pipeline-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "gpu-render-pipeline-handle-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },
     {
@@ -571,6 +582,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-create-shader-module-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "gpu-shader-module-handle-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },
     {
@@ -597,6 +609,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-device-cleanup-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },
     {
@@ -623,6 +636,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-supported-features-snapshot-v1",
+      "operationInstanceIdentity": "not-carried-wrapper-only",
       "promiseIdentity": "not-carried-wrapper-only"
     },
     {
@@ -649,6 +663,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-supported-limits-snapshot-v1",
+      "operationInstanceIdentity": "not-carried-wrapper-only",
       "promiseIdentity": "not-carried-wrapper-only"
     },
     {
@@ -675,6 +690,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-device-lost-stable-promise-v1",
+      "operationInstanceIdentity": "not-carried-wrapper-only",
       "promiseIdentity": "not-carried-wrapper-only"
     },
     {
@@ -701,6 +717,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-pop-error-scope-service-request-v1",
       "serviceCompletionCodec": "nullable-gpu-error-service-completion-v1",
       "publicResultCodec": "nullable-gpu-error-promise-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "required-nonzero-distinct-from-operation-instance"
     },
     {
@@ -727,6 +744,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-push-error-scope-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },
     {
@@ -753,6 +771,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-queue-handle-v1",
+      "operationInstanceIdentity": "not-carried-wrapper-only",
       "promiseIdentity": "not-carried-wrapper-only"
     },
     {
@@ -779,6 +798,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-sealed-command-program-sequence-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },
     {
@@ -805,6 +825,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
     },
     {
@@ -831,6 +852,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
     },
     {
@@ -857,6 +879,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
     },
     {
@@ -883,6 +906,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-create-texture-view-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "gpu-texture-view-handle-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },
     {
@@ -909,6 +933,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-texture-cleanup-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     }
   ]

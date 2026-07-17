@@ -746,7 +746,15 @@ function buildCorpus() {
   const deviceDestroyRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === deviceDestroyOperationId,
   );
-  if (!deviceDestroyRoute) {
+  const deviceDestroyLocalRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === "GPURenderPassEncoder.draw",
+  );
+  if (
+    !deviceDestroyRoute ||
+    !deviceDestroyLocalRoute ||
+    deviceDestroyLocalRoute.operationInstanceIdentity !==
+      "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record"
+  ) {
     fail(`${deviceDestroyOperationId} is absent from the generated production plan`);
   }
   const deviceDestroyRequestCodec =
@@ -776,20 +784,36 @@ function buildCorpus() {
   }
   const deviceDestroyReceiver = Object.freeze({
     kind: "GPUDevice",
-    objectId: "55",
-    objectGeneration: "1",
+    objectId: "81",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const deviceDestroyLocalReceiver = Object.freeze({
+    kind: "GPURenderPassEncoder",
+    objectId: "91",
+    objectGeneration: "4",
     logicalDeviceId: "55",
     logicalDeviceGeneration: "1",
     providerGeneration: "9",
   });
   const deviceDestroyTimeline = Object.freeze([
     Object.freeze({
-      operationId: "GPUDevice.features",
-      wireId: 3810427763,
-      receiver: deviceDestroyReceiver,
+      operationId: deviceDestroyLocalRoute.wireId,
+      operationName: deviceDestroyLocalRoute.operationId,
+      operationInstanceId: "12",
       deviceIngressOrdinal: "2",
       capturedScopeId: "2",
-      convertedArguments: null,
+      receiverRef: deviceDestroyLocalReceiver,
+      wrapperAllocatedTargetRef: null,
+      argumentBody: Object.freeze({
+        vertexCount: 3,
+        instanceCount: 1,
+        firstVertex: 0,
+        firstInstance: 0,
+      }),
+      logicalError: null,
     }),
   ]);
   const convertedDeviceDestroyArguments =
@@ -867,10 +891,15 @@ function buildCorpus() {
     receiver: Object.freeze({
       kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
       flags: 0,
-      object_id: "55",
-      object_generation: "1",
+      object_id: "81",
+      object_generation: "2",
     }),
-    target: requestCarrier.target,
+    target: Object.freeze({
+      kind: 0,
+      flags: 0,
+      object_id: "0",
+      object_generation: "0",
+    }),
   });
   const deviceDestroyCompletionCarrier = (
     providerAdmission,
@@ -896,7 +925,7 @@ function buildCorpus() {
           result_device: deviceDestroyRequestCarrier.ingress_device,
           provider_generation: "9",
           receiver: deviceDestroyRequestCarrier.receiver,
-          target: requestCarrier.target,
+          target: deviceDestroyRequestCarrier.target,
         },
       },
     },
@@ -976,6 +1005,8 @@ function buildCorpus() {
         completionCodec: deviceDestroyCompletionCodec.tag,
         completionCodecTag: deviceDestroyCompletionCodec.wireTag,
         productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          deviceDestroyNativeRoute.completion.semanticTerminalMapping,
       },
     ],
     vectors: [
@@ -1191,13 +1222,15 @@ function buildCorpus() {
       {
         id: "device-destroy-repeat-cleanup-noop-result",
         kind: "result",
+        semanticTerminalId: "repeat-cleanup-noop",
         carrierProjection: deviceDestroyCompletionCarrier(0, "0"),
         bytesHex: toHex(deviceDestroyCompletion),
         expected: { kind: "terminal-receipt", value: "undefined" },
       },
       {
-        id: "device-destroy-admitted-cleanup-result",
+        id: "device-destroy-first-cleanup-provider-result",
         kind: "result",
+        semanticTerminalId: "first-cleanup-provider",
         carrierProjection: deviceDestroyCompletionCarrier(1, "8"),
         bytesHex: toHex(deviceDestroyCompletion),
         expected: { kind: "terminal-receipt", value: "undefined" },

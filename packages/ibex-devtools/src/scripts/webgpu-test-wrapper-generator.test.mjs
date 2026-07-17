@@ -115,8 +115,47 @@ describe("test-only WebGPU wrapper generator", () => {
     });
     expect(deviceDestroy.completion.variants.map((variant) => variant.name)).toEqual([
       "repeat-cleanup-noop",
-      "admitted-cleanup",
+      "first-cleanup-provider",
     ]);
+    expect(
+      deviceDestroy.completion.semanticTerminalMapping.terminals.map((terminal) => ({
+        terminalId: terminal.terminalId,
+        providerTokenCount: terminal.providerTokenCount,
+        physicalSequenceCount: terminal.physicalSequenceCount,
+        eventKind: terminal.event.kind,
+        completionVariant: terminal.event.completionVariant ?? null,
+      })),
+    ).toEqual([
+      {
+        terminalId: "repeat-cleanup-noop",
+        providerTokenCount: 0,
+        physicalSequenceCount: 0,
+        eventKind: "operation-result",
+        completionVariant: "repeat-cleanup-noop",
+      },
+      {
+        terminalId: "first-cleanup-rejection",
+        providerTokenCount: 0,
+        physicalSequenceCount: 0,
+        eventKind: "device-error",
+        completionVariant: null,
+      },
+      {
+        terminalId: "first-cleanup-provider",
+        providerTokenCount: 1,
+        physicalSequenceCount: 1,
+        eventKind: "operation-result",
+        completionVariant: "first-cleanup-provider",
+      },
+    ]);
+    expect(
+      deviceDestroy.completion.semanticTerminalMapping.terminals[1].event,
+    ).toEqual({
+      kind: "device-error",
+      kindValue: 2,
+      kindSymbol: "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+      completionPayloadEncoderEligibility: "excluded-not-an-operation-result",
+    });
   });
 
   test("carries every authenticated operation field into one bijective wrapper route", () => {
@@ -387,6 +426,23 @@ describe("test-only WebGPU wrapper generator", () => {
     nativeDeviceDestroyAdmission.payload.wireEnvelope.nativeCodecPrograms.routes[2]
       .completion.variants[1].carrierConstraints[1].operator = "equal";
     mutations.push(nativeDeviceDestroyAdmission);
+
+    const nativeDeviceDestroyTerminal = clone(authority);
+    nativeDeviceDestroyTerminal.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+      .completion.semanticTerminalMapping.terminals[2].terminalId =
+        "generic-admitted-cleanup";
+    mutations.push(nativeDeviceDestroyTerminal);
+
+    const nativeDeviceDestroyTerminalCount = clone(authority);
+    nativeDeviceDestroyTerminalCount.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+      .completion.semanticTerminalMapping.terminals[2].providerTokenCount = 0;
+    mutations.push(nativeDeviceDestroyTerminalCount);
+
+    const nativeDeviceDestroyErrorMapping = clone(authority);
+    nativeDeviceDestroyErrorMapping.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+      .completion.semanticTerminalMapping.terminals[1].event.kind =
+        "operation-result";
+    mutations.push(nativeDeviceDestroyErrorMapping);
 
     for (const mutation of mutations) {
       expect(() => validateWebGpuWrapperAuthority(mutation)).toThrow();
