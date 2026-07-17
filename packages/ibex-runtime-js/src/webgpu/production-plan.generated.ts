@@ -6,13 +6,13 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-phase-1a-v1",
   "maxPayloadBytes": 16777216,
-  "codecReadiness": "unavailable-descriptive-tags-only",
+  "codecReadiness": "generated-injection-only-native-decoder-absent",
   "digests": {
     "operationSet": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
     "semanticProgramSet": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
     "runtimeRouting": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
-    "webgpuCVocabulary": "1cb8a921904c7d67c25b6dad49327d9a21149147a78d76aff13d6ef3a404fcd5",
-    "projection": "81e7bad3954d2c55e53dec1a080eac2915bebdf841b26930cc72b42429e3d62b"
+    "webgpuCVocabulary": "9e4905a3ea6f48bb3921e17567863c68823d604033a3d56ae31269255f445079",
+    "projection": "504727fb1b490ef876bea3676066097cb0b3a4601fa8ed7b2bbd9caf55732a82"
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-phase-1a-v1",
@@ -52,7 +52,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
     "source": {
       "path": "tests/gpu/typegpu-workload-closure-v1.json",
-      "sha256": "f7a8c4e5c2b88753c54ec5f3ec02b11e08778dff80d813fe39542f25d7c21350"
+      "sha256": "3ae28e76c09783fd1dc4b28670661c9a97a158888c272f943a9dcb46b16dbdb0"
     },
     "typegpuVersion": "0.11.9",
     "operationCount": 51,

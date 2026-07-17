@@ -17,11 +17,11 @@ import crypto from "node:crypto";
 import { portableWebGpuTestWrapperFactory } from "./webgpu-test-wrapper-portable.mjs";
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  projection: "81e7bad3954d2c55e53dec1a080eac2915bebdf841b26930cc72b42429e3d62b",
+  projection: "504727fb1b490ef876bea3676066097cb0b3a4601fa8ed7b2bbd9caf55732a82",
   operationSet: "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
   semanticProgramSet: "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
   runtimeRouting: "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
-  webgpuCVocabulary: "1cb8a921904c7d67c25b6dad49327d9a21149147a78d76aff13d6ef3a404fcd5",
+  webgpuCVocabulary: "9e4905a3ea6f48bb3921e17567863c68823d604033a3d56ae31269255f445079",
 });
 
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({

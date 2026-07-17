@@ -18,8 +18,8 @@
     "operationSetSha256": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
     "semanticProgramSetSha256": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
     "runtimeRoutingSha256": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
-    "webgpuCVocabularySha256": "1cb8a921904c7d67c25b6dad49327d9a21149147a78d76aff13d6ef3a404fcd5",
-    "projectionPayloadSha256": "81e7bad3954d2c55e53dec1a080eac2915bebdf841b26930cc72b42429e3d62b"
+    "webgpuCVocabularySha256": "9e4905a3ea6f48bb3921e17567863c68823d604033a3d56ae31269255f445079",
+    "projectionPayloadSha256": "504727fb1b490ef876bea3676066097cb0b3a4601fa8ed7b2bbd9caf55732a82"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -30,9 +30,12 @@
       "actualRuntimeInstall": "not-installed",
       "publicGlobalStatus": "not-installed",
       "nativeBindingStatus": "not-installed",
-      "wrapperCodeStatus": "not-generated",
-      "wireCodecStatus": "descriptive-tags-not-executable",
-      "webIdlConversionStatus": "not-implemented"
+      "wrapperCodeStatus": "private-generated-not-publicly-installed",
+      "wireCodecStatus": "generated-injection-only-native-decoder-absent",
+      "webIdlConversionStatus": "generated-injection-only-not-installed",
+      "nativeServiceDecoderStatus": "not-installed",
+      "semanticServiceStatus": "not-installed",
+      "embeddedCodecStatus": "undefined"
     },
     "installInventory": {
       "actualInstalledOperationCount": 0,
@@ -185,13 +188,13 @@
     "wireEnvelope": {
       "serviceCall": "ExactGpuSemanticCallV2",
       "serviceEvent": "ExactGpuServiceEventV2",
-      "payloadEncoding": "planned-operation-selected-tagged-binary-v1",
-      "layoutStatus": "authenticated-abi-v2-carrier-installed-semantic-payload-codecs-still-descriptive",
+      "payloadEncoding": "generated-injection-only-operation-selected-tagged-binary-v1",
+      "layoutStatus": "authenticated-abi-v2-carrier-with-injection-only-codecs-native-decoder-absent",
       "currentAbiReadiness": "abi-v2-carrier-installed-runtime-install-still-blocked",
-      "graduationTarget": "semantic-service-executable-codecs-production-wrapper-and-capsec-required-before-global-install",
+      "graduationTarget": "native-decoder-semantic-service-embedded-codec-arming-capsec-and-global-install-required",
       "carrierStatus": {
         "currentFoundation": "ExactGpuSemanticCallV2-and-ExactGpuServiceEventV2-installed-as-authenticated-private-carrier",
-        "requiredGraduation": "semantic-service-executable-codecs-production-wrapper-and-capsec-not-installed",
+        "requiredGraduation": "native-decoder-semantic-service-embedded-codec-arming-capsec-and-global-install-not-installed",
         "semanticFieldModel": "all-request-ingress-operation-key-completion-event-and-lifecycle-fields-below-have-an-authenticated-ABI-v2-carrier-without-a-semantic-execution-or-support-claim",
         "vocabularyVersion": "artifact-v1-tags-independent-of-carrier-abi-version"
       },
@@ -1819,8 +1822,8 @@
       "requiredGraduationServiceAbiVersion": 131072,
       "topologyId": 1,
       "profileId": "exact-webgpu-v1-draft",
-      "profileDigest": "2882b29f8fdec892b6f3db5cdfaeb87b128c9ba994c567b249743ff8851d54e5",
-      "webgpuCVocabularyDigest": "1cb8a921904c7d67c25b6dad49327d9a21149147a78d76aff13d6ef3a404fcd5",
+      "profileDigest": "286e4f80638b8a3a997f2cecb2c50bfaa4e21813738bfdfc7563f30557e76125",
+      "webgpuCVocabularyDigest": "9e4905a3ea6f48bb3921e17567863c68823d604033a3d56ae31269255f445079",
       "operationSetDigest": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
       "semanticProgramDigest": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
       "runtimeRoutingDigest": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",

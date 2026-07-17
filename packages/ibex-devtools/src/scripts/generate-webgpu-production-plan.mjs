@@ -187,7 +187,7 @@ function renderPlan(authority, workloadStaging) {
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
-    codecReadiness: "unavailable-descriptive-tags-only",
+    codecReadiness: "generated-injection-only-native-decoder-absent",
     digests: computed,
     activeRouteSubset: {
       scopeId: payload.scopeId,

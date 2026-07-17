@@ -8,7 +8,7 @@
   "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
   "source": {
     "path": "tests/gpu/typegpu-workload-closure-v1.json",
-    "sha256": "f7a8c4e5c2b88753c54ec5f3ec02b11e08778dff80d813fe39542f25d7c21350"
+    "sha256": "3ae28e76c09783fd1dc4b28670661c9a97a158888c272f943a9dcb46b16dbdb0"
   },
   "typegpuVersion": "0.11.9",
   "activeRouteSubset": {
